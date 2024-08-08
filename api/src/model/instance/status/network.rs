@@ -14,6 +14,8 @@ use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -119,6 +121,7 @@ impl InstanceNetworkStatus {
                         function_id: config.function_id.clone(),
                         mac_address: observation.mac_address.map(Into::into),
                         addresses: observation.addresses.clone(),
+                        gateways: observation.gateways.clone(),
                     },
                     None => {
                         tracing::error!(
@@ -133,6 +136,7 @@ impl InstanceNetworkStatus {
                             function_id: config.function_id.clone(),
                             mac_address: None,
                             addresses: Vec::new(),
+                            gateways: Vec::new(),
                         }
                     }
                 }
@@ -159,6 +163,7 @@ impl InstanceNetworkStatus {
                     function_id: iface.function_id.clone(),
                     mac_address: None,
                     addresses: Vec::new(),
+                    gateways: Vec::new(),
                 })
                 .collect(),
             configs_synced: SyncState::Pending,
@@ -181,6 +186,9 @@ pub struct InstanceInterfaceStatus {
     /// based on the requested subnet.
     /// The list will be empty if interface configuration hasn't been completed
     pub addresses: Vec<IpAddr>,
+
+    /// The list of gateways, in CIDR notation, one for each address in `addresses`.
+    pub gateways: Vec<IpNetwork>,
 }
 
 impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
@@ -195,6 +203,11 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
             mac_address: status.mac_address.map(|mac| mac.to_string()),
             addresses: status
                 .addresses
+                .into_iter()
+                .map(|ip| ip.to_string())
+                .collect(),
+            gateways: status
+                .gateways
                 .into_iter()
                 .map(|ip| ip.to_string())
                 .collect(),
@@ -281,6 +294,10 @@ pub struct InstanceInterfaceStatusObservation {
     /// The list will be empty if interface configuration hasn't been completed
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
+
+    /// The list of gateways, in CIDR notation, one for each address in `addresses`.
+    #[serde(default)]
+    pub gateways: Vec<IpNetwork>,
 }
 
 impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
@@ -299,18 +316,26 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
             }
         };
 
-        let mut addresses = Vec::with_capacity(observation.addresses.len());
-        for address in observation.addresses {
-            addresses.push(
-                address
-                    .parse::<IpAddr>()
-                    .map_err(|_| RpcDataConversionError::InvalidIpAddress(address))?,
-            );
-        }
+        let addresses = observation
+            .addresses
+            .iter()
+            .map(|addr| {
+                addr.parse::<IpAddr>()
+                    .map_err(|_| RpcDataConversionError::InvalidIpAddress(addr.clone()))
+            })
+            .try_collect()?;
 
         Ok(Self {
             function_id,
             addresses,
+            gateways: observation
+                .gateways
+                .iter()
+                .map(|gw| {
+                    IpNetwork::try_from(gw.as_str())
+                        .map_err(|_| Self::Error::InvalidCidr(gw.to_string()))
+                })
+                .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
             mac_address: observation
                 .mac_address
                 .map(|addr| {
@@ -391,6 +416,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Physical {},
                 mac_address: None,
                 addresses: Vec::new(),
+                gateways: Vec::new(),
             });
         observation
             .interfaces
@@ -398,6 +424,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Virtual { id: 1 },
                 mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                 addresses: vec!["127.1.2.3".parse().unwrap()],
+                gateways: vec!["127.1.2.1".parse().unwrap()],
             });
         let serialized = serde_json::to_string(&observation).unwrap();
         let mut expected = format!(
@@ -407,10 +434,10 @@ mod tests {
         );
         write!(
             &mut expected,
-            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[]}},"
+            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"gateways\":[]}},"
         )
         .unwrap();
-        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"]}}").unwrap();
+        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"gateways\":[\"127.1.2.1/32\"]}}").unwrap();
         write!(
             &mut expected,
             "],\"observed_at\":\"{}\"}}",
@@ -468,16 +495,19 @@ mod tests {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26]).into()),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16]).into()),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
             ],
         }
@@ -490,16 +520,19 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: None,
                     addresses: Vec::new(),
+                    gateways: Vec::new(),
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: None,
                     addresses: Vec::new(),
+                    gateways: Vec::new(),
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: None,
                     addresses: Vec::new(),
+                    gateways: Vec::new(),
                 },
             ],
             configs_synced: SyncState::Pending,
@@ -513,16 +546,19 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
+                    gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
             ],
             configs_synced: SyncState::Synced,

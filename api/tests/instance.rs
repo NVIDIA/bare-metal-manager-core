@@ -18,6 +18,7 @@ use carbide::{
         instance::{Instance, InstanceId},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
+        network_prefix::NetworkPrefix,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
@@ -47,9 +48,11 @@ use common::api_fixtures::{
     network_configured_with_health,
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
+use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use rpc::InstanceReleaseRequest;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::ops::DerefMut;
 
 use crate::common::api_fixtures::instance::create_instance_with_config;
 use crate::common::api_fixtures::update_time_params;
@@ -1015,12 +1018,17 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
 
-    let pf_addr = *snapshot.config.network.interfaces[0]
+    let (pf_segment, pf_addr) = snapshot.config.network.interfaces[0]
         .ip_addrs
         .iter()
         .next()
-        .unwrap()
-        .1;
+        .unwrap();
+
+    let pf_gw = NetworkPrefix::find(&mut txn, *pf_segment)
+        .await
+        .ok()
+        .and_then(|pfx| pfx.gateway_cidr())
+        .expect("Could not find gateway in network segment");
 
     let mut updated_network_status = InstanceNetworkStatusObservation {
         instance_config_version: Some(snapshot.config_version),
@@ -1028,7 +1036,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         interfaces: vec![InstanceInterfaceStatusObservation {
             function_id: InterfaceFunctionId::Physical {},
             mac_address: None,
-            addresses: vec![pf_addr],
+            addresses: vec![*pf_addr],
+            gateways: vec![IpNetwork::try_from(pf_gw.as_str()).expect("Invalid gateway")],
         }],
         observed_at: Utc::now(),
     };
@@ -1073,6 +1082,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![pf_addr.to_string()],
+            gateways: vec![pf_gw.clone()],
         }]
     );
 
@@ -1118,6 +1128,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
+            gateways: vec![pf_gw.clone()],
         }]
     );
 
@@ -1169,6 +1180,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![],
+            gateways: vec![],
         }]
     );
 
@@ -1182,6 +1194,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             function_id: InterfaceFunctionId::Virtual { id: 0 },
             mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
             addresses: vec!["127.1.2.3".parse().unwrap()],
+            gateways: vec!["127.1.2.1".parse().unwrap()],
         });
 
     Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
@@ -1222,6 +1235,37 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
+            gateways: vec![pf_gw.clone()],
+        }]
+    );
+
+    // Drop the gateways field from the JSONB and ensure the rest of the object is OK (to emulate older
+    // agents not sending gateways in the status observations)
+    let mut txn = env.pool.begin().await.unwrap();
+    let query =
+        "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,gateways}', 'null', false)) where id = $1::uuid returning id";
+
+    let (_,): (InstanceId,) = sqlx::query_as(query)
+        .bind(instance_id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .expect("Database error rewriting JSON");
+    txn.commit().await.unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(
+        status.network.as_ref().unwrap().interfaces,
+        vec![rpc::InstanceInterfaceStatus {
+            virtual_function_id: None,
+            mac_address: Some("11:12:13:14:15:16".to_string()),
+            addresses: vec![pf_addr.to_string()],
+            // gateways should have been turned into an empty array.
+            gateways: vec![],
         }]
     );
 
