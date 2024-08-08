@@ -52,6 +52,7 @@ use crate::{
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures::TryFutureExt;
 use http::StatusCode;
 use itertools::Itertools;
@@ -59,6 +60,7 @@ use libredfish::{
     model::task::{Task, TaskState},
     Boot, PowerState, Redfish, RedfishError, SystemPowerControl,
 };
+use mac_address::MacAddress;
 use std::{net::IpAddr, sync::Arc, task::Poll};
 use tokio::{fs::File, sync::Semaphore};
 
@@ -1955,6 +1957,76 @@ async fn handle_dpu_reprovision(
                     .map_err(StateHandlerError::from)?;
             }
 
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
+        }
+        ReprovisionState::RebootHostBmc => {
+            // Work around for FORGE-3864
+            // A NIC FW update from 24.39.2048 to 24.41.1000 can cause the Redfish service to become unavailable on Lenovos.
+            // Forge initiates a NIC FW update in ReprovisionState::FirmwareUpgrade
+            // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
+            if state.host_snapshot.bmc_vendor.is_lenovo() {
+                tracing::info!(
+                    "Initiating BMC cold reset of lenovo machine {}",
+                    state.host_snapshot.machine_id
+                );
+
+                let bmc_mac_address = state
+                    .host_snapshot
+                    .bmc_info
+                    .mac
+                    .clone()
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: state.host_snapshot.machine_id.to_string(),
+                        missing: "bmc_mac",
+                    })?
+                    .parse::<MacAddress>()
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "parsing the host's BMC mac address failed: {}",
+                            e
+                        ))
+                    })?;
+
+                let bmc_ip_address = state
+                    .host_snapshot
+                    .bmc_info
+                    .ip
+                    .clone()
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: state.host_snapshot.machine_id.to_string(),
+                        missing: "bmc_ip",
+                    })?
+                    .parse()
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "parsing the host's BMC IP address failed: {}",
+                            e
+                        ))
+                    })?;
+
+                services
+                    .ipmi_tool
+                    .bmc_cold_reset(
+                        &state.host_snapshot.machine_id,
+                        bmc_ip_address,
+                        CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                        },
+                    )
+                    .await
+                    .map_err(StateHandlerError::GenericError)?;
+            }
+
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
+        }
+        ReprovisionState::RebootHost => {
+            // We can expect transient issues here in case we just rebooted the host's BMC and it has not come up yet
             handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
                 .await?;
 

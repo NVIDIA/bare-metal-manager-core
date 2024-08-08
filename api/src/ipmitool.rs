@@ -22,6 +22,13 @@ use crate::model::machine::machine_id::MachineId;
 
 #[async_trait]
 pub trait IPMITool: Send + Sync + 'static {
+    async fn bmc_cold_reset(
+        &self,
+        machine_id: &MachineId,
+        bmc_ip: IpAddr,
+        credential_key: CredentialKey,
+    ) -> Result<(), eyre::Report>;
+
     async fn restart(
         &self,
         machine_id: &MachineId,
@@ -38,6 +45,7 @@ pub struct IPMIToolImpl {
 
 impl IPMIToolImpl {
     const IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 chassis power reset";
+    const IPMITOOL_BMC_RESET_COMMAND_ARGS: &'static str = "-I lanplus -C 17 bmc reset cold";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
     pub fn new(credential_provider: Arc<dyn CredentialProvider>, attempts: &Option<u32>) -> Self {
@@ -50,6 +58,33 @@ impl IPMIToolImpl {
 
 #[async_trait]
 impl IPMITool for IPMIToolImpl {
+    async fn bmc_cold_reset(
+        &self,
+        machine_id: &MachineId,
+        bmc_ip: IpAddr,
+        credential_key: CredentialKey,
+    ) -> Result<(), eyre::Report> {
+        let credentials = self
+            .credential_provider
+            .get_credentials(credential_key)
+            .await
+            .map_err(|e| {
+                eyre!(
+                    "Error getting credentials for machine {}: {}",
+                    machine_id.clone(),
+                    e
+                )
+            })?;
+
+        match self
+            .execute_ipmitool_command(Self::IPMITOOL_BMC_RESET_COMMAND_ARGS, bmc_ip, &credentials)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(eyre::eyre!("{}", e.to_string())),
+        }
+    }
+
     async fn restart(
         &self,
         machine_id: &MachineId,
@@ -57,7 +92,7 @@ impl IPMITool for IPMIToolImpl {
         legacy_boot: bool,
         credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {
-        let credentials = self
+        let credentials: Credentials = self
             .credential_provider
             .get_credentials(credential_key)
             .await
@@ -147,6 +182,15 @@ impl IPMITool for IPMIToolTestImpl {
         _machine_id: &MachineId,
         _bmc_ip: IpAddr,
         _legacy_boot: bool,
+        _credential_key: CredentialKey,
+    ) -> Result<(), eyre::Report> {
+        Ok(())
+    }
+
+    async fn bmc_cold_reset(
+        &self,
+        _machine_id: &MachineId,
+        _bmc_ip: IpAddr,
         _credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {
         Ok(())
