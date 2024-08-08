@@ -1299,7 +1299,12 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     // resources. That's however ok - we will just ignore it and not execute
     // that task. Later we might also verify that the creation of those resources
     // is requested
-    let result = allocate_instance(request, &env.pool).await;
+    let result = allocate_instance(
+        request,
+        &env.pool,
+        env.config.host_health.hardware_health_reports,
+    )
+    .await;
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("is of type Dpu and can not be converted into an instance"),

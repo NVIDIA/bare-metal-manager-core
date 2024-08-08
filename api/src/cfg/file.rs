@@ -188,6 +188,9 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub multi_dpu: MultiDpuConfig,
+
+    #[serde(default)]
+    pub host_health: HostHealthConfig,
 }
 
 impl CarbideConfig {
@@ -877,6 +880,24 @@ pub fn default_nvue_enabled() -> bool {
 pub struct MultiDpuConfig {
     #[serde(default)]
     pub enabled: bool,
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HostHealthConfig {
+    /// Whether or not to use hardware health reports in aggregate health reports
+    /// and for restricting state transitions.
+    #[serde(default)]
+    pub hardware_health_reports: HardwareHealthReportsConfig,
+}
+
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub enum HardwareHealthReportsConfig {
+    #[default]
+    Disabled,
+    /// Include successes and alerts but remove their classifications
+    MonitorOnly,
+    /// Include successes, alerts, and classifications.
+    Enabled,
 }
 
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {

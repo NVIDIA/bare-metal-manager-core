@@ -371,6 +371,15 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
     }
 }
 
+impl From<forge::OverrideMode> for health_report::OverrideMode {
+    fn from(value: forge::OverrideMode) -> Self {
+        match value {
+            forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
+            forge::OverrideMode::Override => health_report::OverrideMode::Override,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

@@ -24,6 +24,7 @@ async fn get_redfish_client(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
+            hardware_health: api.runtime_config.host_health.hardware_health_reports,
         },
     )
     .await
@@ -32,6 +33,13 @@ async fn get_redfish_client(
         kind: "machine",
         id: machine_id.to_string(),
     })?;
+
+    if snapshot.instance.is_none() {
+        return Err(CarbideError::GenericError(format!(
+            "could not find instance with UUID: {}",
+            machine_id
+        )));
+    }
 
     let bmc_ip =
         snapshot

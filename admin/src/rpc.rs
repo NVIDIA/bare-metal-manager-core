@@ -559,6 +559,72 @@ pub async fn get_managed_host_network_config(
     })
     .await
 }
+pub async fn machine_list_health_report_overrides(
+    id: String,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<rpc::ListHealthReportOverrideResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::MachineId { id });
+        let result = client
+            .list_health_report_overrides(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(result)
+    })
+    .await
+}
+
+pub async fn machine_insert_health_report_override(
+    id: String,
+    report: ::rpc::health::HealthReport,
+    r#override: bool,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::InsertHealthReportOverrideRequest {
+            machine_id: Some(::rpc::MachineId { id }),
+            r#override: Some(rpc::HealthReportOverride {
+                report: Some(report),
+                mode: if r#override {
+                    rpc::OverrideMode::Override
+                } else {
+                    rpc::OverrideMode::Merge
+                } as i32,
+            }),
+        });
+        client
+            .insert_health_report_override(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn machine_remove_health_report_override(
+    id: String,
+    source: String,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::RemoveHealthReportOverrideRequest {
+            machine_id: Some(::rpc::MachineId { id }),
+            source,
+        });
+        client
+            .remove_health_report_override(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
 
 pub async fn machine_admin_force_delete(
     query: ForceDeleteMachineQuery,

@@ -20,7 +20,7 @@ use std::str::FromStr;
 use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use health_report::HealthReport;
+use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::Serialize;
@@ -35,6 +35,7 @@ use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{HardwareInfo, MachineInventory};
+use crate::model::machine::health_override::HealthReportOverrides;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -155,6 +156,9 @@ pub struct Machine {
     /// Latest health report received by hardware-health
     hardware_health_report: Option<HealthReport>,
 
+    /// All health report overrides
+    health_report_overrides: HealthReportOverrides,
+
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_ids: Vec<MachineId>,
@@ -222,6 +226,13 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("hardware_health_report")?
             .map(|j| j.0);
 
+        let health_report_overrides = row
+            .try_get::<Option<sqlx::types::Json<HealthReportOverrides>>, _>(
+                "health_report_overrides",
+            )?
+            .map(|os| os.0)
+            .unwrap_or_default();
+
         let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
             row.try_get("dpu_agent_upgrade_requested")?;
         let last_reboot_requested: Option<sqlx::types::Json<MachineLastRebootRequested>> =
@@ -262,6 +273,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             host_reprovisioning_requested: host_reprovision_req.map(|x| x.0),
             dpu_agent_health_report,
             hardware_health_report,
+            health_report_overrides,
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
             associated_host_machine_id: None,
             associated_dpu_machine_ids: Vec::default(),
@@ -310,6 +322,7 @@ impl From<Machine> for MachineSnapshot {
             associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
             associated_host_machine_id: machine.associated_host_machine_id,
             history: machine.history.into_iter().map(Into::into).collect(),
+            health_report_overrides: machine.health_report_overrides,
         }
     }
 }
@@ -372,19 +385,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for DbMachineId {
 /// Machine.
 impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
-        let health = match machine.id.machine_type().is_dpu() {
-            true => machine
-                .dpu_agent_health_report()
-                .cloned()
-                .unwrap_or_else(|| {
-                    HealthReport::heartbeat_timeout(
-                        "forge-dpu-agent".to_string(),
-                        "No health data was received from DPU".to_string(),
-                    )
-                }),
-            false => HealthReport::empty("aggregate-host-health".to_string()), // TODO: FixMe
-        };
-
         rpc::Machine {
             id: Some(machine.id.to_string().into()),
             state: if machine.is_dpu() {
@@ -455,7 +455,7 @@ impl From<Machine> for rpc::Machine {
                 .as_ref()
                 .map(|x| x.mode.to_string()),
             state_reason: machine.controller_state_outcome.map(|r| r.into()),
-            health: Some(health.into()),
+            health: None,
         }
     }
 }
@@ -514,6 +514,11 @@ impl Machine {
     /// Returns the HealthReport submitted by hardware health
     pub fn hardware_health_report(&self) -> Option<&HealthReport> {
         self.hardware_health_report.as_ref()
+    }
+
+    /// Returns the HealthReport overrides
+    pub fn health_report_overrides(&self) -> &HealthReportOverrides {
+        &self.health_report_overrides
     }
 
     /// Actual network info from machine
@@ -1312,6 +1317,67 @@ SELECT m.id FROM
         health_report: &HealthReport,
     ) -> Result<(), DatabaseError> {
         Self::update_health_report(txn, machine_id, "hardware_health_report", health_report).await
+    }
+
+    pub async fn insert_health_report_override(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        mode: OverrideMode,
+        health_report: &HealthReport,
+    ) -> Result<(), DatabaseError> {
+        let column_name = "health_report_overrides";
+        let path = match mode {
+            OverrideMode::Merge => format!("merges,{}", health_report.source),
+            OverrideMode::Override => "override".to_string(),
+        };
+        let query = format!(
+            "UPDATE machines SET {column_name} = jsonb_set(
+                coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
+                '{{{}}}', 
+                $1::jsonb
+            ) WHERE id = $2
+            RETURNING id",
+            path
+        );
+
+        let _id: (DbMachineId,) = sqlx::query_as(&query)
+            .bind(sqlx::types::Json(&health_report))
+            .bind(machine_id.to_string())
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "insert health report override", e)
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn remove_health_report_override(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        mode: OverrideMode,
+        source: &str,
+    ) -> Result<(), DatabaseError> {
+        let column_name = "health_report_overrides";
+        let path = match mode {
+            OverrideMode::Merge => format!("merges,{}", source),
+            OverrideMode::Override => "override".to_string(),
+        };
+        let query = format!(
+            "UPDATE machines SET {column_name} = ({column_name} #- '{{{}}}') WHERE id = $1
+            RETURNING id",
+            path
+        );
+
+        let _id: (DbMachineId,) = sqlx::query_as(&query)
+            .bind(machine_id.to_string())
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "remove health report override", e)
+            })?;
+
+        Ok(())
     }
 
     pub async fn update_agent_reported_inventory(

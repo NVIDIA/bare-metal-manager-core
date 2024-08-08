@@ -25,9 +25,9 @@ use carbide::{
     api::Api,
     cfg::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
-        FirmwareEntry, FirmwareGlobal, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-        MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-        StateControllerConfig,
+        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IbFabricMonitorConfig,
+        IbPartitionStateControllerConfig, MachineStateControllerConfig, MultiDpuConfig,
+        NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
@@ -62,9 +62,13 @@ use chrono::Duration;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
+use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use regex::Regex;
-use rpc::forge::forge_server::Forge;
+use rpc::forge::{
+    forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
+    RemoveHealthReportOverrideRequest,
+};
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
@@ -552,6 +556,7 @@ pub fn get_config() -> CarbideConfig {
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
+        host_health: HostHealthConfig::default(),
     }
 }
 
@@ -982,6 +987,41 @@ pub async fn simulate_hardware_health_report(
         .record_hardware_health_report(Request::new(HardwareHealthReport {
             machine_id: Some(host_machine_id.to_string().into()),
             report: Some(health_report.into()),
+        }))
+        .await
+        .unwrap();
+}
+
+/// Send a health report override
+pub async fn send_health_report_override(
+    env: &TestEnv,
+    machine_id: &MachineId,
+    r#override: (HealthReport, OverrideMode),
+) {
+    use rpc::forge::forge_server::Forge;
+    use tonic::Request;
+    let _ = env
+        .api
+        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            machine_id: Some(machine_id.to_string().into()),
+            r#override: Some(HealthReportOverride {
+                report: Some(r#override.0.into()),
+                mode: r#override.1 as i32,
+            }),
+        }))
+        .await
+        .unwrap();
+}
+
+/// Remove a health report override
+pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId, source: String) {
+    use rpc::forge::forge_server::Forge;
+    use tonic::Request;
+    let _ = env
+        .api
+        .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
+            machine_id: Some(machine_id.to_string().into()),
+            source,
         }))
         .await
         .unwrap();

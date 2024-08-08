@@ -677,6 +677,12 @@ pub enum Machine {
     DpuSshCredentials(MachineQuery),
     #[clap(subcommand, about = "Networking information")]
     Network(NetworkCommand),
+    #[clap(
+        about = "Health override related handling",
+        subcommand,
+        visible_alias = "ho"
+    )]
+    HealthOverride(OverrideCommand),
     #[clap(about = "Reboot a machine")]
     Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
@@ -689,6 +695,25 @@ pub enum NetworkCommand {
     Status,
     #[clap(about = "Machine network configuration, used by VPC.")]
     Config(NetworkConfigQuery),
+}
+
+#[derive(Parser, Debug)]
+pub enum OverrideCommand {
+    #[clap(about = "List the health reports overrides")]
+    Show { machine_id: String },
+    #[clap(about = "Insert a health report override")]
+    Add {
+        machine_id: String,
+        #[clap(help = "New health report as json")]
+        health_report: String,
+        #[clap(long, help = "Override all other health reports")]
+        r#override: bool,
+    },
+    #[clap(about = "Remove a health report override")]
+    Remove {
+        machine_id: String,
+        report_source: String,
+    },
 }
 
 #[derive(Parser, Debug)]

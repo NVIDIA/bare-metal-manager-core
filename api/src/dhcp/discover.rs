@@ -17,6 +17,7 @@ use mac_address::MacAddress;
 use tonic::{Request, Response};
 
 use crate::{
+    cfg::HostHealthConfig,
     db::{
         self,
         dhcp_entry::DhcpEntry,
@@ -38,6 +39,7 @@ async fn validate_dhcp_request(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     remote_id: Option<String>,
     host_machine_id: &MachineId,
+    host_health_config: &HostHealthConfig,
 ) -> CarbideResult<()> {
     let snapshot = db::managed_host::load_snapshot(
         txn,
@@ -45,6 +47,7 @@ async fn validate_dhcp_request(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
+            hardware_health: host_health_config.hardware_health_reports,
         },
     )
     .await
@@ -81,9 +84,10 @@ async fn handle_dhcp_for_instance(
     circuit_id: Option<String>,
     remote_id: Option<String>,
     parsed_mac: MacAddress,
+    host_health_config: &HostHealthConfig,
 ) -> CarbideResult<Option<Response<rpc::DhcpRecord>>> {
     if let Some(instance) = Instance::find_by_relay_ip(txn, relay_ip).await? {
-        validate_dhcp_request(txn, remote_id, &instance.machine_id).await?;
+        validate_dhcp_request(txn, remote_id, &instance.machine_id, host_health_config).await?;
         let circuit_id_parsed = circuit_id
             .as_ref()
             .ok_or(DhcpError::MissingCircuitId(instance.id))
@@ -123,6 +127,7 @@ async fn handle_dhcp_for_instance(
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
+    host_health_config: &HostHealthConfig,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
     let mut txn = database_connection
         .begin()
@@ -156,8 +161,15 @@ pub async fn discover_dhcp(
         .map_err(CarbideError::from)?;
 
     // Instance handling. None means no instance found matching with dhcp request.
-    if let Some(response) =
-        handle_dhcp_for_instance(&mut txn, relay_ip, circuit_id, remote_id, parsed_mac).await?
+    if let Some(response) = handle_dhcp_for_instance(
+        &mut txn,
+        relay_ip,
+        circuit_id,
+        remote_id,
+        parsed_mac,
+        host_health_config,
+    )
+    .await?
     {
         txn.commit()
             .await

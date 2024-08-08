@@ -162,6 +162,19 @@ fn merge_classifications(
     set.into_iter().collect()
 }
 
+/// How to apply a HealthReport override.
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum OverrideMode {
+    /// Successes or alerts in the override HealthReports will supersede any
+    /// successes and alerts in the non-override HealthReports, merging by id
+    /// and target.
+    Merge,
+    /// The override HealthReport will completely replace non-override
+    /// HealthReports. Any successes or alerts in non-override HealthReports
+    /// are ignored.
+    Override,
+}
+
 /// An alert that has been raised by a health-probe
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthProbeAlert {

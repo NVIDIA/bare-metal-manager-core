@@ -281,6 +281,9 @@ async fn main() -> color_eyre::Result<()> {
                     println!("{config:?}");
                 }
             },
+            Machine::HealthOverride(command) => {
+                machine::handle_override(command, config.format, api_config).await?;
+            }
             Machine::Reboot(c) => {
                 let bmc_auth = match (c.username, c.password, c.machine) {
                     (Some(user), Some(password), _) => rpc::RebootAuth::Direct { user, password },

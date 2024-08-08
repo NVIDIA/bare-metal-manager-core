@@ -16,6 +16,7 @@ use crate::db::instance::{
     DeleteInstance, FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter,
 };
 use crate::db::machine::Machine;
+use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::DatabaseError;
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::config::InstanceConfig;
@@ -41,7 +42,12 @@ pub(crate) async fn allocate(
 
     let request = InstanceAllocationRequest::try_from(request.into_inner())?;
     log_machine_id(&request.machine_id);
-    let mh_snapshot = allocate_instance(request, &api.database_connection).await?;
+    let mh_snapshot = allocate_instance(
+        request,
+        &api.database_connection,
+        api.runtime_config.host_health.hardware_health_reports,
+    )
+    .await?;
 
     Ok(Response::new(snapshot_to_instance(mh_snapshot)?))
 }
@@ -115,9 +121,14 @@ pub(crate) async fn find_by_ids(
             e,
         ))
     })?;
-    let snapshots = db::managed_host::load_by_instance_ids(&mut txn, instance_ids.as_ref())
-        .await
-        .map_err(CarbideError::from)?;
+    let snapshots = db::managed_host::load_by_instance_ids(
+        &mut txn,
+        instance_ids.as_ref(),
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?;
     let mut instances = Vec::with_capacity(snapshots.len());
     for snapshot in snapshots.into_iter() {
         instances.push(snapshot_to_instance(snapshot)?);
@@ -175,9 +186,14 @@ pub(crate) async fn find(
         }
     }?;
 
-    let snapshots = db::managed_host::load_by_instance_snapshots(&mut txn, instance_snapshots)
-        .await
-        .map_err(CarbideError::from)?;
+    let snapshots = db::managed_host::load_by_instance_snapshots(
+        &mut txn,
+        instance_snapshots,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?;
     let mut instances = Vec::with_capacity(snapshots.len());
     for snapshot in snapshots.into_iter() {
         instances.push(snapshot_to_instance(snapshot)?);
@@ -205,13 +221,18 @@ pub(crate) async fn find_by_machine_id(
         ))
     })?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
     let maybe_instance =
         Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
 
@@ -394,13 +415,18 @@ pub(crate) async fn invoke_power(
     };
     log_machine_id(&machine_id);
 
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
     if snapshot.instance.is_none() {
         return Err(Status::invalid_argument(format!(
             "Supplied invalid UUID: {}",
@@ -581,14 +607,18 @@ pub(crate) async fn update_operating_system(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot =
-        db::managed_host::load_snapshot(&mut txn, &instance.machine_id, Default::default())
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance_id.to_string(),
-            })?;
+    let mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &instance.machine_id,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "instance",
+        id: instance_id.to_string(),
+    })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
@@ -660,14 +690,18 @@ pub(crate) async fn update_instance_config(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot =
-        db::managed_host::load_snapshot(&mut txn, &instance.machine_id, Default::default())
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance_id.to_string(),
-            })?;
+    let mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &instance.machine_id,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "instance",
+        id: instance_id.to_string(),
+    })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
