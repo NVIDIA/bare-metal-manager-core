@@ -788,6 +788,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
+            hardware_health: api.runtime_config.host_health.hardware_health_reports,
         },
     )
     .await
