@@ -1946,14 +1946,8 @@ async fn handle_dpu_reprovision(
                     // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
                     // let the trigger_reboot_if_needed determine if we are stuck here
                     // (based on how long it has been since the last requested reboot)
-                    trigger_dpu_reboot_if_needed(
-                        state,
-                        dpu_snapshot,
-                        reachability_params,
-                        services,
-                        txn,
-                    )
-                    .await?;
+                    reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
+                        .await?;
 
                     // TODO: Make is_network_ready give us more details as a string
                     return Ok(StateHandlerOutcome::Wait(format!(
@@ -2917,7 +2911,7 @@ impl DpuMachineStateHandler {
                         // we requested a DPU reboot in DpuInitState::Init
                         // let the trigger_reboot_if_needed determine if we are stuck here
                         // (based on how long it has been since the last requested reboot)
-                        trigger_dpu_reboot_if_needed(
+                        reboot_if_needed(
                             state,
                             dpu_snapshot,
                             &self.reachability_params,
@@ -3229,15 +3223,15 @@ fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), 
     }
 }
 
-async fn trigger_dpu_reboot_if_needed(
+async fn reboot_if_needed(
     state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &MachineSnapshot,
+    machine_snapshot: &MachineSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
     let reboot_status = trigger_reboot_if_needed(
-        dpu_snapshot,
+        machine_snapshot,
         &state.clone(),
         None,
         reachability_params,
@@ -3248,14 +3242,13 @@ async fn trigger_dpu_reboot_if_needed(
     .map_err(|e| {
         StateHandlerError::GenericError(eyre!(
             "failed to trigger reboot for DPU {}: {e}",
-            dpu_snapshot.machine_id
+            machine_snapshot.machine_id
         ))
     })?;
 
     if reboot_status.increase_retry_count {
-        tracing::info!(
-            "triggered reboot for DPU {} with managed-host state {}: {}",
-            dpu_snapshot.machine_id,
+        tracing::info!(%machine_snapshot.machine_id,
+            "triggered reboot for machine in managed-host state {}: {}",
             state.managed_state,
             reboot_status.status
         );
@@ -3298,13 +3291,15 @@ async fn handle_host_uefi_setup(
 
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
-            redfish_client
-                .lockdown(libredfish::EnabledDisabled::Disabled)
-                .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "lockdown",
-                    error: e,
-                })?;
+            if state.host_snapshot.bmc_vendor.is_dell() {
+                redfish_client
+                    .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "lockdown",
+                        error: e,
+                    })?;
+            }
 
             Ok(StateHandlerOutcome::Transition(
                 ManagedHostState::HostInit {

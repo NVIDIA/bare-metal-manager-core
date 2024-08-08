@@ -554,6 +554,7 @@ impl From<PCIeDevice> for libredfish::PCIeDevice {
                 odata_context: None,
             },
             pcie_functions: None,
+            slot: None,
         }
     }
 }

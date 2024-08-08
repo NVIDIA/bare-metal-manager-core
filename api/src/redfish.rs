@@ -30,6 +30,7 @@ use libredfish::{
         secure_boot::SecureBootMode,
         service_root::{RedfishVendor, ServiceRoot},
         task::Task,
+        update_service::UpdateService,
         ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
@@ -820,7 +821,7 @@ impl Redfish for RedfishSimClient {
                 id: None,
                 ethernet: None,
                 name: None,
-                net_dev_func_capabilities: Vec::new(),
+                net_dev_func_capabilities: Some(Vec::new()),
                 net_dev_func_type: None,
                 links: None,
             },
@@ -1102,6 +1103,26 @@ impl Redfish for RedfishSimClient {
         _system_id: &str,
         _id: &str,
     ) -> Result<NetworkAdapter, RedfishError> {
+        todo!();
+    }
+
+    async fn chassis_reset(
+        &self,
+        _chassis_id: &str,
+        _reset_type: SystemPowerControl,
+    ) -> Result<(), RedfishError> {
+        todo!();
+    }
+
+    async fn get_update_service(&self) -> Result<UpdateService, RedfishError> {
+        todo!();
+    }
+
+    async fn get_base_mac_address(&self) -> Result<Option<String>, RedfishError> {
+        todo!();
+    }
+
+    async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
         todo!();
     }
 }
