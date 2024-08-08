@@ -248,7 +248,12 @@ impl MachineStateHandler {
             .map(|instance| instance.config.tenant.tenant_organization_id.clone());
 
         // Update DPU network health Prometheus metrics
-        ctx.metrics.dpu_healthy = state.dpu_snapshots[0].has_healthy_network();
+        // TODO: This needs to be fixed for multi-dpu
+        ctx.metrics.dpu_healthy = state.dpu_snapshots[0]
+            .dpu_agent_health_report
+            .as_ref()
+            .map(|health| health.alerts.is_empty())
+            .unwrap_or(false);
         if let Some(observation) = state.dpu_snapshots[0].network_status_observation.as_ref() {
             ctx.metrics.agent_version = observation.agent_version.clone();
             ctx.metrics.dpu_up =
@@ -281,7 +286,10 @@ impl MachineStateHandler {
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
         for dpu_snapshot in &state.dpu_snapshots {
-            if dpu_snapshot.has_healthy_network() {
+            if let Some(dpu_health) = dpu_snapshot.dpu_agent_health_report.as_ref() {
+                if !dpu_health.alerts.is_empty() {
+                    continue;
+                }
                 if let Some(mut observation) =
                     dpu_snapshot.network_status_observation.clone().take()
                 {
@@ -1917,7 +1925,7 @@ async fn handle_dpu_reprovision(
                     return Ok(None);
                 }
 
-                if !is_dpu_network_ready(dpu_snapshot) {
+                if !managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot) {
                     tracing::warn!(
                         "Waiting for network to be ready for DPU {}",
                         dpu_snapshot.machine_id
@@ -1927,7 +1935,7 @@ async fn handle_dpu_reprovision(
                     // let the trigger_reboot_if_needed determine if we are stuck here
                     // (based on how long it has been since the last requested reboot)
                     trigger_dpu_reboot_if_needed(
-                        state.clone(),
+                        state,
                         dpu_snapshot,
                         reachability_params,
                         services,
@@ -2822,12 +2830,12 @@ impl DpuMachineStateHandler {
                 // is_network_ready is syncing over all DPUs.
                 // The code will move only when all DPUs returns network_ready signal.
                 for dpu_snapshot in &state.dpu_snapshots {
-                    if !is_dpu_network_ready(dpu_snapshot) {
+                    if !managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot) {
                         // we requested a DPU reboot in DpuInitState::Init
                         // let the trigger_reboot_if_needed determine if we are stuck here
                         // (based on how long it has been since the last requested reboot)
                         trigger_dpu_reboot_if_needed(
-                            state.clone(),
+                            state,
                             dpu_snapshot,
                             &self.reachability_params,
                             ctx.services,
@@ -3113,42 +3121,33 @@ impl HostMachineStateHandler {
     }
 }
 
-fn is_dpu_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
-    let dpu_expected_version = dpu_snapshot.network_config.version;
-    let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
-    let dpu_observed_version: ConfigVersion = match dpu_observation {
-        None => {
-            return false;
-        }
-        Some(network_status) => match network_status.network_config_version {
-            None => {
-                return false;
-            }
-            Some(version) => version,
-        },
-    };
-
-    if dpu_expected_version != dpu_observed_version || !dpu_snapshot.has_healthy_network() {
+fn managed_host_network_config_version_synced_and_dpu_healthy(
+    dpu_snapshot: &MachineSnapshot,
+) -> bool {
+    if !dpu_snapshot.managed_host_network_config_version_synced() {
         return false;
     }
 
-    true
+    let Some(dpu_health) = &dpu_snapshot.dpu_agent_health_report else {
+        return false;
+    };
+
+    !dpu_health
+        .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
 }
 
-/// 1. Has the network config version that the host wants been applied by DPU?
-/// 2. Is HBN reporting the network is healthy?
-fn is_network_ready(dpu_snapshots: &[MachineSnapshot]) -> bool {
-    for dpu_snapshot in dpu_snapshots {
-        if !is_dpu_network_ready(dpu_snapshot) {
-            return false;
-        }
+fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), StateHandlerError> {
+    match state
+        .aggregate_health
+        .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
+    {
+        true => Err(StateHandlerError::HealthProbeAlert),
+        false => Ok(()),
     }
-
-    true
 }
 
 async fn trigger_dpu_reboot_if_needed(
-    state: ManagedHostStateSnapshot,
+    state: &ManagedHostStateSnapshot,
     dpu_snapshot: &MachineSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
@@ -3718,13 +3717,14 @@ impl StateHandler for InstanceStateHandler {
                     // reboot and jump to BootingWithDiscoveryImage
 
                     // Check DPU network config has been applied
-                    if !is_network_ready(&state.dpu_snapshots) {
+                    if !state.managed_host_network_config_version_synced() {
                         return Ok(StateHandlerOutcome::Wait(
-                            "Waiting for DPU agent to apply network config and report healthy network"
+                            "Waiting for DPU agent(s) to apply network config and report healthy network"
                                 .to_string(),
                         ));
                     }
                     // Check instance network config has been applied
+                    // TODO: This would need to be checked per DPU
                     let expected = &instance.network_config_version;
                     let actual = match &instance.observations.network {
                         None => {
@@ -3739,6 +3739,8 @@ impl StateHandler for InstanceStateHandler {
                             "Waiting for DPU agent to apply most recent network config".to_string(),
                         ));
                     }
+
+                    check_host_health_for_alerts(state)?;
 
                     ib::bind_ib_ports(
                         ctx.services,
@@ -3953,13 +3955,15 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::WaitingForNetworkReconfig => {
-                    // Has forge-dpu-agent written the network config?
-                    if !is_network_ready(&state.dpu_snapshots) {
+                    // Has forge-dpu-agent applied the new network config so that
+                    // we are back on the admin network?
+                    if !state.managed_host_network_config_version_synced() {
                         return Ok(StateHandlerOutcome::Wait(
-                            "Waiting for DPU agent to apply network config and report healthy network"
+                            "Waiting for DPU agent(s) to apply network config and report healthy network"
                                 .to_string(),
                         ));
                     }
+                    check_host_health_for_alerts(state)?;
 
                     ib::unbind_ib_ports(
                         ctx.services,

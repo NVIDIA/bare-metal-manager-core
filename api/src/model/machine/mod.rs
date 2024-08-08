@@ -109,6 +109,18 @@ impl ManagedHostStateSnapshot {
             }
         }
     }
+
+    /// Returns true if the desired managedhost networking configuration had been synced
+    /// to **all** DPUs.
+    pub fn managed_host_network_config_version_synced(&self) -> bool {
+        for dpu_snapshot in self.dpu_snapshots.iter() {
+            if !dpu_snapshot.managed_host_network_config_version_synced() {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
@@ -261,13 +273,6 @@ impl MachineSnapshot {
         self.network_config.use_admin_network.unwrap_or(true)
     }
 
-    pub fn has_healthy_network(&self) -> bool {
-        match &self.network_status_observation {
-            None => false,
-            Some(obs) => obs.health_status.is_healthy,
-        }
-    }
-
     pub fn is_maintenance_mode(&self) -> bool {
         self.maintenance_reference.is_some()
     }
@@ -286,6 +291,30 @@ impl MachineSnapshot {
             .as_ref()
             .and_then(|ip| ip.parse().ok())
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
+    }
+
+    /// If this machine is a DPU, then this returns whether the desired ManagedHost
+    /// network configuration had been applied by forge-dpu-agent
+    pub fn managed_host_network_config_version_synced(&self) -> bool {
+        let dpu_expected_version = self.network_config.version;
+        let dpu_observation = self.network_status_observation.as_ref();
+        let dpu_observed_version: ConfigVersion = match dpu_observation {
+            None => {
+                return false;
+            }
+            Some(network_status) => match network_status.network_config_version {
+                None => {
+                    return false;
+                }
+                Some(version) => version,
+            },
+        };
+
+        if dpu_expected_version != dpu_observed_version {
+            return false;
+        }
+
+        true
     }
 }
 

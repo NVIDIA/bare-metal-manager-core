@@ -280,7 +280,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .await
         .unwrap()
         .expect("expect DPU to be found");
-    assert!(matches!(dpu_machine.has_healthy_network(), Ok(true)));
+    assert!(dpu_machine
+        .dpu_agent_health_report()
+        .as_ref()
+        .unwrap()
+        .alerts
+        .is_empty());
 
     // Tell state handler to mark DPU as unhealthy after 1 second
     let handler = MachineStateHandlerBuilder::builder()
@@ -300,7 +305,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .await
         .unwrap()
         .expect("expect DPU to be found");
-    assert!(matches!(dpu_machine.has_healthy_network(), Ok(false)));
+    assert!(!dpu_machine
+        .dpu_agent_health_report()
+        .as_ref()
+        .unwrap()
+        .alerts
+        .is_empty());
 
     Ok(())
 }
