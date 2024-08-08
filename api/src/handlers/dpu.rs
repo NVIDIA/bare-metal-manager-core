@@ -23,6 +23,7 @@ use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
 };
@@ -781,13 +782,20 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         ))
     })?;
 
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
 
     // Start reprovisioning only machine is in maintenance mode.
     if !snapshot.host_snapshot.is_maintenance_mode() {
