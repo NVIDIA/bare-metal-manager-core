@@ -184,6 +184,7 @@ struct InstanceInterface {
     segment_id: String,
     mac_address: String,
     addresses: String,
+    gateways: String,
 }
 
 struct InstanceIbInterface {
@@ -235,6 +236,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         .to_string(),
                     mac_address: status.mac_address.clone().unwrap_or_default(),
                     addresses: status.addresses.clone().join(", "),
+                    gateways: status.gateways.clone().join(", "),
                 });
             }
         }

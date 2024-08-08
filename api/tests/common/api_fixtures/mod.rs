@@ -902,6 +902,7 @@ pub async fn network_configured_with_health(
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![iface.ip.clone()],
+            gateways: vec![iface.gateway.clone()],
         }]
     } else {
         let mut interfaces = vec![];
@@ -911,6 +912,7 @@ pub async fn network_configured_with_health(
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
                 addresses: vec![iface.ip.clone()],
+                gateways: vec![iface.gateway.clone()],
             });
         }
         interfaces

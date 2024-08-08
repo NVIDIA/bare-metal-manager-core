@@ -404,6 +404,7 @@ impl MachineStateMachine {
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses: vec![iface.ip.clone()],
+                gateways: vec![iface.gateway.clone()],
             }]
         } else {
             instance_network_config_version =
@@ -416,6 +417,7 @@ impl MachineStateMachine {
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses: vec![iface.ip.clone()],
+                    gateways: vec![iface.gateway.clone()],
                 });
             }
         };

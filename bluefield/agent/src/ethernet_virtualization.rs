@@ -523,6 +523,7 @@ pub async fn interfaces(
             virtual_function_id: None,
             mac_address: Some(factory_mac_address.to_string()),
             addresses: vec![iface.ip.clone()],
+            gateways: vec![iface.gateway.clone()],
         });
     } else {
         // Only load virtual interface details if there are any
@@ -568,6 +569,7 @@ pub async fn interfaces(
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: mac,
                 addresses: vec![iface.ip.clone()],
+                gateways: vec![iface.gateway.clone()],
             });
         }
     }

@@ -338,6 +338,11 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             panic!("Interface does not have addresses")
         };
         assert_eq!(addrs.len(), 1);
+
+        let serde_json::Value::Array(gateways) = &interface["gateways"] else {
+            panic!("Interface does not have gateways set")
+        };
+        assert_eq!(gateways.len(), 1);
     }
 
     mat_handle.stop().await?;

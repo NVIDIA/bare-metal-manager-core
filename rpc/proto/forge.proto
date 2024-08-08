@@ -1309,6 +1309,9 @@ message InstanceInterfaceStatus {
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 3;
+
+  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  repeated string gateways = 4;
 }
 
 // The actual status of a single IB interface of an instance
@@ -2197,6 +2200,9 @@ message InstanceInterfaceStatusObservation {
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
+
+  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  repeated string gateways = 5;
 }
 
 // Describes observational data for a network interface associated with a
