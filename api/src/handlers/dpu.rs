@@ -14,6 +14,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_machine_id, log_request_data, Api};
@@ -748,4 +749,138 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
         did_change,
     };
     Ok(tonic::Response::new(response))
+}
+
+/// Trigger DPU reprovisioning
+/// In case user passes a DPU ID, trigger_dpu_reprovisioning only for that particular DPU.
+/// In case user passes a host id, trigger_dpu_reprovisioning
+pub(crate) async fn trigger_dpu_reprovisioning(
+    api: &Api,
+    request: tonic::Request<rpc::DpuReprovisioningRequest>,
+) -> Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
+
+    let machine_id = try_parse_machine_id(
+        machine_id.ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
+    )
+    .map_err(CarbideError::from)?;
+
+    log_machine_id(&machine_id);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin trigger_dpu_reprovisioning ",
+            e,
+        ))
+    })?;
+
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+
+    // Start reprovisioning only machine is in maintenance mode.
+    if !snapshot.host_snapshot.is_maintenance_mode() {
+        return Err(Status::invalid_argument(
+            "Machine is not in maintenance mode. Set it first.",
+        ));
+    }
+
+    if snapshot.dpu_snapshots.iter().any(|ms| {
+        ms.reprovisioning_requested()
+            .is_some_and(|x| x.started_at.is_some())
+    }) {
+        match req.mode() {
+            rpc::dpu_reprovisioning_request::Mode::Restart => {}
+            _ => {
+                return Err(CarbideError::GenericError(
+                    "Reprovisioning is already started.".to_string(),
+                )
+                .into());
+            }
+        }
+    }
+
+    if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
+        let initiator = req.initiator().as_str_name();
+        if machine_id.machine_type().is_dpu() {
+            Machine::trigger_dpu_reprovisioning_request(
+                &machine_id,
+                &mut txn,
+                initiator,
+                req.update_firmware,
+            )
+            .await
+            .map_err(CarbideError::from)?;
+        } else {
+            for dpu_snapshot in &snapshot.dpu_snapshots {
+                Machine::trigger_dpu_reprovisioning_request(
+                    &dpu_snapshot.machine_id,
+                    &mut txn,
+                    initiator,
+                    req.update_firmware,
+                )
+                .await
+                .map_err(CarbideError::from)?;
+            }
+        }
+    } else if let rpc::dpu_reprovisioning_request::Mode::Clear = req.mode() {
+        if machine_id.machine_type().is_dpu() {
+            Machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true)
+                .await
+                .map_err(CarbideError::from)?;
+        } else {
+            for dpu_snapshot in &snapshot.dpu_snapshots {
+                Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.machine_id, true)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
+        }
+    } else if let rpc::dpu_reprovisioning_request::Mode::Restart = req.mode() {
+        // Restart case.
+        // Restart is valid only for host_id.
+        if !machine_id.machine_type().is_host() {
+            return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
+        }
+        let ids = snapshot
+            .dpu_snapshots
+            .iter()
+            .filter_map(|x| {
+                if x.reprovisioning_requested().is_some() {
+                    Some(&x.machine_id)
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
+
+        Machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware)
+            .await
+            .map_err(CarbideError::from)?;
+    } else {
+        return Err(CarbideError::InvalidArgument(format!(
+            "No reprovision is requested for Machine or related DPUs {}.",
+            machine_id
+        ))
+        .into());
+    }
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "end trigger_dpu_reprovisioning",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(()))
 }

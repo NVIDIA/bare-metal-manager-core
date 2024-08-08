@@ -105,15 +105,16 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
 
 async fn trigger_dpu_reprovisioning(
     env: &TestEnv,
-    dpu_id: String,
+    machine_id: String,
     mode: Mode,
     update_firmware: bool,
 ) {
     env.api
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(rpc::MachineId {
-                    id: dpu_id.to_string(),
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
+                    id: machine_id.to_string(),
                 }),
                 mode: mode as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -425,7 +426,8 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
         .api
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(rpc::MachineId {
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
                     id: dpu_machine_id.to_string(),
                 }),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
@@ -447,7 +449,8 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
         .api
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(rpc::MachineId {
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
                     id: dpu_machine_id.to_string(),
                 }),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
@@ -1311,7 +1314,8 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .api
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(rpc::MachineId {
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
                     id: dpu_machine_id.to_string(),
                 }),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
@@ -1990,8 +1994,9 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         .api
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(rpc::MachineId {
-                    id: dpu_machine_id.to_string(),
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
+                    id: host_machine_id.to_string(),
                 }),
                 mode: Mode::Restart as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -2036,7 +2041,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         .restart_reprovision_requested_at;
     txn.commit().await.unwrap();
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Restart, true).await;
+    trigger_dpu_reprovisioning(&env, host_machine_id.to_string(), Mode::Restart, true).await;
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -2061,7 +2066,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     assert!(matches!(dpu.current_state(), _expected_state));
 
     // change the mode
-    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Restart, false).await;
+    trigger_dpu_reprovisioning(&env, host_machine_id.to_string(), Mode::Restart, false).await;
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 

@@ -1569,7 +1569,7 @@ SELECT m.id FROM
     // Trigger DPU reprovisioning. For machine assigned to user, needs user approval to start
     // reprovisioning.
     pub async fn trigger_dpu_reprovisioning_request(
-        &self,
+        machine_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
         initiator: &str,
         update_firmware: bool,
@@ -1585,7 +1585,7 @@ SELECT m.id FROM
 
         let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
         let _id = sqlx::query_as::<_, DbMachineId>(query)
-            .bind(self.id().to_string())
+            .bind(machine_id.to_string())
             .bind(sqlx::types::Json(req))
             .fetch_one(txn.deref_mut())
             .await
@@ -1698,7 +1698,7 @@ SELECT m.id FROM
     /// This will reset the dpu_reprov request.
     pub async fn restart_dpu_reprovisioning(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        machine_id: &MachineId,
+        machine_ids: &[&MachineId],
         update_firmware: bool,
     ) -> Result<(), DatabaseError> {
         let restart_request = ReprovisionRequestRestart {
@@ -1707,12 +1707,13 @@ SELECT m.id FROM
         };
         let query = r#"UPDATE machines 
                                 SET reprovisioning_requested=reprovisioning_requested || $1
-                        WHERE id=$2 RETURNING id"#
+                        WHERE id=ANY($2) RETURNING id"#
             .to_string();
 
+        let str_list: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
         let _id = sqlx::query_as::<_, DbMachineId>(&query)
             .bind(sqlx::types::Json(restart_request))
-            .bind(machine_id.to_string())
+            .bind(str_list)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| {

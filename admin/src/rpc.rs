@@ -786,7 +786,8 @@ pub async fn trigger_dpu_reprovisioning(
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::DpuReprovisioningRequest {
-            dpu_id: Some(::rpc::common::MachineId { id }),
+            dpu_id: Some(::rpc::common::MachineId { id: id.clone() }),
+            machine_id: Some(::rpc::common::MachineId { id }),
             mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
