@@ -29,7 +29,7 @@ use common::{
     api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine},
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
-use rpc::{common::MachineIdList, forge::forge_server::Forge};
+use rpc::forge::{forge_server::Forge, MachinesByIdsRequest};
 
 use crate::common::api_fixtures::{
     dpu::create_dpu_hardware_info, host::create_host_machine,
@@ -427,8 +427,9 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     // Now host1 should have two DPUs.
     let host_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(MachinesByIdsRequest {
             machine_ids: vec![machine_id.to_string().into()],
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -479,8 +480,10 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
         })
         .collect();
     //build request
-    let request: Request<::rpc::common::MachineIdList> =
-        Request::new(::rpc::common::MachineIdList { machine_ids });
+    let request: Request<MachinesByIdsRequest> = Request::new(MachinesByIdsRequest {
+        machine_ids,
+        ..Default::default()
+    });
     // execute
     let response = env.api.find_machines_by_ids(request).await;
     // validate
@@ -501,7 +504,7 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(::rpc::common::MachineIdList::default());
+    let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest::default());
 
     let response = env.api.find_machines_by_ids(request).await;
     // validate

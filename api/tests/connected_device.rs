@@ -27,8 +27,9 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
     let host_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![host_machine_id.to_string().into()],
+            ..Default::default()
         }))
         .await
         .unwrap()

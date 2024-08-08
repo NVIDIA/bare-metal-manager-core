@@ -39,7 +39,6 @@ use common::api_fixtures::{
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     TestEnv,
 };
-use rpc::common::MachineIdList;
 
 #[ctor::ctor]
 fn setup() {
@@ -478,8 +477,9 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![host_id.to_string().into()],
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -496,8 +496,9 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
 
     assert!(
         env.api
-            .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
                 machine_ids: dpu_ids.clone(),
+                ..Default::default()
             }))
             .await
             .is_ok_and(|response| response.into_inner().machines.len() == 2),
@@ -525,8 +526,9 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![host_id.to_string().into()],
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -542,8 +544,9 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
 
     assert!(
         env.api
-            .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
                 machine_ids: dpu_ids.clone(),
+                ..Default::default()
             }))
             .await
             .is_ok_and(|response| response.into_inner().machines.len() == 2),
