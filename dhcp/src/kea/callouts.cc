@@ -320,6 +320,11 @@ int pkt4_receive(CalloutHandle &handle) {
   handle.getArgument("query4", query4_ptr);
 
   /*
+   * Call to increment total requests counter
+   */
+  carbide_increment_total_requests();
+
+  /*
    * We only work on relayed packets (i.e. we never provide DHCP
    * for the network in which this daemon is running.
    */
@@ -327,6 +332,10 @@ int pkt4_receive(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE)
         .arg("Received a non-relayed packet, dropping it");
     handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+    /*
+     * Call to increment drooped requests counter
+     */
+    carbide_increment_dropped_requests("NonRelayedPacket");
     return 0;
   }
 
@@ -401,6 +410,10 @@ int pkt4_receive(CalloutHandle &handle) {
         .arg(discovery_builder_result_as_str(builder_result))
         .arg(machine);
     handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+    /*
+     * Call to increment drooped requests counter
+     */
+    carbide_increment_dropped_requests(discovery_builder_result_as_str(builder_result));
     return 1;
   }
 

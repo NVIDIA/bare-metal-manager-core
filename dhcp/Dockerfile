@@ -20,3 +20,4 @@ COPY examples/kea-dhcp4-carbide.conf /etc/kea/kea-dhcp4-carbide.conf
 
 
 EXPOSE 1079
+EXPOSE 1089

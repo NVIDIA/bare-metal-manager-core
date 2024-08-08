@@ -11,12 +11,16 @@
  */
 use std::ffi::CStr;
 use std::net::Ipv4Addr;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use forge_tls::default as tls_default;
 use libc::c_char;
 use once_cell::sync::Lazy;
+use opentelemetry::metrics::{Counter, ObservableGauge};
+use rpc::forge_tls_client::ForgeClientConfig;
+use std::net::SocketAddr;
+use std::sync::atomic::AtomicI64;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;
@@ -39,20 +43,29 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 #[derive(Debug)]
 pub struct CarbideDhcpContext {
     api_endpoint: String,
-    otlp_endpoint: Option<String>,
     nameservers: String,
     ntpserver: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     forge_root_ca_path: String,
     forge_client_cert_path: String,
     forge_client_key_path: String,
+    metrics_endpoint: Option<SocketAddr>,
+    metrics: Option<CarbideDhcpMetrics>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CarbideDhcpMetrics {
+    total_requests_counter: Counter<u64>,
+    dropped_requests_counter: Counter<u64>,
+    forge_client_config: ForgeClientConfig,
+    certificate_expiration_value: Arc<AtomicI64>,
+    certificate_expiration_gauge: ObservableGauge<i64>,
 }
 
 impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
-            otlp_endpoint: None,
             nameservers: "1.1.1.1".to_string(),
             forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH")
                 .unwrap_or_else(|_| tls_default::ROOT_CA.to_string()),
@@ -62,6 +75,8 @@ impl Default for CarbideDhcpContext {
                 .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
             ntpserver: "172.20.0.24".to_string(), // local ntp server
             provisioning_server_ipv4: None,
+            metrics_endpoint: None,
+            metrics: None,
         }
     }
 }
@@ -74,7 +89,7 @@ impl CarbideDhcpContext {
                 .build()
                 .expect("unable to build runtime?");
 
-            thread::spawn(metrics::sync_metrics_loop);
+            thread::spawn(metrics::metrics_server);
 
             runtime
         });
@@ -94,19 +109,6 @@ pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
     let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
 
     CONFIG.write().unwrap().api_endpoint = config_api;
-}
-
-/// Take the config parameter from Kea and configure it as our OTLP endpoint
-///
-/// # Safety
-/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
-/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
-#[no_mangle]
-pub unsafe extern "C" fn carbide_set_config_otlp(otlp: *const c_char) {
-    let config_otlp = CStr::from_ptr(otlp).to_str().unwrap().to_owned();
-
-    CONFIG.write().unwrap().otlp_endpoint = Some(config_otlp);
 }
 
 /// Take the next-server IP which will be configured as the endpoint for the iPXE client (and DNS
@@ -146,4 +148,48 @@ pub unsafe extern "C" fn carbide_set_config_ntp(ntpserver: *const c_char) {
     let ntp_str = CStr::from_ptr(ntpserver).to_str().unwrap().to_owned();
 
     CONFIG.write().unwrap().ntpserver = ntp_str;
+}
+
+/// Take the config parameter from Kea and configure it as our metrics endpoint
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+///
+#[no_mangle]
+pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) {
+    let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
+
+    match config_metrics_endpoint.parse::<SocketAddr>() {
+        Ok(metrics_endpoint) => {
+            log::info!("metrics endpoint: {}", config_metrics_endpoint);
+            CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
+            // this will initiate metrics server
+            CarbideDhcpContext::get_tokio_runtime();
+        }
+        Err(err) => {
+            log::error!("failed to parse metrics endpoint {config_metrics_endpoint} : {err}");
+        }
+    }
+}
+
+/// Increments counter for total number of requests
+///
+/// # Safety
+///
+/// None
+#[no_mangle]
+pub unsafe extern "C" fn carbide_increment_total_requests() {
+    metrics::increment_total_requests();
+}
+
+/// Increments counter for number of dropped requests
+///
+/// # Safety
+///
+/// None
+#[no_mangle]
+pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_char) {
+    let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
+    metrics::increment_dropped_requests(reason_value);
 }

@@ -12,6 +12,7 @@ members = [
   "common/host-support",
   "common/http-connector",
   "common/logfmt",
+  "common/metrics-endpoint",
   "common/secrets",
   "common/tls",
   "common/utils",

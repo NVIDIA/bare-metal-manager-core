@@ -43,6 +43,7 @@ services:
         ipv4_address: 172.20.0.12
     ports:
       - "67:67/udp"
+      - 1089:1089
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - ./dev/certs:/opt/forge

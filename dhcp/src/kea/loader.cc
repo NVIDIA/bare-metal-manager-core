@@ -64,17 +64,6 @@ extern "C" {
 			}
 		}
 
-        ConstElementPtr otlp_endpoint = handle->getParameter("carbide-otlp-endpoint");
-        if (otlp_endpoint) {
-            if(otlp_endpoint->getType() != Element::string) {
-                // TODO: handle invalid data type for carbide-otlp-endpoint
-                return (1);
-            } else {
-                // TOOD: proper logging
-                carbide_set_config_otlp(otlp_endpoint->stringValue().c_str());
-            }
-        }
-
         ConstElementPtr ntpserver = handle->getParameter("carbide-ntpserver");
         if (ntpserver) {
             if(ntpserver->getType() != Element::string) {
@@ -94,6 +83,17 @@ extern "C" {
             } else {
                 // TOOD: proper logging
                 carbide_set_config_name_servers(nameservers->stringValue().c_str());
+            }
+        }
+
+        ConstElementPtr metrics_endpoint = handle->getParameter("carbide-metrics-endpoint");
+        if (metrics_endpoint) {
+            if(metrics_endpoint->getType() != Element::string) {
+                // TODO: handle invalid data type for carbide-metrics-endpoint
+                return (1);
+            } else {
+                // TOOD: proper logging
+                carbide_set_config_metrics_endpoint(metrics_endpoint->stringValue().c_str());
             }
         }
 
