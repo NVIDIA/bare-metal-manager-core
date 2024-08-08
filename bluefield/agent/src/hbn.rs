@@ -70,6 +70,7 @@ pub async fn get_hbn_container_id() -> eyre::Result<String> {
         .wrap_err_with(|| format!("timeout calling {cmd_str}"))?;
     let out = cmd_res.wrap_err(cmd_str.to_string())?;
     if !out.status.success() {
+        // @TODO: this would cause network monitor to generate lots of error log
         tracing::debug!("STDERR {cmd_str}: {}", String::from_utf8_lossy(&out.stderr));
         return Err(eyre::eyre!("{} for cmd '{cmd_str}'", out.status,));
     }

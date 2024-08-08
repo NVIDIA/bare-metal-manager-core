@@ -201,10 +201,7 @@ pub async fn run(
                 machine_id.to_string(),
                 metrics,
                 Arc::from(pinger_type),
-                forge_api,
-                forge_client_config.clone(),
-            )
-            .await;
+            );
             let forge_api_clone = forge_api.clone();
             let client_config_clone = forge_client_config.clone();
             let network_monitor_handle = tokio::spawn(async move {
