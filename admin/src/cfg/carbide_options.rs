@@ -223,7 +223,7 @@ pub struct DpuReprovisionData {
     #[clap(
         short,
         long,
-        help = "DPU Machine ID for which reprovisioning is needed."
+        help = "DPU Machine ID for which reprovisioning is needed, or host machine id if all DPUs should be reprovisioned."
     )]
     pub id: String,
 
