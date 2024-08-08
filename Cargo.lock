@@ -33,6 +33,7 @@ dependencies = [
  "forge-tls",
  "forge-version",
  "forge_secrets",
+ "health-report",
  "http 0.2.12",
  "libredfish",
  "prettytable-rs",

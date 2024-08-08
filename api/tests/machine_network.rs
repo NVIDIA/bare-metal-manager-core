@@ -167,19 +167,19 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         Some(network_config_version),
     );
 
-    // Query the new HealthReport format
-    let dpu_machine = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+    // Query the aggregate health.
+    let reported_health = env
+        .api
+        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
         .await
-        .machines
-        .remove(0);
-    let mut reported_dpu_health = dpu_machine.health.clone().unwrap();
-
-    assert!(reported_dpu_health.observed_at.is_some());
-    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
-    reported_dpu_health.source = "should-get-updated".to_string();
-    reported_dpu_health.observed_at = None;
-    assert_eq!(reported_dpu_health, dpu_health);
+        .unwrap()
+        .into_inner()
+        .health;
+    let mut reported_health = reported_health.unwrap();
+    assert!(reported_health.observed_at.is_some());
+    reported_health.observed_at = None;
+    reported_health.source = "should-get-updated".to_string();
+    assert_eq!(reported_health, dpu_health);
 
     // Now fetch the instance and check that knows it's configs have synced
     let response = env
@@ -250,20 +250,22 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
         .await
         .unwrap();
 
-    // Query the new HealthReport format
-    let dpu_machine = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+    // Query the aggregate health.
+    let health = env
+        .api
+        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
         .await
-        .machines
-        .remove(0);
-    let mut reported_dpu_health = dpu_machine.health.clone().unwrap();
-    assert!(reported_dpu_health.observed_at.is_some());
-    reported_dpu_health.observed_at = None;
-    assert_eq!(reported_dpu_health.alerts.len(), 1);
-    assert!(reported_dpu_health.alerts[0].in_alert_since.is_some());
-    reported_dpu_health.alerts[0].in_alert_since = None;
+        .unwrap()
+        .into_inner()
+        .health;
+    let mut health = health.unwrap();
+    assert!(health.observed_at.is_some());
+    health.observed_at = None;
+    assert_eq!(health.alerts.len(), 1);
+    assert!(health.alerts[0].in_alert_since.is_some());
+    health.alerts[0].in_alert_since = None;
     assert_eq!(
-        reported_dpu_health,
+        health,
         rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             observed_at: None,
@@ -328,18 +330,19 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     .await;
 
     // Query the new HealthReport format
-    let dpu_machine = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+    let reported_health = env
+        .api
+        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
         .await
-        .machines
-        .remove(0);
-    let reported_dpu_health = dpu_machine.health.clone().unwrap();
+        .unwrap()
+        .into_inner()
+        .health;
 
-    assert!(reported_dpu_health.observed_at.is_some());
-    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
-    assert_eq!(reported_dpu_health.successes.len(), 1);
-    assert_eq!(reported_dpu_health.alerts.len(), 1);
-    let mut reported_alert = reported_dpu_health.alerts[0].clone();
+    let reported_health = reported_health.unwrap();
+    assert!(reported_health.observed_at.is_some());
+    assert_eq!(reported_health.successes.len(), 1);
+    assert_eq!(reported_health.alerts.len(), 1);
+    let mut reported_alert = reported_health.alerts[0].clone();
     assert!(reported_alert.in_alert_since.is_some());
     let in_alert_since = reported_alert.in_alert_since.unwrap();
     reported_alert.in_alert_since = None;
@@ -349,18 +352,18 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
 
     // Report health again. The in_alert_since date should not have been updated
     network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
-    let dpu_machine = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+    let reported_health = env
+        .api
+        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
         .await
-        .machines
-        .remove(0);
-    let reported_dpu_health = dpu_machine.health.clone().unwrap();
-
-    assert!(reported_dpu_health.observed_at.is_some());
-    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
-    assert_eq!(reported_dpu_health.successes.len(), 1);
-    assert_eq!(reported_dpu_health.alerts.len(), 1);
-    let mut reported_alert = reported_dpu_health.alerts[0].clone();
+        .unwrap()
+        .into_inner()
+        .health;
+    let reported_health = reported_health.unwrap();
+    assert!(reported_health.observed_at.is_some());
+    assert_eq!(reported_health.successes.len(), 1);
+    assert_eq!(reported_health.alerts.len(), 1);
+    let mut reported_alert = reported_health.alerts[0].clone();
     assert_eq!(reported_alert.in_alert_since.unwrap(), in_alert_since);
     reported_alert.in_alert_since = None;
     assert_eq!(reported_alert, dpu_health.alerts[0].clone());

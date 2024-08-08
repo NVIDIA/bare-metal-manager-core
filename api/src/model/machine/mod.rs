@@ -15,6 +15,7 @@ use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use health_override::HealthReportOverrides;
 use health_report::HealthReport;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
@@ -26,6 +27,7 @@ use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, RpcDataConversionError,
 };
+use crate::cfg::HardwareHealthReportsConfig;
 use crate::{
     cfg::FirmwareComponentType,
     db::{
@@ -36,6 +38,7 @@ use crate::{
     CarbideError,
 };
 
+pub mod health_override;
 pub mod machine_id;
 pub mod network;
 pub mod upgrade_policy;
@@ -66,20 +69,70 @@ pub struct ManagedHostStateSnapshot {
 impl ManagedHostStateSnapshot {
     /// Derives the aggregate health of the Managed Host based on individual
     /// health reports
-    pub fn derive_aggregate_health(&mut self) {
-        // TODO: At the moment the aggregate health is just the health-report
-        // from the DPU. In the future we would also take hardware-health reports
-        // and machine-validation results into consideration
-        let aggregate_health = self
-            .dpu_snapshots
-            .first()
-            .and_then(|dpu| dpu.dpu_agent_health_report.clone());
-        let mut aggregate_health = aggregate_health.unwrap_or_else(|| {
-            health_report::HealthReport::heartbeat_timeout(
+    pub fn derive_aggregate_health(
+        &mut self,
+        hardware_health_reports_config: HardwareHealthReportsConfig,
+    ) {
+        // TODO: In the future we will also take machine-validation results into consideration
+        let mut get_health = || -> Result<HealthReport, &'static str> {
+            // If there is an [`OverrideMode::Override`] health report override on
+            // the host, then use that.
+            if let Some(r#override) = &self.host_snapshot.health_report_overrides.r#override {
+                return Ok(r#override.clone());
+            }
+
+            let mut output = health_report::HealthReport::empty("".to_string());
+
+            // Merge hardware health if configured.
+            use HardwareHealthReportsConfig as HWConf;
+            match hardware_health_reports_config {
+                HWConf::Disabled => {}
+                HWConf::MonitorOnly => {
+                    // If MonitorOnly, don't return early even if there is no hw health report.
+                    // Also clear all alert classifications.
+                    if let Some(h) = &mut self.host_snapshot.hardware_health_report {
+                        for alert in &mut h.alerts {
+                            alert.classifications.clear();
+                        }
+                        output.merge(h)
+                    }
+                }
+                HWConf::Enabled => {
+                    // If hw_health_reports are enabled, then do return early if no hw report.
+                    output.merge(
+                        self.host_snapshot
+                            .hardware_health_report
+                            .as_ref()
+                            .ok_or("Missing host hardware health")?,
+                    )
+                }
+            }
+
+            // Merge DPU's
+            for snapshot in self.dpu_snapshots.iter() {
+                output.merge(
+                    snapshot
+                        .dpu_agent_health_report
+                        .as_ref()
+                        .ok_or("Missing DPU health")?,
+                );
+            }
+
+            for r#override in self.host_snapshot.health_report_overrides.merges.values() {
+                output.merge(r#override);
+            }
+
+            Ok(output)
+        };
+
+        let mut aggregate_health = match get_health() {
+            Ok(r) => r,
+            Err(m) => health_report::HealthReport::heartbeat_timeout(
                 "".to_string(),
-                "DPU 0 health has not been observed".to_string(),
-            )
-        });
+                format!("{m}: not observed"),
+            ),
+        };
+
         aggregate_health.source = "aggregate-host-health".to_string();
         aggregate_health.observed_at = Some(chrono::Utc::now());
         self.aggregate_health = aggregate_health;
@@ -262,6 +315,9 @@ pub struct MachineSnapshot {
     // Other machine ids associated with this machine
     pub associated_host_machine_id: Option<MachineId>,
     pub associated_dpu_machine_ids: Vec<MachineId>,
+    /// Latest active health overrides set in the database
+    /// An override with [`OverrideMode::Override`] can only be set on the host.
+    pub health_report_overrides: HealthReportOverrides,
 }
 
 impl MachineSnapshot {
@@ -327,7 +383,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                     "No health data was received from DPU".to_string(),
                 )
             }),
-            false => HealthReport::empty("aggregate-host-health".to_string()), // TODO: FixMe
+            false => HealthReport::empty("aggregate-health".to_string()), // TODO: FixMe
         };
 
         rpc::Machine {

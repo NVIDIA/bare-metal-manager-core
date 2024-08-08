@@ -19,7 +19,8 @@ use tracing::warn;
 
 use super::cfg::carbide_options::{OutputFormat, ShowMachine};
 use super::{default_uuid, rpc, CarbideCliResult};
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::cfg::carbide_options::{ForceDeleteMachineQuery, OverrideCommand};
+use crate::CarbideCliError;
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
     let width = 14;
@@ -283,6 +284,81 @@ pub async fn handle_show(
         // complain, it means its working.
         if args.all && output_format == OutputFormat::AsciiTable {
             warn!("redundant `--all` with basic `show` is deprecated. just do `machine show`")
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_override(
+    command: OverrideCommand,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    match command {
+        OverrideCommand::Show { machine_id } => {
+            let response =
+                rpc::machine_list_health_report_overrides(machine_id, api_config).await?;
+            let mut rows = vec![];
+            for r#override in response.overrides {
+                let report = r#override.report.ok_or(CarbideCliError::GenericError(
+                    "missing response".to_string(),
+                ))?;
+                let mode = match ::rpc::forge::OverrideMode::try_from(r#override.mode)
+                    .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
+                {
+                    forgerpc::OverrideMode::Merge => "Merge",
+                    forgerpc::OverrideMode::Override => "Override",
+                };
+                rows.push((report, mode));
+            }
+            match output_format {
+                OutputFormat::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &rows
+                            .into_iter()
+                            .map(|r| {
+                                serde_json::json!({
+                                    "report": r.0,
+                                    "mode": r.1,
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap()
+                ),
+                _ => {
+                    let mut table = Table::new();
+                    table.set_titles(row!["Report", "Mode"]);
+                    for row in rows {
+                        table.add_row(row![serde_json::to_string(&row.0).unwrap(), row.1]);
+                    }
+                    table.printstd();
+                }
+            }
+        }
+        OverrideCommand::Add {
+            machine_id,
+            health_report,
+            r#override,
+        } => {
+            rpc::machine_insert_health_report_override(
+                machine_id,
+                serde_json::from_str::<health_report::HealthReport>(&health_report)
+                    .map_err(CarbideCliError::JsonError)?
+                    .into(),
+                r#override,
+                api_config,
+            )
+            .await?;
+        }
+        OverrideCommand::Remove {
+            machine_id,
+            report_source,
+        } => {
+            rpc::machine_remove_health_report_override(machine_id, report_source, api_config)
+                .await?;
         }
     }
 

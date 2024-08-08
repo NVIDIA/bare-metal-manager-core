@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    cfg::HardwareHealthReportsConfig,
     db::{
         self,
         instance::{FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter},
@@ -71,7 +72,7 @@ pub async fn load_snapshot(
         managed_state,
         aggregate_health: health_report::HealthReport::empty("".to_string()),
     };
-    snapshot.derive_aggregate_health();
+    snapshot.derive_aggregate_health(options.hardware_health);
 
     if options.include_history {
         let mut machine_ids = vec![snapshot.host_snapshot.machine_id.clone()];
@@ -105,6 +106,7 @@ pub async fn load_snapshot(
 pub async fn load_by_instance_ids(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_ids: &[InstanceId],
+    load_snapshot_options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let instance_snapshots = Instance::find(
         txn,
@@ -112,13 +114,14 @@ pub async fn load_by_instance_ids(
     )
     .await?;
 
-    load_by_instance_snapshots(txn, instance_snapshots).await
+    load_by_instance_snapshots(txn, instance_snapshots, load_snapshot_options).await
 }
 
 /// Loads a ManagedHost snapshots from the database based on a pre-loaded list of InstanceSnapshots
 pub async fn load_by_instance_snapshots(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_snapshots: Vec<InstanceSnapshot>,
+    options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let mut host_machine_ids = Vec::with_capacity(instance_snapshots.len());
     let mut instance_snapshots_by_machine_id = HashMap::with_capacity(instance_snapshots.len());
@@ -157,7 +160,7 @@ pub async fn load_by_instance_snapshots(
             managed_state,
             aggregate_health: health_report::HealthReport::empty("".to_string()),
         };
-        snapshot.derive_aggregate_health();
+        snapshot.derive_aggregate_health(options.hardware_health);
         managed_hosts.push(snapshot);
     }
 
@@ -207,6 +210,8 @@ pub struct LoadSnapshotOptions {
     pub include_history: bool,
     /// Whether to load instance details
     pub include_instance_data: bool,
+    /// How to use hardware health for health report aggregation
+    pub hardware_health: HardwareHealthReportsConfig,
 }
 
 impl Default for LoadSnapshotOptions {
@@ -214,6 +219,14 @@ impl Default for LoadSnapshotOptions {
         Self {
             include_history: false,
             include_instance_data: true,
+            hardware_health: Default::default(),
         }
+    }
+}
+
+impl LoadSnapshotOptions {
+    pub fn with_hw_health(mut self, value: HardwareHealthReportsConfig) -> Self {
+        self.hardware_health = value;
+        self
     }
 }

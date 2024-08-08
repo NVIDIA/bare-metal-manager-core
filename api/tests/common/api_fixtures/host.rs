@@ -27,6 +27,8 @@ use carbide::{
     },
     state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
+use health_report::HealthReport;
+use rpc::forge::HardwareHealthReport;
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
@@ -195,6 +197,15 @@ pub async fn create_host_machine(
         },
     )
     .await;
+
+    env.api
+        .record_hardware_health_report(Request::new(HardwareHealthReport {
+            machine_id: Some(host_machine_id.to_string().into()),
+            report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+        }))
+        .await
+        .expect("Failed to add hardware health report to newly created machine");
+
     txn.commit().await.unwrap();
 
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;

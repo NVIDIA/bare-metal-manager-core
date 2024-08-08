@@ -16,6 +16,7 @@ use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
 
 use crate::{
+    cfg::HardwareHealthReportsConfig,
     db::{
         self,
         machine::{Machine, MachineSearchConfig},
@@ -83,6 +84,7 @@ impl StateControllerIO for MachineStateControllerIO {
             db::managed_host::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
+                hardware_health: HardwareHealthReportsConfig::default(),
             },
         )
         .await

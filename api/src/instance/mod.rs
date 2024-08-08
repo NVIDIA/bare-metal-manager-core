@@ -14,6 +14,7 @@ use config_version::ConfigVersion;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
+    cfg::HardwareHealthReportsConfig,
     db::{
         self,
         ib_partition::{
@@ -21,6 +22,7 @@ use crate::{
         },
         instance::{Instance, InstanceId, NewInstance},
         instance_address::InstanceAddress,
+        managed_host::LoadSnapshotOptions,
         network_segment::NetworkSegment,
         DatabaseError,
     },
@@ -96,6 +98,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 pub async fn allocate_instance(
     request: InstanceAllocationRequest,
     database: &PgPool,
+    hardware_health_reports: HardwareHealthReportsConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
@@ -137,14 +140,17 @@ pub async fn allocate_instance(
         )));
     }
 
-    let mut mh_snapshot =
-        db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
+    let mut mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions::default().with_hw_health(hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
 
     // A new instance can be created only in Ready state.
     // This is possible that a instance is created by user, but still not picked by state machine.

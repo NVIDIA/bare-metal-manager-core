@@ -383,6 +383,27 @@ impl Forge for Api {
         crate::handlers::health::record_hardware_health_report(self, request).await
     }
 
+    async fn list_health_report_overrides(
+        &self,
+        request: Request<::rpc::common::MachineId>,
+    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, tonic::Status> {
+        crate::handlers::health::list_health_report_overrides(self, request).await
+    }
+
+    async fn insert_health_report_override(
+        &self,
+        request: Request<rpc::InsertHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::health::insert_health_report_override(self, request).await
+    }
+
+    async fn remove_health_report_override(
+        &self,
+        request: Request<rpc::RemoveHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::health::remove_health_report_override(self, request).await
+    }
+
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
@@ -908,7 +929,12 @@ impl Forge for Api {
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        Ok(crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await?)
+        Ok(crate::dhcp::discover::discover_dhcp(
+            &self.database_connection,
+            request,
+            &self.runtime_config.host_health,
+        )
+        .await?)
     }
 
     async fn get_machine(
@@ -929,6 +955,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: true,
                 include_instance_data: false,
+                hardware_health: self.runtime_config.host_health.hardware_health_reports,
             },
         )
         .await
@@ -2757,6 +2784,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
+                hardware_health: self.runtime_config.host_health.hardware_health_reports,
             },
         )
         .await
@@ -2821,6 +2849,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
+                hardware_health: self.runtime_config.host_health.hardware_health_reports,
             },
         )
         .await

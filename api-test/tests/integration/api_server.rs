@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 
 use carbide::cfg::{
     default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
-    IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+    HostHealthConfig, IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
     MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
     SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
@@ -235,6 +235,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
+        host_health: HostHealthConfig::default(),
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
