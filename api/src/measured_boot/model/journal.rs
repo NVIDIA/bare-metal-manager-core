@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
     UuidEmptyStringError,
@@ -27,6 +28,7 @@ use crate::measured_boot::interface::journal::{
     get_measurement_journal_records_for_machine_id, insert_measurement_journal_record,
 };
 use crate::model::machine::machine_id::MachineId;
+use crate::{CarbideError, CarbideResult};
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
@@ -108,12 +110,28 @@ impl MeasurementJournal {
         profile_id: Option<MeasurementSystemProfileId>,
         bundle_id: Option<MeasurementBundleId>,
         state: MeasurementMachineState,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
-        Self::new_with_txn(
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementJournal.new begin",
+                e,
+            ))
+        })?;
+        let journal = Self::new_with_txn(
             &mut txn, machine_id, report_id, profile_id, bundle_id, state,
         )
-        .await
+        .await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementJournal.new commit",
+                e,
+            ))
+        })?;
+        Ok(journal)
     }
 
     pub async fn new_with_txn(
@@ -123,7 +141,7 @@ impl MeasurementJournal {
         profile_id: Option<MeasurementSystemProfileId>,
         bundle_id: Option<MeasurementBundleId>,
         state: MeasurementMachineState,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         create_measurement_journal(txn, machine_id, report_id, profile_id, bundle_id, state).await
     }
 
@@ -190,7 +208,7 @@ impl MeasurementJournal {
     pub async fn get_latest_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
-    ) -> eyre::Result<Option<MeasurementJournal>> {
+    ) -> CarbideResult<Option<MeasurementJournal>> {
         get_latest_journal_for_id(txn, machine_id).await
     }
 
@@ -283,7 +301,7 @@ async fn create_measurement_journal(
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
-) -> eyre::Result<MeasurementJournal> {
+) -> CarbideResult<MeasurementJournal> {
     let info =
         insert_measurement_journal_record(txn, machine_id, report_id, profile_id, bundle_id, state)
             .await?;
@@ -368,13 +386,20 @@ async fn get_measurement_journals_for_machine_id(
 pub async fn get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Option<MeasurementJournal>> {
+) -> CarbideResult<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     match sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
         .fetch_optional(txn.deref_mut())
-        .await?
-    {
+        .await
+        .map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "get_latest_journal_for_id",
+                e,
+            ))
+        })? {
         Some(info) => Ok(Some(MeasurementJournal {
             journal_id: info.journal_id,
             machine_id: info.machine_id,

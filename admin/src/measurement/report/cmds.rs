@@ -20,6 +20,7 @@ use crate::measurement::report::args::{
     CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
     ShowForMachine,
 };
+use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::list_measurement_report_request;
 use ::rpc::protos::measured_boot::{
@@ -38,7 +39,7 @@ use carbide::measured_boot::model::report::MeasurementReport;
 pub async fn dispatch(
     cmd: &CmdReport,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     match cmd {
         CmdReport::Create(local_args) => {
             cli_output(
@@ -120,7 +121,7 @@ pub async fn dispatch(
 pub async fn create_for_id(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
-) -> eyre::Result<MeasurementReport> {
+) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = CreateMeasurementReportRequest {
         machine_id: create.machine_id.to_string(),
@@ -131,16 +132,17 @@ pub async fn create_for_id(
     let response = grpc_conn
         .create_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// delete deletes a measurement report with the provided ID.
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
-) -> eyre::Result<MeasurementReport> {
+) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = DeleteMeasurementReportRequest {
         report_id: Some(delete.report_id.into()),
@@ -150,9 +152,10 @@ pub async fn delete(
     let response = grpc_conn
         .delete_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// promote promotes a report to an active bundle.
@@ -161,7 +164,7 @@ pub async fn delete(
 pub async fn promote(
     grpc_conn: &mut ForgeClientT,
     promote: &Promote,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = PromoteMeasurementReportRequest {
         report_id: Some(promote.report_id.into()),
@@ -175,9 +178,10 @@ pub async fn promote(
     let response = grpc_conn
         .promote_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// revoke "promotes" a journal entry into a revoked bundle,
@@ -188,7 +192,7 @@ pub async fn promote(
 pub async fn revoke(
     grpc_conn: &mut ForgeClientT,
     revoke: &Revoke,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = RevokeMeasurementReportRequest {
         report_id: Some(revoke.report_id.into()),
@@ -202,16 +206,17 @@ pub async fn revoke(
     let response = grpc_conn
         .revoke_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_for_id dumps all info about a report for the given ID.
 pub async fn show_for_id(
     grpc_conn: &mut ForgeClientT,
     show_for_id: &ShowForId,
-) -> eyre::Result<MeasurementReport> {
+) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = ShowMeasurementReportForIdRequest {
         report_id: Some(show_for_id.report_id.into()),
@@ -221,16 +226,17 @@ pub async fn show_for_id(
     let response = grpc_conn
         .show_measurement_report_for_id(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_for_machine dumps reports for a given machine.
 pub async fn show_for_machine(
     grpc_conn: &mut ForgeClientT,
     show_for_machine: &ShowForMachine,
-) -> eyre::Result<Vec<MeasurementReport>> {
+) -> CarbideCliResult<Vec<MeasurementReport>> {
     // Request.
     let request = ShowMeasurementReportsForMachineRequest {
         machine_id: show_for_machine.machine_id.to_string(),
@@ -240,19 +246,19 @@ pub async fn show_for_machine(
     grpc_conn
         .show_measurement_reports_for_machine(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .reports
         .iter()
         .map(|report| {
             MeasurementReport::try_from(report.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementReport>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementReport>>>()
 }
 
 /// show_all dumps all info about all reports.
-pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementReport>> {
+pub async fn show_all(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<MeasurementReport>> {
     // Request.
     let request = ShowMeasurementReportsRequest {};
 
@@ -260,19 +266,21 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
     grpc_conn
         .show_measurement_reports(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .reports
         .iter()
         .map(|report| {
             MeasurementReport::try_from(report.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementReport>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementReport>>>()
 }
 
 /// list lists all bundle ids.
-pub async fn list_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementReportRecord>> {
+pub async fn list_all(
+    grpc_conn: &mut ForgeClientT,
+) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
 
@@ -280,22 +288,22 @@ pub async fn list_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
     grpc_conn
         .list_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .reports
         .iter()
         .map(|report| {
             MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementReportRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
 }
 
 /// list_machines lists all reports for the given machine ID.
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
+) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
     // Request.
     let request = ListMeasurementReportRequest {
         selector: Some(list_measurement_report_request::Selector::MachineId(
@@ -307,15 +315,15 @@ pub async fn list_machines(
     grpc_conn
         .list_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .reports
         .iter()
         .map(|report| {
             MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementReportRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
 }
 
 /// match_values matches all reports with the provided PCR values.
@@ -324,7 +332,7 @@ pub async fn list_machines(
 pub async fn match_values(
     grpc_conn: &mut ForgeClientT,
     match_args: &Match,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
+) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
     // Request.
     let request = MatchMeasurementReportRequest {
         pcr_values: PcrRegisterValue::to_pb_vec(&match_args.values),
@@ -334,13 +342,13 @@ pub async fn match_values(
     grpc_conn
         .match_measurement_report(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .reports
         .iter()
         .map(|report| {
             MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementReportRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
 }

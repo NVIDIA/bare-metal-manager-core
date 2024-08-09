@@ -37,8 +37,8 @@ pub async fn insert_measurement_bundle_record(
     profile_id: MeasurementSystemProfileId,
     name: String,
     state: Option<MeasurementBundleState>,
-) -> eyre::Result<MeasurementBundleRecord> {
-    let bundle = match state {
+) -> Result<MeasurementBundleRecord, sqlx::Error> {
+    match state {
         Some(set_state) => {
             let query = "insert into measurement_bundles(profile_id, name, state) values($1, $2, $3) returning *";
             sqlx::query_as::<_, MeasurementBundleRecord>(query)
@@ -57,37 +57,7 @@ pub async fn insert_measurement_bundle_record(
                 .fetch_one(txn.deref_mut())
                 .await
         }
-    }.map_err(|sqlx_err| {
-        let is_db_err = sqlx_err.as_database_error();
-        match is_db_err {
-            Some(db_err) => match db_err.kind() {
-                sqlx::error::ErrorKind::UniqueViolation => {
-                    eyre::eyre!("bundle already exists: {} (msg: {})", name.clone(), db_err)
-                }
-                sqlx::error::ErrorKind::NotNullViolation => {
-                    eyre::eyre!(
-                        "bundle missing required value: {} (msg: {})",
-                        name.clone(),
-                        db_err
-                    )
-                }
-                _ => {
-                    eyre::eyre!(
-                        "db error creating bundle record: {} (msg: {})",
-                        name.clone(),
-                        db_err
-                    )
-                }
-            },
-            None => eyre::eyre!(
-                "general error creating bundle record: {} (msg: {})",
-                name.clone(),
-                sqlx_err
-            ),
-        }
-    })?;
-
-    Ok(bundle)
+    }
 }
 
 /// insert_measurement_values takes a vec of PcrRegisterValues and
@@ -97,7 +67,7 @@ pub async fn insert_measurement_bundle_value_records(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
+) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     let mut records: Vec<MeasurementBundleValueRecord> = Vec::new();
     for value in values.iter() {
         records.push(
@@ -120,15 +90,23 @@ pub async fn insert_measurement_bundle_value_record(
     bundle_id: MeasurementBundleId,
     pcr_register: i16,
     value: &String,
-) -> eyre::Result<MeasurementBundleValueRecord> {
+) -> Result<MeasurementBundleValueRecord, DatabaseError> {
     let query = "insert into measurement_bundles_values(bundle_id, pcr_register, sha256) values($1, $2, $3) returning *";
 
-    Ok(sqlx::query_as::<_, MeasurementBundleValueRecord>(query)
+    sqlx::query_as::<_, MeasurementBundleValueRecord>(query)
         .bind(bundle_id)
         .bind(pcr_register)
         .bind(value)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "insert_measurement_bundle_value_record",
+                e,
+            )
+        })
 }
 
 /// rename_bundle_for_bundle_id renames a bundle based on its bundle ID.
@@ -136,18 +114,19 @@ pub async fn rename_bundle_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
     new_bundle_name: String,
-) -> eyre::Result<MeasurementBundleRecord> {
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     let query = format!(
         "update {} set name = $1 where {} = $2 returning *",
         MeasurementBundleRecord::db_table_name(),
         MeasurementBundleId::db_primary_uuid_name()
     );
 
-    Ok(sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
         .bind(new_bundle_name)
         .bind(bundle_id)
-        .fetch_one(txn.deref_mut())
-        .await?)
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_id", e))
 }
 
 /// rename_bundle_for_bundle_name renames a bundle based on its bundle name.
@@ -155,73 +134,57 @@ pub async fn rename_bundle_for_bundle_name(
     txn: &mut Transaction<'_, Postgres>,
     old_bundle_name: String,
     new_bundle_name: String,
-) -> eyre::Result<MeasurementBundleRecord> {
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     let query = format!(
         "update {} set name = $1 where name = $2 returning *",
         MeasurementBundleRecord::db_table_name(),
     );
-
-    Ok(sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
         .bind(new_bundle_name)
         .bind(old_bundle_name)
-        .fetch_one(txn.deref_mut())
-        .await?)
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_name", e))
 }
 
-/// set_state_for_bundle_id sets a new state for a given bundle ID.
+/// update_state_for_bundle_id updates the state for a given bundle ID.
 ///
 /// This is the last line of defense to make sure a bundle cant move
-/// out of the revoked state. This might be able to move up to the
-/// model layer, but putting it here seems good.
-///
-/// NOTE(chet): There may come a time when we want to introduce a `force`
-/// boolean to force out of revoked, but lets see what mileage we can get
-/// from this first.
-pub async fn set_state_for_bundle_id(
+/// out of the revoked state.
+pub async fn update_state_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
-) -> eyre::Result<MeasurementBundleRecord> {
-    // Attempt to do a single query to update the state. If no results
-    // are returned, its because it was either already set to revoked,
-    // or because the bundle ID doesn't exist -- do the subsequent
-    // query then.
-    let query = format!(
-        "update {} set state = $1 where bundle_id = $2 and state != $3 returning *",
-        MeasurementBundleRecord::db_table_name()
-    );
+    allow_from_revoked: bool,
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
+    match allow_from_revoked {
+        true => {
+            let query = format!(
+                "update {} set state = $1 where bundle_id = $2 and state != $3 returning *",
+                MeasurementBundleRecord::db_table_name()
+            );
 
-    let updated_bundle_record = sqlx::query_as::<_, MeasurementBundleRecord>(&query)
-        .bind(state)
-        .bind(bundle_id)
-        .bind(MeasurementBundleState::Revoked)
-        .fetch_optional(txn.deref_mut())
-        .await?;
+            sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+                .bind(state)
+                .bind(bundle_id)
+                .bind(MeasurementBundleState::Revoked)
+                .fetch_optional(txn.deref_mut())
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
+        }
+        false => {
+            let query = format!(
+                "update {} set state = $1 where bundle_id = $2 returning *",
+                MeasurementBundleRecord::db_table_name()
+            );
 
-    match updated_bundle_record {
-        // Got a record back, which means the state was successfully
-        // updated, so return it.
-        Some(record) => Ok(record),
-
-        // Didn't get one back, which means something happened, as in
-        // either the bundle didn't exist, or the state is set to
-        // revoked. If it's neither of those cases, that's fun.
-        None => match get_measurement_bundle_by_id(txn, bundle_id).await? {
-            None => Err(eyre::eyre!("bundle does not exist: {}", bundle_id)),
-            Some(existing_bundle) => {
-                if existing_bundle.state == MeasurementBundleState::Revoked {
-                    Err(eyre::eyre!(
-                        "bundle cannot be moved from revoked state: {}",
-                        bundle_id
-                    ))
-                } else {
-                    Err(eyre::eyre!(
-                        "totally unknown reason why this happened for bundle: {}",
-                        bundle_id
-                    ))
-                }
-            }
-        },
+            sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+                .bind(state)
+                .bind(bundle_id)
+                .fetch_optional(txn.deref_mut())
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
+        }
     }
 }
 
@@ -229,16 +192,18 @@ pub async fn set_state_for_bundle_id(
 pub async fn get_state_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<MeasurementBundleState> {
+) -> Result<Option<MeasurementBundleState>, DatabaseError> {
     let query = format!(
         "select state from {} where bundle_id = $1",
         MeasurementBundleRecord::db_table_name()
     );
     let record = sqlx::query_as::<_, MeasurementBundleStateRecord>(&query)
         .bind(bundle_id)
-        .fetch_one(txn.deref_mut())
-        .await?;
-    Ok(record.state)
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_state_for_bundle_id", e))?;
+    let state = record.map(|r| r.state);
+    Ok(state)
 }
 
 /// get_measurement_bundle_by_id returns a populated MeasurementBundleRecord
@@ -390,12 +355,13 @@ pub async fn get_measurement_journals_for_bundle_id(
 pub async fn get_machines_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Vec<MachineId>> {
+) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_id)
         .fetch_all(txn.deref_mut())
-        .await?
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_id", e))?
         .into_iter()
         .map(|d| d.into_inner())
         .collect())
@@ -408,13 +374,14 @@ pub async fn get_machines_for_bundle_id(
 pub async fn get_machines_for_bundle_name(
     txn: &mut Transaction<'_, Postgres>,
     bundle_name: String,
-) -> eyre::Result<Vec<MachineId>> {
+) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_name)
         .fetch_all(txn.deref_mut())
-        .await?
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_name", e))?
         .into_iter()
         .map(|d| d.into_inner())
         .collect())
@@ -424,13 +391,10 @@ pub async fn get_machines_for_bundle_name(
 pub async fn delete_bundle_for_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<MeasurementBundleRecord> {
-    let record: Option<MeasurementBundleRecord> =
-        common::delete_object_where_id(txn, bundle_id).await?;
-    match record {
-        Some(record) => Ok(record),
-        None => Err(eyre::eyre!("could not find bundle for ID")),
-    }
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
+    common::delete_object_where_id(txn, bundle_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_bundle_for_id", e.source))
 }
 
 /// delete_bundle_values_for_id deletes all bundle
@@ -453,7 +417,7 @@ pub async fn delete_bundle_values_for_id(
 pub async fn import_measurement_bundles(
     txn: &mut Transaction<'_, Postgres>,
     bundles: &[MeasurementBundleRecord],
-) -> eyre::Result<Vec<MeasurementBundleRecord>> {
+) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementBundleRecord>::new();
     for bundle in bundles.iter() {
         committed.push(import_measurement_bundle(&mut *txn, bundle).await?);
@@ -466,19 +430,20 @@ pub async fn import_measurement_bundles(
 pub async fn import_measurement_bundle(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementBundleRecord,
-) -> eyre::Result<MeasurementBundleRecord> {
+) -> Result<MeasurementBundleRecord, DatabaseError> {
     let query = format!(
         "insert into {}(bundle_id, profile_id, name, ts, state) values($1, $2, $3, $4, $5) returning *",
         MeasurementBundleRecord::db_table_name()
     );
-    Ok(sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
         .bind(bundle.bundle_id)
         .bind(bundle.profile_id)
         .bind(bundle.name.clone())
         .bind(bundle.ts)
         .bind(bundle.state)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundle", e))
 }
 
 /// import_measurement_bundles_values is intended for doing "full site"
@@ -490,7 +455,7 @@ pub async fn import_measurement_bundle(
 pub async fn import_measurement_bundles_values(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementBundleValueRecord],
-) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
+) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementBundleValueRecord>::new();
     for record in records.iter() {
         committed.push(import_measurement_bundles_value(&mut *txn, record).await?);
@@ -504,17 +469,18 @@ pub async fn import_measurement_bundles_values(
 pub async fn import_measurement_bundles_value(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementBundleValueRecord,
-) -> eyre::Result<MeasurementBundleValueRecord> {
+) -> Result<MeasurementBundleValueRecord, DatabaseError> {
     let query = format!(
         "insert into {}(value_id, bundle_id, pcr_register, sha256, ts) values($1, $2, $3, $4, $5) returning *",
         MeasurementBundleValueRecord::db_table_name()
     );
-    Ok(sqlx::query_as::<_, MeasurementBundleValueRecord>(&query)
+    sqlx::query_as::<_, MeasurementBundleValueRecord>(&query)
         .bind(bundle.value_id)
         .bind(bundle.bundle_id)
         .bind(bundle.pcr_register)
         .bind(bundle.sha256.clone())
         .bind(bundle.ts)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundles_value", e))
 }

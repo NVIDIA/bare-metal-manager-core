@@ -99,6 +99,14 @@ pub enum CarbideError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
 
+    #[error("{kind} already exists: {id}")]
+    AlreadyFoundError {
+        /// The type of the resource that already exists (e.g. Machine)
+        kind: &'static str,
+        /// The ID of the resource that already exists.
+        id: String,
+    },
+
     #[error("{kind} not found: {id}")]
     NotFoundError {
         /// The type of the resource that was not found (e.g. Machine)

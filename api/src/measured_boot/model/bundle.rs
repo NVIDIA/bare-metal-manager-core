@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
@@ -24,13 +25,14 @@ use crate::measured_boot::interface::bundle::{
     get_measurement_bundle_for_name, get_measurement_bundle_records_for_profile_id,
     get_measurement_bundle_records_with_txn, get_measurement_bundle_values_for_bundle_id,
     insert_measurement_bundle_record, insert_measurement_bundle_value_records,
-    rename_bundle_for_bundle_id, rename_bundle_for_bundle_name, set_state_for_bundle_id,
+    rename_bundle_for_bundle_id, rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::model::machine::{bundle_state_to_machine_state, CandidateMachine};
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
+use crate::{CarbideError, CarbideResult};
 use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
@@ -129,10 +131,24 @@ impl MeasurementBundle {
         name: Option<String>,
         values: &[common::PcrRegisterValue],
         state: Option<MeasurementBundleState>,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.new begin",
+                e,
+            ))
+        })?;
         let bundle = Self::new_with_txn(&mut txn, profile_id, name, values, state).await?;
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.new commit",
+                e,
+            ))
+        })?;
         Ok(bundle)
     }
 
@@ -142,9 +158,12 @@ impl MeasurementBundle {
         name: Option<String>,
         values: &[common::PcrRegisterValue],
         state: Option<MeasurementBundleState>,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         if MeasurementBundle::has_exact_from_values(txn, profile_id, values).await? {
-            return Err(eyre::eyre!("matching bundle already exists"));
+            return Err(CarbideError::AlreadyFoundError {
+                kind: "MeasurementBundle",
+                id: String::from("(with same bundle values)"),
+            });
         }
 
         let bundle_name = match name {
@@ -152,7 +171,41 @@ impl MeasurementBundle {
             None => common::generate_name()?,
         };
 
-        let info = insert_measurement_bundle_record(txn, profile_id, bundle_name, state).await?;
+        let info = insert_measurement_bundle_record(txn, profile_id, bundle_name.clone(), state)
+            .await
+            .map_err(|sqlx_err| {
+                let is_db_err = sqlx_err.as_database_error();
+                match is_db_err {
+                    Some(db_err) => match db_err.kind() {
+                        sqlx::error::ErrorKind::UniqueViolation => {
+                            CarbideError::AlreadyFoundError {
+                                kind: "MeasurementBundle",
+                                id: bundle_name.clone(),
+                            }
+                        }
+                        sqlx::error::ErrorKind::NotNullViolation => {
+                            CarbideError::GenericError(format!(
+                                "bundle missing not null value: {} (msg: {})",
+                                bundle_name.clone(),
+                                db_err
+                            ))
+                        }
+                        _ => CarbideError::from(DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "MeasurementBundle.new_with_txn db_err",
+                            sqlx_err,
+                        )),
+                    },
+                    None => CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "MeasurementBundle.new_with_txn sqlx_err",
+                        sqlx_err,
+                    )),
+                }
+            })?;
+
         let bundle_values =
             insert_measurement_bundle_value_records(txn, info.bundle_id, values).await?;
         let bundle = MeasurementBundle::from_info_and_values(info, bundle_values)?;
@@ -167,12 +220,15 @@ impl MeasurementBundle {
     /// to the backing model.
     ////////////////////////////////////////////////////////////
 
-    pub fn from_grpc(some_pb: Option<&MeasurementBundlePb>) -> eyre::Result<Self> {
+    pub fn from_grpc(some_pb: Option<&MeasurementBundlePb>) -> CarbideResult<Self> {
         some_pb
-            .ok_or(eyre::eyre!("bundle is unexpectedly empty"))
+            .ok_or(CarbideError::GenericError(String::from(
+                "bundle is unexpectedly empty",
+            )))
             .and_then(|pb| {
-                Self::try_from(pb.clone())
-                    .map_err(|e| eyre::eyre!("bundle failed pb->model conversion: {}", e))
+                Self::try_from(pb.clone()).map_err(|e| {
+                    CarbideError::GenericError(format!("bundle failed pb->model conversion: {}", e))
+                })
             })
     }
 
@@ -181,7 +237,7 @@ impl MeasurementBundle {
     pub fn from_info_and_values(
         info: MeasurementBundleRecord,
         values: Vec<MeasurementBundleValueRecord>,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         Ok(Self {
             bundle_id: info.bundle_id,
             profile_id: info.profile_id,
@@ -197,8 +253,15 @@ impl MeasurementBundle {
     pub async fn from_id(
         db_conn: &Pool<Postgres>,
         bundle_id: MeasurementBundleId,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.from_id begin",
+                e,
+            ))
+        })?;
         MeasurementBundle::from_id_with_txn(&mut txn, bundle_id).await
     }
 
@@ -207,21 +270,32 @@ impl MeasurementBundle {
     pub async fn from_id_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         bundle_id: MeasurementBundleId,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         match get_measurement_bundle_by_id(txn, bundle_id).await? {
             Some(info) => {
-                let values =
-                    get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
+                let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id)
+                    .await
+                    .map_err(CarbideError::from)?;
                 Ok(MeasurementBundle::from_info_and_values(info, values)?)
             }
-            None => Err(eyre::eyre!("could not find bundle with that ID")),
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementBundle",
+                id: bundle_id.to_string(),
+            }),
         }
     }
 
     /// from_name returns a fully populated instance of
     /// MeasurementBundle for the provided `bundle_name`.
-    pub async fn from_name(db_conn: &Pool<Postgres>, bundle_name: String) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    pub async fn from_name(db_conn: &Pool<Postgres>, bundle_name: String) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.from_name begin",
+                e,
+            ))
+        })?;
         Self::from_name_with_txn(&mut txn, bundle_name.clone()).await
     }
 
@@ -230,14 +304,17 @@ impl MeasurementBundle {
     pub async fn from_name_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         bundle_name: String,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         match get_measurement_bundle_for_name(txn, bundle_name.clone()).await? {
             Some(info) => {
                 let values =
                     get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
                 Ok(Self::from_info_and_values(info, values)?)
             }
-            None => Err(eyre::eyre!("could not find bundle with that name")),
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementBundle",
+                id: bundle_name.clone(),
+            }),
         }
     }
 
@@ -250,7 +327,7 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         bundle_id: MeasurementBundleId,
         state: MeasurementBundleState,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         let info = set_state_for_bundle_id(txn, bundle_id, state).await?;
         let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
         let bundle = Self::from_info_and_values(info, values)?;
@@ -263,7 +340,7 @@ impl MeasurementBundle {
     /// models from records in the database.
     /////////////////////////////////////////////////////
 
-    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<Self>> {
+    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<Self>> {
         let mut res: Vec<MeasurementBundle> = Vec::new();
         let mut bundle_records = get_measurement_bundle_records_with_txn(txn).await?;
         for bundle_record in bundle_records.drain(..) {
@@ -282,7 +359,7 @@ impl MeasurementBundle {
     pub async fn get_all_for_profile_id(
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
-    ) -> eyre::Result<Vec<Self>> {
+    ) -> CarbideResult<Vec<Self>> {
         let mut res: Vec<MeasurementBundle> = Vec::new();
         let mut bundle_records =
             get_measurement_bundle_records_for_profile_id(txn, profile_id).await?;
@@ -300,7 +377,7 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
         values: &[common::PcrRegisterValue],
-    ) -> eyre::Result<bool> {
+    ) -> CarbideResult<bool> {
         match Self::exact_from_values(txn, profile_id, values).await? {
             Some(_) => Ok(true),
             None => Ok(false),
@@ -313,7 +390,7 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
         values: &[common::PcrRegisterValue],
-    ) -> eyre::Result<Option<Self>> {
+    ) -> CarbideResult<Option<Self>> {
         match Self::match_from_values(txn, profile_id, values).await? {
             Some(bundle) => {
                 if bundle.values.len() == values.len() {
@@ -331,7 +408,7 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
         values: &[common::PcrRegisterValue],
-    ) -> eyre::Result<Option<Self>> {
+    ) -> CarbideResult<Option<Self>> {
         let bundle_id = match match_bundle(txn, profile_id, values).await? {
             Some(bundle_id) => bundle_id,
             None => {
@@ -346,7 +423,7 @@ impl MeasurementBundle {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         purge_journals: bool,
-    ) -> eyre::Result<MeasurementBundle> {
+    ) -> CarbideResult<MeasurementBundle> {
         Self::delete_for_id_with_txn(txn, self.bundle_id, purge_journals).await
     }
 
@@ -357,10 +434,24 @@ impl MeasurementBundle {
         db_conn: &Pool<Postgres>,
         bundle_id: MeasurementBundleId,
         purge_journals: bool,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.delete_for_id begin",
+                e,
+            ))
+        })?;
         let bundle = Self::delete_for_id_with_txn(&mut txn, bundle_id, purge_journals).await?;
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementBundle.delete_for_id commit",
+                e,
+            ))
+        })?;
         Ok(bundle)
     }
 
@@ -368,15 +459,23 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         bundle_id: MeasurementBundleId,
         purge_journals: bool,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         // Note that due to relational constraints, values must be
         // deleted before the parent record.
         if purge_journals {
-            return Err(eyre::eyre!("journal purge not supported -- TODO"));
+            return Err(CarbideError::GenericError(String::from(
+                "journal purge not implemented -- TODO",
+            )));
         }
         let values = delete_bundle_values_for_id(txn, bundle_id).await?;
-        let info = delete_bundle_for_id(txn, bundle_id).await?;
-        Self::from_info_and_values(info, values)
+        let record = delete_bundle_for_id(txn, bundle_id).await?;
+        match record {
+            Some(record) => Self::from_info_and_values(record, values),
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementBundleRecord",
+                id: bundle_id.to_string(),
+            }),
+        }
     }
 
     /// rename_for_id renames a MeasurementBundle based on its ID.
@@ -384,11 +483,20 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         bundle_id: MeasurementBundleId,
         new_bundle_name: String,
-    ) -> eyre::Result<Self> {
-        Self::from_info_and_values(
-            rename_bundle_for_bundle_id(txn, bundle_id, new_bundle_name.clone()).await?,
-            get_measurement_bundle_values_for_bundle_id(txn, bundle_id).await?,
-        )
+    ) -> CarbideResult<Self> {
+        let info = rename_bundle_for_bundle_id(txn, bundle_id, new_bundle_name.clone())
+            .await
+            .map_err(CarbideError::from)?;
+        match info {
+            Some(info) => Self::from_info_and_values(
+                info,
+                get_measurement_bundle_values_for_bundle_id(txn, bundle_id).await?,
+            ),
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementBundleRecord",
+                id: bundle_id.to_string(),
+            }),
+        }
     }
 
     /// rename_for_name renames a MeasurementBundle based on its name.
@@ -396,9 +504,19 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         bundle_name: String,
         new_bundle_name: String,
-    ) -> eyre::Result<Self> {
-        let info = rename_bundle_for_bundle_name(txn, bundle_name.clone(), new_bundle_name.clone())
-            .await?;
+    ) -> CarbideResult<Self> {
+        let info =
+            match rename_bundle_for_bundle_name(txn, bundle_name.clone(), new_bundle_name.clone())
+                .await?
+            {
+                Some(info) => info,
+                None => {
+                    return Err(CarbideError::NotFoundError {
+                        kind: "MeasurementBundleRecord",
+                        id: bundle_name.clone(),
+                    });
+                }
+            };
         let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
         Self::from_info_and_values(info, values)
     }
@@ -431,7 +549,7 @@ impl MeasurementBundle {
     async fn update_journal(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> eyre::Result<Vec<MeasurementJournal>> {
+    ) -> CarbideResult<Vec<MeasurementJournal>> {
         let machine_state = bundle_state_to_machine_state(&self.state);
 
         let reports = match_latest_reports(txn, &self.pcr_values()).await?;
@@ -467,7 +585,7 @@ impl MeasurementBundle {
         Ok(updates)
     }
 
-    pub fn intersects(&self, values: &[common::PcrRegisterValue]) -> eyre::Result<bool> {
+    pub fn intersects(&self, values: &[common::PcrRegisterValue]) -> CarbideResult<bool> {
         let register_map = common::pcr_register_values_to_map(values)?;
         Ok(self.values.iter().all(|value_record| {
             if let Some(register_value) = register_map.get(&value_record.pcr_register) {
@@ -543,7 +661,7 @@ async fn match_bundle(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Option<MeasurementBundleId>> {
+) -> CarbideResult<Option<MeasurementBundleId>> {
     // NOTE(chet): Here is a story!
     //
     // Just for reference, when there was a fixed set of values throughout
@@ -594,8 +712,49 @@ async fn match_bundle(
     // one). If there's a conflict, then return an error.
     matching.sort_by(|a, b| b.values.len().cmp(&a.values.len()));
     if matching[0].values.len() == matching[1].values.len() {
-        return Err(eyre::eyre!("cannot determine most specific bundle match"));
+        return Err(CarbideError::GenericError(String::from(
+            "cannot determine most specific bundle match",
+        )));
     }
 
     Ok(Some(matching[0].bundle_id))
+}
+
+/// set_state_for_bundle_id sets a new state for a given bundle ID.
+pub async fn set_state_for_bundle_id(
+    txn: &mut Transaction<'_, Postgres>,
+    bundle_id: MeasurementBundleId,
+    state: MeasurementBundleState,
+) -> Result<MeasurementBundleRecord, CarbideError> {
+    match update_state_for_bundle_id(txn, bundle_id, state, false)
+        .await
+        .map_err(CarbideError::from)?
+    {
+        // Got a record back, which means the state was successfully
+        // updated, so return it.
+        Some(record) => Ok(record),
+
+        // Didn't get one back, which means something happened, as in
+        // either the bundle didn't exist, or the state is set to
+        // revoked. If it's neither of those cases, that's fun.
+        None => match get_measurement_bundle_by_id(txn, bundle_id).await? {
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementBundleRecord",
+                id: bundle_id.to_string(),
+            }),
+            Some(existing_bundle) => {
+                if existing_bundle.state == MeasurementBundleState::Revoked {
+                    Err(CarbideError::GenericError(format!(
+                        "bundle cannot be moved from revoked state: {}",
+                        bundle_id
+                    )))
+                } else {
+                    Err(CarbideError::GenericError(format!(
+                        "totally unknown reason why this happened for bundle: {}",
+                        bundle_id
+                    )))
+                }
+            }
+        },
+    }
 }

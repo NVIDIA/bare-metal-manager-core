@@ -23,6 +23,7 @@ use crate::measured_boot::dto::records::{
 };
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
+use crate::{CarbideError, CarbideResult};
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
 
@@ -32,7 +33,7 @@ use std::collections::HashMap;
 pub async fn get_discovery_attributes(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<HashMap<String, String>> {
+) -> CarbideResult<HashMap<String, String>> {
     let attrs = get_machine_attrs_for_machine_id(txn, machine_id).await?;
     common::filter_machine_discovery_attrs(&attrs)
 }
@@ -70,15 +71,22 @@ pub async fn get_latest_journal_for_id(
 pub async fn get_machine_attrs_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<HashMap<String, String>> {
-    let record = get_candidate_machine_record_by_id(txn, machine_id).await?;
-    match &record.topology.discovery_data.info.dmi_data {
-        Some(dmi_data) => Ok(HashMap::from([
-            (String::from("sys_vendor"), dmi_data.sys_vendor.clone()),
-            (String::from("product_name"), dmi_data.product_name.clone()),
-            (String::from("bios_version"), dmi_data.bios_version.clone()),
-        ])),
-        None => Err(eyre::eyre!("machine missing dmi data")),
+) -> CarbideResult<HashMap<String, String>> {
+    match get_candidate_machine_record_by_id(txn, machine_id.clone()).await? {
+        Some(record) => match &record.topology.discovery_data.info.dmi_data {
+            Some(dmi_data) => Ok(HashMap::from([
+                (String::from("sys_vendor"), dmi_data.sys_vendor.clone()),
+                (String::from("product_name"), dmi_data.product_name.clone()),
+                (String::from("bios_version"), dmi_data.bios_version.clone()),
+            ])),
+            None => Err(CarbideError::GenericError(String::from(
+                "machine missing dmi data",
+            ))),
+        },
+        None => Err(CarbideError::NotFoundError {
+            kind: "CandidateMachineRecord",
+            id: machine_id.to_string(),
+        }),
     }
 }
 
@@ -86,12 +94,17 @@ pub async fn get_machine_attrs_for_machine_id(
 pub async fn get_candidate_machine_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<CandidateMachineRecord> {
-    let record: Option<CandidateMachineRecord> = common::get_object_for_id(txn, machine_id).await?;
-    match record {
-        Some(record) => Ok(record),
-        None => Err(eyre::eyre!("cannot find machine with id")),
-    }
+) -> Result<Option<CandidateMachineRecord>, DatabaseError> {
+    common::get_object_for_id(txn, machine_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_candidate_machine_record_by_id",
+                e.source,
+            )
+        })
 }
 
 /// get_candidate_machine_records returns all MockMachineRecord rows,

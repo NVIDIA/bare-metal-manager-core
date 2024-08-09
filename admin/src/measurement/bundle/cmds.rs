@@ -20,6 +20,7 @@ use crate::measurement::bundle::args::{
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;
 use crate::measurement::global::cmds::{get_identifier, IdentifierType};
+use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{
     delete_measurement_bundle_request, list_measurement_bundle_machines_request,
@@ -43,7 +44,7 @@ use std::str::FromStr;
 pub async fn dispatch(
     cmd: &CmdBundle,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     match cmd {
         CmdBundle::Create(local_args) => {
             cli_output(
@@ -113,7 +114,7 @@ pub async fn dispatch(
 pub async fn create_for_id(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let state: MeasurementBundleStatePb = match create.state {
         Some(input_state) => input_state.into(),
@@ -132,16 +133,17 @@ pub async fn create_for_id(
     let response = grpc_conn
         .create_measurement_bundle(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// delete deletes a measurement bundle with the provided ID.
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = DeleteMeasurementBundleRequest {
         selector: Some(delete_measurement_bundle_request::Selector::BundleId(
@@ -153,20 +155,22 @@ pub async fn delete(
     let response = grpc_conn
         .delete_measurement_bundle(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
 pub async fn rename(
     grpc_conn: &mut ForgeClientT,
     rename: &Rename,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let selector = match get_identifier(rename)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&rename.identifier.clone())?;
+            let bundle_id = MeasurementBundleId::from_str(&rename.identifier.clone())
+                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(rename_measurement_bundle_request::Selector::BundleId(
                 bundle_id.into(),
             ))
@@ -194,22 +198,24 @@ pub async fn rename(
     let response = grpc_conn
         .rename_measurement_bundle(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// set_state updates the state of the bundle (e.g. active, obsolete, retired).
 pub async fn set_state(
     grpc_conn: &mut ForgeClientT,
     set_state: &SetState,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let state: MeasurementBundleStatePb = set_state.state.into();
 
     let selector = match get_identifier(set_state)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&set_state.identifier.clone())?;
+            let bundle_id = MeasurementBundleId::from_str(&set_state.identifier.clone())
+                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(update_measurement_bundle_request::Selector::BundleId(
                 bundle_id.into(),
             ))
@@ -239,25 +245,29 @@ pub async fn set_state(
     let response = grpc_conn
         .update_measurement_bundle(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id dumps all info about a bundle for the given ID or name.
 pub async fn show_by_id_or_name(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let identifier = show
         .identifier
         .as_ref()
-        .ok_or(eyre::eyre!("identifier expected to be set here"))?;
+        .ok_or(CarbideCliError::GenericError(String::from(
+            "identifier expected to be set here",
+        )))?;
 
     let selector = match get_identifier(show)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&identifier.clone())?;
+            let bundle_id = MeasurementBundleId::from_str(&identifier.clone())
+                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(show_measurement_bundle_request::Selector::BundleId(
                 bundle_id.into(),
             ))
@@ -282,16 +292,17 @@ pub async fn show_by_id_or_name(
     let response = grpc_conn
         .show_measurement_bundle(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+        .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all dumps all info about all bundles.
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _get_by_id: &Show,
-) -> eyre::Result<Vec<MeasurementBundle>> {
+) -> CarbideCliResult<Vec<MeasurementBundle>> {
     // Request.
     let request = ShowMeasurementBundlesRequest {};
 
@@ -299,18 +310,19 @@ pub async fn show_all(
     grpc_conn
         .show_measurement_bundles(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .bundles
         .iter()
         .map(|bundle| {
-            MeasurementBundle::try_from(bundle.clone()).map_err(|e| eyre::eyre!(e.to_string()))
+            MeasurementBundle::try_from(bundle.clone())
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementBundle>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()
 }
 
 /// list lists all bundle ids.
-pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementBundleRecord>> {
+pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<MeasurementBundleRecord>> {
     // Request.
     let request = ListMeasurementBundlesRequest {};
 
@@ -318,15 +330,15 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementB
     grpc_conn
         .list_measurement_bundles(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .bundles
         .iter()
         .map(|rec| {
             MeasurementBundleRecord::try_from(rec.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
         })
-        .collect::<eyre::Result<Vec<MeasurementBundleRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()
 }
 
 /// list_machines lists all machines associated with the provided
@@ -334,11 +346,12 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementB
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> eyre::Result<Vec<MachineId>> {
+) -> CarbideCliResult<Vec<MachineId>> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier.clone())?;
+            let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier.clone())
+                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id.into()))
         }
         IdentifierType::ForName => Some(
@@ -364,13 +377,16 @@ pub async fn list_machines(
     let request = ListMeasurementBundleMachinesRequest { selector };
 
     // Response.
-    Ok(grpc_conn
+    grpc_conn
         .list_measurement_bundle_machines(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .machine_ids
         .iter()
-        .map(|rec| MachineId::from_str(rec))
-        .collect::<Result<Vec<MachineId>, _>>()?)
+        .map(|rec| {
+            MachineId::from_str(rec)
+                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+        })
+        .collect::<CarbideCliResult<Vec<MachineId>>>()
 }

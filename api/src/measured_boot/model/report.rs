@@ -23,6 +23,7 @@ use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
     UuidEmptyStringError,
@@ -51,6 +52,7 @@ use crate::measured_boot::model::{
     profile::MeasurementSystemProfile,
 };
 use crate::model::machine::machine_id::MachineId;
+use crate::{CarbideError, CarbideResult};
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -213,7 +215,7 @@ impl MeasurementReport {
         txn: &mut Transaction<'_, Postgres>,
         state: MeasurementBundleState,
         pcr_set: &Option<common::PcrSet>,
-    ) -> eyre::Result<MeasurementBundle> {
+    ) -> CarbideResult<MeasurementBundle> {
         create_bundle_with_state(txn, self, state, pcr_set).await
     }
 
@@ -226,16 +228,34 @@ impl MeasurementReport {
         &self,
         db_conn: &Pool<Postgres>,
         pcr_set: &Option<common::PcrSet>,
-    ) -> eyre::Result<MeasurementBundle> {
-        let mut txn = db_conn.begin().await?;
-        self.create_active_bundle_with_txn(&mut txn, pcr_set).await
+    ) -> CarbideResult<MeasurementBundle> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.create_active_bundle begin",
+                e,
+            ))
+        })?;
+        let bundle = self
+            .create_active_bundle_with_txn(&mut txn, pcr_set)
+            .await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.create_active_bundle commit",
+                e,
+            ))
+        })?;
+        Ok(bundle)
     }
 
     pub async fn create_active_bundle_with_txn(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         pcr_set: &Option<common::PcrSet>,
-    ) -> eyre::Result<MeasurementBundle> {
+    ) -> CarbideResult<MeasurementBundle> {
         self.create_bundle_with_state(txn, MeasurementBundleState::Active, pcr_set)
             .await
     }
@@ -249,16 +269,34 @@ impl MeasurementReport {
         &self,
         db_conn: &Pool<Postgres>,
         pcr_set: &Option<common::PcrSet>,
-    ) -> eyre::Result<MeasurementBundle> {
-        let mut txn = db_conn.begin().await?;
-        self.create_revoked_bundle_with_txn(&mut txn, pcr_set).await
+    ) -> CarbideResult<MeasurementBundle> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.create_revoked_bundle begin",
+                e,
+            ))
+        })?;
+        let bundle = self
+            .create_revoked_bundle_with_txn(&mut txn, pcr_set)
+            .await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.create_revoked_bundle commit",
+                e,
+            ))
+        })?;
+        Ok(bundle)
     }
 
     pub async fn create_revoked_bundle_with_txn(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         pcr_set: &Option<common::PcrSet>,
-    ) -> eyre::Result<MeasurementBundle> {
+    ) -> CarbideResult<MeasurementBundle> {
         self.create_bundle_with_state(txn, MeasurementBundleState::Revoked, pcr_set)
             .await
     }
@@ -598,7 +636,7 @@ pub async fn create_bundle_with_state(
     report: &MeasurementReport,
     state: MeasurementBundleState,
     pcr_set: &Option<common::PcrSet>,
-) -> eyre::Result<MeasurementBundle> {
+) -> CarbideResult<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
     let machine = CandidateMachine::from_id_with_txn(txn, report.machine_id.clone()).await?;
@@ -618,14 +656,14 @@ pub async fn create_bundle_with_state(
         // and then attempt to pluck out a pcr_register value from
         // the register_map for each index in the range.
         Some(pcr_set) => {
-            let filtered: eyre::Result<Vec<common::PcrRegisterValue>> = pcr_set
+            let filtered: CarbideResult<Vec<common::PcrRegisterValue>> = pcr_set
                 .iter()
                 .map(|pcr_register| match register_map.get(pcr_register) {
                     Some(register_val) => Ok(register_val.clone()),
-                    None => Err(eyre::eyre!(
-                        "could not find pcr_register value {} in range",
-                        pcr_register
-                    )),
+                    None => Err(CarbideError::NotFoundError {
+                        kind: "PcrRegisterValue",
+                        id: pcr_register.to_string(),
+                    }),
                 })
                 .collect();
             filtered?

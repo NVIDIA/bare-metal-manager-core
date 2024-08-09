@@ -37,42 +37,12 @@ use std::ops::DerefMut;
 pub async fn insert_measurement_profile_record(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
-) -> eyre::Result<MeasurementSystemProfileRecord> {
+) -> Result<MeasurementSystemProfileRecord, sqlx::Error> {
     let query = "insert into measurement_system_profiles(name) values($1) returning *";
-    let profile = sqlx::query_as::<_, MeasurementSystemProfileRecord>(query)
+    sqlx::query_as::<_, MeasurementSystemProfileRecord>(query)
         .bind(name.clone())
         .fetch_one(txn.deref_mut())
         .await
-        .map_err(|sqlx_err| {
-            let is_db_err = sqlx_err.as_database_error();
-            match is_db_err {
-                Some(db_err) => match db_err.kind() {
-                    sqlx::error::ErrorKind::UniqueViolation => {
-                        eyre::eyre!("profile already exists: {} (msg: {})", name.clone(), db_err)
-                    }
-                    sqlx::error::ErrorKind::NotNullViolation => {
-                        eyre::eyre!(
-                            "profile missing required value: {} (msg: {})",
-                            name.clone(),
-                            db_err
-                        )
-                    }
-                    _ => {
-                        eyre::eyre!(
-                            "db error creating profile record: {} (msg: {})",
-                            name.clone(),
-                            db_err
-                        )
-                    }
-                },
-                None => eyre::eyre!(
-                    "general error creating profile record: {} (msg: {})",
-                    name.clone(),
-                    sqlx_err
-                ),
-            }
-        })?;
-    Ok(profile)
 }
 
 /// insert_measurement_profile_attr_records takes a hashmap of
@@ -83,7 +53,7 @@ pub async fn insert_measurement_profile_attr_records(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
     attrs: &HashMap<String, String>,
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     let mut attributes: Vec<MeasurementSystemProfileAttrRecord> = Vec::new();
     for (key, value) in attrs.iter() {
         attributes.push(insert_measurement_profile_attr_record(txn, profile_id, key, value).await?);
@@ -98,20 +68,26 @@ async fn insert_measurement_profile_attr_record(
     profile_id: MeasurementSystemProfileId,
     key: &String,
     value: &String,
-) -> eyre::Result<MeasurementSystemProfileAttrRecord> {
+) -> Result<MeasurementSystemProfileAttrRecord, DatabaseError> {
     let query = format!(
         "insert into {}(profile_id, key, value) values($1, $2, $3) returning *",
         MeasurementSystemProfileAttrRecord::db_table_name()
     );
 
-    Ok(
-        sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
-            .bind(profile_id)
-            .bind(key)
-            .bind(value)
-            .fetch_one(txn.deref_mut())
-            .await?,
-    )
+    sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
+        .bind(profile_id)
+        .bind(key)
+        .bind(value)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "insert_measurement_profile_attr_record",
+                e,
+            )
+        })
 }
 
 /// rename_profile_for_profile_id renames a profile based on its profile ID.
