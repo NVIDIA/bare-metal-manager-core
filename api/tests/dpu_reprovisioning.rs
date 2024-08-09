@@ -373,6 +373,45 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHostBmc)]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+            },
+        }
+    );
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -604,14 +643,53 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     txn.commit().await.unwrap();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     let _ = network_configured(&env, &dpu_machine_id).await;
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHostBmc)]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
 
     assert!(matches!(
         dpu.current_state(),
@@ -619,7 +697,6 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
             machine_state: MachineState::Discovered
         }
     ));
-    txn.commit().await.unwrap();
 
     let _response = forge_agent_control(
         &env,
@@ -931,14 +1008,61 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
-    let mut txn = env.pool.begin().await.unwrap();
+
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::RebootHostBmc
+                    )]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
 
     assert!(matches!(
         dpu.current_state(),
@@ -946,7 +1070,6 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::Ready
         }
     ));
-    txn.commit().await.unwrap();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -1222,14 +1345,60 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::RebootHostBmc
+                    )]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
 
     assert!(matches!(
         dpu.current_state(),
@@ -1251,8 +1420,6 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .into_inner();
 
     assert!(pxe.pxe_script.contains("exit"));
-
-    txn.commit().await.unwrap();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
@@ -2369,6 +2536,51 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     );
     let _ = network_configured(&env, &dpu_machine_id_1).await;
     let _ = network_configured(&env, &dpu_machine_id_2).await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHostBmc),
+                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHostBmc)
+                ]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHost),
+                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHost)
+                ]),
+            },
+        }
+    );
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -2681,6 +2893,51 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     );
     let _ = network_configured(&env, &dpu_machine_id_1).await;
     let _ = network_configured(&env, &dpu_machine_id_2).await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHostBmc),
+                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHostBmc)
+                ]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHost),
+                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHost)
+                ]),
+            },
+        }
+    );
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;

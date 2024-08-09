@@ -560,6 +560,8 @@ pub enum ReprovisionState {
     BufferTime,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
+    RebootHostBmc,
+    RebootHost,
     NotUnderReprovision,
 }
 
@@ -1387,6 +1389,18 @@ pub trait NextReprovisionState {
                     &state.dpu_snapshots,
                     all_machine_ids,
                 ),
+            ReprovisionState::WaitingForNetworkConfig => ReprovisionState::RebootHostBmc
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_machine_ids,
+                ),
+            ReprovisionState::RebootHostBmc => ReprovisionState::RebootHost
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_machine_ids,
+                ),
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {} state for all dpu handling.",
                 current_reprovision_state
@@ -1406,7 +1420,7 @@ impl NextReprovisionState for MachineNextStateResolver {
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
 
         match reprovision_state {
-            ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::HostInit {
+            ReprovisionState::RebootHost => Ok(ManagedHostState::HostInit {
                 machine_state: MachineState::Discovered,
             }),
             _ => Err(StateHandlerError::InvalidState(format!(
@@ -1428,7 +1442,7 @@ impl NextReprovisionState for InstanceNextStateResolver {
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
 
         match reprovision_state {
-            ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::Assigned {
+            ReprovisionState::RebootHost => Ok(ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
             }),
             _ => Err(StateHandlerError::InvalidState(format!(
