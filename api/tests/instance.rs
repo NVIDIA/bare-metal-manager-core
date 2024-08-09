@@ -16,10 +16,11 @@ use carbide::{
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::{Instance, InstanceId},
-        instance_address::InstanceAddress,
+        instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         machine::{Machine, MachineSearchConfig},
         network_prefix::NetworkPrefix,
     },
+    dhcp::allocation::UsedIpResolver,
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
         instance::{
@@ -1368,7 +1369,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         ],
     });
 
-    let (_instance_id, _instance) = create_instance(
+    let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -1397,6 +1398,50 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
             .unwrap(),
         1
     );
+
+    // The create_network_segment fixture creates two network segments, backed by
+    // FIXTURE_NETWORK_SEGMENT_ID (91609f10-c91d-470d-a260-6293ea0c1200, 192.0.2.0/24)
+    // and FIXTURE_NETWORK_SEGMENT_ID_1 (4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9, 192.0.3.0/24),
+    // so after the instance is allocated with an InstanceNetworkConfig containing
+    // interfaces in both segments, lets check the allocaitons to make sure it worked as
+    // expected.
+    //
+    // TODO(chet): This will be where I also drop prefix allocation testing!
+
+    // Check the allocated IP for the PF/primary interface.
+    let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
+        segment_id: *FIXTURE_NETWORK_SEGMENT_ID,
+    };
+    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
+    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    assert_eq!(1, used_ips.len());
+    assert_eq!(1, used_prefixes.len());
+    assert_eq!("192.0.2.3", used_ips[0].0.to_string());
+    assert_eq!("192.0.2.3/32", used_prefixes[0].0.to_string());
+
+    // Check the allocated VF.
+    let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
+        segment_id: *FIXTURE_NETWORK_SEGMENT_ID_1,
+    };
+    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
+    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    assert_eq!(1, used_ips.len());
+    assert_eq!(1, used_prefixes.len());
+    assert_eq!("192.0.3.3", used_ips[0].0.to_string());
+    assert_eq!("192.0.3.3/32", used_prefixes[0].0.to_string());
+
+    // And make sure find_by_prefix works -- just leverage
+    // the last used_prefixes prefix and make sure it matches
+    // the allocated instance ID.
+    let address_by_prefix = InstanceAddress::find_by_prefix(&mut txn, used_prefixes[0].0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        instance_id.to_string(),
+        address_by_prefix.instance_id.to_string()
+    );
+
     txn.commit().await.unwrap();
 
     // The addresses should show up in the internal config - which is sent to the DPU
