@@ -25,11 +25,18 @@ use crate::{
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {
-    // Method to get used IP for implementor.
+    // Method to get used IPs for implementor.
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<(IpAddr,)>, DatabaseError>;
+
+    // Method to get used prefixes, which comes
+    // from instance_addresses.prefix.
+    async fn used_prefixes(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -259,7 +266,7 @@ mod tests {
                 gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 1,
             }],
-            used_ips: vec![(IpAddr::V4("10.1.1.2".parse().unwrap()),)], // The address we allocated above when we called next()
+            used_ips: vec![("10.1.1.2".parse().unwrap(),)], // The address we allocated above when we called next()
         };
         let nfree = allocator.num_free();
         assert_eq!(nfree, 252);
@@ -374,8 +381,8 @@ mod tests {
                 num_reserved: 1,
             }],
             used_ips: vec![
-                (IpAddr::V4("10.217.4.162".parse().unwrap()),),
-                (IpAddr::V4("10.217.4.163".parse().unwrap()),),
+                ("10.217.4.162".parse().unwrap(),),
+                ("10.217.4.163".parse().unwrap(),),
             ],
         };
 

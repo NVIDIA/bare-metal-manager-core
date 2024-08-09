@@ -47,7 +47,7 @@ pub mod cfg;
 pub mod credentials;
 pub mod db;
 pub mod db_init;
-mod dhcp;
+pub mod dhcp;
 pub mod dynamic_settings;
 pub mod ethernet_virtualization;
 mod firmware_downloader;

@@ -16,6 +16,7 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -811,5 +812,42 @@ WHERE network_segments.id = $1::uuid";
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    // NOTE(Chet): This is kind of a hack! Machine interfaces
+    // aren't allocated prefixes, and I think it might be
+    // confusing if we added `prefix` column to the
+    // machine_interface_addresses table (since it's always
+    // just going to be a /32 anyway).
+    //
+    // So, instead of database schema changes, just get all of
+    // the used IPs and turn them into IpNetworks.
+    //
+    // This could also potentially just always return an error
+    // saying its not implemented for machine_interfaces, BUT,
+    // at some point soon, the IpAllocator is going to do it's
+    // next-available-ip matching based on used_prefixes, so
+    // this will [probably] need to exist in this form.
+    async fn used_prefixes(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+        let used_ips = self.used_ips(txn).await?;
+        let mut ip_networks: Vec<(IpNetwork,)> = Vec::new();
+        for used_ip in used_ips {
+            let network = IpNetwork::new(used_ip.0, 32).map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "machine_interface.used_prefixes",
+                    sqlx::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )),
+                )
+            })?;
+            ip_networks.push((network,));
+        }
+        Ok(ip_networks)
     }
 }

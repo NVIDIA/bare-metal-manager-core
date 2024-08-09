@@ -13,18 +13,21 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use super::network_segment::NetworkSegmentSearchConfig;
 use super::DatabaseError;
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
     UuidKeyedObjectFilter,
 };
+
 use crate::db::instance::InstanceId;
-use crate::db::network_segment::NetworkSegmentId;
+use crate::db::network_segment::{
+    NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
+};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
@@ -37,6 +40,7 @@ pub struct InstanceAddress {
     pub instance_id: InstanceId,
     pub circuit_id: String,
     pub address: IpAddr,
+    pub prefix: IpNetwork,
 }
 
 impl InstanceAddress {
@@ -55,6 +59,18 @@ impl InstanceAddress {
         let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
         sqlx::query_as(query)
             .bind(address)
+            .fetch_optional(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn find_by_prefix(
+        txn: &mut Transaction<'_, Postgres>,
+        prefix: IpNetwork,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * FROM instance_addresses WHERE prefix = $1::cidr";
+        sqlx::query_as(query)
+            .bind(prefix)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -190,7 +206,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
         let segments = NetworkSegment::find(
             &mut inner_txn,
-            crate::db::network_segment::NetworkSegmentIdKeyedObjectFilter::List(
+            NetworkSegmentIdKeyedObjectFilter::List(
                 &updated_config
                     .interfaces
                     .iter()
@@ -262,14 +278,26 @@ WHERE network_prefixes.segment_id = $1::uuid";
             )
             .await?;
 
-            let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address)
-                         VALUES ($1::uuid, $2, $3::inet)";
+            let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address, prefix)
+                         VALUES ($1::uuid, $2, $3::inet, $4::cidr)";
             for (prefix_id, address) in allocated_addresses {
                 let address = address?;
+
+                // TODO(chet): Prefix is currently a hard-coded to /32 from the instance
+                // address, but will soon be changing as part of FNN needing to be able
+                // to allocate a tenant *prefix* (e.g. a /30) per DPU on a tenant instance.
+                //
+                // The InstanceNetworkConfig will contain a prefix_length for the prefix
+                // size requested in a given network segment, and the IpAllocator is going
+                // to be modified to find the next available prefix of prefix_length within
+                // that segment.
+                let prefix = IpNetwork::new(address, 32).map_err(CarbideError::from)?;
+
                 sqlx::query(query)
                     .bind(instance_id)
                     .bind(circuit_id.to_owned())
                     .bind(address)
+                    .bind(prefix)
                     .fetch_all(&mut *inner_txn)
                     .await
                     .map_err(|e| {
@@ -309,11 +337,28 @@ WHERE network_segments.id = $1::uuid";
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    async fn used_prefixes(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+        let query: &str = "
+SELECT instance_addresses.prefix FROM instance_addresses
+INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
+INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+WHERE network_segments.id = $1::uuid";
+        sqlx::query_as(query)
+            .bind(self.segment_id)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::network_segment::NetworkSegmentType;
     use crate::db::vpc::VpcId;
     use crate::model::{
         controller_outcome::PersistentStateHandlerOutcome,
@@ -349,7 +394,7 @@ mod tests {
                     history: Vec::new(),
                     vlan_id: None,
                     vni: None,
-                    segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
+                    segment_type: NetworkSegmentType::Tenant,
                 }
             })
             .collect_vec();
