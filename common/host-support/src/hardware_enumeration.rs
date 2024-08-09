@@ -34,13 +34,14 @@ const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
-const GPU_PCI_CLASS: &str = "0x030200";
 const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
 const PCI_VENDOR_FROM_DB: &str = "ID_VENDOR_FROM_DATABASE";
 
 const BF2_PRODUCT_NAME: &str = "BlueField SoC";
 const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
 const BF3_CPU_PART: &str = "0xd42";
+const NVIDIA_VENDOR_ID: &str = "0x10de";
+const NVIDIA_VENDOR_DRIVER: &str = "nvidia";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
@@ -547,13 +548,16 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         _ => None,
     };
 
-    // Check udev for existing GPUs.  If there are none, then the driver will not be loaded and the tools used to gather information will fail.
     let mut enumerator = libudev::Enumerator::new(&context)?;
-    enumerator.match_attribute("class", GPU_PCI_CLASS)?;
+    // It is currently assumed all GPUs are from vendor nvidia and use the nvidia driver
+    enumerator.match_attribute("vendor", NVIDIA_VENDOR_ID)?;
+    enumerator.match_attribute("driver", NVIDIA_VENDOR_DRIVER)?;
+
     let device_count = enumerator.scan_devices()?.count();
 
+    // If there are no GPUs present on the host we do not want to run nvidia-smi as it will fail
     let gpus = if device_count > 0 {
-        gpu::discover_gpus()?
+        gpu::get_nvidia_smi_data()?
     } else {
         tracing::debug!("No GPUs detected, skipping");
         vec![]
@@ -615,6 +619,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                     break;
                 }
             }
+
             memory_devices.push(MemoryDevice {
                 size_mb: Some(mem / 1024),
                 mem_type: backup_ram_type,

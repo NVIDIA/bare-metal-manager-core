@@ -3,7 +3,10 @@ use utils::cmd::Cmd;
 
 use super::HardwareEnumerationResult;
 
-pub fn discover_gpus() -> HardwareEnumerationResult<Vec<RpcGpu>> {
+/// Retrieve nvidia-smi data about a machine.
+///
+/// It is assumed that the machine should have the nvidia kernel module loaded, or this call will fail.
+pub fn get_nvidia_smi_data() -> HardwareEnumerationResult<Vec<RpcGpu>> {
     let cmd = Cmd::new("nvidia-smi")
         .args(vec!["--format=csv,noheader", "--query-gpu=name,serial,driver_version,vbios_version,inforom.image,memory.total,clocks.applications.gr,pci.bus_id"])
         .output()?;
