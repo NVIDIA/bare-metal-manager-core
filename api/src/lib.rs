@@ -69,6 +69,7 @@ pub mod resource_pool;
 pub mod setup;
 pub mod site_explorer;
 pub mod state_controller;
+pub mod storage;
 pub mod web;
 
 /// Represents various Errors that can occur throughout the system.
@@ -193,6 +194,9 @@ pub enum CarbideError {
 
     #[error("Error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),
+
+    #[error("Error in libnvmesh: {0}")]
+    NvmeshApiError(#[from] libnvmesh::NvmeshApiError),
 
     #[error("Resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),

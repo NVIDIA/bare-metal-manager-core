@@ -181,6 +181,7 @@ pub async fn create_instance(
         os: Some(os),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await

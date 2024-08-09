@@ -65,6 +65,7 @@ use std::{net::IpAddr, sync::Arc, task::Poll};
 use tokio::{fs::File, sync::Semaphore};
 
 mod ib;
+mod storage;
 
 /// Reachability params to check if DPU is up or not.
 #[derive(Copy, Clone, Debug)]
@@ -3830,6 +3831,34 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForStorageConfig,
+                    };
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                InstanceState::WaitingForStorageConfig => {
+                    let dpu_machine_id = &state.dpu_snapshots[0].machine_id;
+
+                    // attach volumes to instance
+                    storage::attach_storage_volumes(
+                        ctx.services,
+                        txn,
+                        instance.id,
+                        dpu_machine_id,
+                        instance.config.storage.clone(),
+                        false,
+                    )
+                    .await?;
+
+                    storage::record_storage_status_observation(
+                        ctx.services,
+                        txn,
+                        instance,
+                        instance.config.storage.clone(),
+                    )
+                    .await?;
+
                     // Reboot host
                     handler_host_power_control(
                         state,
@@ -3845,6 +3874,7 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::Ready,
                     };
+
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::Ready => {

@@ -65,6 +65,8 @@ use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, Networ
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
+use crate::storage::NvmeshClientPool;
+
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
@@ -92,6 +94,7 @@ pub struct Api {
     pub(crate) credential_provider: Arc<dyn CredentialProvider>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
+    pub(crate) nvmesh_pool: Arc<dyn NvmeshClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
     pub(crate) ib_fabric_manager: Arc<dyn IBFabricManager>,
@@ -3912,6 +3915,146 @@ impl Forge for Api {
     ) -> Result<Response<rpc::GetRedfishJobStateResponse>, Status> {
         crate::handlers::redfish::get_redfish_job_state(self, request).await
     }
+
+    async fn import_storage_cluster(
+        &self,
+        request: Request<rpc::StorageClusterAttributes>,
+    ) -> Result<Response<rpc::StorageCluster>, Status> {
+        crate::storage::import_storage_cluster(self, request).await
+    }
+
+    async fn list_storage_cluster(
+        &self,
+        request: Request<rpc::ListStorageClusterRequest>,
+    ) -> Result<Response<rpc::ListStorageClusterResponse>, Status> {
+        crate::storage::list_storage_cluster(self, request).await
+    }
+
+    async fn get_storage_cluster(
+        &self,
+        request: Request<::rpc::Uuid>,
+    ) -> Result<Response<rpc::StorageCluster>, Status> {
+        crate::storage::get_storage_cluster(self, request).await
+    }
+
+    async fn delete_storage_cluster(
+        &self,
+        request: Request<rpc::DeleteStorageClusterRequest>,
+    ) -> Result<Response<rpc::DeleteStorageClusterResponse>, Status> {
+        crate::storage::delete_storage_cluster(self, request).await
+    }
+
+    async fn update_storage_cluster(
+        &self,
+        request: Request<rpc::UpdateStorageClusterRequest>,
+    ) -> Result<Response<rpc::StorageCluster>, Status> {
+        crate::storage::update_storage_cluster(self, request).await
+    }
+
+    async fn create_storage_pool(
+        &self,
+        request: Request<rpc::StoragePoolAttributes>,
+    ) -> Result<Response<rpc::StoragePool>, Status> {
+        crate::storage::create_storage_pool(self, request).await
+    }
+
+    async fn list_storage_pool(
+        &self,
+        request: Request<rpc::ListStoragePoolRequest>,
+    ) -> Result<Response<rpc::ListStoragePoolResponse>, Status> {
+        crate::storage::list_storage_pool(self, request).await
+    }
+
+    async fn get_storage_pool(
+        &self,
+        request: Request<::rpc::Uuid>,
+    ) -> Result<Response<rpc::StoragePool>, Status> {
+        crate::storage::get_storage_pool(self, request).await
+    }
+
+    async fn delete_storage_pool(
+        &self,
+        request: Request<rpc::DeleteStoragePoolRequest>,
+    ) -> Result<Response<rpc::DeleteStoragePoolResponse>, Status> {
+        crate::storage::delete_storage_pool(self, request).await
+    }
+
+    async fn update_storage_pool(
+        &self,
+        request: Request<rpc::StoragePoolAttributes>,
+    ) -> Result<Response<rpc::StoragePool>, Status> {
+        crate::storage::update_storage_pool(self, request).await
+    }
+
+    async fn create_storage_volume(
+        &self,
+        request: Request<rpc::StorageVolumeAttributes>,
+    ) -> Result<Response<rpc::StorageVolume>, Status> {
+        crate::storage::create_storage_volume(self, request).await
+    }
+
+    async fn list_storage_volume(
+        &self,
+        request: Request<rpc::StorageVolumeFilter>,
+    ) -> Result<Response<rpc::ListStorageVolumeResponse>, Status> {
+        crate::storage::list_storage_volume(self, request).await
+    }
+
+    async fn get_storage_volume(
+        &self,
+        request: Request<::rpc::Uuid>,
+    ) -> Result<Response<rpc::StorageVolume>, Status> {
+        crate::storage::get_storage_volume(self, request).await
+    }
+
+    async fn delete_storage_volume(
+        &self,
+        request: Request<rpc::DeleteStorageVolumeRequest>,
+    ) -> Result<Response<rpc::DeleteStorageVolumeResponse>, Status> {
+        crate::storage::delete_storage_volume(self, request).await
+    }
+
+    async fn update_storage_volume(
+        &self,
+        request: Request<rpc::StorageVolumeAttributes>,
+    ) -> Result<Response<rpc::StorageVolume>, Status> {
+        crate::storage::update_storage_volume(self, request).await
+    }
+
+    async fn create_os_image(
+        &self,
+        request: Request<rpc::OsImageAttributes>,
+    ) -> Result<Response<rpc::OsImage>, Status> {
+        crate::storage::create_os_image(self, request).await
+    }
+
+    async fn list_os_image(
+        &self,
+        request: Request<rpc::ListOsImageRequest>,
+    ) -> Result<Response<rpc::ListOsImageResponse>, Status> {
+        crate::storage::list_os_image(self, request).await
+    }
+
+    async fn get_os_image(
+        &self,
+        request: Request<::rpc::Uuid>,
+    ) -> Result<Response<rpc::OsImage>, Status> {
+        crate::storage::get_os_image(self, request).await
+    }
+
+    async fn delete_os_image(
+        &self,
+        request: Request<rpc::DeleteOsImageRequest>,
+    ) -> Result<Response<rpc::DeleteOsImageResponse>, Status> {
+        crate::storage::delete_os_image(self, request).await
+    }
+
+    async fn update_os_image(
+        &self,
+        request: Request<rpc::OsImageAttributes>,
+    ) -> Result<Response<rpc::OsImage>, Status> {
+        crate::storage::update_os_image(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -3948,6 +4091,7 @@ impl Api {
         certificate_provider: Arc<dyn CertificateProvider>,
         database_connection: sqlx::PgPool,
         redfish_pool: Arc<dyn RedfishClientPool>,
+        nvmesh_pool: Arc<dyn NvmeshClientPool>,
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
@@ -3959,6 +4103,7 @@ impl Api {
             credential_provider,
             certificate_provider,
             redfish_pool,
+            nvmesh_pool,
             eth_data,
             common_pools,
             ib_fabric_manager,

@@ -42,6 +42,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &host_machine_id,
                 Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
+                None,
                 vec![],
             )
             .await;
@@ -51,6 +52,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &dpu_machine_id,
                 &host_machine_id,
                 Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
                 None,
                 vec![],
                 rpc::Metadata {
@@ -211,6 +213,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &host_machine_id,
                 Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
+                None,
                 vec![],
             )
             .await;
@@ -220,6 +223,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &dpu_machine_id,
                 &host_machine_id,
                 Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
                 None,
                 vec![],
                 rpc::Metadata {

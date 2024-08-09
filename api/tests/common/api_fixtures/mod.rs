@@ -21,6 +21,7 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
+use carbide::storage::{NvmeshClientPool, NvmeshSimClient};
 use carbide::{
     api::Api,
     cfg::{
@@ -121,6 +122,7 @@ pub struct TestEnv {
     pub eth_virt_data: EthVirtData,
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
+    pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
     pub machine_state_controller_io: MachineStateControllerIO,
@@ -138,6 +140,7 @@ impl TestEnv {
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
+            nvmesh_client_pool: self.nvmesh_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             forge_api: self.api.clone(),
             meter: Some(self.test_meter.meter()),
@@ -293,6 +296,7 @@ impl TestEnv {
             .database(self.pool.clone())
             .meter(object_type_for_metrics, self.test_meter.meter())
             .redfish_client_pool(self.redfish_sim.clone())
+            .nvmesh_client_pool(self.nvmesh_sim.clone())
             .ib_fabric_manager(self.ib_fabric_manager.clone())
             .forge_api(self.api.clone())
             .ipmi_tool(self.ipmi_tool.clone())
@@ -604,6 +608,8 @@ pub async fn create_test_env_with_config(
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
+    let nvmesh_sim: Arc<dyn NvmeshClientPool> = Arc::new(NvmeshSimClient::default());
+
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_provider.clone(),
         IBFabricManagerConfig {
@@ -658,6 +664,7 @@ pub async fn create_test_env_with_config(
         certificate_provider.clone(),
         db_pool.clone(),
         redfish_sim.clone(),
+        nvmesh_sim.clone(),
         eth_virt_data.clone(),
         common_pools.clone(),
         ib_fabric_manager.clone(),
@@ -676,6 +683,7 @@ pub async fn create_test_env_with_config(
         eth_virt_data,
         pool: db_pool,
         redfish_sim,
+        nvmesh_sim,
         ib_fabric_manager,
         ipmi_tool: Arc::new(IPMIToolTestImpl {}),
         machine_state_controller_io: MachineStateControllerIO::default(),

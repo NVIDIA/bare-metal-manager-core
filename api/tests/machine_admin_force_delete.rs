@@ -582,6 +582,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
     )
     .await;

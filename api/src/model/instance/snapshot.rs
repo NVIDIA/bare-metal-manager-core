@@ -54,6 +54,8 @@ pub struct InstanceSnapshot {
     /// of [InstanceConfig::infiniband]
     pub ib_config_version: ConfigVersion,
 
+    pub storage_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -80,6 +82,7 @@ impl InstanceSnapshot {
             Versioned::new(&self.config, self.config_version),
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),
+            Versioned::new(&self.config.storage, self.storage_config_version),
             &self.observations,
             managed_host_state,
             self.deleted.is_some(),

@@ -259,6 +259,7 @@ service Forge {
   rpc RedfishPowerControl(RedfishPowerControlRequest) returns (google.protobuf.Empty); 
   rpc GetRedfishJobState(GetRedfishJobStateRequest) returns (GetRedfishJobStateResponse); 
 
+
   // Identify the vendor of a BMC without logging into it
   rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
 
@@ -344,6 +345,33 @@ service Forge {
   ////////////////////////////////////////////////////////////////////////////////
   // End Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
+
+  // Block storage
+  // apis are create/delete, list (multiple items with filters), get (one item), update
+  // objects are clusters, pools, volumes (including snapshots), os images
+  rpc ImportStorageCluster(StorageClusterAttributes) returns (StorageCluster);
+  rpc DeleteStorageCluster(DeleteStorageClusterRequest) returns (DeleteStorageClusterResponse);
+  rpc ListStorageCluster(ListStorageClusterRequest) returns (ListStorageClusterResponse);
+  rpc GetStorageCluster(common.UUID) returns (StorageCluster);
+  rpc UpdateStorageCluster(UpdateStorageClusterRequest) returns (StorageCluster);
+
+  rpc CreateStoragePool(StoragePoolAttributes) returns (StoragePool);
+  rpc DeleteStoragePool(DeleteStoragePoolRequest) returns (DeleteStoragePoolResponse);
+  rpc ListStoragePool(ListStoragePoolRequest) returns (ListStoragePoolResponse);
+  rpc GetStoragePool(common.UUID) returns (StoragePool);
+  rpc UpdateStoragePool(StoragePoolAttributes) returns (StoragePool);
+
+  rpc CreateStorageVolume(StorageVolumeAttributes) returns (StorageVolume);
+  rpc DeleteStorageVolume(DeleteStorageVolumeRequest) returns (DeleteStorageVolumeResponse);
+  rpc ListStorageVolume(StorageVolumeFilter) returns (ListStorageVolumeResponse);
+  rpc GetStorageVolume(common.UUID) returns (StorageVolume);
+  rpc UpdateStorageVolume(StorageVolumeAttributes) returns (StorageVolume);
+
+  rpc CreateOsImage(OsImageAttributes) returns (OsImage);
+  rpc DeleteOsImage(DeleteOsImageRequest) returns (DeleteOsImageResponse);
+  rpc ListOsImage(ListOsImageRequest) returns (ListOsImageResponse);
+  rpc GetOsImage(common.UUID) returns (OsImage);
+  rpc UpdateOsImage(OsImageAttributes) returns (OsImage);
 
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
@@ -1049,6 +1077,9 @@ message InstanceConfig {
 
   // Configures instance infiniband configurations.
   InstanceInfinibandConfig infiniband = 12;
+
+  // Configures instance storage
+  InstanceStorageConfig storage = 21;
 }
 
 // Desired network configuration for an instance
@@ -1067,6 +1098,14 @@ message InstanceNetworkConfig {
 message InstanceInfinibandConfig {
   // Configures how instance infiniband interfaces are set up
   repeated InstanceIBInterfaceConfig ib_interfaces = 1;
+}
+
+// Desired storage configuration for an instance
+// This can be upto 8 volumes
+// The list is ordered and volumes are attached to the instance based on the order provided
+// The boot volume (if specified) MUST be the first item in the list
+message InstanceStorageConfig {
+  repeated StorageVolumeAttributes volumes = 1;
 }
 
 // New configuration for the instances network interfaces
@@ -1141,6 +1180,9 @@ message InstanceStatus {
   // Status of the infiniband subsystem of an instance
   InstanceInfinibandStatus infiniband = 12;
 
+  // Status of the storage subsystem of an instance
+  InstanceStorageStatus storage = 21;
+
   // Whether all configurations related to an instance are in-sync.
   // This is a logical AND for the settings of all sub-configurations.
   // At this time it equals `InstanceNetworkStatus::configs_synced`,
@@ -1200,6 +1242,11 @@ message InstanceInfinibandStatus {
   SyncState configs_synced = 101;
 }
 
+message InstanceStorageStatus {
+  repeated StorageVolume volumes = 1;
+  SyncState configs_synced = 101;
+}
+
 // Contains all information about an actively running instance
 // This entails both the instance configuration, as well as the current state of the instance
 message Instance {
@@ -1234,6 +1281,9 @@ message Instance {
   // In a future version of Forge we might however remove the separate network
   // configuration versioning.
   string config_version = 203;
+  // todo: not sure if we need a storage specific config version or we can use
+  // the instance config version above.
+  string storage_config_version = 204;
 }
 
 message InstanceUpdateStatus {
@@ -2176,6 +2226,20 @@ message RemoveHealthReportOverrideRequest {
   string source = 2;
 }
 
+message InstanceStorageStatusObservation {
+  // The ID of the instance for which this status was observed
+  common.UUID instance_id = 1;
+
+  // The version of the config that is applied on the storage subsystem
+  string config_version = 2;
+
+  // When this status was observed
+  optional google.protobuf.Timestamp observed_at = 3;
+
+  // status of each volume
+  repeated StorageVolume volumes = 4;
+}
+
 // Observed status of the networking subsystem of an instance
 message InstanceNetworkStatusObservation {
   // The ID of the instance for which this status was observed
@@ -2676,6 +2740,244 @@ message IdentifyBMCRequest {
 message IdentifyBMCResponse {
   string known_vendor = 1;
   string raw_vendor = 2;
+}
+
+enum StorageRaidLevels {
+  Concatenated = 0;
+  Raid0 = 1;
+  Raid1 = 2;
+  Raid10 = 3;
+  ErasureCoding = 4;
+}
+
+message StorageClusterAttributes {
+  // storage clusters can have multiple mgmt ip addresses for redundancy
+  repeated string host = 1;
+  uint32 port = 2;
+  // we will not return this data in List requests, its required when importing
+  optional string username = 3;
+  optional string password = 4;
+  optional string description = 5;
+}
+
+message StorageCluster {
+  // name && uuid are returned by nvmesh
+  common.UUID id = 1;
+  string name = 2;
+  uint64 capacity = 3;
+  uint64 allocated = 4;
+  uint64 available = 5;
+  bool healthy = 6;
+  StorageClusterAttributes attributes = 7;
+  optional string created_at = 8;
+  optional string modified_at = 9;
+}
+
+message StoragePoolAttributes {
+  // cluster to create this pool in
+  common.UUID cluster_id = 1;
+  StorageRaidLevels raid_level = 2;
+  uint64 capacity = 3;
+  // storage pools and volumes within them are per tenant
+  string tenantOrganizationId = 4;
+  // use for boot volumes and snapshots. only one pool MUST have this set per tenant.
+  bool use_for_boot_volumes = 5;
+  // id to use for this pool when creating it
+  common.UUID id = 6;
+  optional string name = 7;
+  optional string description = 8;
+}
+
+message StoragePool {
+  common.UUID nvmesh_uuid = 1;
+  uint64 allocated = 2;
+  uint64 available = 3;
+  StoragePoolAttributes attributes = 4;
+  optional string created_at = 5;
+  optional string modified_at = 6;
+}
+
+enum StorageVolumeHealth {
+  VolumeInitializing = 0;
+  VolumeHealthy = 1;
+  VolumeDegraded = 2;
+  VolumeFailed = 3;
+  VolumeRebuilding = 4;
+}
+
+message StorageVolumeStatus {
+  StorageVolumeHealth health = 1;
+  // volume attached to nvmeshum+spdk+snap on dpu, shown as nvme drive to host
+  // false == detached on dpu
+  bool attached = 2;
+  // any status descriptive text returned by storage client or target
+  optional string status_message = 5;
+}
+
+message StorageVolumeAttributes {
+  common.UUID cluster_id = 1;
+  // storage pool to create the volume in
+  common.UUID pool_id = 2;
+  uint64 capacity = 3;
+  bool delete_with_instance = 4;
+  // can only be set when sending volume attributes for creating an instance
+  optional bool use_existing_volume = 5;
+  // set if instance is to be configured to boot from this volume
+  // (can set to only one volume per instance)
+  optional bool boot_volume = 6;
+  // optionally set the os image to use if setting boot_volume=true
+  // boot volume can be a regular volume too that is not sourced from an os image
+  optional common.UUID os_image_id = 7;
+    // only if this is a snapshot: set to id of the source volume
+  optional common.UUID source_id = 8;
+  // if attaching a pre-existing volume, provide its id and set use_existing_volume=true,
+  // or generate a new uuid to use as volume id when creating it
+  common.UUID id = 9;
+  optional string name = 10;
+  optional string description = 11;
+}
+
+message StorageVolume {
+  common.UUID nvmesh_uuid = 1;
+  StorageVolumeAttributes attributes = 2;
+  StorageVolumeStatus status = 3;
+  // volumes may or may not have an instance_id or could have multiple instances
+  repeated common.UUID instance_id = 4;
+  // storage is attached to each dpu specifically
+  repeated common.MachineId dpu_machine_id = 5;
+  optional string created_at = 6;
+  optional string modified_at = 7;
+}
+
+message DeleteStorageClusterRequest {
+  string name = 1;
+  common.UUID id = 2;
+}
+
+message DeleteStorageClusterResponse {
+}
+
+message DeleteStoragePoolRequest {
+  common.UUID cluster_id = 1;
+  common.UUID pool_id = 2;
+}
+
+message DeleteStoragePoolResponse {
+}
+
+message DeleteStorageVolumeRequest {
+  common.UUID volume_id = 1;
+  common.UUID pool_id = 2;
+  common.UUID cluster_id = 3;
+}
+
+message DeleteStorageVolumeResponse {
+}
+
+message ListStorageClusterRequest {
+}
+
+message ListStorageClusterResponse {
+  repeated StorageCluster clusters = 1;
+}
+
+message UpdateStorageClusterRequest {
+  common.UUID cluster_id = 1;
+  StorageClusterAttributes attributes = 2;
+}
+
+message ListStoragePoolRequest {
+  common.UUID cluster_id = 1;
+  // filter by tenant
+  optional string tenantOrganizationId = 2;
+}
+
+message ListStoragePoolResponse {
+  repeated StoragePool pools = 1;
+}
+
+// storage volumes can be in the 100s or 1000s on a site, 8 per host
+message StorageVolumeFilter {
+  optional common.UUID cluster_id = 1;
+  // filter by pool
+  optional common.UUID pool_id = 2;
+  // filter by machine
+  optional common.MachineId machine_id = 3;
+  // filter by instance
+  optional common.UUID instance_id = 4;
+  // get only one - smallest set of results: 1
+  optional common.UUID volume_id = 5;
+  // get only snapshots using this source volume
+  optional common.UUID source_id = 6;
+  // special filter flags
+  // only boot volumes (usually snapshots)
+  optional bool boot_volumes = 7;
+  // only "golden" os image volumes
+  optional bool os_images = 8;
+  // exclude snapshots
+  optional bool exclude_snapshots = 9;
+}
+
+message ListStorageVolumeResponse {
+  repeated StorageVolume volumes = 1;
+}
+
+enum OsImageStatus {
+  // default status when entry created
+  ImageUninitialized = 0;
+  // if a boot volume should be created, this will be set when it is being setup
+  ImageInProgress = 1;
+  // on any errors
+  ImageFailed = 2;
+  // usable for AllocateInstance requests
+  ImageReady = 3;
+  // disabled for further use
+  ImageDisabled = 4;
+}
+
+message OsImageAttributes {
+  // needs to be generated by the caller (cloud) during CreateOsImage call
+  common.UUID id = 1;
+  string source_url = 2;
+  string digest = 3;
+  string tenantOrganizationId = 4;
+  // set this if creating a source volume for creating snapshots
+  bool create_volume = 5;
+  optional string name = 6;
+  optional string description = 7;
+  optional string auth_type = 8;
+  optional string auth_token = 9;
+  optional string rootfs_id = 10;
+  optional string rootfs_label = 11;
+  // not applicable/not used if create_volume == true
+  optional string boot_disk = 12;
+  optional uint64 capacity = 13;
+}
+
+message OsImage {
+  OsImageAttributes attributes = 1;
+  OsImageStatus status = 2;
+  optional string status_message = 3;
+  // golden source volume for snapshots per instance
+  optional common.UUID volume_id = 4;
+  optional string created_at = 5;
+  optional string modified_at = 6;
+}
+
+message ListOsImageRequest {
+  optional string tenantOrganizationId = 1;
+}
+
+message ListOsImageResponse {
+  repeated OsImage images = 1;
+}
+
+message DeleteOsImageRequest {
+  common.UUID id = 1;
+  string tenantOrganizationId = 2;
+}
+
+message DeleteOsImageResponse {
 }
 
 message ExpectedMachine {

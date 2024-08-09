@@ -121,6 +121,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 })
                 .database(pool.clone())
                 .redfish_client_pool(env.redfish_sim.clone())
+                .nvmesh_client_pool(env.nvmesh_sim.clone())
                 .ib_fabric_manager(env.ib_fabric_manager.clone())
                 .forge_api(env.api.clone())
                 .state_handler(machine_handler.clone())

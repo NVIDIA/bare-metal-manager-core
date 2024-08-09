@@ -30,6 +30,8 @@ use opentelemetry::metrics::{Meter, Observer, Unit};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
 use crate::legacy;
+use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
+
 use crate::{
     api::Api,
     auth,
@@ -216,6 +218,10 @@ pub async fn start_api(
 ) -> eyre::Result<()> {
     let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
 
+    let nvmesh_client_pool = libnvmesh::NvmeshClientPool::builder().build()?;
+    let nvmesh_pool = NvmeshClientPoolImpl::new(vault_client.clone(), nvmesh_client_pool);
+    let shared_nvmesh_pool: Arc<dyn NvmeshClientPool> = Arc::new(nvmesh_pool);
+
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     if let Some(domain_name) = &carbide_config.initial_domain_name {
@@ -308,6 +314,7 @@ pub async fn start_api(
         vault_client.clone(),
         db_pool.clone(),
         shared_redfish_pool.clone(),
+        shared_nvmesh_pool.clone(),
         eth_data,
         common_pools.clone(),
         ib_fabric_manager.clone(),
@@ -338,6 +345,7 @@ pub async fn start_api(
         .database(db_pool.clone())
         .meter("forge_machines", meter.clone())
         .redfish_client_pool(shared_redfish_pool.clone())
+        .nvmesh_client_pool(shared_nvmesh_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
@@ -367,6 +375,7 @@ pub async fn start_api(
         .database(db_pool.clone())
         .meter("forge_network_segments", meter.clone())
         .redfish_client_pool(shared_redfish_pool.clone())
+        .nvmesh_client_pool(shared_nvmesh_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone());
     let _network_segment_controller_handle = ns_builder
@@ -387,6 +396,7 @@ pub async fn start_api(
             .database(db_pool.clone())
             .meter("forge_ib_partitions", meter.clone())
             .redfish_client_pool(shared_redfish_pool.clone())
+            .nvmesh_client_pool(shared_nvmesh_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
             .forge_api(api_service.clone())

@@ -41,6 +41,7 @@ ipnetwork = { version = "^0.20.0", features = ["serde"] }
 itertools = "*"
 jsonwebtoken = { version = "8.1", default-features = false }
 libredfish = { workspace = true }
+libnvmesh = { workspace = true }
 mac_address = "1.1.2"
 md5 = "0.7"
 names = { version = "0.14.0", default-features = false }
@@ -67,15 +68,15 @@ sha2 = "0.10.3"
 strum_macros = "*"
 strum = "*"
 sqlx = { version = "0.7.1", features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ] }
 thiserror = "1.0"
 tempdir = "0.3.7"
@@ -88,9 +89,9 @@ tonic-reflection = "0.10"
 url = { version = "2", features = ["serde"] }
 tower = "0.4"
 tower-http = { version = "0.4", features = [
-  "add-extension",
-  "auth",
-  "normalize-path",
+    "add-extension",
+    "auth",
+    "normalize-path",
 ] }
 tower-layer = "0.3"
 tracing = "*"

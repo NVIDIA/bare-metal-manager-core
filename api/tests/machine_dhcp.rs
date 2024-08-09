@@ -243,6 +243,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         &host_machine_id,
         network,
         None,
+        None,
         vec![],
     )
     .await;
