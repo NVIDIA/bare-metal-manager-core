@@ -13,7 +13,7 @@ use cfg::Options;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use prometheus::{Encoder, TextEncoder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::ops::Deref;
 use std::path::Path;
@@ -297,6 +297,15 @@ pub async fn scrape_machines_health(
 
     loop {
         let machines: rpc::MachineList = get_machines(&mut grpc_client, &api_gauge_1).await?;
+
+        // Only keep active machines in machines_hash
+        let active_ids: HashSet<String> = machines
+            .machines
+            .iter()
+            .filter_map(|m| m.id.as_ref().map(|machine_id| machine_id.id.clone()))
+            .collect();
+        machines_hash.retain(|id, _| active_ids.contains(id));
+
         for machine in machines.machines.iter() {
             if machine.id.is_none() {
                 continue;
