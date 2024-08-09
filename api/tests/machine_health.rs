@@ -96,6 +96,38 @@ async fn test_machine_health_reporting(
 
     let aggregate_health = load_aggregate(&env, &host_machine_id).await.unwrap();
     check_time(&aggregate_health);
+    check_reports_equal(
+        "aggregate-host-health",
+        aggregate_health,
+        dpu_health.clone(),
+    );
+
+    // We can also use the FindMachinesByIds API to verify Health of Host and DPU
+    let current_dpu_health = load_health_via_find_machines_by_ids(&env, &dpu_machine_id)
+        .await
+        .unwrap();
+    check_time(&current_dpu_health);
+    check_reports_equal("forge-dpu-agent", current_dpu_health, dpu_health.clone());
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    check_time(&aggregate_health);
+    check_reports_equal(
+        "aggregate-host-health",
+        aggregate_health,
+        dpu_health.clone(),
+    );
+
+    // We can also use the FindMachines API to verify Health of Host and DPU
+    let current_dpu_health = load_health_via_find_machines(&env, &dpu_machine_id)
+        .await
+        .unwrap();
+    check_time(&current_dpu_health);
+    check_reports_equal("forge-dpu-agent", current_dpu_health, dpu_health.clone());
+    let aggregate_health = load_health_via_find_machines(&env, &host_machine_id)
+        .await
+        .unwrap();
+    check_time(&aggregate_health);
     check_reports_equal("aggregate-host-health", aggregate_health, dpu_health);
 
     Ok(())
@@ -222,6 +254,11 @@ async fn test_machine_health_aggregation(
         ],
     ); // The success should now be a failure.
     check_reports_equal("aggregate-host-health", aggregate_health, merged_hr.clone());
+    // We can also use the FindMachinesByIds API to verify Health of Host and DPU
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    check_reports_equal("aggregate-host-health", aggregate_health, merged_hr.clone());
 
     // Replace the machine's health report entirely with a blank report.
     let r#override = hr("replace-host-report", vec![], vec![]);
@@ -233,6 +270,15 @@ async fn test_machine_health_aggregation(
     .await;
     let aggregate_health = load_aggregate(&env, &host_machine_id).await.unwrap();
     // The whole report should now be empty.
+    check_reports_equal(
+        "aggregate-host-health",
+        aggregate_health,
+        r#override.clone(),
+    );
+    // We can also use the FindMachinesByIds API to verify Health of Host and DPU
+    let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
     check_reports_equal("aggregate-host-health", aggregate_health, r#override);
 
     // Remove the blank report override
@@ -333,6 +379,48 @@ async fn load_aggregate(
         .await
         .unwrap()
         .into_inner()
+        .health
+        .map(|r| r.try_into().unwrap())
+}
+
+/// Loads aggregate health via FindMachinesByIds api
+async fn load_health_via_find_machines_by_ids(
+    env: &common::api_fixtures::TestEnv,
+    machine_id: &carbide::model::machine::machine_id::MachineId,
+) -> Option<health_report::HealthReport> {
+    env.api
+        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine_id.to_string().into()],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0)
+        .health
+        .map(|r| r.try_into().unwrap())
+}
+
+/// Loads aggregate health via FindMachines api
+async fn load_health_via_find_machines(
+    env: &common::api_fixtures::TestEnv,
+    machine_id: &carbide::model::machine::machine_id::MachineId,
+) -> Option<health_report::HealthReport> {
+    env.api
+        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
+            id: Some(machine_id.to_string().into()),
+            fqdn: None,
+            search_config: Some(rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0)
         .health
         .map(|r| r.try_into().unwrap())
 }

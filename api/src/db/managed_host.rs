@@ -13,7 +13,7 @@
 //! Database access methods for manipulating the state of a ManagedHost (Host+DPUs)
 //!
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     cfg::HardwareHealthReportsConfig,
@@ -35,71 +35,113 @@ pub async fn load_snapshot(
     machine_id: &MachineId,
     options: LoadSnapshotOptions,
 ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
-    let host_machine = if machine_id.machine_type().is_dpu() {
-        Machine::find_host_by_dpu_machine_id(txn, machine_id).await?
-    } else {
-        Machine::find_one(
-            txn,
-            machine_id,
-            crate::db::machine::MachineSearchConfig::default(),
-        )
-        .await?
-    };
+    let mut snapshots = load_by_machine_ids(txn, &[machine_id.clone()], options).await?;
+    Ok(snapshots.remove(machine_id))
+}
 
-    let Some(host_machine) = host_machine else {
-        return Ok(None);
-    };
-
-    let dpus = Machine::find_dpus_by_host_machine_id(txn, host_machine.id()).await?;
-
-    let host_snapshot: MachineSnapshot = host_machine.into();
-
-    let mut dpu_snapshots: Vec<MachineSnapshot> = Vec::new();
-    for dpu in dpus {
-        dpu_snapshots.push(dpu.into());
-    }
-
-    let instance = match options.include_instance_data {
-        true => Instance::find_by_machine_id(txn, &host_snapshot.machine_id).await?,
-        false => None,
-    };
-
-    let managed_state = host_snapshot.current.state.clone();
-    let mut snapshot = ManagedHostStateSnapshot {
-        host_snapshot,
-        dpu_snapshots,
-        instance,
-        managed_state,
-        aggregate_health: health_report::HealthReport::empty("".to_string()),
-    };
-    snapshot.derive_aggregate_health(options.hardware_health);
-
-    if options.include_history {
-        let mut machine_ids = vec![snapshot.host_snapshot.machine_id.clone()];
-        machine_ids.extend(
-            snapshot
-                .dpu_snapshots
-                .iter()
-                .map(|dpu| dpu.machine_id.clone()),
-        );
-        // TODO: Instead of loading this for DPUs and Host, we might just load it for the host and either copy
-        // to all Machine Snapshots, or just keep a single history in `[ManagedHostSnapshot]`.
-        let histories = db::machine_state_history::find_by_machine_ids(txn, &machine_ids).await?;
-
-        for (machine_id, history) in histories.into_iter() {
-            if !machine_id.machine_type().is_dpu() {
-                snapshot.host_snapshot.history = history;
-            } else if let Some(dpu_snapshot) = snapshot
-                .dpu_snapshots
-                .iter_mut()
-                .find(|dpu| dpu.machine_id == machine_id)
-            {
-                dpu_snapshot.history = history;
+/// Loads ManagedHost snapshots from the database for all enumerated machines
+///
+/// The method works for Host and DPU Machine IDs
+/// When used for DPU Machine IDs, the returned HashMap will contain an entry
+/// that maps from the DPU Machine ID to the ManagedHost snapshot
+pub async fn load_by_machine_ids(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_ids: &[MachineId],
+    options: LoadSnapshotOptions,
+) -> Result<HashMap<MachineId, ManagedHostStateSnapshot>, DatabaseError> {
+    // If DPU IDs are specified, we really need to find the associated hosts for
+    // some follow-up queries. However we also need to keep track of which Host
+    // and DPU IDs have been **explicitly** requested, in order to build the result map.
+    let mut all_host_ids = HashSet::new();
+    let mut requested_host_ids = HashSet::new();
+    let mut host_ids_by_requested_dpu_ids = HashMap::new();
+    for machine_id in machine_ids.iter() {
+        if !machine_id.machine_type().is_dpu() {
+            all_host_ids.insert(machine_id.clone());
+            requested_host_ids.insert(machine_id.clone());
+        } else {
+            // TODO: This is slow. We should have an API which loads us all the associated host IDs
+            // However the Method is not used in a hot path - only debug tools query for DPU information
+            match Machine::find_host_machine_id_by_dpu_machine_id(txn, machine_id).await? {
+                Some(host_id) => {
+                    host_ids_by_requested_dpu_ids.insert(machine_id.clone(), host_id.clone());
+                    all_host_ids.insert(host_id);
+                }
+                None => {
+                    tracing::warn!(
+                        "Could not find any Host Machine ID for DPU Machine {machine_id}"
+                    );
+                }
             }
         }
     }
 
-    Ok(Some(snapshot))
+    let all_host_ids_vec: Vec<MachineId> = all_host_ids.into_iter().collect();
+    let mut states =
+        load_host_and_dpu_machine_states(txn, &all_host_ids_vec, options.include_history).await?;
+
+    let instances = if options.include_instance_data {
+        Instance::find_by_machine_ids(txn, &all_host_ids_vec).await?
+    } else {
+        Vec::new()
+    };
+    let mut instances_by_host_id: HashMap<MachineId, InstanceSnapshot> = instances
+        .into_iter()
+        .map(|instance| (instance.machine_id.clone(), instance))
+        .collect();
+
+    let mut snapshots_by_host_id = HashMap::with_capacity(states.hosts_by_id.len());
+    'machine_loop: for (host_machine_id, host_snapshot) in states.hosts_by_id.into_iter() {
+        let mut dpu_snapshots = Vec::with_capacity(host_snapshot.interfaces.len());
+        for iface in host_snapshot.interfaces.iter() {
+            if let Some(dpu_id) = &iface.attached_dpu_machine_id {
+                match states.dpus_by_id.remove(dpu_id) {
+                    Some(dpu) => dpu_snapshots.push(dpu),
+                    None => {
+                        tracing::warn!(
+                            "DPU with ID {dpu_id} for Host {} was not found",
+                            host_snapshot.machine_id
+                        );
+                        continue 'machine_loop;
+                    }
+                }
+            }
+        }
+
+        let instance = instances_by_host_id.remove(&host_machine_id);
+        let managed_state = host_snapshot.current.state.clone();
+
+        let mut snapshot = ManagedHostStateSnapshot {
+            host_snapshot,
+            dpu_snapshots,
+            instance,
+            managed_state,
+            aggregate_health: health_report::HealthReport::empty("".to_string()),
+        };
+        snapshot.derive_aggregate_health(options.hardware_health);
+        snapshots_by_host_id.insert(host_machine_id, snapshot);
+    }
+
+    // Now that we've built the snapshots for all hosts that have been somehow referenced
+    // in the query, go back and fulfill the original request
+    let mut result = HashMap::with_capacity(machine_ids.len());
+    // First loop is for requested DPUs
+    // Since their snapshot might also have been queried for a host in the same query,
+    // we have to clone from snapshots_by_host_id
+    for (dpu_machine_id, host_machine_id) in host_ids_by_requested_dpu_ids.iter() {
+        if let Some(snapshot) = snapshots_by_host_id.get(host_machine_id) {
+            result.insert(dpu_machine_id.clone(), snapshot.clone());
+        }
+    }
+    // Then extract the explicitly requested host snapshots. Since they can't be requested
+    // by any DPU anymore, we can move them out of the map
+    for host_machine_id in requested_host_ids.iter() {
+        if let Some(snapshot) = snapshots_by_host_id.remove(host_machine_id) {
+            result.insert(host_machine_id.clone(), snapshot);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Loads a ManagedHost snapshots from the database based on a list of Instance IDs
@@ -131,19 +173,21 @@ pub async fn load_by_instance_snapshots(
             .insert(instance_snapshot.machine_id.clone(), instance_snapshot);
     }
 
-    let mut machines = load_host_and_dpu_machine_states(txn, host_machine_ids.as_ref()).await?;
+    let mut machines =
+        load_host_and_dpu_machine_states(txn, host_machine_ids.as_ref(), options.include_history)
+            .await?;
 
-    let mut managed_hosts = Vec::with_capacity(machines.hosts.len());
-    'machine_loop: for host_machine in machines.hosts.into_iter() {
-        let mut dpu_snapshots = Vec::with_capacity(host_machine.interfaces().len());
-        for iface in host_machine.interfaces().iter() {
+    let mut managed_hosts = Vec::with_capacity(machines.hosts_by_id.len());
+    'machine_loop: for (host_machine_id, host_machine) in machines.hosts_by_id.into_iter() {
+        let mut dpu_snapshots = Vec::with_capacity(host_machine.interfaces.len());
+        for iface in host_machine.interfaces.iter() {
             if let Some(dpu_id) = &iface.attached_dpu_machine_id {
                 match machines.dpus_by_id.remove(dpu_id) {
-                    Some(dpu) => dpu_snapshots.push(dpu.into()),
+                    Some(dpu) => dpu_snapshots.push(dpu),
                     None => {
                         tracing::warn!(
                             "DPU with ID {dpu_id} for Host {} was not found",
-                            host_machine.id()
+                            host_machine.machine_id
                         );
                         continue 'machine_loop;
                     }
@@ -151,10 +195,10 @@ pub async fn load_by_instance_snapshots(
             }
         }
 
-        let instance = instance_snapshots_by_machine_id.remove(host_machine.id());
-        let managed_state = host_machine.current_state();
+        let instance = instance_snapshots_by_machine_id.remove(&host_machine_id);
+        let managed_state = host_machine.current.state.clone();
         let mut snapshot = ManagedHostStateSnapshot {
-            host_snapshot: host_machine.into(),
+            host_snapshot: host_machine,
             dpu_snapshots,
             instance,
             managed_state,
@@ -170,21 +214,28 @@ pub async fn load_by_instance_snapshots(
 async fn load_host_and_dpu_machine_states(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     host_machine_ids: &[MachineId],
+    include_history: bool,
 ) -> Result<LoadHostAndDpuMachinesResult, DatabaseError> {
     let hosts = Machine::find(
         txn,
         super::ObjectFilter::List(host_machine_ids),
-        crate::db::machine::MachineSearchConfig::default(),
+        crate::db::machine::MachineSearchConfig {
+            include_associated_machine_id: true,
+            ..Default::default()
+        },
     )
     .await?;
 
+    let mut hosts_by_id: HashMap<MachineId, MachineSnapshot> =
+        HashMap::with_capacity(host_machine_ids.len());
     let mut dpu_machine_ids = Vec::with_capacity(hosts.len());
-    for host_machine in hosts.iter() {
+    for host_machine in hosts.into_iter() {
         for iface in host_machine.interfaces().iter() {
             if let Some(dpu_id) = &iface.attached_dpu_machine_id {
                 dpu_machine_ids.push(dpu_id.clone());
             }
         }
+        hosts_by_id.insert(host_machine.id().clone(), host_machine.into());
     }
     let dpus = Machine::find(
         txn,
@@ -192,17 +243,39 @@ async fn load_host_and_dpu_machine_states(
         crate::db::machine::MachineSearchConfig::default(),
     )
     .await?;
-    let dpus_by_id: HashMap<MachineId, Machine> = dpus
+    let mut dpus_by_id: HashMap<MachineId, MachineSnapshot> = dpus
         .into_iter()
-        .map(|dpu| (dpu.id().clone(), dpu))
+        .map(|dpu| (dpu.id().clone(), dpu.into()))
         .collect();
 
-    Ok(LoadHostAndDpuMachinesResult { hosts, dpus_by_id })
+    if include_history {
+        let mut all_machine_ids: Vec<MachineId> = host_machine_ids.to_vec();
+        all_machine_ids.extend(dpu_machine_ids.into_iter());
+        // TODO: Instead of loading this for DPUs and Host, we might just load it for the host and either copy
+        // to all Machine Snapshots, or just keep a single history in `[ManagedHostSnapshot]`.
+        let histories =
+            db::machine_state_history::find_by_machine_ids(txn, &all_machine_ids).await?;
+
+        for (machine_id, history) in histories.into_iter() {
+            if !machine_id.machine_type().is_dpu() {
+                if let Some(host) = hosts_by_id.get_mut(&machine_id) {
+                    host.history = history;
+                }
+            } else if let Some(dpu) = dpus_by_id.get_mut(&machine_id) {
+                dpu.history = history;
+            }
+        }
+    }
+
+    Ok(LoadHostAndDpuMachinesResult {
+        hosts_by_id,
+        dpus_by_id,
+    })
 }
 
 struct LoadHostAndDpuMachinesResult {
-    pub hosts: Vec<Machine>,
-    pub dpus_by_id: HashMap<MachineId, Machine>,
+    pub hosts_by_id: HashMap<MachineId, MachineSnapshot>,
+    pub dpus_by_id: HashMap<MachineId, MachineSnapshot>,
 }
 
 pub struct LoadSnapshotOptions {

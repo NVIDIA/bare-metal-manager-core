@@ -59,7 +59,7 @@ use crate::measured_boot;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::{
     get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, ManagedHostState,
+    FailureSource, ManagedHostState, ManagedHostStateSnapshot,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::RpcDataConversionError;
@@ -1023,11 +1023,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-        let search_config = MachineSearchConfig {
-            include_associated_machine_id: true,
-            include_history: request.include_history,
-            ..Default::default()
-        };
 
         let machine_ids: Result<Vec<MachineId>, CarbideError> = request
             .machine_ids
@@ -1054,14 +1049,30 @@ impl Forge for Api {
             .into());
         }
 
-        let machines: Vec<Machine> =
-            Machine::find(&mut txn, ObjectFilter::List(&machine_ids), search_config)
-                .await
-                .map_err(CarbideError::from)?;
+        let snapshots = db::managed_host::load_by_machine_ids(
+            &mut txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: request.include_history,
+                include_instance_data: false,
+                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
-        Ok(tonic::Response::new(rpc::MachineList {
-            machines: machines.into_iter().map(Machine::into).collect(),
-        }))
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end find_machines_by_ids",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(snapshot_map_to_rpc_machines(
+            snapshots,
+        )))
     }
 
     // DEPRECATED: use find_machine_ids and find_machines_by_ids instead
@@ -1070,6 +1081,7 @@ impl Forge for Api {
         request: Request<rpc::MachineSearchQuery>,
     ) -> Result<Response<rpc::MachineList>, Status> {
         log_request_data(&request);
+        let request = request.into_inner();
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1080,54 +1092,48 @@ impl Forge for Api {
             ))
         })?;
 
-        let rpc::MachineSearchQuery {
-            id,
-            fqdn,
-            search_config,
-            ..
-        } = request.into_inner();
-        let include_dpus = search_config
-            .as_ref()
-            .map(|x| x.include_dpus)
-            .unwrap_or(false);
-
-        let include_ph = search_config
-            .as_ref()
-            .map(|x| x.include_predicted_host)
-            .unwrap_or(false);
-
-        let search_config = search_config
+        let search_config = request
+            .search_config
             .map(MachineSearchConfig::from)
-            .unwrap_or(MachineSearchConfig::default());
+            .unwrap_or_default();
 
-        let machines: Result<Vec<Machine>, DatabaseError> = match (id, fqdn) {
+        let machine_ids: Vec<MachineId> = match (request.id, request.fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
                 log_machine_id(&machine_id);
-                Machine::find(&mut txn, ObjectFilter::One(machine_id), search_config).await
+                vec![machine_id]
             }
-            (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn, search_config).await,
-            (None, None) => Machine::find(&mut txn, ObjectFilter::All, search_config).await,
+            (None, Some(fqdn)) => {
+                match Machine::find_id_by_fqdn(&mut txn, &fqdn)
+                    .await
+                    .map_err(CarbideError::from)?
+                {
+                    Some(id) => vec![id],
+                    None => vec![],
+                }
+            }
+            (None, None) => Machine::find_machine_ids(&mut txn, search_config)
+                .await
+                .map_err(CarbideError::from)?,
         };
 
-        let result = machines
-            .map(|machine| rpc::MachineList {
-                machines: machine
-                    .into_iter()
-                    .filter(|x| {
-                        let ty = x.machine_type();
-                        // We never return PredictedHost
-                        ty.is_host()
-                            || (ty.is_dpu() && include_dpus)
-                            || (ty.is_predicted_host() && include_ph)
-                    })
-                    .map(rpc::Machine::from)
-                    .collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
+        let snapshots = db::managed_host::load_by_machine_ids(
+            &mut txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: search_config.include_history,
+                include_instance_data: false,
+                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
-        Ok(result)
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(file!(), line!(), "end find_machines", e))
+        })?;
+
+        Ok(Response::new(snapshot_map_to_rpc_machines(snapshots)))
     }
 
     async fn find_interfaces(
@@ -4102,6 +4108,29 @@ impl Api {
 
         Ok(())
     }
+}
+
+fn snapshot_map_to_rpc_machines(
+    snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
+) -> rpc::MachineList {
+    let mut result = rpc::MachineList {
+        machines: Vec::with_capacity(snapshots.len()),
+    };
+
+    for (machine_id, snapshot) in snapshots.into_iter() {
+        if let Some(rpc_machine) =
+            snapshot.rpc_machine_state(match machine_id.machine_type().is_dpu() {
+                true => Some(&machine_id),
+                false => None,
+            })
+        {
+            result.machines.push(rpc_machine);
+        }
+        // A log message for the None case is already emitted inside
+        // managed_host::load_by_machine_ids
+    }
+
+    result
 }
 
 #[cfg(test)]
