@@ -20,6 +20,7 @@ use crate::measurement::global::cmds::{get_identifier, IdentifierType};
 use crate::measurement::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
+use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
@@ -45,7 +46,7 @@ use std::str::FromStr;
 pub async fn dispatch(
     cmd: &CmdProfile,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     match cmd {
         CmdProfile::Create(local_args) => {
             cli_output(
@@ -115,7 +116,7 @@ pub async fn dispatch(
 pub async fn create(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
     let extra_attrs = create
         .extra_attrs
@@ -138,9 +139,10 @@ pub async fn create(
     let response = grpc_conn
         .create_measurement_system_profile(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// delete is `delete <profile-id|profile-name>` and is used
@@ -148,12 +150,13 @@ pub async fn create(
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
     let selector = match get_identifier(delete)? {
         IdentifierType::ForId => {
             let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&delete.identifier.clone())?;
+                MeasurementSystemProfileId::from_str(&delete.identifier.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
         }
         IdentifierType::ForName => Some(
@@ -184,19 +187,21 @@ pub async fn delete(
     let response = grpc_conn
         .delete_measurement_system_profile(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
 pub async fn rename(
     grpc_conn: &mut ForgeClientT,
     rename: &Rename,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideCliResult<MeasurementSystemProfile> {
     let selector = match get_identifier(rename)? {
         IdentifierType::ForId => {
-            let profile_id = MeasurementSystemProfileId::from_str(&rename.identifier.clone())?;
+            let profile_id = MeasurementSystemProfileId::from_str(&rename.identifier.clone())
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
         }
         IdentifierType::ForName => Some(
@@ -230,15 +235,18 @@ pub async fn rename(
     let response = grpc_conn
         .rename_measurement_system_profile(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementSystemProfile::from_grpc(response.get_ref().profile.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all is `show`, and is used for showing all
 /// profiles with details (when no <profile_id> is
 /// specified on the command line).
-pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementSystemProfile>> {
+pub async fn show_all(
+    grpc_conn: &mut ForgeClientT,
+) -> CarbideCliResult<Vec<MeasurementSystemProfile>> {
     // Request.
     let request = ShowMeasurementSystemProfilesRequest {};
 
@@ -246,15 +254,15 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
     grpc_conn
         .show_measurement_system_profiles(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .system_profiles
         .iter()
         .map(|system_profile| {
             MeasurementSystemProfile::try_from(system_profile.clone())
-                .map_err(|e| eyre::eyre!(e.to_string()))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<MeasurementSystemProfile>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementSystemProfile>>>()
 }
 
 /// show_by_id_or_name is `show <profile-id|profile-name>` and is used for
@@ -262,17 +270,20 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
 pub async fn show_by_id_or_name(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
     let identifier = show
         .identifier
         .as_ref()
-        .ok_or(eyre::eyre!("identifier expected to be set here"))?;
+        .ok_or(CarbideCliError::GenericError(String::from(
+            "identifier expected to be set here",
+        )))?;
 
     let selector = match get_identifier(show)? {
         IdentifierType::ForId => {
             let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&identifier.clone())?;
+                MeasurementSystemProfileId::from_str(&identifier.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
         }
         IdentifierType::ForName => {
@@ -295,9 +306,10 @@ pub async fn show_by_id_or_name(
     let response = grpc_conn
         .show_measurement_system_profile(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// list_all is `list all` and is used for listing all
@@ -305,7 +317,7 @@ pub async fn show_by_id_or_name(
 /// details, use `show`.
 pub async fn list_all(
     grpc_conn: &mut ForgeClientT,
-) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
+) -> CarbideCliResult<Vec<MeasurementSystemProfileRecord>> {
     // Request.
     let request = ListMeasurementSystemProfilesRequest {};
 
@@ -313,15 +325,15 @@ pub async fn list_all(
     grpc_conn
         .list_measurement_system_profiles(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .system_profiles
         .iter()
         .map(|rec| {
             MeasurementSystemProfileRecord::try_from(rec.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<MeasurementSystemProfileRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementSystemProfileRecord>>>()
 }
 
 /// list_bundles_by_id_or_name is `list bundles <profile-id|profile-name>` and
@@ -329,12 +341,13 @@ pub async fn list_all(
 pub async fn list_bundles_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_bundles: &ListBundles,
-) -> eyre::Result<Vec<MeasurementBundleId>> {
+) -> CarbideCliResult<Vec<MeasurementBundleId>> {
     // Prepare.
     let selector = match get_identifier(list_bundles)? {
         IdentifierType::ForId => {
             let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&list_bundles.identifier.clone())?;
+                MeasurementSystemProfileId::from_str(&list_bundles.identifier.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             Some(
                 list_measurement_system_profile_bundles_request::Selector::ProfileId(
                     profile_id.into(),
@@ -369,15 +382,15 @@ pub async fn list_bundles_for_id_or_name(
     grpc_conn
         .list_measurement_system_profile_bundles(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .bundle_ids
         .iter()
         .map(|rec| {
             MeasurementBundleId::try_from(rec.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<MeasurementBundleId>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementBundleId>>>()
 }
 
 /// list_machines_for_id_or_name is `list machines <profile-id|profile-name>`
@@ -386,12 +399,13 @@ pub async fn list_bundles_for_id_or_name(
 pub async fn list_machines_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> eyre::Result<Vec<MachineId>> {
+) -> CarbideCliResult<Vec<MachineId>> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
             let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&list_machines.identifier.clone())?;
+                MeasurementSystemProfileId::from_str(&list_machines.identifier.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
             Some(
                 list_measurement_system_profile_machines_request::Selector::ProfileId(
                     profile_id.into(),
@@ -423,13 +437,15 @@ pub async fn list_machines_for_id_or_name(
     let request = ListMeasurementSystemProfileMachinesRequest { selector };
 
     // Response.
-    Ok(grpc_conn
+    grpc_conn
         .list_measurement_system_profile_machines(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .machine_ids
         .iter()
-        .map(|rec| MachineId::from_str(rec))
-        .collect::<Result<Vec<MachineId>, _>>()?)
+        .map(|rec| {
+            MachineId::from_str(rec).map_err(|e| CarbideCliError::GenericError(e.to_string()))
+        })
+        .collect::<CarbideCliResult<Vec<MachineId>>>()
 }

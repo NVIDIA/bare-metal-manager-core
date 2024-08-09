@@ -17,6 +17,7 @@
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;
 use crate::measurement::journal::args::{CmdJournal, Delete, List, Show};
+use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
@@ -32,7 +33,7 @@ use carbide::measured_boot::model::journal::MeasurementJournal;
 pub async fn dispatch(
     cmd: &CmdJournal,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     match cmd {
         CmdJournal::Delete(local_args) => {
             cli_output(
@@ -73,7 +74,7 @@ pub async fn dispatch(
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
-) -> eyre::Result<MeasurementJournal> {
+) -> CarbideCliResult<MeasurementJournal> {
     // Request.
     let request = DeleteMeasurementJournalRequest {
         journal_id: Some(delete.journal_id.into()),
@@ -83,9 +84,10 @@ pub async fn delete(
     let response = grpc_conn
         .delete_measurement_journal(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id shows all info about a journal entry for the provided ID.
@@ -94,11 +96,17 @@ pub async fn delete(
 pub async fn show_by_id(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
-) -> eyre::Result<MeasurementJournal> {
+) -> CarbideCliResult<MeasurementJournal> {
     // Prepare.
-    // This really shouldn't happen, but checking just incase.
+    // TODO(chet): This exists just because of how I'm dispatching
+    // commands, since &Show gets reused for showing all (where journal_id
+    // is unset, or showing a specific journal ID). Ultimately this
+    // shouldn't ever actually get hit, but it exists just incase. That
+    // said, I should look into see if I can just have clap validate this.
     let Some(journal_id) = &show.journal_id else {
-        return Err(eyre::eyre!("journal_id must be set"));
+        return Err(CarbideCliError::GenericError(String::from(
+            "journal_id must be set to get a journal",
+        )));
     };
 
     // Request.
@@ -112,9 +120,10 @@ pub async fn show_by_id(
     let response = grpc_conn
         .show_measurement_journal(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all shows all info about all journal entries.
@@ -123,7 +132,7 @@ pub async fn show_by_id(
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
-) -> eyre::Result<Vec<MeasurementJournal>> {
+) -> CarbideCliResult<Vec<MeasurementJournal>> {
     // Request.
     let request = ShowMeasurementJournalsRequest {};
 
@@ -131,12 +140,15 @@ pub async fn show_all(
     grpc_conn
         .show_measurement_journals(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_mut()
         .journals
         .drain(..)
-        .map(|journal| MeasurementJournal::from_grpc(Some(&journal)))
-        .collect::<eyre::Result<Vec<MeasurementJournal>>>()
+        .map(|journal| {
+            MeasurementJournal::from_grpc(Some(&journal))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+        })
+        .collect::<CarbideCliResult<Vec<MeasurementJournal>>>()
 }
 
 /// list just lists all journal IDs.
@@ -145,7 +157,7 @@ pub async fn show_all(
 pub async fn list(
     grpc_conn: &mut ForgeClientT,
     list: &List,
-) -> eyre::Result<Vec<MeasurementJournalRecord>> {
+) -> CarbideCliResult<Vec<MeasurementJournalRecord>> {
     // Request.
     let request = match list.machine_id.clone() {
         Some(machine_id) => ListMeasurementJournalRequest {
@@ -160,12 +172,13 @@ pub async fn list(
     grpc_conn
         .list_measurement_journal(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_mut()
         .journals
         .drain(..)
         .map(|journal| {
-            MeasurementJournalRecord::try_from(journal).map_err(|e| eyre::eyre!(e.to_string()))
+            MeasurementJournalRecord::try_from(journal)
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<MeasurementJournalRecord>>>()
+        .collect::<CarbideCliResult<Vec<MeasurementJournalRecord>>>()
 }
