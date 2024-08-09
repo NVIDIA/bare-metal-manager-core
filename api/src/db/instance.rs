@@ -447,8 +447,20 @@ impl Instance {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        // TODO handle more than one subnet assignment on an instance
-        // has network_segment_id
+        Ok(instance)
+    }
+
+    pub async fn find_by_machine_ids(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_ids: &[MachineId],
+    ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
+        let query = "SELECT * from instances WHERE machine_id = ANY($1)";
+        let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
+            .bind(machine_ids)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
         Ok(instance)
     }
 

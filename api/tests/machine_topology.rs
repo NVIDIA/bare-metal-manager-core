@@ -1,7 +1,5 @@
-use std::str::FromStr;
-
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -29,6 +27,7 @@ use common::api_fixtures::{
 };
 use lazy_static::lazy_static;
 use rpc::forge::forge_server::Forge;
+use std::str::FromStr;
 
 #[ctor::ctor]
 fn setup() {
@@ -93,24 +92,25 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let returned_hw_info = topo[0].topology().discovery_data.info.clone();
     assert_eq!(returned_hw_info, hardware_info);
+    txn.commit().await?;
 
     // Hardware info is available on the machine
-    let machine2 = Machine::find_one(
-        &mut txn,
-        machine.id(),
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let rpc_machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine.id().to_string().into()],
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
 
-    let rpc_machine: rpc::Machine = machine2.into();
     let discovery_info = rpc_machine.discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
     assert_eq!(retrieved_hw_info, hardware_info);
-
-    txn.commit().await?;
 
     // Updating a machine topology will update the data.
     let mut txn = env.pool.begin().await?;
@@ -142,23 +142,23 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     );
 
     assert!(!topology.topology_update_needed());
+    txn.commit().await?;
 
-    let machine2 = Machine::find_one(
-        &mut txn,
-        machine.id(),
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    let rpc_machine: rpc::Machine = machine2.into();
+    let rpc_machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine.id().to_string().into()],
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
     let discovery_info = rpc_machine.discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
     assert_eq!(retrieved_hw_info, new_info);
-
-    txn.commit().await?;
 
     Ok(())
 }

@@ -37,7 +37,7 @@ use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{HardwareInfo, MachineInventory};
 use crate::model::machine::health_override::HealthReportOverrides;
 use crate::model::machine::machine_id::MachineId;
-use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
+use crate::model::machine::machine_id::MachineType;
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
@@ -50,7 +50,7 @@ use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct MachineSearchConfig {
     pub include_dpus: bool,
     pub include_history: bool,
@@ -378,85 +378,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for DbMachineId {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let id: DbMachineId = row.try_get(0)?;
         Ok(id)
-    }
-}
-
-/// Implements conversion from a database-backed `Machine` to a Protobuf representation of the
-/// Machine.
-impl From<Machine> for rpc::Machine {
-    fn from(machine: Machine) -> Self {
-        rpc::Machine {
-            id: Some(machine.id.to_string().into()),
-            state: if machine.is_dpu() {
-                machine.state.value.dpu_state_string(machine.id())
-            } else {
-                machine.state.value.to_string()
-            },
-            state_version: machine.state.version.version_string(),
-            machine_type: *RpcMachineTypeWrapper::from(machine.machine_type()) as i32,
-            events: machine
-                .history
-                .into_iter()
-                .map(|event| event.into())
-                .collect(),
-            interfaces: machine
-                .interfaces
-                .into_iter()
-                .map(|interface| interface.into())
-                .collect(),
-            discovery_info: machine
-                .hardware_info
-                .and_then(|hw_info| match hw_info.try_into() {
-                    Ok(di) => Some(di),
-                    Err(e) => {
-                        tracing::warn!(
-                            machine_id = %machine.id,
-                            error = %e,
-                            "Hardware information couldn't be parsed into discovery info",
-                        );
-                        None
-                    }
-                }),
-            bmc_info: Some(machine.bmc_info.into()),
-            last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            network_health: machine
-                .network_status_observation
-                .as_ref()
-                .map(|obs| obs.health_status.clone().into()),
-            last_observation_time: machine
-                .network_status_observation
-                .as_ref()
-                .map(|obs| obs.observed_at.into()),
-            dpu_agent_version: machine
-                .network_status_observation
-                .as_ref()
-                .and_then(|obs| obs.agent_version.clone()),
-            maintenance_reference: machine.maintenance_reference,
-            maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
-            associated_host_machine_id: machine
-                .associated_host_machine_id
-                .map(|id| id.to_string().into()),
-            associated_dpu_machine_ids: machine
-                .associated_dpu_machine_ids
-                .iter()
-                .map(|id| id.to_string().into())
-                .collect(),
-            associated_dpu_machine_id: machine
-                .associated_dpu_machine_ids
-                .first()
-                .map(|id| id.to_string().into()),
-            inventory: machine.inventory.clone().map(|i| i.into()),
-            last_reboot_requested_time: machine
-                .last_reboot_requested
-                .as_ref()
-                .map(|x| x.time.into()),
-            last_reboot_requested_mode: machine
-                .last_reboot_requested
-                .as_ref()
-                .map(|x| x.mode.to_string()),
-            state_reason: machine.controller_state_outcome.map(|r| r.into()),
-            health: None,
-        }
     }
 }
 
@@ -998,11 +919,10 @@ SELECT m.id FROM
         Ok(Some(machine))
     }
 
-    pub async fn find_by_fqdn(
+    pub async fn find_id_by_fqdn(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         fqdn: &str,
-        search_config: MachineSearchConfig,
-    ) -> Result<Vec<Machine>, DatabaseError> {
+    ) -> Result<Option<MachineId>, DatabaseError> {
         let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
 
         let machine_id: Option<DbMachineId> = sqlx::query_as(query)
@@ -1010,15 +930,8 @@ SELECT m.id FROM
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        let machine_id = match machine_id {
-            Some(id) => id.into_inner(),
-            None => return Ok(Vec::new()),
-        };
 
-        match Self::find_one(txn, &machine_id, search_config).await? {
-            Some(machine) => Ok(vec![machine]),
-            None => Ok(vec![]),
-        }
+        Ok(machine_id.map(|id| id.into_inner()))
     }
 
     /// Finds a machine by a query

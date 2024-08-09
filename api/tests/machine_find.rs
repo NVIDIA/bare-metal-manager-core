@@ -188,18 +188,37 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
 
     let fqdn = format!("{}.dwrt1.com", dpu_machine.interfaces()[0].hostname);
 
-    let mut machines = Machine::find_by_fqdn(&mut txn, &fqdn, MachineSearchConfig::default())
+    let mut machines = env
+        .api
+        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
+            id: None,
+            fqdn: Some(fqdn.clone()),
+            search_config: None,
+        }))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner()
+        .machines;
     let machine = machines.remove(0);
     assert!(machines.is_empty());
-    assert_eq!(*machine.id(), dpu_machine_id);
+    assert_eq!(
+        machine.id.clone().unwrap().to_string(),
+        dpu_machine_id.to_string()
+    );
 
     // We shouldn't find a machine that doesn't exist
     let fqdn2 = format!("a{}", fqdn);
-    let machines = Machine::find_by_fqdn(&mut txn, &fqdn2, MachineSearchConfig::default())
+    let machines = env
+        .api
+        .find_machines(Request::new(rpc::forge::MachineSearchQuery {
+            id: None,
+            fqdn: Some(fqdn2),
+            search_config: None,
+        }))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner()
+        .machines;
     assert!(machines.is_empty());
 }
 
