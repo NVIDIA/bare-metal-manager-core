@@ -51,11 +51,15 @@ pub fn where_pcr_pairs(
 pub async fn match_latest_reports(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
+) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     if values.is_empty() {
-        return Err(eyre::eyre!("must have at least one PCR register value"));
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "match_latest_reports",
+            sqlx::Error::Protocol(String::from("empty values list")),
+        ));
     }
-
     let columns = [
         "measurement_reports.report_id",
         "measurement_reports.machine_id",
@@ -80,7 +84,11 @@ pub async fn match_latest_reports(
     query.push_bind(pcr_register_len as i16);
 
     let prepared = query.build_query_as::<MeasurementReportRecord>();
-    Ok(prepared.fetch_all(txn.deref_mut()).await?)
+
+    prepared
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "match_latest_reports", e))
 }
 
 /// insert_measurement_report_record is a very basic insert of a

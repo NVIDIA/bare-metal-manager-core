@@ -37,18 +37,18 @@ pub async fn insert_measurement_journal_record(
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
-) -> eyre::Result<MeasurementJournalRecord> {
+) -> Result<MeasurementJournalRecord, DatabaseError> {
     let query =
                 "insert into measurement_journal(machine_id, report_id, profile_id, bundle_id, state) values($1, $2, $3, $4, $5) returning *";
-    let journal = sqlx::query_as::<_, MeasurementJournalRecord>(query)
+    sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
         .bind(report_id)
         .bind(profile_id)
         .bind(bundle_id)
         .bind(state)
         .fetch_one(txn.deref_mut())
-        .await?;
-    Ok(journal)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_journal_record", e))
 }
 
 /// delete_journal_where_id deletes a journal record.

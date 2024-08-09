@@ -28,6 +28,7 @@ use sqlx::query_builder::QueryBuilder;
 use sqlx::{Encode, Pool, Postgres, Transaction};
 
 use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
+use crate::{CarbideError, CarbideResult};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -48,7 +49,7 @@ pub const DISCOVERY_PROFILE_ATTRS: [&str; 3] = ["sys_vendor", "product_name", "b
 /// pulling values from the mock attributes table.
 pub fn filter_machine_discovery_attrs(
     attrs: &HashMap<String, String>,
-) -> eyre::Result<HashMap<String, String>> {
+) -> CarbideResult<HashMap<String, String>> {
     let filtered: HashMap<String, String> = attrs
         .iter()
         .filter_map(|(k, v)| {
@@ -212,7 +213,7 @@ pub fn parse_range(arg: &str) -> eyre::Result<PcrRange> {
 
 /// generate_name generates a unique name for the purpose
 /// of auto-generated {profile, bundle} names.
-pub fn generate_name() -> eyre::Result<String> {
+pub fn generate_name() -> CarbideResult<String> {
     let mut generate = names::Generator::default();
     Ok(generate.next().unwrap())
 }
@@ -275,16 +276,16 @@ impl From<Vec<String>> for PcrRegisterValueVec {
 
 pub fn pcr_register_values_to_map(
     values: &[PcrRegisterValue],
-) -> eyre::Result<HashMap<i16, PcrRegisterValue>> {
+) -> CarbideResult<HashMap<i16, PcrRegisterValue>> {
     let total_values = values.len();
     let value_map: HashMap<i16, PcrRegisterValue> = values
         .iter()
         .map(|rec| (rec.pcr_register, rec.clone()))
         .collect();
     if total_values != value_map.len() {
-        return Err(eyre::eyre!(
-            "detected pcr_register collision in input bundle values"
-        ));
+        return Err(CarbideError::GenericError(String::from(
+            "detected pcr_register collision in input bundle values",
+        )));
     }
     Ok(value_map)
 }

@@ -15,6 +15,7 @@
  *  database to match candidate machines to profiles and bundles.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::UuidEmptyStringError;
 use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
@@ -25,6 +26,7 @@ use crate::measured_boot::interface::machine::{
 };
 use crate::measured_boot::model::journal::{get_latest_journal_for_id, MeasurementJournal};
 use crate::model::machine::machine_id::MachineId;
+use crate::{CarbideError, CarbideResult};
 use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
@@ -165,37 +167,52 @@ impl CandidateMachine {
     /// provided machine ID (assuming it exists).
     ////////////////////////////////////////////////////////////////
 
-    pub async fn from_id(db_conn: &Pool<Postgres>, machine_id: MachineId) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    pub async fn from_id(db_conn: &Pool<Postgres>, machine_id: MachineId) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "CandidateMachine.from_id begin",
+                e,
+            ))
+        })?;
         Self::from_id_with_txn(&mut txn, machine_id).await
     }
 
     pub async fn from_id_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
-    ) -> eyre::Result<Self> {
-        let record = get_candidate_machine_record_by_id(txn, machine_id.clone()).await?;
+    ) -> CarbideResult<Self> {
+        match get_candidate_machine_record_by_id(txn, machine_id.clone()).await? {
+            Some(record) => {
+                let attrs = match &record.topology.discovery_data.info.dmi_data {
+                    Some(dmi_data) => Ok(HashMap::from([
+                        (String::from("sys_vendor"), dmi_data.sys_vendor.clone()),
+                        (String::from("product_name"), dmi_data.product_name.clone()),
+                        (String::from("bios_version"), dmi_data.bios_version.clone()),
+                    ])),
+                    None => Err(CarbideError::GenericError(String::from(
+                        "machine missing dmi data",
+                    ))),
+                }?;
 
-        let attrs = match &record.topology.discovery_data.info.dmi_data {
-            Some(dmi_data) => Ok(HashMap::from([
-                (String::from("sys_vendor"), dmi_data.sys_vendor.clone()),
-                (String::from("product_name"), dmi_data.product_name.clone()),
-                (String::from("bios_version"), dmi_data.bios_version.clone()),
-            ])),
-            None => Err(eyre::eyre!("machine missing dmi data")),
-        }?;
+                let journal = get_latest_journal_for_id(txn, machine_id.clone()).await?;
+                let state = machine_state_from_journal(&journal);
 
-        let journal = get_latest_journal_for_id(txn, machine_id.clone()).await?;
-        let state = machine_state_from_journal(&journal);
-
-        Ok(Self {
-            machine_id: record.machine_id.clone(),
-            created_ts: record.created,
-            updated_ts: record.updated,
-            attrs,
-            state,
-            journal,
-        })
+                Ok(Self {
+                    machine_id: record.machine_id.clone(),
+                    created_ts: record.created,
+                    updated_ts: record.updated,
+                    attrs,
+                    state,
+                    journal,
+                })
+            }
+            None => Err(CarbideError::NotFoundError {
+                kind: "CandidateMachine",
+                id: machine_id.to_string(),
+            }),
+        }
     }
 
     pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<Self>> {
@@ -209,7 +226,7 @@ impl CandidateMachine {
     /// to actual discovery data easier.
     ////////////////////////////////////////////////////////////////
 
-    pub fn discovery_attributes(&self) -> eyre::Result<HashMap<String, String>> {
+    pub fn discovery_attributes(&self) -> CarbideResult<HashMap<String, String>> {
         common::filter_machine_discovery_attrs(&self.attrs)
     }
 }

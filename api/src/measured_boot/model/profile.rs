@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::MeasurementSystemProfileId;
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
@@ -29,6 +30,7 @@ use crate::measured_boot::interface::profile::{
     insert_measurement_profile_record, rename_profile_for_profile_id,
     rename_profile_for_profile_name,
 };
+use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
 use rpc::protos::measured_boot::MeasurementSystemProfilePb;
 use serde::Serialize;
@@ -108,7 +110,7 @@ impl MeasurementSystemProfile {
         txn: &mut Transaction<'_, Postgres>,
         name: Option<String>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         let profile_name = match name {
             Some(name) => name,
             None => common::generate_name()?,
@@ -164,7 +166,7 @@ impl MeasurementSystemProfile {
     pub async fn match_from_attrs_or_new_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         match match_profile(txn, attrs).await? {
             Some(profile_id) => {
                 Ok(MeasurementSystemProfile::load_from_id_with_txn(txn, profile_id).await?)
@@ -215,15 +217,22 @@ impl MeasurementSystemProfile {
     pub async fn load_from_id(
         db_conn: &Pool<Postgres>,
         profile_id: MeasurementSystemProfileId,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementProfile.load_from_id begin",
+                e,
+            ))
+        })?;
         Self::load_from_id_with_txn(&mut txn, profile_id).await
     }
 
     pub async fn load_from_id_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         get_measurement_profile_by_id(txn, profile_id).await
     }
 
@@ -245,7 +254,7 @@ impl MeasurementSystemProfile {
     pub async fn load_from_attrs(
         txn: &mut Transaction<'_, Postgres>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Option<Self>> {
+    ) -> CarbideResult<Option<Self>> {
         let info = get_measurement_profile_record_by_attrs(txn, attrs).await?;
         match info {
             Some(info) => {
@@ -266,7 +275,7 @@ impl MeasurementSystemProfile {
     /// intersects_with is used to check if the current
     /// MeasurementSystemProfile intersects with the provided attrs.
     ////////////////////////////////////////////////////////////////
-    pub fn intersects_with(&self, machine_attrs: &HashMap<String, String>) -> eyre::Result<bool> {
+    pub fn intersects_with(&self, machine_attrs: &HashMap<String, String>) -> CarbideResult<bool> {
         if self.attrs.len() > machine_attrs.len() {
             return Ok(false);
         }
@@ -344,7 +353,7 @@ impl MeasurementSystemProfile {
 
     pub async fn get_all(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> eyre::Result<Vec<MeasurementSystemProfile>> {
+    ) -> CarbideResult<Vec<MeasurementSystemProfile>> {
         get_measurement_system_profiles_with_txn(txn).await
     }
 }
@@ -423,13 +432,13 @@ pub fn profile_attr_records_to_map(
 async fn match_profile(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
-) -> eyre::Result<Option<MeasurementSystemProfileId>> {
+) -> CarbideResult<Option<MeasurementSystemProfileId>> {
     // Get all profiles, and figure out which one intersects
     // with the provided attrs. After that, we'll attempt to find the
     // most specific match (if there are multiple matches).
     let mut all_profiles = get_measurement_system_profiles_with_txn(txn).await?;
 
-    let match_attempts: eyre::Result<Vec<MeasurementSystemProfile>> = all_profiles
+    let match_attempts: CarbideResult<Vec<MeasurementSystemProfile>> = all_profiles
         .drain(..)
         .filter_map(|profile| match profile.intersects_with(attrs) {
             Ok(true) => Some(Ok(profile)),
@@ -457,7 +466,9 @@ async fn match_profile(
     // one). If there's a conflict, then return an error.
     matching.sort_by(|a, b| b.attrs.len().cmp(&a.attrs.len()));
     if matching[0].attrs.len() == matching[1].attrs.len() {
-        return Err(eyre::eyre!("cannot determine most specific profile match"));
+        return Err(CarbideError::GenericError(String::from(
+            "cannot determine most specific profile match",
+        )));
     }
 
     Ok(Some(matching[0].profile_id))
@@ -470,17 +481,49 @@ async fn match_profile(
 /// tables.
 pub async fn create_measurement_profile(
     txn: &mut Transaction<'_, Postgres>,
-    name: String,
+    profile_name: String,
     attrs: &HashMap<String, String>,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideResult<MeasurementSystemProfile> {
     if let Some(existing) = MeasurementSystemProfile::load_from_attrs(txn, attrs).await? {
-        return Err(eyre::eyre!(
-            "profile with attrs already exists: {:?}",
-            existing
-        ));
+        return Err(CarbideError::AlreadyFoundError {
+            kind: "MeasurementSystemProfile",
+            id: existing.profile_id.to_string(),
+        });
     }
 
-    let info = insert_measurement_profile_record(txn, name).await?;
+    let info = insert_measurement_profile_record(txn, profile_name.clone())
+        .await
+        .map_err(|sqlx_err| {
+            let is_db_err = sqlx_err.as_database_error();
+            match is_db_err {
+                Some(db_err) => match db_err.kind() {
+                    sqlx::error::ErrorKind::UniqueViolation => CarbideError::AlreadyFoundError {
+                        kind: "MeasurementSystemProfile",
+                        id: profile_name.clone(),
+                    },
+                    sqlx::error::ErrorKind::NotNullViolation => {
+                        CarbideError::GenericError(format!(
+                            "system profile missing not null value: {} (msg: {})",
+                            profile_name.clone(),
+                            db_err
+                        ))
+                    }
+                    _ => CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "MeasurementSystemProfile.new_with_txn db_err",
+                        sqlx_err,
+                    )),
+                },
+                None => CarbideError::from(DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "MeasurementSystemProfile.new_with_txn sqlx_err",
+                    sqlx_err,
+                )),
+            }
+        })?;
+
     let attrs = insert_measurement_profile_attr_records(txn, info.profile_id, attrs).await?;
     Ok(MeasurementSystemProfile {
         profile_id: info.profile_id,
@@ -495,7 +538,7 @@ pub async fn create_measurement_profile(
 pub async fn get_measurement_profile_by_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<MeasurementSystemProfile> {
+) -> CarbideResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_id(txn, profile_id).await? {
         Some(info) => {
             let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
@@ -506,7 +549,10 @@ pub async fn get_measurement_profile_by_id(
                 attrs,
             })
         }
-        None => Err(eyre::eyre!("no profile found with that ID")),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementSystemProfile",
+            id: profile_id.to_string(),
+        }),
     }
 }
 
@@ -562,14 +608,21 @@ pub async fn delete_profile_for_name(
 /// instances in the database.
 pub async fn get_measurement_system_profiles(
     db_conn: &Pool<Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfile>> {
-    let mut txn = db_conn.begin().await?;
+) -> CarbideResult<Vec<MeasurementSystemProfile>> {
+    let mut txn = db_conn.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "get_measurement_system_profiles begin",
+            e,
+        ))
+    })?;
     get_measurement_system_profiles_with_txn(&mut txn).await
 }
 
 pub async fn get_measurement_system_profiles_with_txn(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfile>> {
+) -> CarbideResult<Vec<MeasurementSystemProfile>> {
     let mut res: Vec<MeasurementSystemProfile> = Vec::new();
     let mut infos = get_all_measurement_profile_records(txn).await?;
     for info in infos.drain(..) {

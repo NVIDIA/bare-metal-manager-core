@@ -55,14 +55,14 @@ pub enum IdentifierType {
     Detect,
 }
 
-pub fn get_identifier<T>(args: &T) -> eyre::Result<IdentifierType>
+pub fn get_identifier<T>(args: &T) -> CarbideCliResult<IdentifierType>
 where
     T: IdNameIdentifier,
 {
     if args.is_id() && args.is_name() {
-        return Err(eyre::eyre!(
-            "identifier cant be an ID *and* a name, u so silly"
-        ));
+        return Err(CarbideCliError::GenericError(String::from(
+            "identifier cant be an ID *and* a name, u so silly",
+        )));
     }
 
     if args.is_id() {
@@ -88,15 +88,17 @@ pub fn cli_output<T: Serialize + ToTable>(
     input: T,
     format: &OutputFormat,
     destination: Destination,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     let output = match format {
         OutputFormat::Json => serde_json::to_string_pretty(&input)?,
         OutputFormat::Yaml => serde_yaml::to_string(&input)?,
-        OutputFormat::AsciiTable => convert_to_table(&input)?,
+        OutputFormat::AsciiTable => {
+            convert_to_table(&input).map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        }
         OutputFormat::Csv => {
-            return Err(eyre::eyre!(
-                "CSV not supported for measurement commands (yet)"
-            ))
+            return Err(CarbideCliError::GenericError(String::from(
+                "CSV not supported for measurement commands (yet)",
+            )))
         }
     };
 
