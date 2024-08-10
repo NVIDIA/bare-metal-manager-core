@@ -1510,7 +1510,7 @@ async fn handle_measuring_state(
     let machine_id = &state.host_snapshot.machine_id;
     let machine_state = get_measurement_machine_state(txn, machine_id.clone())
         .await
-        .map_err(StateHandlerError::GenericError)?;
+        .map_err(StateHandlerError::DBError)?;
 
     match result_state {
         Ok(measuring_state) => {

@@ -44,7 +44,7 @@ pub async fn get_discovery_attributes(
 pub async fn get_candidate_machine_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<MeasurementMachineState> {
+) -> Result<MeasurementMachineState, DatabaseError> {
     Ok(
         match get_latest_journal_for_id(&mut *txn, machine_id).await? {
             Some(record) => record.state,
@@ -58,12 +58,13 @@ pub async fn get_candidate_machine_state(
 pub async fn get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Option<MeasurementJournalRecord>> {
+) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
-    Ok(sqlx::query_as::<_, MeasurementJournalRecord>(query)
+    sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
         .fetch_optional(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_latest_journal_for_id", e))
 }
 
 /// get_machine_attrs_for_machine_id returns all machine attribute

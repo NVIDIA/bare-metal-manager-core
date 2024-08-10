@@ -98,12 +98,13 @@ pub async fn match_latest_reports(
 pub async fn insert_measurement_report_record(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<MeasurementReportRecord> {
+) -> Result<MeasurementReportRecord, DatabaseError> {
     let query = "insert into measurement_reports(machine_id) values($1) returning *";
-    Ok(sqlx::query_as::<_, MeasurementReportRecord>(query)
+    sqlx::query_as::<_, MeasurementReportRecord>(query)
         .bind(machine_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_report_record", e))
 }
 
 /// insert_measurement_report_value_records takes a vec of
@@ -114,10 +115,16 @@ pub async fn insert_measurement_report_value_records(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementReportValueRecord>> {
+) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     if values.is_empty() {
-        return Err(eyre::eyre!("must have at least one report value"));
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "match_latest_reports",
+            sqlx::Error::Protocol(String::from("empty PcrRegisterValues list")),
+        ));
     }
+
     let mut records: Vec<MeasurementReportValueRecord> = Vec::new();
     for value in values.iter() {
         records.push(insert_measurement_report_value_record(txn, report_id, value).await?);
@@ -130,14 +137,22 @@ async fn insert_measurement_report_value_record(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
     value: &common::PcrRegisterValue,
-) -> eyre::Result<MeasurementReportValueRecord> {
+) -> Result<MeasurementReportValueRecord, DatabaseError> {
     let query = "insert into measurement_reports_values(report_id, pcr_register, sha256) values($1, $2, $3) returning *";
-    Ok(sqlx::query_as::<_, MeasurementReportValueRecord>(query)
+    sqlx::query_as::<_, MeasurementReportValueRecord>(query)
         .bind(report_id)
         .bind(value.pcr_register)
         .bind(&value.sha256)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "insert_measurement_report_value_record",
+                e,
+            )
+        })
 }
 
 /// get_all_measurement_report_records returns all MeasurementReportRecord
@@ -255,23 +270,28 @@ pub async fn get_measurement_report_ids_by_values(
 /// recent measurement report IDs sent by each machine.
 pub async fn get_latest_measurement_report_records_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
+) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     let query =
         "select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc";
-    Ok(sqlx::query_as::<_, MeasurementReportRecord>(query)
+    sqlx::query_as::<_, MeasurementReportRecord>(query)
         .fetch_all(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_latest_measurement_report_records_by_machine_id",
+                e,
+            )
+        })
 }
 
 /// delete_report_for_id deletes a report record.
 pub async fn delete_report_for_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-) -> eyre::Result<MeasurementReportRecord> {
-    match common::delete_object_where_id(txn, report_id).await? {
-        Some(record) => Ok(record),
-        None => Err(eyre::eyre!("could not find report for ID")),
-    }
+) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
+    common::delete_object_where_id(txn, report_id).await
 }
 
 /// delete_report_values_for_id deletes all report

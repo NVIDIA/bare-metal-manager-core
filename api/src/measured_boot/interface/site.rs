@@ -35,38 +35,54 @@ pub async fn insert_into_approved_machines(
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
-) -> eyre::Result<MeasurementApprovedMachineRecord> {
+) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "insert into measurement_approved_machines(machine_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
-    let record = sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(machine_id)
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
         .fetch_one(txn.deref_mut())
-        .await?;
-    Ok(record)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_machines", e))
 }
 
 pub async fn remove_from_approved_machines_by_approval_id(
     txn: &mut Transaction<'_, Postgres>,
     approval_id: MeasurementApprovedMachineId,
-) -> eyre::Result<MeasurementApprovedMachineRecord> {
+) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where approval_id = $1 returning *";
-    Ok(sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(approval_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "remove_from_approved_machines_by_approval_id",
+                e,
+            )
+        })
 }
 
 pub async fn remove_from_approved_machines_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<MeasurementApprovedMachineRecord> {
+) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where machine_id = $1 returning *";
-    Ok(sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(machine_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "remove_from_approved_machines_by_machine_id",
+                e,
+            )
+        })
 }
 
 pub async fn get_approved_machines(
@@ -92,38 +108,54 @@ pub async fn insert_into_approved_profiles(
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
-) -> eyre::Result<MeasurementApprovedProfileRecord> {
+) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "insert into measurement_approved_profiles(profile_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
-    let record = sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
         .fetch_one(txn.deref_mut())
-        .await?;
-    Ok(record)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_profiles", e))
 }
 
 pub async fn remove_from_approved_profiles_by_approval_id(
     txn: &mut Transaction<'_, Postgres>,
     approval_id: MeasurementApprovedProfileId,
-) -> eyre::Result<MeasurementApprovedProfileRecord> {
+) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where approval_id = $1 returning *";
-    Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(approval_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "remove_from_approved_profiles_by_approval_id",
+                e,
+            )
+        })
 }
 
 pub async fn remove_from_approved_profiles_by_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<MeasurementApprovedProfileRecord> {
+) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where profile_id = $1 returning *";
-    Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "remove_from_approved_profiles_by_profile_id",
+                e,
+            )
+        })
 }
 
 pub async fn get_approved_profiles(
@@ -137,13 +169,14 @@ pub async fn get_approved_profiles(
 pub async fn get_approval_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Option<MeasurementApprovedProfileRecord>> {
+) -> Result<Option<MeasurementApprovedProfileRecord>, DatabaseError> {
     // TODO(chet): get_object_for_id should become fetch_optional.
     let query = "select * from measurement_approved_profiles where profile_id = $1";
-    Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
         .fetch_optional(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_profile_id", e))
 }
 
 /// import_measurement_approved_machines takes a vector of
@@ -155,7 +188,7 @@ pub async fn get_approval_for_profile_id(
 pub async fn import_measurement_approved_machines(
     txn: &mut Transaction<'_, Postgres>,
     records: Vec<MeasurementApprovedMachineRecord>,
-) -> eyre::Result<Vec<MeasurementApprovedMachineRecord>> {
+) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementApprovedMachineRecord>::new();
     for record in records.iter() {
         committed.push(import_measurement_approved_machine(&mut *txn, record).await?);
@@ -172,21 +205,20 @@ pub async fn import_measurement_approved_machines(
 pub async fn import_measurement_approved_machine(
     txn: &mut Transaction<'_, Postgres>,
     record: &MeasurementApprovedMachineRecord,
-) -> eyre::Result<MeasurementApprovedMachineRecord> {
+) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = format!(
         "insert into {}(approval_id, machine_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
         MeasurementApprovedMachineRecord::db_table_name()
     );
-    Ok(
-        sqlx::query_as::<_, MeasurementApprovedMachineRecord>(&query)
-            .bind(record.approval_id)
-            .bind(record.machine_id.clone())
-            .bind(record.approval_type)
-            .bind(record.ts)
-            .bind(record.comments.clone())
-            .fetch_one(txn.deref_mut())
-            .await?,
-    )
+    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(&query)
+        .bind(record.approval_id)
+        .bind(record.machine_id.clone())
+        .bind(record.approval_type)
+        .bind(record.ts)
+        .bind(record.comments.clone())
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_approved_machine", e))
 }
 
 /// import_measurement_approved_profiles takes a vector of
@@ -198,7 +230,7 @@ pub async fn import_measurement_approved_machine(
 pub async fn import_measurement_approved_profiles(
     txn: &mut Transaction<'_, Postgres>,
     records: Vec<MeasurementApprovedProfileRecord>,
-) -> eyre::Result<Vec<MeasurementApprovedProfileRecord>> {
+) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementApprovedProfileRecord>::new();
     for record in records.iter() {
         committed.push(import_measurement_approved_profile(&mut *txn, record).await?);
@@ -215,19 +247,18 @@ pub async fn import_measurement_approved_profiles(
 pub async fn import_measurement_approved_profile(
     txn: &mut Transaction<'_, Postgres>,
     record: &MeasurementApprovedProfileRecord,
-) -> eyre::Result<MeasurementApprovedProfileRecord> {
+) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = format!(
         "insert into {}(approval_id, profile_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
         MeasurementApprovedProfileRecord::db_table_name()
     );
-    Ok(
-        sqlx::query_as::<_, MeasurementApprovedProfileRecord>(&query)
-            .bind(record.approval_id)
-            .bind(record.profile_id)
-            .bind(record.approval_type)
-            .bind(record.ts)
-            .bind(record.comments.clone())
-            .fetch_one(txn.deref_mut())
-            .await?,
-    )
+    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(&query)
+        .bind(record.approval_id)
+        .bind(record.profile_id)
+        .bind(record.approval_type)
+        .bind(record.ts)
+        .bind(record.comments.clone())
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_approved_profile", e))
 }

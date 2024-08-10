@@ -249,7 +249,7 @@ pub fn bundle_state_to_machine_state(
 pub async fn get_measurement_machine_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<MeasurementMachineState> {
+) -> Result<MeasurementMachineState, DatabaseError> {
     get_candidate_machine_state(txn, machine_id).await
 }
 
