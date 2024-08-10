@@ -95,18 +95,19 @@ pub async fn rename_profile_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
     new_profile_name: String,
-) -> eyre::Result<MeasurementSystemProfileRecord> {
+) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
     let query = format!(
         "update {} set name = $1 where {} = $2 returning *",
         MeasurementSystemProfileRecord::db_table_name(),
         MeasurementSystemProfileId::db_primary_uuid_name()
     );
 
-    Ok(sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
         .bind(new_profile_name)
         .bind(profile_id)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_id", e))
 }
 
 /// rename_profile_for_profile_name renames a profile based
@@ -115,17 +116,18 @@ pub async fn rename_profile_for_profile_name(
     txn: &mut Transaction<'_, Postgres>,
     old_profile_name: String,
     new_profile_name: String,
-) -> eyre::Result<MeasurementSystemProfileRecord> {
+) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
     let query = format!(
         "update {} set name = $1 where name = $2 returning *",
         MeasurementSystemProfileRecord::db_table_name(),
     );
 
-    Ok(sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
         .bind(new_profile_name)
         .bind(old_profile_name)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_name", e))
 }
 
 /// get_all_measurement_profile_records gets all system profile records.
@@ -200,7 +202,7 @@ pub async fn get_measurement_profile_record_by_name(
 pub async fn delete_profile_record_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
+) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::delete_object_where_id(txn, profile_id)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "delete_profile_record_for_id", e.source))
@@ -351,13 +353,14 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
 pub async fn get_bundles_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MeasurementBundleId>> {
+) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query =
         "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
-    Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
+    sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_id", e))
 }
 
 /// get_bundles_for_profile_name returns a unique list of all
@@ -367,13 +370,14 @@ pub async fn get_bundles_for_profile_id(
 pub async fn get_bundles_for_profile_name(
     txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
-) -> eyre::Result<Vec<MeasurementBundleId>> {
+) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query =
         "select distinct bundle_id from measurement_bundles where name = $1 order by bundle_id";
-    Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
+    sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_name", e))
 }
 
 /// get_machines_for_profile_id returns a unique list of all MachineId
@@ -383,12 +387,13 @@ pub async fn get_bundles_for_profile_name(
 pub async fn get_machines_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MachineId>> {
+) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
-        .await?
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_id", e))?
         .into_iter()
         .map(|d| d.into_inner())
         .collect())
@@ -401,13 +406,14 @@ pub async fn get_machines_for_profile_id(
 pub async fn get_machines_for_profile_name(
     txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
-) -> eyre::Result<Vec<MachineId>> {
+) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())
-        .await?
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_name", e))?
         .into_iter()
         .map(|d| d.into_inner())
         .collect())
@@ -421,7 +427,7 @@ pub async fn get_machines_for_profile_name(
 pub async fn import_measurement_system_profiles(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementSystemProfileRecord],
-) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
+) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementSystemProfileRecord>::new();
     for record in records.iter() {
         committed.push(import_measurement_profile(&mut *txn, record).await?);
@@ -440,18 +446,19 @@ pub async fn import_measurement_system_profiles(
 pub async fn import_measurement_profile(
     txn: &mut Transaction<'_, Postgres>,
     profile: &MeasurementSystemProfileRecord,
-) -> eyre::Result<MeasurementSystemProfileRecord> {
+) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
     let query = format!(
         "insert into {}(profile_id, name, ts) values($1, $2, $3) returning *",
         MeasurementSystemProfileRecord::db_table_name()
     );
 
-    Ok(sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
         .bind(profile.profile_id)
         .bind(profile.name.clone())
         .bind(profile.ts)
         .fetch_one(txn.deref_mut())
-        .await?)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_profile", e))
 }
 
 /// import_measurement_system_profiles_attrs inserts a bunch of measurement profile
@@ -463,7 +470,7 @@ pub async fn import_measurement_profile(
 pub async fn import_measurement_system_profiles_attrs(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementSystemProfileAttrRecord],
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementSystemProfileAttrRecord>::new();
     for record in records.iter() {
         committed.push(import_measurement_system_profiles_attr(&mut *txn, record).await?);
@@ -479,22 +486,28 @@ pub async fn import_measurement_system_profiles_attrs(
 pub async fn import_measurement_system_profiles_attr(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementSystemProfileAttrRecord,
-) -> eyre::Result<MeasurementSystemProfileAttrRecord> {
+) -> Result<MeasurementSystemProfileAttrRecord, DatabaseError> {
     let query = format!(
         "insert into {}(attribute_id, profile_id, key, value, ts) values($1, $2, $3, $4, $5) returning *",
         MeasurementSystemProfileAttrRecord::db_table_name()
     );
 
-    Ok(
-        sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
-            .bind(bundle.attribute_id)
-            .bind(bundle.profile_id)
-            .bind(bundle.key.clone())
-            .bind(bundle.value.clone())
-            .bind(bundle.ts)
-            .fetch_one(txn.deref_mut())
-            .await?,
-    )
+    sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
+        .bind(bundle.attribute_id)
+        .bind(bundle.profile_id)
+        .bind(bundle.key.clone())
+        .bind(bundle.value.clone())
+        .bind(bundle.ts)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "import_measurement_system_profiles_attr",
+                e,
+            )
+        })
 }
 
 /// export_measurement_profile_records returns all MeasurementSystemProfileRecord

@@ -174,15 +174,23 @@ impl MeasurementReport {
     pub async fn delete_for_id(
         txn: &mut Transaction<'_, Postgres>,
         report_id: MeasurementReportId,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         let values = delete_report_values_for_id(txn, report_id).await?;
-        let info = delete_report_for_id(txn, report_id).await?;
-        Ok(Self {
-            report_id: info.report_id,
-            machine_id: info.machine_id,
-            ts: info.ts,
-            values,
-        })
+        match delete_report_for_id(txn, report_id)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(info) => Ok(Self {
+                report_id: info.report_id,
+                machine_id: info.machine_id,
+                ts: info.ts,
+                values,
+            }),
+            None => Err(CarbideError::NotFoundError {
+                kind: "MeasurementReport",
+                id: report_id.to_string(),
+            }),
+        }
     }
 
     pub fn pcr_values(&self) -> Vec<common::PcrRegisterValue> {
