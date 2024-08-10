@@ -14,6 +14,7 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
+use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidateMachinesRequest};
 use ::rpc::protos::measured_boot::{
@@ -34,7 +35,7 @@ use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 pub async fn dispatch(
     cmd: &CmdMachine,
     cli: &mut global::cmds::CliData<'_, '_>,
-) -> eyre::Result<()> {
+) -> CarbideCliResult<()> {
     match cmd {
         CmdMachine::Attest(local_args) => {
             cli_output(
@@ -74,7 +75,7 @@ pub async fn dispatch(
 pub async fn attest(
     grpc_conn: &mut ForgeClientT,
     attest: &Attest,
-) -> eyre::Result<MeasurementReport> {
+) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = AttestCandidateMachineRequest {
         machine_id: attest.machine_id.to_string(),
@@ -85,19 +86,27 @@ pub async fn attest(
     let response = grpc_conn
         .attest_candidate_machine(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id shows all info about a given machine ID.
 pub async fn show_by_id(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
-) -> eyre::Result<CandidateMachine> {
+) -> CarbideCliResult<CandidateMachine> {
     // Prepare.
+    // TODO(chet): This exists just because of how I'm dispatching
+    // commands, since &Show gets reused for showing all (where machine_id
+    // is unset, or showing a specific machine ID). Ultimately this
+    // shouldn't ever actually get hit, but it exists just incase. That
+    // said, I should look into see if I can just have clap validate this.
     let Some(machine_id) = &show.machine_id else {
-        return Err(eyre::eyre!("machine_id must be set to get a machine"));
+        return Err(CarbideCliError::GenericError(String::from(
+            "machine_id must be set to get a machine",
+        )));
     };
 
     // Request.
@@ -111,16 +120,17 @@ pub async fn show_by_id(
     let response = grpc_conn
         .show_candidate_machine(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+        .map_err(CarbideCliError::ApiInvocationError)?;
 
     CandidateMachine::from_grpc(response.get_ref().machine.as_ref())
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all shows all info about all machines.
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
-) -> eyre::Result<Vec<CandidateMachine>> {
+) -> CarbideCliResult<Vec<CandidateMachine>> {
     // Request.
     let request = ShowCandidateMachinesRequest {};
 
@@ -128,19 +138,19 @@ pub async fn show_all(
     grpc_conn
         .show_candidate_machines(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .machines
         .iter()
         .map(|machine| {
             CandidateMachine::try_from(machine.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<CandidateMachine>>>()
+        .collect::<CarbideCliResult<Vec<CandidateMachine>>>()
 }
 
 /// list lists all machine IDs.
-pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<CandidateMachineSummary>> {
+pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<CandidateMachineSummary>> {
     // Request.
     let request = ListCandidateMachinesRequest {};
 
@@ -148,13 +158,13 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<CandidateMac
     grpc_conn
         .list_candidate_machines(request)
         .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?
+        .map_err(CarbideCliError::ApiInvocationError)?
         .get_ref()
         .machines
         .iter()
         .map(|machine| {
             CandidateMachineSummary::try_from(machine.clone())
-                .map_err(|e| eyre::eyre!("conversion failed: {}", e))
+                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
         })
-        .collect::<eyre::Result<Vec<CandidateMachineSummary>>>()
+        .collect::<CarbideCliResult<Vec<CandidateMachineSummary>>>()
 }
