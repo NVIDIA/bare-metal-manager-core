@@ -215,7 +215,7 @@ impl CandidateMachine {
         }
     }
 
-    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<Self>> {
+    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<Self>> {
         get_candidate_machines(txn).await
     }
 
@@ -273,7 +273,7 @@ pub async fn get_measurement_bundle_state(
 /// get_candidate_machines returns all populated CandidateMachine instances.
 async fn get_candidate_machines(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<CandidateMachine>> {
+) -> CarbideResult<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
     let mut records = get_candidate_machine_records(txn).await?;
     for record in records.drain(..) {
@@ -283,7 +283,9 @@ async fn get_candidate_machines(
                 (String::from("product_name"), dmi_data.product_name.clone()),
                 (String::from("bios_version"), dmi_data.bios_version.clone()),
             ])),
-            None => Err(eyre::eyre!("machine missing dmi data")),
+            None => Err(CarbideError::GenericError(String::from(
+                "machine missing dmi data",
+            ))),
         }?;
 
         let journal = get_latest_journal_for_id(txn, record.machine_id.clone()).await?;

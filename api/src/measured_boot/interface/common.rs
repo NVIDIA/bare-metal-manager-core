@@ -169,7 +169,7 @@ impl<'i> Iterator for PcrSetIter<'i> {
     }
 }
 
-pub fn parse_pcr_index_input(arg: &str) -> eyre::Result<PcrSet> {
+pub fn parse_pcr_index_input(arg: &str) -> CarbideResult<PcrSet> {
     let groups: Vec<&str> = arg.split(',').collect();
     let mut index_set: HashSet<i16> = HashSet::new();
     for group in groups {
@@ -179,7 +179,12 @@ pub fn parse_pcr_index_input(arg: &str) -> eyre::Result<PcrSet> {
                 index_set.insert(index as i16);
             }
         } else {
-            index_set.insert(group.parse::<i16>()?);
+            index_set.insert(group.parse::<i16>().map_err(|e| {
+                CarbideError::GenericError(format!(
+                    "parse_pcr_index_input group parse failed: {}, {}",
+                    group, e
+                ))
+            })?);
         }
     }
 
@@ -188,21 +193,25 @@ pub fn parse_pcr_index_input(arg: &str) -> eyre::Result<PcrSet> {
     Ok(PcrSet(vals))
 }
 
-pub fn parse_range(arg: &str) -> eyre::Result<PcrRange> {
+pub fn parse_range(arg: &str) -> CarbideResult<PcrRange> {
     let range: Vec<usize> = arg
         .split('-')
         .map(|s| {
             s.parse::<usize>()
-                .map_err(|_| eyre::eyre!("failed parsing"))
+                .map_err(|_| CarbideError::GenericError(format!("parse_range failed on {}", arg)))
         })
-        .collect::<eyre::Result<Vec<usize>>>()?;
+        .collect::<CarbideResult<Vec<usize>>>()?;
 
     if range.len() != 2 {
-        return Err(eyre::eyre!("expected two values"));
+        return Err(CarbideError::GenericError(String::from(
+            "parse_range range expected 2 values",
+        )));
     }
 
     if range[0] > range[1] {
-        return Err(eyre::eyre!("end must be greater than start"));
+        return Err(CarbideError::GenericError(String::from(
+            "end must be greater than start",
+        )));
     }
 
     Ok(PcrRange {

@@ -528,11 +528,13 @@ impl MeasurementBundle {
         txn: &mut Transaction<'_, Postgres>,
         bundle_name: String,
         purge_journals: bool,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         // Note that due to relational constraints, values must be
         // deleted before the parent record.
         if purge_journals {
-            return Err(eyre::eyre!("journal purge not supported -- TODO"));
+            return Err(CarbideError::GenericError(String::from(
+                "journal purge not supported -- TODO",
+            )));
         }
         let bundle = Self::from_name_with_txn(txn, bundle_name.clone())
             .await?

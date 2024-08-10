@@ -169,14 +169,14 @@ impl MeasurementJournal {
     pub async fn from_id(
         txn: &mut Transaction<'_, Postgres>,
         journal_id: MeasurementJournalId,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         get_measurement_journal_by_id(txn, journal_id).await
     }
 
     pub async fn delete_where_id(
         txn: &mut Transaction<'_, Postgres>,
         journal_id: MeasurementJournalId,
-    ) -> eyre::Result<Option<MeasurementJournal>> {
+    ) -> CarbideResult<Option<MeasurementJournal>> {
         let info = delete_journal_where_id(txn, journal_id).await?;
         match info {
             None => Ok(None),
@@ -194,14 +194,14 @@ impl MeasurementJournal {
 
     pub async fn get_all(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> eyre::Result<Vec<MeasurementJournal>> {
+    ) -> CarbideResult<Vec<MeasurementJournal>> {
         get_measurement_journals(txn).await
     }
 
     pub async fn get_all_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
-    ) -> eyre::Result<Vec<MeasurementJournal>> {
+    ) -> CarbideResult<Vec<MeasurementJournal>> {
         get_measurement_journals_for_machine_id(txn, machine_id).await
     }
 
@@ -322,7 +322,7 @@ async fn create_measurement_journal(
 async fn get_measurement_journal_by_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
-) -> eyre::Result<MeasurementJournal> {
+) -> CarbideResult<MeasurementJournal> {
     match get_measurement_journal_record_by_id(txn, journal_id).await? {
         Some(info) => Ok(MeasurementJournal {
             journal_id: info.journal_id,
@@ -333,7 +333,10 @@ async fn get_measurement_journal_by_id(
             state: info.state,
             ts: info.ts,
         }),
-        None => Err(eyre::eyre!("no journal found with that ID")),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementJournal",
+            id: journal_id.to_string(),
+        }),
     }
 }
 
@@ -342,8 +345,10 @@ async fn get_measurement_journal_by_id(
 /// function since its a simple/common pattern.
 async fn get_measurement_journals(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementJournal>> {
-    let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn).await?;
+) -> CarbideResult<Vec<MeasurementJournal>> {
+    let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn)
+        .await
+        .map_err(CarbideError::from)?;
     let res: Vec<MeasurementJournal> = journal_records
         .iter()
         .map(|record| MeasurementJournal {
@@ -365,8 +370,10 @@ async fn get_measurement_journals(
 async fn get_measurement_journals_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Vec<MeasurementJournal>> {
-    let records = get_measurement_journal_records_for_machine_id(txn, machine_id).await?;
+) -> CarbideResult<Vec<MeasurementJournal>> {
+    let records = get_measurement_journal_records_for_machine_id(txn, machine_id)
+        .await
+        .map_err(CarbideError::from)?;
     Ok(records
         .iter()
         .map(|record| MeasurementJournal {

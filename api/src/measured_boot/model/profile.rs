@@ -99,10 +99,24 @@ impl MeasurementSystemProfile {
         db_conn: &Pool<Postgres>,
         name: Option<String>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementSystemProfile.new begin",
+                e,
+            ))
+        })?;
         let profile = Self::new_with_txn(&mut txn, name, attrs).await?;
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementSystemProfile.new commit",
+                e,
+            ))
+        })?;
         Ok(profile)
     }
 
@@ -123,7 +137,7 @@ impl MeasurementSystemProfile {
     pub fn from_info_and_attrs(
         info: MeasurementSystemProfileRecord,
         attrs: Vec<MeasurementSystemProfileAttrRecord>,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         Ok(Self {
             profile_id: info.profile_id,
             name: info.name,
@@ -156,10 +170,24 @@ impl MeasurementSystemProfile {
     pub async fn match_from_attrs_or_new(
         db_conn: &Pool<Postgres>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementSystemProfile.match_from_attrs_or_new begin",
+                e,
+            ))
+        })?;
         let profile = Self::match_from_attrs_or_new_with_txn(&mut txn, attrs).await?;
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementSystemProfile.match_from_attrs_or_new commit",
+                e,
+            ))
+        })?;
         Ok(profile)
     }
 
@@ -178,7 +206,7 @@ impl MeasurementSystemProfile {
     pub async fn match_from_attrs(
         txn: &mut Transaction<'_, Postgres>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Option<Self>> {
+    ) -> CarbideResult<Option<Self>> {
         match match_profile(txn, attrs).await? {
             Some(info) => Ok(Some(
                 MeasurementSystemProfile::load_from_id_with_txn(txn, info).await?,
@@ -202,8 +230,15 @@ impl MeasurementSystemProfile {
     pub async fn load_from_attrs_or_new(
         db_conn: &Pool<Postgres>,
         attrs: &HashMap<String, String>,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementProfile.load_from_attrs_or_new begin",
+                e,
+            ))
+        })?;
         match MeasurementSystemProfile::load_from_attrs(&mut txn, attrs).await? {
             Some(info) => Ok(info),
             None => Ok(MeasurementSystemProfile::new(db_conn, None, attrs).await?),
@@ -243,7 +278,7 @@ impl MeasurementSystemProfile {
     pub async fn load_from_name(
         txn: &mut Transaction<'_, Postgres>,
         name: String,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         get_measurement_profile_by_name(txn, name).await
     }
 
@@ -292,7 +327,7 @@ impl MeasurementSystemProfile {
     /// intersects_from is used to check if the provided input
     /// attrs intersect with the current profile.
     ////////////////////////////////////////////////////////////////
-    pub fn intersects_from(&self, machine_attrs: &HashMap<String, String>) -> eyre::Result<bool> {
+    pub fn intersects_from(&self, machine_attrs: &HashMap<String, String>) -> CarbideResult<bool> {
         if machine_attrs.len() > self.attrs.len() {
             return Ok(false);
         }
@@ -311,14 +346,14 @@ impl MeasurementSystemProfile {
     pub async fn delete_for_id(
         txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
-    ) -> eyre::Result<Option<MeasurementSystemProfile>> {
+    ) -> CarbideResult<Option<MeasurementSystemProfile>> {
         delete_profile_for_id(txn, profile_id).await
     }
 
     pub async fn delete_for_name(
         txn: &mut Transaction<'_, Postgres>,
         name: String,
-    ) -> eyre::Result<Option<MeasurementSystemProfile>> {
+    ) -> CarbideResult<Option<MeasurementSystemProfile>> {
         delete_profile_for_name(txn, name).await
     }
 
@@ -327,11 +362,14 @@ impl MeasurementSystemProfile {
         txn: &mut Transaction<'_, Postgres>,
         system_profile_id: MeasurementSystemProfileId,
         new_system_profile_name: String,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         MeasurementSystemProfile::from_info_and_attrs(
             rename_profile_for_profile_id(txn, system_profile_id, new_system_profile_name.clone())
-                .await?,
-            get_measurement_profile_attrs_for_profile_id(txn, system_profile_id).await?,
+                .await
+                .map_err(CarbideError::from)?,
+            get_measurement_profile_attrs_for_profile_id(txn, system_profile_id)
+                .await
+                .map_err(CarbideError::from)?,
         )
     }
 
@@ -340,14 +378,17 @@ impl MeasurementSystemProfile {
         txn: &mut Transaction<'_, Postgres>,
         system_profile_name: String,
         new_system_profile_name: String,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         let info = rename_profile_for_profile_name(
             txn,
             system_profile_name.clone(),
             new_system_profile_name.clone(),
         )
-        .await?;
-        let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
+        .await
+        .map_err(CarbideError::from)?;
+        let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id)
+            .await
+            .map_err(CarbideError::from)?;
         MeasurementSystemProfile::from_info_and_attrs(info, attrs)
     }
 
@@ -408,16 +449,16 @@ impl ToTable for Vec<MeasurementSystemProfile> {
 /// MeasurementSystemProfileAttrRecord into a hashmap of strings.
 pub fn profile_attr_records_to_map(
     values: &[MeasurementSystemProfileAttrRecord],
-) -> eyre::Result<HashMap<String, String>> {
+) -> CarbideResult<HashMap<String, String>> {
     let total_values = values.len();
     let value_map: HashMap<String, String> = values
         .iter()
         .map(|rec| (rec.key.clone(), rec.value.clone()))
         .collect();
     if total_values != value_map.len() {
-        return Err(eyre::eyre!(
-            "detected key name collision in input attribute list"
-        ));
+        return Err(CarbideError::GenericError(String::from(
+            "detected key name collision in input attribute list",
+        )));
     }
     Ok(value_map)
 }
@@ -561,10 +602,12 @@ pub async fn get_measurement_profile_by_id(
 pub async fn get_measurement_profile_by_name(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
-) -> eyre::Result<MeasurementSystemProfile> {
-    match get_measurement_profile_record_by_name(txn, name).await? {
+) -> CarbideResult<MeasurementSystemProfile> {
+    match get_measurement_profile_record_by_name(txn, name.clone()).await? {
         Some(info) => {
-            let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
+            let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id)
+                .await
+                .map_err(CarbideError::from)?;
             Ok(MeasurementSystemProfile {
                 profile_id: info.profile_id,
                 name: info.name,
@@ -572,7 +615,10 @@ pub async fn get_measurement_profile_by_name(
                 attrs,
             })
         }
-        None => Err(eyre::eyre!("no profile found with that name")),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementSystemProfile",
+            id: name.clone(),
+        }),
     }
 }
 
@@ -581,9 +627,14 @@ pub async fn get_measurement_profile_by_name(
 pub async fn delete_profile_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Option<MeasurementSystemProfile>> {
-    let attrs = delete_profile_attr_records_for_id(txn, profile_id).await?;
-    match delete_profile_record_for_id(txn, profile_id).await? {
+) -> CarbideResult<Option<MeasurementSystemProfile>> {
+    let attrs = delete_profile_attr_records_for_id(txn, profile_id)
+        .await
+        .map_err(CarbideError::from)?;
+    match delete_profile_record_for_id(txn, profile_id)
+        .await
+        .map_err(CarbideError::from)?
+    {
         Some(info) => Ok(Some(MeasurementSystemProfile {
             name: info.name,
             profile_id: info.profile_id,
@@ -599,7 +650,7 @@ pub async fn delete_profile_for_id(
 pub async fn delete_profile_for_name(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
-) -> eyre::Result<Option<MeasurementSystemProfile>> {
+) -> CarbideResult<Option<MeasurementSystemProfile>> {
     let profile = MeasurementSystemProfile::load_from_name(txn, name).await?;
     delete_profile_for_id(txn, profile.profile_id).await
 }
