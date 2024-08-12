@@ -117,10 +117,24 @@ impl MeasurementReport {
         db_conn: &Pool<Postgres>,
         machine_id: MachineId,
         values: &[common::PcrRegisterValue],
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.new begin",
+                e,
+            ))
+        })?;
         let report = Self::new_with_txn(&mut txn, machine_id, values).await?;
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.new commit",
+                e,
+            ))
+        })?;
         Ok(report)
     }
 
@@ -128,7 +142,7 @@ impl MeasurementReport {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
         values: &[common::PcrRegisterValue],
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         create_measurement_report(txn, machine_id, values).await
     }
 
@@ -156,15 +170,22 @@ impl MeasurementReport {
     pub async fn from_id(
         db_conn: &Pool<Postgres>,
         report_id: MeasurementReportId,
-    ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
+    ) -> CarbideResult<Self> {
+        let mut txn = db_conn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "MeasurementReport.from_id begin",
+                e,
+            ))
+        })?;
         Self::from_id_with_txn(&mut txn, report_id).await
     }
 
     pub async fn from_id_with_txn(
         txn: &mut Transaction<'_, Postgres>,
         report_id: MeasurementReportId,
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         get_measurement_report_by_id_with_txn(txn, report_id).await
     }
 
@@ -201,11 +222,11 @@ impl MeasurementReport {
     pub async fn get_all_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
-    ) -> eyre::Result<Vec<Self>> {
+    ) -> CarbideResult<Vec<Self>> {
         get_measurement_reports_for_machine_id(txn, machine_id).await
     }
 
-    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<Self>> {
+    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<Self>> {
         get_all_measurement_reports(txn).await
     }
 
@@ -366,9 +387,13 @@ pub async fn create_measurement_report(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<MeasurementReport> {
-    let info = insert_measurement_report_record(txn, machine_id).await?;
-    let values = insert_measurement_report_value_records(txn, info.report_id, values).await?;
+) -> CarbideResult<MeasurementReport> {
+    let info = insert_measurement_report_record(txn, machine_id)
+        .await
+        .map_err(CarbideError::from)?;
+    let values = insert_measurement_report_value_records(txn, info.report_id, values)
+        .await
+        .map_err(CarbideError::from)?;
     let report = MeasurementReport {
         report_id: info.report_id,
         machine_id: info.machine_id,
@@ -396,7 +421,7 @@ pub async fn create_measurement_report(
     // placeholder, just incase we want to turn off auto-creation of
     // profiles (or make it configurable).
     if journal.profile_id.is_none() {
-        return Err(eyre::eyre!("profile id shouldn't be none"));
+        return Err(CarbideError::MissingArgument("journal.profile_id"));
     }
 
     // And, finally, if there's no bundle_id associated with the journal entry,
@@ -417,9 +442,13 @@ pub async fn create_measurement_report(
 /// function since its a simple/common pattern.
 pub async fn get_all_measurement_reports(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementReport>> {
-    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn).await?;
-    let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn).await?;
+) -> CarbideResult<Vec<MeasurementReport>> {
+    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn)
+        .await
+        .map_err(CarbideError::from)?;
+    let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn)
+        .await
+        .map_err(CarbideError::from)?;
 
     let mut values_by_report_id: HashMap<MeasurementReportId, Vec<MeasurementReportValueRecord>> =
         HashMap::new();
@@ -451,8 +480,11 @@ pub async fn get_all_measurement_reports(
 pub async fn get_measurement_report_by_id_with_txn(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-) -> eyre::Result<MeasurementReport> {
-    match get_measurement_report_record_by_id(txn, report_id).await? {
+) -> CarbideResult<MeasurementReport> {
+    match get_measurement_report_record_by_id(txn, report_id)
+        .await
+        .map_err(CarbideError::from)?
+    {
         Some(info) => {
             let values = get_measurement_report_values_for_report_id(txn, info.report_id).await?;
             Ok(MeasurementReport {
@@ -462,7 +494,10 @@ pub async fn get_measurement_report_by_id_with_txn(
                 values,
             })
         }
-        None => Err(eyre::eyre!("no report found with that ID")),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementReport",
+            id: report_id.to_string(),
+        }),
     }
 }
 
@@ -472,13 +507,16 @@ pub async fn get_measurement_report_by_id_with_txn(
 pub async fn get_measurement_reports_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Vec<MeasurementReport>> {
+) -> CarbideResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
-        common::get_objects_where_id(txn, machine_id).await?;
+        common::get_objects_where_id(txn, machine_id)
+            .await
+            .map_err(CarbideError::from)?;
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
-        let values =
-            get_measurement_report_values_for_report_id(txn, report_record.report_id).await?;
+        let values = get_measurement_report_values_for_report_id(txn, report_record.report_id)
+            .await
+            .map_err(CarbideError::from)?;
         res.push(MeasurementReport {
             report_id: report_record.report_id,
             machine_id: report_record.machine_id.clone(),
@@ -493,12 +531,15 @@ pub async fn get_measurement_reports_for_machine_id(
 /// recent measurement reports sent by each machine.
 pub async fn get_latest_measurement_reports_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementReport>> {
-    let report_records = get_latest_measurement_report_records_by_machine_id(txn).await?;
+) -> CarbideResult<Vec<MeasurementReport>> {
+    let report_records = get_latest_measurement_report_records_by_machine_id(txn)
+        .await
+        .map_err(CarbideError::from)?;
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
-        let values =
-            get_measurement_report_values_for_report_id(txn, report_record.report_id).await?;
+        let values = get_measurement_report_values_for_report_id(txn, report_record.report_id)
+            .await
+            .map_err(CarbideError::from)?;
         res.push(MeasurementReport {
             report_id: report_record.report_id,
             machine_id: report_record.machine_id.clone(),
@@ -522,7 +563,7 @@ impl JournalData {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: MachineId,
         values: &[PcrRegisterValue],
-    ) -> eyre::Result<Self> {
+    ) -> CarbideResult<Self> {
         let state: MeasurementMachineState;
         let bundle_id: Option<MeasurementBundleId>;
 
@@ -562,9 +603,10 @@ impl JournalData {
 async fn maybe_auto_approve_machine(
     txn: &mut Transaction<'_, Postgres>,
     report: &MeasurementReport,
-) -> eyre::Result<bool> {
+) -> CarbideResult<bool> {
     match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id.clone()))
-        .await?
+        .await
+        .map_err(CarbideError::from)?
     {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
@@ -576,7 +618,9 @@ async fn maybe_auto_approve_machine(
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
             if approval.approval_type == MeasurementApprovedType::Oneshot {
-                remove_from_approved_machines_by_approval_id(txn, approval.approval_id).await?;
+                remove_from_approved_machines_by_approval_id(txn, approval.approval_id)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
             Ok(true)
         }
@@ -585,7 +629,10 @@ async fn maybe_auto_approve_machine(
         // machines (which is just a "*"). The permissive approval still
         // has the same rules as a machine-specific approval (oneshot vs.
         // persist, PCR subset limits, etc).
-        None => match get_approval_for_machine_id(txn, TrustedMachineId::Any).await? {
+        None => match get_approval_for_machine_id(txn, TrustedMachineId::Any)
+            .await
+            .map_err(CarbideError::from)?
+        {
             Some(approval) => {
                 let pcr_set = match approval.pcr_registers {
                     Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
@@ -596,7 +643,9 @@ async fn maybe_auto_approve_machine(
                 // If this is a oneshot approval, then remove the approval
                 // entry after this automatic journal promotion.
                 if approval.approval_type == MeasurementApprovedType::Oneshot {
-                    remove_from_approved_machines_by_approval_id(txn, approval.approval_id).await?;
+                    remove_from_approved_machines_by_approval_id(txn, approval.approval_id)
+                        .await
+                        .map_err(CarbideError::from)?;
                 }
                 Ok(true)
             }
@@ -616,8 +665,11 @@ async fn maybe_auto_approve_profile(
     txn: &mut Transaction<'_, Postgres>,
     journal: &MeasurementJournal,
     report: &MeasurementReport,
-) -> eyre::Result<bool> {
-    match get_approval_for_profile_id(txn, journal.profile_id.unwrap()).await? {
+) -> CarbideResult<bool> {
+    match get_approval_for_profile_id(txn, journal.profile_id.unwrap())
+        .await
+        .map_err(CarbideError::from)?
+    {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
                 Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
@@ -628,7 +680,9 @@ async fn maybe_auto_approve_profile(
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
             if approval.approval_type == MeasurementApprovedType::Oneshot {
-                remove_from_approved_profiles_by_approval_id(txn, approval.approval_id).await?;
+                remove_from_approved_profiles_by_approval_id(txn, approval.approval_id)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
             Ok(true)
         }

@@ -34,6 +34,7 @@ use crate::measured_boot::interface::profile::{
 use crate::measured_boot::interface::profile::{
     import_measurement_system_profiles, import_measurement_system_profiles_attrs,
 };
+use crate::CarbideResult;
 use rpc::protos::measured_boot::{ImportSiteMeasurementsResponse, SiteModelPb};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -82,7 +83,7 @@ impl SiteModel {
     pub async fn import(
         txn: &mut Transaction<'_, Postgres>,
         model: &SiteModel,
-    ) -> eyre::Result<()> {
+    ) -> CarbideResult<()> {
         import_measurement_system_profiles(txn, &model.measurement_system_profiles).await?;
         import_measurement_system_profiles_attrs(txn, &model.measurement_system_profiles_attrs)
             .await?;
@@ -92,7 +93,7 @@ impl SiteModel {
     }
 
     /// export builds a SiteModel from the records in the database.
-    pub async fn export(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Self> {
+    pub async fn export(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
         let measurement_system_profiles = export_measurement_profile_records(txn).await?;
         let measurement_system_profiles_attrs =
             export_measurement_system_profiles_attrs(txn).await?;
@@ -141,7 +142,7 @@ impl SiteModel {
 
     /// to_pb takes a SiteModel and converts it to a SiteModelPb,
     /// generally for the purpose of handling a gRPC response.
-    pub fn to_pb(model: &SiteModel) -> eyre::Result<SiteModelPb> {
+    pub fn to_pb(model: &SiteModel) -> CarbideResult<SiteModelPb> {
         let measurement_system_profiles = model
             .measurement_system_profiles
             .iter()
