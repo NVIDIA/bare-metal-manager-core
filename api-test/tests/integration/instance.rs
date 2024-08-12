@@ -21,22 +21,34 @@ pub fn create(
     addr: SocketAddr,
     host_machine_id: &str,
     segment_id: &str,
+    hostname: Option<&str>,
     phone_home_enable: bool,
+    wait_until_ready: bool,
 ) -> eyre::Result<String> {
     tracing::info!(
         "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
     );
 
-    let data = serde_json::json!({
-        "machine_id": {"id": host_machine_id},
-        "config": {
-            "tenant": {
+    let tenant = match hostname {
+        Some(hostname) => serde_json::json!({
                 "tenant_organization_id": "MyOrg",
                 "user_data": "hello",
                 "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
                 "phone_home_enabled": phone_home_enable,
-                "hostname": "test",
-            },
+                "hostname": hostname,
+        }),
+        None => serde_json::json!({
+                 "tenant_organization_id": "MyOrg",
+                 "user_data": "hello",
+                 "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
+                 "phone_home_enabled": phone_home_enable,
+        }),
+    };
+
+    let data = serde_json::json!({
+        "machine_id": {"id": host_machine_id},
+        "config": {
+            "tenant": tenant,
             "network": {
                 "interfaces": [{
                     "function_type": "PHYSICAL",
@@ -51,6 +63,10 @@ pub fn create(
     });
     let instance_id = grpcurl_id(addr, "AllocateInstance", &data.to_string())?;
     tracing::info!("Instance created with ID {instance_id}");
+
+    if !wait_until_ready {
+        return Ok(instance_id);
+    }
 
     wait_for_state(addr, host_machine_id, "Assigned/WaitingForNetworkConfig")?;
 
@@ -74,7 +90,12 @@ pub fn create(
     Ok(instance_id)
 }
 
-pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> eyre::Result<()> {
+pub fn release(
+    addr: SocketAddr,
+    host_machine_id: &str,
+    instance_id: &str,
+    wait_until_ready: bool,
+) -> eyre::Result<()> {
     let data = serde_json::json!({
         "id": {"id": host_machine_id},
         "search_config": {"include_dpus": false}
@@ -94,6 +115,10 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
     });
     let resp = grpcurl(addr, "ReleaseInstance", Some(data))?;
     tracing::info!("ReleaseInstance response: {}", resp);
+
+    if !wait_until_ready {
+        return Ok(());
+    }
 
     wait_for_instance_state(addr, instance_id, "TERMINATING")?;
     wait_for_state(addr, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;

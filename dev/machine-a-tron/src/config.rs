@@ -44,6 +44,12 @@ pub struct MachineConfig {
     pub boot_delay: u32,
     pub dpu_reboot_delay: u64,  // in units of seconds
     pub host_reboot_delay: u64, // in units of seconds
+    #[serde(
+        default = "default_scout_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub scout_run_interval: Duration,
     #[serde(default = "default_template_dir")]
     pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
@@ -126,6 +132,10 @@ fn default_run_interval_idle() -> Duration {
 
 fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
+}
+
+fn default_scout_run_interval() -> Duration {
+    Duration::from_secs(60)
 }
 
 fn default_false() -> bool {

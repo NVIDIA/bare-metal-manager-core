@@ -149,19 +149,23 @@ impl DpuMachine {
         }
 
         self.logger.info(format!(
-            "start: mat state: {} api state: {}",
-            self.state_machine, self.api_state
+            "start: mat state {}, booted image {}, api state {}",
+            self.state_machine,
+            self.state_machine.booted_os(),
+            self.api_state
         ));
 
         let result = self.state_machine.advance(true).await;
 
         self.logger.info(format!(
-            "end: mat state {} api state {}",
-            self.state_machine, self.api_state
+            "end: mat state {}, booted image {}, api state {}",
+            self.state_machine,
+            self.state_machine.booted_os(),
+            self.api_state
         ));
 
         if let Some(machine_id) = self.state_machine.machine_id() {
-            self.observed_machine_id = Some(machine_id);
+            self.observed_machine_id = Some(machine_id.to_owned());
         }
 
         result
@@ -258,6 +262,7 @@ impl From<&DpuMachine> for HostDetails {
                 .map(|ip| ip.to_string())
                 .unwrap_or_default(),
             dpus: Vec::default(),
+            booted_os: val.state_machine.booted_os().to_string(),
             logs: Vec::default(),
         }
     }

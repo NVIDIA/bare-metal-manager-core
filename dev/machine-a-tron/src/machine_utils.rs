@@ -2,10 +2,11 @@ use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action
 
 use crate::{api_client, config::MachineATronContext};
 
+use crate::api_client::ClientApiError;
 use crate::host_machine::HostMachineActor;
 use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
-use reqwest::ClientBuilder;
+use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
 use std::collections::HashSet;
 use tempfile::TempDir;
@@ -18,10 +19,21 @@ lazy_static! {
         .unwrap();
 }
 
-pub enum PXEresponse {
+#[derive(Debug, Clone)]
+pub enum PxeResponse {
     Exit,
-    Efi,
-    Error,
+    Scout,    // PXE script is booting scout.efi
+    DpuAgent, // PXE script is booting carbide.efi
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PxeError {
+    #[error("API Client error running PXE request: {0}")]
+    ClientApi(#[from] ClientApiError),
+    #[error("PXE Request failed with status: {0}")]
+    PxeRequest(StatusCode),
+    #[error("Error sending PXE request: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 pub async fn forge_agent_control(
@@ -64,76 +76,72 @@ pub async fn send_pxe_boot_request(
     arch: MachineArchitecture,
     interface_id: rpc::Uuid,
     forward_ip: Option<String>,
-) -> PXEresponse {
-    if app_context.app_config.use_pxe_api {
-        let Ok(response) = api_client::get_pxe_instructions(app_context, arch, interface_id)
-            .await
-            .inspect_err(|e| {
-                tracing::error!("PXE Request failed: {}", e);
-            })
-        else {
-            return PXEresponse::Error;
+) -> Result<PxeResponse, PxeError> {
+    let pxe_script: String =
+        if app_context.app_config.use_pxe_api {
+            let response =
+                api_client::get_pxe_instructions(app_context, arch, interface_id).await?;
+            tracing::info!("PXE Request successful");
+            response.pxe_script
+        } else {
+            let url =
+                format!(
+                    "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch={}",
+                    app_context.app_config.pxe_server_host.as_ref().expect(
+                        "Config error: use_pxe_api is false but pxe_server_host is not set"
+                    ),
+                    app_context.app_config.pxe_server_port.as_ref().expect(
+                        "Config error: use_pxe_api is false but pxe_server_port is not set"
+                    ),
+                    interface_id,
+                    match arch {
+                        MachineArchitecture::X86 => "x86_64",
+                        MachineArchitecture::Arm => "arm64",
+                    }
+                );
+
+            let mut request = ClientBuilder::new().build().unwrap().get(&url);
+            if let Some(forward_ip) = forward_ip {
+                request = request.header("X-Forwarded-For", forward_ip);
+            }
+
+            let response = request.send().await?;
+            if !response.status().is_success() {
+                tracing::error!("Request failed with status: {}", response.status());
+                return Err(PxeError::PxeRequest(response.status()));
+            }
+            tracing::info!("PXE Request successful with status: {}", response.status());
+            response.text().await.unwrap()
         };
 
-        tracing::info!("PXE Request successful");
-
-        if response.pxe_script.contains("exit") {
-            tracing::info!("PXE Request is EXIT");
-            PXEresponse::Exit
+    let response = if pxe_script.contains("exit") {
+        tracing::info!("PXE Request is EXIT");
+        PxeResponse::Exit
+    } else if let Some(kernel_url) = pxe_script
+        .lines()
+        .find(|l| l.starts_with("kernel"))
+        .and_then(|l| l.split(" ").nth(1))
+    {
+        if kernel_url.ends_with("/carbide.efi") {
+            PxeResponse::DpuAgent
+        } else if kernel_url.ends_with("/scout.efi") {
+            PxeResponse::Scout
         } else {
-            tracing::info!("PXE Request is EFI");
-            PXEresponse::Efi
+            tracing::error!(
+                    "Could not determine what to do with kernel URL returned by PXE script, will treat as 'exit': {}",
+                    pxe_script
+                );
+            PxeResponse::Exit
         }
     } else {
-        let url = format!(
-            "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch={}",
-            app_context
-                .app_config
-                .pxe_server_host
-                .as_ref()
-                .expect("Config error: use_pxe_api is false but pxe_server_host is not set"),
-            app_context
-                .app_config
-                .pxe_server_port
-                .as_ref()
-                .expect("Config error: use_pxe_api is false but pxe_server_port is not set"),
-            interface_id,
-            match arch {
-                MachineArchitecture::X86 => "x86_64",
-                MachineArchitecture::Arm => "arm64",
-            }
-        );
+        tracing::error!(
+                "Could not determine what to do with PXE script (no kernel line, no exit line), will treat as 'exit': {}",
+                pxe_script
+            );
+        PxeResponse::Exit
+    };
 
-        let mut request = ClientBuilder::new().build().unwrap().get(&url);
-        if let Some(forward_ip) = forward_ip {
-            request = request.header("X-Forwarded-For", forward_ip);
-        }
-        let response = request.send().await;
-
-        match response {
-            Ok(res) => {
-                if res.status().is_success() {
-                    tracing::info!("PXE Request successful with status: {}", res.status());
-
-                    let result = res.text().await.unwrap();
-                    if result.contains("exit") {
-                        tracing::info!("PXE Request is EXIT");
-                        PXEresponse::Exit
-                    } else {
-                        tracing::info!("PXE Request is EFI");
-                        PXEresponse::Efi
-                    }
-                } else {
-                    tracing::error!("Request failed with status: {}", res.status());
-                    PXEresponse::Error
-                }
-            }
-            Err(e) => {
-                tracing::error!("PXE Request failed: {}", e);
-                PXEresponse::Error
-            }
-        }
-    }
+    Ok(response)
 }
 
 pub async fn get_api_state(
