@@ -164,6 +164,12 @@ pub enum CarbideCommand {
         visible_alias = "tks"
     )]
     TenantKeySet(TenantKeySetOptions),
+
+    #[clap(
+        about = "Broad search across multiple object types",
+        visible_alias = "j"
+    )]
+    Jump(JumpOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -807,7 +813,7 @@ pub struct NetworkConfigQuery {
 #[clap(disable_help_flag = true)]
 pub struct ShowMachine {
     #[clap(long, action = clap::ArgAction::HelpLong)]
-    help: Option<bool>,
+    pub help: Option<bool>,
 
     #[clap(
         short,
@@ -1411,4 +1417,10 @@ pub struct ShowTenantKeySet {
 
     #[clap(short, long, help = "The Tenant Org ID to query")]
     pub tenant_org_id: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct JumpOptions {
+    #[clap(required(true), help = "The machine ID, IP, UUID, etc, to find")]
+    pub id: String,
 }

@@ -21,6 +21,7 @@ use ::rpc::forge::{
     NetworkDeviceIdList, NetworkSegmentSearchConfig,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
+use mac_address::MacAddress;
 
 use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineQuery};
@@ -243,6 +244,118 @@ async fn get_instances_deprecated(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(instance_details)
+    })
+    .await
+}
+
+pub async fn identify_uuid(
+    api_config: &ApiConfig<'_>,
+    u: uuid::Uuid,
+) -> CarbideCliResult<rpc::UuidType> {
+    let req = rpc::IdentifyUuidRequest {
+        uuid: Some(u.into()),
+    };
+
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(req);
+        let uuid_details = match client
+            .identify_uuid(request)
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m,
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                return Err(CarbideCliError::UuidNotFound);
+            }
+            Err(err) => {
+                tracing::error!(%err, "identify_uuid error calling grpc identify_uuid");
+                return Err(CarbideCliError::GenericError(err.to_string()));
+            }
+        };
+        let object_type = match rpc::UuidType::try_from(uuid_details.object_type) {
+            Ok(ot) => ot,
+            Err(e) => {
+                tracing::error!(
+                    "Invalid UuidType from carbide api: {}",
+                    uuid_details.object_type
+                );
+                return Err(CarbideCliError::GenericError(e.to_string()));
+            }
+        };
+
+        Ok(object_type)
+    })
+    .await
+}
+
+pub async fn identify_mac(
+    api_config: &ApiConfig<'_>,
+    mac_address: MacAddress,
+) -> CarbideCliResult<(rpc::MacOwner, String)> {
+    let req = rpc::IdentifyMacRequest {
+        mac_address: mac_address.to_string(),
+    };
+
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(req);
+        let mac_details = match client
+            .identify_mac(request)
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m,
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                return Err(CarbideCliError::MacAddressNotFound);
+            }
+            Err(err) => {
+                tracing::error!(%err, "identify_mac error calling grpc identify_mac");
+                return Err(CarbideCliError::GenericError(err.to_string()));
+            }
+        };
+        let object_type = match rpc::MacOwner::try_from(mac_details.object_type) {
+            Ok(ot) => ot,
+            Err(e) => {
+                tracing::error!(
+                    "Invalid MachineOwner from carbide api: {}",
+                    mac_details.object_type
+                );
+                return Err(CarbideCliError::GenericError(e.to_string()));
+            }
+        };
+
+        Ok((object_type, mac_details.primary_key))
+    })
+    .await
+}
+
+pub async fn identify_serial(
+    api_config: &ApiConfig<'_>,
+    serial_number: String,
+) -> CarbideCliResult<::rpc::common::MachineId> {
+    let req = rpc::IdentifySerialRequest { serial_number };
+
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(req);
+        let serial_details = match client
+            .identify_serial(request)
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m,
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                return Err(CarbideCliError::SerialNumberNotFound);
+            }
+            Err(err) => {
+                tracing::error!(%err, "identify_serial error calling grpc identify_serial");
+                return Err(CarbideCliError::GenericError(err.to_string()));
+            }
+        };
+
+        serial_details
+            .machine_id
+            .ok_or(CarbideCliError::GenericError(
+                "Serial number found without associated machine ID".to_string(),
+            ))
     })
     .await
 }

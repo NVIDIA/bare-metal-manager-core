@@ -19,6 +19,7 @@ eyre = "*"
 figment = { version = "0.10.10", features = ["env", "toml"] }
 http = "0.2"
 libredfish = { workspace = true }
+mac_address = "1.1.2"
 prettytable-rs = "^0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

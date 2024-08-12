@@ -14,10 +14,13 @@ use std::fs::File;
 use std::io;
 use std::io::BufReader;
 use std::io::Write;
+use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use crate::cfg::carbide_options::{IbPartitionOptions, TenantKeySetOptions};
+
 use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
@@ -26,6 +29,7 @@ use ::rpc::forge::MachineType;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
 use ::rpc::Uuid;
+use carbide::model;
 use cfg::carbide_options::AgentUpgrade;
 use cfg::carbide_options::AgentUpgradePolicyChoice;
 use cfg::carbide_options::BmcMachine;
@@ -55,6 +59,7 @@ use forge_tls::client_config::get_client_cert_info;
 use forge_tls::client_config::get_config_from_file;
 use forge_tls::client_config::get_forge_root_ca_path;
 use forge_tls::client_config::get_proxy_info;
+use mac_address::MacAddress;
 use prettytable::{row, Table};
 use serde::Deserialize;
 use serde::Serialize;
@@ -102,6 +107,15 @@ pub enum CarbideCliError {
 
     #[error("Domain not found.")]
     DomainNotFound,
+
+    #[error("Uuid not found.")]
+    UuidNotFound,
+
+    #[error("MAC not found.")]
+    MacAddressNotFound,
+
+    #[error("Serial number not found.")]
+    SerialNumberNotFound,
 
     #[error("Error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
@@ -862,6 +876,266 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
         },
+        CarbideCommand::Jump(j) => {
+            // Is it a machine ID?
+            // Grab the machine details.
+            if model::machine::machine_id::MachineId::from_str(&j.id).is_ok() {
+                machine::handle_show(
+                    cfg::carbide_options::ShowMachine {
+                        machine: j.id,
+                        help: None,
+                        hosts: false,
+                        all: false,
+                        dpus: false,
+                    },
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?;
+
+                return Ok(());
+            }
+
+            // Is it an IP?
+            if IpAddr::from_str(&j.id).is_ok() {
+                let req = forgerpc::FindIpAddressRequest { ip: j.id };
+
+                let resp = rpc::find_ip_address(req, api_config).await?;
+
+                // Go through each object that matched the IP search,
+                // and perform any more specific searches available for
+                // the object type of the owner.   E.g., if it's an IP
+                // attached to an instance, get the details of the instance.
+                for m in resp.matches {
+                    let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+                        Ok(t) => t,
+                        Err(err) => {
+                            tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
+                            continue;
+                        }
+                    };
+
+                    let config_format = config.format.clone();
+
+                    use forgerpc::IpType::*;
+                    match ip_type {
+                        StaticDataDhcpServer => tracing::info!("DHCP Server"),
+                        StaticDataRouteServer => tracing::info!("Route Server"),
+                        InstanceAddress => {
+                            instance::handle_show(
+                                cfg::carbide_options::ShowInstance {
+                                    id: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                        "failed to unwrap owner_id after finding instance for IP".to_string(),
+                                    ))?,
+                                    extrainfo: true,
+                                    tenant_org_id: None,
+                                    label_key: None,
+                                    label_value: None,
+                                },
+                                config_format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?
+                        }
+                        MachineAddress | BmcIp | LoopbackIp => {
+                            machine::handle_show(
+                                cfg::carbide_options::ShowMachine {
+                                    machine: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                        "failed to unwrap owner_id after finding machine for IP".to_string(),
+                                    ))?,
+                                    help: None,
+                                    hosts: false,
+                                    all: false,
+                                    dpus: false,
+                                },
+                                config_format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?;
+                        }
+
+                        ExploredEndpoint => {
+                            site_explorer::show_site_explorer_discovered_managed_host(
+                                api_config,
+                                config_format,
+                                config.internal_page_size,
+                                cfg::carbide_options::GetReportMode::Endpoint(cfg::carbide_options::EndpointInfo{
+                                    address: if m.owner_id.is_some() { m.owner_id } else {
+                                        color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
+                                    },
+                                    erroronly: false,
+                                    successonly: false,
+                                    unpairedonly: false,
+                                    vendor: None,
+                                }),
+                            )
+                            .await?;
+                        }
+
+                        NetworkSegment => {
+                            network::handle_show(
+                                cfg::carbide_options::ShowNetwork {
+                                    network: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                        "failed to unwrap owner_id after finding network segment for IP".to_string(),
+                                    ))?,
+                                    tenant_org_id: None,
+                                    name: None,
+                                },
+                                config_format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?
+                        }
+                        ResourcePool => resource_pool::list(api_config).await?,
+                    };
+                }
+
+                return Ok(());
+            }
+
+            // Is it the UUID of some type of object?
+            // Try to identify the type of object and then perform
+            // a search for the object's details.  E.g., if it's the
+            // UUID of an instance, then get the details of the instance.
+            if let Ok(u) = j.id.parse::<uuid::Uuid>() {
+                match rpc::identify_uuid(api_config, u).await {
+                    Ok(o) => match o {
+                        forgerpc::UuidType::NetworkSegment => {
+                            network::handle_show(
+                                cfg::carbide_options::ShowNetwork {
+                                    network: j.id,
+                                    tenant_org_id: None,
+                                    name: None,
+                                },
+                                config.format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?
+                        }
+                        forgerpc::UuidType::Instance => {
+                            instance::handle_show(
+                                cfg::carbide_options::ShowInstance {
+                                    id: j.id,
+                                    extrainfo: true,
+                                    tenant_org_id: None,
+                                    label_key: None,
+                                    label_value: None,
+                                },
+                                config.format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?
+                        }
+                        forgerpc::UuidType::MachineInterface => {
+                            machine_interfaces::handle_show(
+                                cfg::carbide_options::ShowMachineInterfaces {
+                                    interface_id: j.id,
+                                    all: false,
+                                    more: true,
+                                },
+                                config.format,
+                                api_config,
+                            )
+                            .await?
+                        }
+                        forgerpc::UuidType::Vpc => {
+                            vpc::handle_show(
+                                cfg::carbide_options::ShowVpc {
+                                    id: j.id,
+                                    tenant_org_id: None,
+                                    name: None,
+                                },
+                                config.format,
+                                api_config,
+                                1,
+                            )
+                            .await?
+                        }
+                        forgerpc::UuidType::Domain => {
+                            domain::handle_show(
+                                cfg::carbide_options::ShowDomain {
+                                    domain: j.id,
+                                    all: false,
+                                },
+                                config.format,
+                                api_config,
+                            )
+                            .await?
+                        }
+                    },
+                    Err(e) => {
+                        color_eyre::eyre::bail!(e);
+                    }
+                }
+
+                return Ok(());
+            }
+
+            // Is it a MAC?
+            // Grab the details for the interface it's associated with.
+            if let Ok(m) = MacAddress::from_str(&j.id) {
+                match rpc::identify_mac(api_config, m).await {
+                    Ok((mac_owner, mac_type)) => match mac_owner {
+                        forgerpc::MacOwner::MachineInterface => {
+                            machine_interfaces::handle_show(
+                                cfg::carbide_options::ShowMachineInterfaces {
+                                    interface_id: mac_type,
+                                    all: false,
+                                    more: true,
+                                },
+                                config.format,
+                                api_config,
+                            )
+                            .await?
+                        }
+                        forgerpc::MacOwner::ExploredEndpoint => {
+                            color_eyre::eyre::bail!(
+                                "Searching explored-endpoints from MAC not yet implemented"
+                            );
+                        }
+                        forgerpc::MacOwner::ExpectedMachine => {
+                            color_eyre::eyre::bail!(
+                                "Searching expected-machines from MAC not yet implemented"
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        color_eyre::eyre::bail!(e);
+                    }
+                }
+
+                return Ok(());
+            }
+
+            // Is it a serial number?!??!?!
+            // Grab the machine ID and look-up the machine.
+            if let Ok(machine_id) = rpc::identify_serial(api_config, j.id).await {
+                machine::handle_show(
+                    cfg::carbide_options::ShowMachine {
+                        machine: machine_id.to_string(),
+                        help: None,
+                        hosts: false,
+                        all: false,
+                        dpus: false,
+                    },
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?;
+
+                return Ok(());
+            }
+
+            // Do we have no idea what it is?
+            color_eyre::eyre::bail!("Unable to determine ID type");
+        }
     }
 
     Ok(())

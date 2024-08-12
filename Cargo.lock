@@ -36,6 +36,7 @@ dependencies = [
  "health-report",
  "http 0.2.12",
  "libredfish",
+ "mac_address",
  "prettytable-rs",
  "rpc",
  "serde",
