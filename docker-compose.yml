@@ -129,6 +129,8 @@ services:
     networks:
       carbide:
         ipv4_address: 172.20.0.15
+    ports:
+      - 1083:1080
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - ./dev/certs:/opt/forge
