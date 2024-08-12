@@ -26,6 +26,7 @@ use rocket::{
     Request,
 };
 use rocket_dyn_templates::Template;
+use rocket_prometheus::PrometheusMetrics;
 use rpc::forge::CloudInitInstructionsRequest;
 use serde::Serialize;
 
@@ -269,6 +270,11 @@ async fn main() -> Result<(), rocket::Error> {
         }
     }
 
+    // overwrite the default namespace
+    env::set_var("ROCKET_PROMETHEUS_NAMESPACE", "carbide_pxe");
+    let prometheus =
+        PrometheusMetrics::new().with_request_filter(|request| request.uri().path() != "/metrics");
+
     println!("Start carbide-pxe version {}", forge_version::version!());
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
@@ -276,6 +282,8 @@ async fn main() -> Result<(), rocket::Error> {
         .mount("/api/v0/tls", routes::tls::routes())
         .mount("/public", FileServer::from(opts.static_dir))
         .attach(logging::RequestLogger)
+        .attach(prometheus.clone())
+        .mount("/metrics", prometheus)
         .attach(Template::fairing())
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",

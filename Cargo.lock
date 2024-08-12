@@ -915,6 +915,7 @@ dependencies = [
  "rocket_codegen",
  "rocket_dyn_templates",
  "rocket_http",
+ "rocket_prometheus",
  "rpc",
  "serde",
  "serde_json",
@@ -2944,7 +2945,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.7",
  "tokio",
  "tower-service",
  "tracing",
@@ -5264,6 +5265,16 @@ dependencies = [
  "tokio",
  "uncased",
  "uuid 1.8.0",
+]
+
+[[package]]
+name = "rocket_prometheus"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76f429d654a6854abef0a5361235e847b6552d5d989c2fc8a312ba4aebd8837f"
+dependencies = [
+ "prometheus",
+ "rocket",
 ]
 
 [[package]]

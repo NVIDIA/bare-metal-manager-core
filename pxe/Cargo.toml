@@ -22,6 +22,7 @@ tokio = { workspace = true }
 toml = "0.8.8"
 tonic = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+rocket_prometheus = "0.10.1"
 
 
 # [local-dependencies]
