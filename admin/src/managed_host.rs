@@ -245,6 +245,9 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     )?;
 
     writeln!(&mut lines, "State       : {}", m.state)?;
+    if !m.state_reason.is_empty() {
+        writeln!(&mut lines, "    Reason  : {}", m.state_reason)?;
+    }
 
     if m.maintenance_reference.is_some() {
         writeln!(&mut lines, "Host is in maintenance mode")?;
