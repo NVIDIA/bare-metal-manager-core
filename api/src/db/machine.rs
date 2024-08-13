@@ -185,6 +185,9 @@ pub struct Machine {
 
     /// current cleanup validation id.
     cleanup_machine_validation_id: Option<uuid::Uuid>,
+
+    /// Override to enable or disable firmware auto update
+    firmware_autoupdate: Option<bool>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -283,6 +286,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_machine_validation_time: row.try_get("last_machine_validation_time")?,
             discovery_machine_validation_id: row.try_get("discovery_machine_validation_id")?,
             cleanup_machine_validation_id: row.try_get("cleanup_machine_validation_id")?,
+            firmware_autoupdate: row.try_get("firmware_autoupdate")?,
         })
     }
 }
@@ -318,6 +322,7 @@ impl From<Machine> for MachineSnapshot {
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
             host_reprovision_requested: machine.host_reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
+            firmware_autoupdate: machine.firmware_autoupdate,
             hardware_health_report: machine.hardware_health_report,
             associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
             associated_host_machine_id: machine.associated_host_machine_id,
@@ -1009,6 +1014,10 @@ SELECT m.id FROM
 
     pub fn cleanup_machine_validation_id(&self) -> Option<uuid::Uuid> {
         self.cleanup_machine_validation_id
+    }
+
+    pub fn firmware_autoupdate(&self) -> Option<bool> {
+        self.firmware_autoupdate
     }
 
     pub async fn update_reboot_time(
@@ -2059,6 +2068,22 @@ SELECT m.id FROM
         machine.load_related_data(txn).await?;
         Ok(Some(machine))
     }
+
+    /// set_firmware_autoupdate flags a machine ID as explicitly having firmware upgrade enabled or disabled, or use config files if None.
+    pub async fn set_firmware_autoupdate(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        state: Option<bool>,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET firmware_autoupdate = $1 WHERE id = $2";
+        sqlx::query(query)
+            .bind(state)
+            .bind(machine_id)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2068,4 +2093,23 @@ pub enum MaintenanceMode {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::Machine;
+    use crate::model::machine::machine_id::MachineId;
+    use crate::model::machine::ManagedHostState;
+    use std::str::FromStr;
+
+    #[sqlx::test]
+
+    async fn test_set_firmware_autoupdate(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await.unwrap();
+        let id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        Machine::create(&mut txn, &id, ManagedHostState::Ready).await?;
+        Machine::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
+        Machine::set_firmware_autoupdate(&mut txn, &id, None).await?;
+        Ok(())
+    }
+}

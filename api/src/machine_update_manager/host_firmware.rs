@@ -14,8 +14,10 @@ use super::machine_update_module::MachineUpdateModule;
 use crate::{
     cfg::{CarbideConfig, FirmwareConfig},
     db::{
-        explored_endpoints::DbExploredEndpoint, host_machine_update::HostMachineUpdate,
-        machine::Machine, machine_topology::MachineTopology,
+        explored_endpoints::DbExploredEndpoint,
+        host_machine_update::HostMachineUpdate,
+        machine::{Machine, MachineSearchConfig},
+        machine_topology::MachineTopology,
     },
     model::machine::machine_id::MachineId,
     CarbideResult,
@@ -119,11 +121,6 @@ impl HostFirmwareUpdate {
         meter: opentelemetry::metrics::Meter,
         firmware_config: FirmwareConfig,
     ) -> Option<Self> {
-        if !config.firmware_global.autoupdate
-            && config.firmware_global.host_enable_autoupdate.is_empty()
-        {
-            return None;
-        }
         let config = config.clone();
 
         let metrics = Arc::new(Mutex::new(HostFirmwareUpdateMetrics::new(meter.clone())));
@@ -193,27 +190,10 @@ impl HostFirmwareUpdate {
                             )
                             .await?
                             else {
+                                // Should generally not happen, but if we somehow lost info about the host we shouldn't be messing with it.
                                 break;
                             };
-                            if !self.config.firmware_global.autoupdate
-                                && !self
-                                    .config
-                                    .firmware_global
-                                    .host_enable_autoupdate
-                                    .iter()
-                                    .any(|x| **x == machine_id.to_string())
-                            {
-                                // Global autoupdate is disabled and this one is not specifically enabled
-                                break;
-                            }
-                            if self
-                                .config
-                                .firmware_global
-                                .host_disable_autoupdate
-                                .iter()
-                                .any(|x| **x == machine_id.to_string())
-                            {
-                                // This machine is specifically disabled
+                            if !firmware_updates_enabled(txn, &self.config, &machine_id).await? {
                                 break;
                             }
                             available_updates -= 1;
@@ -281,4 +261,46 @@ impl HostFirmwareUpdateMetrics {
             &[],
         );
     }
+}
+
+/// firmware_update_enabled detrmines if firmware updates are enabled for this specific machine.  Database setting has top priority, then configuration file setting, then global.
+async fn firmware_updates_enabled(
+    txn: &mut Transaction<'_, Postgres>,
+    config: &CarbideConfig,
+    machine_id: &MachineId,
+) -> CarbideResult<bool> {
+    let Some(machine) = Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await?
+    else {
+        // Machine is missing?  Best do nothing.
+        return Ok(false);
+    };
+
+    if let Some(setting) = machine.firmware_autoupdate() {
+        // Specified in DB
+        return Ok(setting);
+    }
+
+    let machine_id_string = machine_id.to_string();
+
+    if config
+        .firmware_global
+        .host_disable_autoupdate
+        .iter()
+        .any(|x| **x == machine_id_string)
+    {
+        // Explicitly disabled in config file
+        return Ok(false);
+    }
+    if config
+        .firmware_global
+        .host_enable_autoupdate
+        .iter()
+        .any(|x| **x == machine_id_string)
+    {
+        // Explicitly enabled in config file
+        return Ok(true);
+    }
+
+    // Use the global
+    Ok(config.firmware_global.autoupdate)
 }

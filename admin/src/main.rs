@@ -311,6 +311,7 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::reboot(api_config, c.address, c.port, bmc_auth).await?;
             }
             Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
+            Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, api_config).await?,
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {

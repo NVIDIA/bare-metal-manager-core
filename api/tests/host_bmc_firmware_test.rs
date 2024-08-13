@@ -31,7 +31,7 @@ use carbide::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideError, CarbideResult,
 };
-use common::api_fixtures::network_segment::create_admin_network_segment;
+use common::api_fixtures::{network_segment::create_admin_network_segment, TestEnv};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::DhcpDiscovery;
 use sqlx::{Postgres, Transaction};
@@ -39,6 +39,7 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -670,4 +671,128 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     );
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_host_fw_upgrade_enabledisable_global_enabled(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let (env, host_machine_id) = test_host_fw_upgrade_enabledisable_generic(pool, true).await?;
+
+    // Check that if it's globally enabled but specifically disabled, we don't request updates.
+    let mut txn = env.pool.begin().await.unwrap();
+    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(false)).await?;
+    txn.commit().await.unwrap();
+
+    // Create and start an update manager
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let _handle = update_manager
+        .start()
+        .map_err(|x| CarbideError::GenericError(x.to_string()))?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovisioning_requested().is_none());
+
+    // Now switch it to unspecified and it should get a request
+    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
+    txn.commit().await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovisioning_requested().is_some());
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_host_fw_upgrade_enabledisable_global_disabled(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let (env, host_machine_id) = test_host_fw_upgrade_enabledisable_generic(pool, false).await?;
+    // Create and start an update manager
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    let _handle = update_manager
+        .start()
+        .map_err(|x| CarbideError::GenericError(x.to_string()))?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Globally disabled, so it should not have requested an update
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovisioning_requested().is_none());
+
+    // Now specifically enable it, and an update should be requested.
+    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
+    txn.commit().await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovisioning_requested().is_some());
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+async fn test_host_fw_upgrade_enabledisable_generic(
+    pool: sqlx::PgPool,
+    global_enabled: bool,
+) -> CarbideResult<(TestEnv, MachineId)> {
+    // Create an environment with one managed host in the ready state.  Tweak the default config to enable or disable firmware global autoupdate.
+    let mut env = create_test_env(pool).await;
+    let mut config = (*env.config).clone();
+    config.firmware_global.autoupdate = global_enabled;
+    env.config = Arc::new(config);
+
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+
+    // Getting the test stubs of the state machine and site explorer to work together is problematic, so we'll fake the bits of what site explorer would do that we care about.
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovisioning_requested().is_none());
+
+    let mut exploration_report: EndpointExplorationReport = build_exploration_report(
+        "Dell",
+        host.model().as_str(),
+        "7.10.20",
+        "1.12.0",
+        host_machine_id.to_string().as_str(),
+    );
+    let fw_info = env
+        .config
+        .get_firmware_config()
+        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
+        .unwrap();
+    exploration_report.parse_versions(&fw_info);
+    DbExploredEndpoint::insert(
+        host.bmc_info().ip_addr().unwrap(),
+        &exploration_report,
+        &mut txn,
+    )
+    .await?;
+    drop(exploration_report);
+
+    txn.commit().await.unwrap();
+
+    Ok((env, host_machine_id))
 }

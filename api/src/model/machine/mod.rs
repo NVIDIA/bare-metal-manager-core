@@ -305,6 +305,8 @@ pub struct MachineSnapshot {
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     /// Latest health report received by forge-dpu-agent
     pub dpu_agent_health_report: Option<HealthReport>,
+    /// Override to enable or disable firmware auto update
+    pub firmware_autoupdate: Option<bool>,
     /// Latest health report received by hardware health
     pub hardware_health_report: Option<HealthReport>,
 
@@ -459,6 +461,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 .map(|x| x.mode.to_string()),
             state_reason: machine.current.outcome.map(|r| r.into()),
             health: Some(health.into()),
+            firmware_autoupdate: machine.firmware_autoupdate,
         }
     }
 }

@@ -20,7 +20,7 @@ use tracing::warn;
 
 use super::cfg::carbide_options::{OutputFormat, ShowMachine};
 use super::{default_uuid, rpc, CarbideCliResult};
-use crate::cfg::carbide_options::{ForceDeleteMachineQuery, OverrideCommand};
+use crate::cfg::carbide_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
 use crate::CarbideCliError;
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
@@ -45,6 +45,13 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
             data.push(("BOARD VERSION", dmi.board_version.clone()));
         }
     }
+    let autoupdate = if let Some(autoupdate) = machine.firmware_autoupdate {
+        autoupdate.to_string()
+    } else {
+        "Default".to_string()
+    };
+    data.push(("FIRMWARE AUTOUPDATE", autoupdate));
+
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
     }
@@ -419,6 +426,14 @@ pub async fn force_delete(
         tokio::time::sleep(RETRY_TIME).await;
     }
 
+    Ok(())
+}
+
+pub async fn autoupdate(
+    cfg: MachineAutoupdate,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    let _response = rpc::machine_set_auto_update(cfg, api_config).await?;
     Ok(())
 }
 
