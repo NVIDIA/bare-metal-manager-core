@@ -807,7 +807,6 @@ pub enum BmcFirmwareUpdateSubstate {
     WaitingForAllUpdateCompletion {
         firmware_type: FirmwareComponentType,
     },
-    HostPowerOff,
     Reboot {
         count: u32,
     },
