@@ -912,6 +912,7 @@ dependencies = [
  "forge-host-support",
  "forge-tls",
  "forge-version",
+ "prometheus",
  "rocket",
  "rocket_codegen",
  "rocket_dyn_templates",

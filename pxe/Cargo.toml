@@ -30,6 +30,7 @@ forge-host-support = { path = "../common/host-support" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
+prometheus = "0.13.4"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
