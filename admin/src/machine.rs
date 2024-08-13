@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::time::Duration;
 
@@ -419,4 +420,23 @@ pub async fn force_delete(
     }
 
     Ok(())
+}
+
+pub async fn get_next_free_machine(
+    api_config: &ApiConfig<'_>,
+    machine_ids: &Vec<String>,
+    assigned_machine_ids: &HashSet<String>,
+) -> Option<String> {
+    for id in machine_ids {
+        if assigned_machine_ids.contains(&id.to_string()) {
+            continue;
+        }
+        let api_state = rpc::get_machine(id.clone(), api_config)
+            .await
+            .map_or("<ERROR>".to_owned(), |machine| machine.state);
+        if api_state == "Ready" {
+            return Some(id.to_string());
+        }
+    }
+    None
 }

@@ -2034,3 +2034,89 @@ async fn get_keysets_deprecated(
     })
     .await
 }
+
+pub async fn allocate_instance(
+    api_config: &ApiConfig<'_>,
+    host_machine_id: &str,
+    network_segment_name: &String, // This is the same string passed as Subnet argument in the CLI.
+    instance_name: &String,
+) -> CarbideCliResult<rpc::Instance> {
+    with_forge_client(api_config, |mut client| async move {
+        let segment_request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+            name: Some(network_segment_name.clone()),
+            tenant_org_id: None,
+        });
+
+        let network_segment_ids = match client.find_network_segment_ids(segment_request).await {
+            Ok(response) => response.into_inner(),
+
+            Err(e) => {
+                return Err(CarbideCliError::GenericError(format!(
+                    "network segment: {} retrieval error {}",
+                    network_segment_name, e
+                )));
+            }
+        };
+
+        if network_segment_ids.network_segments_ids.is_empty() {
+            return Err(CarbideCliError::GenericError(format!(
+                "network segment: {} not found.",
+                network_segment_name
+            )));
+        } else if network_segment_ids.network_segments_ids.len() >= 2 {
+            tracing::warn!(
+                "More than one {} network segments exist.",
+                network_segment_name
+            );
+        }
+        let network_segment_id = network_segment_ids.network_segments_ids.first();
+
+        let interface_config = rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: network_segment_id.cloned(),
+        };
+
+        let tenant_config = rpc::TenantConfig {
+            user_data: None,
+            custom_ipxe: "Non-existing-ipxe".to_string(),
+            phone_home_enabled: false,
+            always_boot_with_custom_ipxe: false,
+            tenant_organization_id: "Forge-simulation-tenant".to_string(),
+            tenant_keyset_ids: vec![],
+            hostname: None,
+        };
+
+        let instance_config = rpc::InstanceConfig {
+            tenant: Some(tenant_config),
+            os: None,
+            network: Some(rpc::InstanceNetworkConfig {
+                interfaces: vec![interface_config],
+            }),
+            infiniband: None,
+            storage: None,
+        };
+
+        let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(::rpc::common::MachineId {
+                id: host_machine_id.to_owned(),
+            }),
+            config: Some(instance_config),
+            metadata: Some(rpc::Metadata {
+                name: instance_name.to_string(),
+                description: "instance created from admin-cli".to_string(),
+                labels: vec![rpc::Label {
+                    key: "cloud-unsafe-op".to_string(),
+                    value: Some("true".to_string()),
+                }],
+            }),
+        });
+
+        client
+            .allocate_instance(instance_request)
+            .await
+            .map(|response: tonic::Response<rpc::Instance>| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}

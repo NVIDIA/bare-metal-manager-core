@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -338,6 +339,53 @@ async fn main() -> color_eyre::Result<()> {
                     _ => unreachable!("clap will enforce exactly one of the two"),
                 };
                 rpc::release_instance(api_config, instance_id).await?
+            }
+            Instance::Allocate(allocate_request) => {
+                if !config.cloud_unsafe_op {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                    )
+                    .into());
+                }
+                let mut assigned_machine_ids: HashSet<String> = HashSet::new();
+                let machine_ids: Vec<_> =
+                    rpc::find_machine_ids(api_config, Some(forgerpc::MachineType::Host), false)
+                        .await
+                        .unwrap()
+                        .machine_ids
+                        .into_iter()
+                        .map(|id| id.to_string())
+                        .collect();
+
+                for i in 0..allocate_request.number.unwrap_or(1) {
+                    let Some(hid_for_instance) = machine::get_next_free_machine(
+                        &api_config.clone(),
+                        &machine_ids,
+                        &assigned_machine_ids,
+                    )
+                    .await
+                    else {
+                        tracing::error!("No available machines.");
+                        break;
+                    };
+
+                    match rpc::allocate_instance(
+                        &api_config.clone(),
+                        &hid_for_instance,
+                        &allocate_request.subnet.clone(),
+                        &format!("{}_{}", allocate_request.prefix_name.clone(), i),
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            assigned_machine_ids.insert(hid_for_instance.clone());
+                            tracing::info!("allocate_instance was successful. ");
+                        }
+                        Err(e) => {
+                            tracing::info!("allocate_instance failed with {} ", e);
+                        }
+                    };
+                }
             }
         },
         CarbideCommand::NetworkSegment(network) => match network {

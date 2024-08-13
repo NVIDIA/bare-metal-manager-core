@@ -28,6 +28,13 @@ pub struct CarbideOptions {
     )]
     pub version: bool,
 
+    #[clap(
+        long,
+        default_value = "false",
+        help = "Never should be used against a production site. Use this flag only if you undrestand the impacts of inconsistencies with cloud db."
+    )]
+    pub cloud_unsafe_op: bool,
+
     #[clap(short, long, env = "CARBIDE_API_URL")]
     #[clap(
         help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
@@ -930,6 +937,8 @@ pub enum Instance {
     Reboot(RebootInstance),
     #[clap(about = "De-allocate instance")]
     Release(ReleaseInstance),
+    #[clap(about = "Allocate instance")]
+    Allocate(AllocateInstance),
 }
 
 #[derive(Parser, Debug)]
@@ -976,6 +985,18 @@ pub struct ReleaseInstance {
 
     #[clap(short, long)]
     pub machine: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct AllocateInstance {
+    #[clap(short, long)]
+    pub number: Option<u16>,
+
+    #[clap(short, long, required = true)]
+    pub subnet: String,
+
+    #[clap(short, long, required = true)]
+    pub prefix_name: String,
 }
 
 #[derive(Parser, Debug)]
