@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use ::rpc::forge::VpcVirtualizationType;
 use ::rpc::forge_tls_client::ApiConfig;
+use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
 use axum::Router;
 use eyre::WrapErr;
@@ -31,6 +32,7 @@ use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 use {opentelemetry_sdk as sdk, opentelemetry_semantic_conventions as semcov};
 
@@ -254,7 +256,27 @@ pub async fn run(
             instance_id: None,
             client_certificate_expiry_unix_epoch_secs,
             fabric_interfaces,
+            last_dhcp_requests: vec![],
         };
+
+        let mut last_dhcp_requests = vec![];
+        let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
+        if let Err(e) = dhcp_timestamps.read() {
+            tracing::error!(
+                "Failed to read from {}: {e}",
+                DhcpTimestampsFilePath::Dpu.path_str()
+            );
+        }
+        for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
+            last_dhcp_requests.push(rpc::LastDhcpRequest {
+                host_interface_id: Some(Uuid {
+                    value: host_interface_id.to_string(),
+                }),
+                timestamp: timestamp.to_string(),
+            });
+        }
+        status_out.last_dhcp_requests = last_dhcp_requests;
+
         // `read` does not block
         match *network_config_reader.read() {
             Some(ref conf) => {

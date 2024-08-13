@@ -2198,6 +2198,12 @@ message DpuNetworkStatus {
   // It is different than instance_network_config_version, which only tracks networking details
   optional string instance_config_version = 12;
   repeated FabricInterfaceData fabric_interfaces = 13;
+  repeated LastDhcpRequest lastDhcpRequests = 14;
+}
+
+message LastDhcpRequest {
+  common.UUID host_interface_id = 1;
+  string timestamp = 2;
 }
 
 message HardwareHealthReport {

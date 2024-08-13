@@ -23,6 +23,7 @@ use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
@@ -535,6 +536,30 @@ pub(crate) async fn record_dpu_network_status(
         Instance::update_network_status_observation(&mut txn, instance_id, &instance_obs)
             .await
             .map_err(CarbideError::from)?;
+    }
+
+    for rpc::LastDhcpRequest {
+        host_interface_id,
+        timestamp,
+    } in request.last_dhcp_requests.iter()
+    {
+        let Some(host_interface_id) = host_interface_id else {
+            return Err(CarbideError::MissingArgument(
+                "applied_config.last_dhcp_request.host_interface_id",
+            )
+            .into());
+        };
+        db::machine_interface::update_last_dhcp(
+            &mut txn,
+            MachineInterfaceId(
+                uuid::Uuid::try_from(host_interface_id).map_err(CarbideError::from)?,
+            ),
+            Some(timestamp.parse().map_err(|e| {
+                Status::invalid_argument(format!("Failed parsing dhcp timestamp: {e}"))
+            })?),
+        )
+        .await
+        .map_err(CarbideError::from)?;
     }
 
     txn.commit().await.map_err(|e| {

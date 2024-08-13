@@ -32,6 +32,7 @@ thiserror = "1.0.24"
 lru = "0.12.0"
 lazy_static = "1.4.0"
 socket2 = "0.5.5"
+chrono = "0.4.38"
 
 # [local-dependencies]
 forge-tls = { path = "../common/tls" }

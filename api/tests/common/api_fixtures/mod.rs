@@ -956,6 +956,7 @@ pub async fn network_configured_with_health(
         network_config_error: None,
         client_certificate_expiry_unix_epoch_secs: None,
         fabric_interfaces: vec![],
+        last_dhcp_requests: vec![],
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

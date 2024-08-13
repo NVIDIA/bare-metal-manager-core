@@ -75,6 +75,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             client_certificate_expiry_unix_epoch_secs: None,
             dpu_health: None, // TODO
             fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
         }
     }
 }
