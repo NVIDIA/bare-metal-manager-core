@@ -19,6 +19,10 @@ use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
@@ -203,7 +207,7 @@ pub async fn get_machine(
 
     let endpoint = libredfish::Endpoint {
         host: response.ip,
-        port: None,
+        port: response.port.map(|p| p as u16),
         user: Some(response.user),
         password: Some(response.password),
     };
@@ -581,6 +585,14 @@ async fn main() -> Result<(), HealthError> {
     // logger only for pushing bmc / machine scraped events and data, not this service's logs
     let _logger = init_logging()?;
     let logger_provider = logger_provider();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::Layer::default().compact())
+        .with(env_filter)
+        .try_init()
+        .unwrap();
 
     let state = Arc::new(HealthMetricsState { registry });
 

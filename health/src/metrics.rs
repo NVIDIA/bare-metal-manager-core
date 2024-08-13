@@ -18,8 +18,8 @@ use health_report::{
 use libredfish::model::power::{PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::thermal::{Fan, Temperature};
-use libredfish::model::ResourceHealth;
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
+use libredfish::model::{ResourceHealth, ResourceState};
 use libredfish::{PowerState, Redfish, RedfishClientPool};
 use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
@@ -515,7 +515,7 @@ pub async fn scrape_machine_health(
         }
     };
 
-    export_health(client, &health, machine_id).await?;
+    export_health_report(client, &health, machine_id).await?;
 
     export_metrics(
         provider.clone(),
@@ -531,7 +531,7 @@ pub async fn scrape_machine_health(
     .await
 }
 
-async fn export_health(
+async fn export_health_report(
     client: &mut ForgeClientT,
     health: &HardwareHealth,
     machine_id: &str,
@@ -569,6 +569,31 @@ async fn export_health(
             voltages.iter().map(|r| (Some(&r.name), r.status.health)),
             HealthCheck::Voltage,
         );
+    }
+
+    if let Some(power_supplies) = &health.power.power_supplies {
+        let health_check = HealthCheck::PowerSupply;
+        let id = health_check.to_stable_id();
+        for power_supply in power_supplies {
+            let Some(state) = power_supply.status.state else {
+                continue;
+            };
+            let target = Some(power_supply.name.clone());
+            match state {
+                ResourceState::Enabled => report.successes.push(HealthProbeSuccess {
+                    id: id.clone(),
+                    target,
+                }),
+                state => report.alerts.push(HealthProbeAlert {
+                    id: id.clone(),
+                    target,
+                    in_alert_since: None,
+                    message: format!("{}: {}", state, health_check.get_message()),
+                    tenant_message: None,
+                    classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+                }),
+            }
+        }
     }
 
     let request = tonic::Request::new(rpc::forge::HardwareHealthReport {
@@ -630,6 +655,7 @@ mod report {
         Voltage,
         Temperature,
         FanSpeed,
+        PowerSupply,
     }
 
     impl HealthCheck {
@@ -638,6 +664,7 @@ mod report {
                 Self::Voltage => "Voltage",
                 Self::Temperature => "Temperature",
                 Self::FanSpeed => "FanSpeed",
+                Self::PowerSupply => "PowerSupply",
             })
             .unwrap()
         }
@@ -647,6 +674,7 @@ mod report {
                 Self::Voltage => "Voltage out of bounds",
                 Self::Temperature => "Temperature out of bounds",
                 Self::FanSpeed => "Fan speed out of bounds",
+                Self::PowerSupply => "Power supply issue",
             }
         }
     }
