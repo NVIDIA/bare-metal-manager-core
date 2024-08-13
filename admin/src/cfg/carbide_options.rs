@@ -16,6 +16,7 @@ use clap::{ArgGroup, Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::measurement;
+use carbide::model::machine::machine_id::MachineId;
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -700,6 +701,8 @@ pub enum Machine {
     Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
+    #[clap(about = "Set individual machine firmware autoupdate (host only)")]
+    AutoUpdate(MachineAutoupdate),
 }
 
 #[derive(Parser, Debug)]
@@ -808,6 +811,34 @@ pub struct ForceDeleteMachineQuery {
         help = "Delete BMC credentials. Only applicable if site explorer has configured credentials for the BMCs associated with this managed host."
     )]
     pub delete_bmc_credentials: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[clap(group(ArgGroup::new("autoupdate_action").required(true).args(&["enable", "disable", "clear"])))]
+pub struct MachineAutoupdate {
+    #[clap(long, help = "Machine ID of the host to change")]
+    pub machine: MachineId,
+    #[clap(
+        short = 'e',
+        long,
+        action,
+        help = "Enable auto updates even if globally disabled or individually disabled by config files"
+    )]
+    pub enable: bool,
+    #[clap(
+        short = 'd',
+        long,
+        action,
+        help = "Disable auto updates even if globally enabled or individually enabled by config files"
+    )]
+    pub disable: bool,
+    #[clap(
+        short = 'c',
+        long,
+        action,
+        help = "Perform auto updates according to config files"
+    )]
+    pub clear: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

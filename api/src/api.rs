@@ -3889,6 +3889,50 @@ impl Forge for Api {
         get_machine_validation_results(self, request).await
     }
 
+    async fn machine_set_auto_update(
+        &self,
+        request: tonic::Request<rpc::MachineSetAutoUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::MachineSetAutoUpdateResponse>, Status> {
+        log_request_data(&request);
+
+        let request = request.into_inner();
+
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new(file!(), line!(), "connect", e))
+            })?;
+
+        let machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine ID is required"));
+            }
+        };
+        let Some(machine) =
+            Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+                .await
+                .map_err(CarbideError::from)?
+        else {
+            return Err(Status::not_found("The machine ID was not found"));
+        };
+        log_machine_id(machine.id());
+
+        let state = match request.action() {
+            rpc::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
+            rpc::machine_set_auto_update_request::SetAutoupdateAction::Disable => Some(false),
+            rpc::machine_set_auto_update_request::SetAutoupdateAction::Clear => None,
+        };
+        Machine::set_firmware_autoupdate(&mut txn, &machine_id, state)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "commit", e)))?;
+
+        Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
+    }
+
     async fn get_machine_validation_external_config(
         &self,
         request: tonic::Request<rpc::GetMachineValidationExternalConfigRequest>,

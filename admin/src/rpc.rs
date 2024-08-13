@@ -24,7 +24,7 @@ use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
 
 use super::{CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineQuery};
+use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery};
 
 pub async fn with_forge_client<'a, T, F>(
     api_config: &ApiConfig<'a>,
@@ -2031,6 +2031,35 @@ async fn get_keysets_deprecated(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(details)
+    })
+    .await
+}
+
+pub async fn machine_set_auto_update(
+    req: MachineAutoupdate,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<::rpc::forge::MachineSetAutoUpdateResponse> {
+    let action = if req.enable {
+        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Enable
+    } else if req.disable {
+        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Disable
+    } else {
+        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
+    };
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::MachineSetAutoUpdateRequest {
+            machine_id: Some(::rpc::MachineId {
+                id: req.machine.to_string(),
+            }),
+            action: action.into(),
+        });
+        let response = client
+            .machine_set_auto_update(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(response)
     })
     .await
 }

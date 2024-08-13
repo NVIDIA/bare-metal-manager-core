@@ -384,12 +384,13 @@ service Forge {
   // Machine-Validation completed
   rpc MachineValidationCompleted(MachineValidationCompletedRequest) returns (MachineValidationCompletedResponse);
 
+  rpc MachineSetAutoUpdate(MachineSetAutoUpdateRequest) returns (MachineSetAutoUpdateResponse);
+
   // Machine-Validation ExternalConfig Config
   rpc GetMachineValidationExternalConfig(GetMachineValidationExternalConfigRequest) returns (GetMachineValidationExternalConfigResponse);
 
   // post or put Machine-Validation ExternalConfig Config
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
-
 }
 
 message BindRequest{
@@ -1514,6 +1515,8 @@ message Machine {
   // For Host Machines returns the aggregate health of the host
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
+
+  optional bool firmware_autoupdate = 28;
 }
 
 message DpuAgentInventoryReport {
@@ -3048,6 +3051,19 @@ message MachineValidationGetRequest {
   bool include_history = 2;
 }
 
+message MachineSetAutoUpdateRequest {
+  enum SetAutoupdateAction {
+    Enable = 0;
+    Disable = 1;
+    Clear = 2;
+  }
+
+  common.MachineId machine_id = 1;
+  SetAutoupdateAction action = 2;
+}
+
+message MachineSetAutoUpdateResponse { }
+
 message GetMachineValidationExternalConfigRequest {
     string name = 1;
 }
@@ -3096,4 +3112,3 @@ message GetRedfishJobStateResponse {
   }
   RedfishJobState job_state = 1;
 }
-
