@@ -134,7 +134,7 @@ fn export_temperatures(
         }
         let sensor_name = temperature.name.clone().as_str().replace(' ', "_");
         temperature_sensors.observe(
-            temperature.reading_celsius.unwrap(),
+            temperature.reading_celsius.unwrap() as i64,
             &[
                 KeyValue::new("hw.id", sensor_name),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
