@@ -201,7 +201,7 @@ pub async fn discover_dhcp(
         }
     }
 
-    db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id).await?;
+    db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id, None).await?;
 
     txn.commit()
         .await

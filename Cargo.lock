@@ -1794,6 +1794,7 @@ dependencies = [
 name = "dhcp-server"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap 4.5.4",
  "dhcproto 0.11.0",
  "eyre",

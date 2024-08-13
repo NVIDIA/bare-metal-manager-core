@@ -32,6 +32,7 @@ use ::rpc::{
     MachineId, Uuid,
 };
 use cache::CacheEntry;
+use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
 use lru::LruCache;
@@ -42,11 +43,11 @@ use modes::{
     DhcpMode,
 };
 use serde::Deserialize;
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::Mutex};
 use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{prelude::*, EnvFilter};
-use utils::models::dhcp::{DhcpConfig, HostConfig};
+use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 
 pub struct Server {
     socket: Arc<UdpSocket>,
@@ -84,12 +85,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut join_handle = vec![];
+    let dhcp_timestamps = Arc::new(Mutex::new(DhcpTimestamps::new(
+        if let ServerMode::Dpu = args.mode {
+            DhcpTimestampsFilePath::Hbn
+        } else {
+            DhcpTimestampsFilePath::NotSet
+        },
+    )));
 
     // Create a new socket for each interface.
     // In case of Controller, there will be only 1 interface.
     for interface in args.interfaces {
         let config_clone = config.clone();
         let args_mode = args.mode.clone();
+        let dhcp_timestamps = dhcp_timestamps.clone();
         let handle = tokio::spawn(async move {
             let handler: Box<dyn DhcpMode> = get_mode(&args_mode);
             let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
@@ -157,6 +166,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     &*handler,
                     &interface,
                     &mut machine_cache,
+                    dhcp_timestamps.clone(),
                 )
                 .await;
             }
@@ -269,6 +279,7 @@ impl DhcpMode for Test {
 const MINIMUM_DHCP_PKT_SIZE: usize = 236;
 
 #[tracing::instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 async fn process(
     addr: SocketAddr,
     socket: Arc<UdpSocket>,
@@ -277,6 +288,7 @@ async fn process(
     handler: &dyn DhcpMode,
     circuit_id: &str, // interface name
     machine_cache: &mut LruCache<String, CacheEntry>,
+    dhcp_timestamps: Arc<Mutex<DhcpTimestamps>>,
 ) {
     if !addr.is_ipv4() {
         tracing::error!("Dropping ivp6 packet.");
@@ -308,6 +320,21 @@ async fn process(
             tracing::error!("Packet sending failed because of error: {}", err);
         }
     }
+
+    // Tell forge-dpu-agent that an IP has been requested for this interface.
+    if let Some(host_config) = config.host_config {
+        let mut dhcp_timestamps = dhcp_timestamps.lock().await;
+        dhcp_timestamps.add_timestamp(
+            host_config.host_interface_id.clone(),
+            Utc::now().to_rfc3339(),
+        );
+        if let Err(e) = dhcp_timestamps.write() {
+            tracing::error!(
+                "Failed writing to {}: {e}",
+                DhcpTimestampsFilePath::Hbn.path_str()
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -316,12 +343,17 @@ mod test {
         env,
         net::{Ipv4Addr, SocketAddrV4},
         path::PathBuf,
+        sync::Arc,
     };
 
+    use chrono::{DateTime, Utc};
     use dhcproto::{v4::Message, Decodable};
     use lru::LruCache;
 
-    use crate::{cache, command_line::Args, init, packet_handler, DhcpMode, Test};
+    use crate::{cache, command_line::Args, init, packet_handler, process, DhcpMode, Test};
+
+    use tokio::{net::UdpSocket, sync::Mutex};
+    use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 
     fn get_test_args() -> Args {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -501,6 +533,83 @@ mod test {
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
         assert_eq!(packet.yiaddr(), Ipv4Addr::from([10, 217, 132, 204]));
+    }
+
+    #[tokio::test]
+    async fn test_send_metadata_to_agent() {
+        let byte_stream = vec![
+            0x01, 0x01, 0x06, 0x01, 0xfc, 0x02, 0xb0, 0xfc, 0x00, 0x00, 0x80, 0x00, 0x0a, 0x01,
+            0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xd9, 0x05, 0x29,
+            0xb8, 0x3f, 0xd2, 0x90, 0x97, 0xe4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82,
+            0x53, 0x63, 0x35, 0x01, 0x01, 0x39, 0x02, 0x05, 0xc0, 0x37, 0x1b, 0x01, 0x02, 0x03,
+            0x04, 0x05, 0x06, 0x0c, 0x0d, 0x0f, 0x11, 0x12, 0x16, 0x17, 0x1c, 0x28, 0x29, 0x2a,
+            0x2b, 0x32, 0x33, 0x36, 0x3a, 0x3b, 0x3c, 0xa5, 0x43, 0x61, 0x61, 0x11, 0x00, 0x44,
+            0x45, 0x4c, 0x4c, 0x4b, 0x00, 0x10, 0x4c, 0x80, 0x56, 0xca, 0xc0, 0x4f, 0x30, 0x52,
+            0x33, 0x5e, 0x03, 0x01, 0x03, 0x10, 0x5d, 0x02, 0x00, 0x10, 0x3c, 0x21, 0x48, 0x54,
+            0x54, 0x50, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x3a, 0x41, 0x72, 0x63, 0x68, 0x3a,
+            0x30, 0x30, 0x30, 0x31, 0x36, 0x3a, 0x55, 0x4e, 0x44, 0x49, 0x3a, 0x30, 0x30, 0x33,
+            0x30, 0x31, 0x36, 0x52, 0x45, 0x01, 0x07, 0x76, 0x6c, 0x61, 0x6e, 0x37, 0x35, 0x34,
+            0x02, 0x34, 0x64, 0x33, 0x33, 0x6e, 0x6b, 0x32, 0x6e, 0x65, 0x38, 0x70, 0x35, 0x39,
+            0x71, 0x72, 0x39, 0x38, 0x38, 0x68, 0x73, 0x73, 0x62, 0x63, 0x38, 0x34, 0x67, 0x62,
+            0x32, 0x62, 0x30, 0x73, 0x33, 0x34, 0x76, 0x63, 0x71, 0x35, 0x6a, 0x37, 0x70, 0x6d,
+            0x35, 0x6a, 0x6e, 0x72, 0x62, 0x6e, 0x68, 0x63, 0x36, 0x38, 0x38, 0x30, 0x05, 0x04,
+            0x0a, 0xd9, 0x05, 0xa9, 0xff,
+        ];
+        let handler: Box<dyn DhcpMode> = Box::new(Test {});
+        let config = init(get_test_args()).await.unwrap();
+        let mut machine_cache =
+            LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+
+        let before_dhcp = Utc::now();
+        let udp_socket_addr: SocketAddrV4 = "127.0.0.1:1236".parse().unwrap();
+        let dhcp_timestamps = Arc::new(Mutex::new(DhcpTimestamps::new(
+            DhcpTimestampsFilePath::Test,
+        )));
+
+        process(
+            "1.2.3.4:0".parse().unwrap(),
+            Arc::new(UdpSocket::bind(udp_socket_addr).await.unwrap()),
+            &byte_stream,
+            config.clone(),
+            &*handler,
+            "vlan100",
+            &mut machine_cache,
+            dhcp_timestamps.clone(),
+        )
+        .await;
+
+        let dhcp_timestamps = dhcp_timestamps.lock().await;
+
+        let timestamp = dhcp_timestamps
+            .get_timestamp(&config.host_config.as_ref().unwrap().host_interface_id)
+            .unwrap();
+
+        let dhcp_time: DateTime<Utc> = timestamp.parse().unwrap();
+        assert!(before_dhcp < dhcp_time);
+
+        let mut dhcp_timestamps_new = DhcpTimestamps::new(DhcpTimestampsFilePath::Test);
+        dhcp_timestamps_new.read().unwrap();
+        let file_timestamp: DateTime<Utc> = dhcp_timestamps_new
+            .get_timestamp(&config.host_config.unwrap().host_interface_id)
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        assert!(before_dhcp < file_timestamp)
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -754,9 +755,15 @@ pub async fn find_by_machine_and_segment(
 pub async fn update_last_dhcp(
     txn: &mut Transaction<'_, Postgres>,
     interface_id: MachineInterfaceId,
+    timestamp: Option<DateTime<Utc>>,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
+    let query_timestamp = match timestamp {
+        Some(t) => t,
+        None => Utc::now(),
+    };
+    let query = "UPDATE machine_interfaces SET last_dhcp = $1::TIMESTAMPTZ WHERE id=$2::uuid";
     sqlx::query(query)
+        .bind(query_timestamp.to_rfc3339())
         .bind(interface_id)
         .execute(txn.deref_mut())
         .await

@@ -149,6 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.FabricInterfaceData", "#[derive(serde::Serialize)]")
         .type_attribute("forge.LinkData", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpuNetworkStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.LastDhcpRequest", "#[derive(serde::Serialize)]")
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")

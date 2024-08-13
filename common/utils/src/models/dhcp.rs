@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, net::Ipv4Addr, str::FromStr};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    net::Ipv4Addr,
+    str::FromStr,
+};
 
 use ipnetwork::Ipv4Network;
 use rpc::forge::ManagedHostNetworkConfigResponse;
@@ -126,5 +131,105 @@ impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
             fqdn: value.fqdn,
             booturl: value.booturl,
         })
+    }
+}
+
+const DHCP_TIMESTAMP_FILE_HBN: &str = "/var/support/forge-dhcp/logs/dhcp_timestamps.json";
+const DHCP_TIMESTAMP_FILE_HBN_TMP: &str = "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp";
+const DHCP_TIMESTAMP_FILE_DPU: &str =
+    "/var/lib/hbn/var/support/forge-dhcp/logs/dhcp_timestamps.json";
+const DHCP_TIMESTAMP_FILE_TEST: &str = "/tmp/timestamps.json";
+#[derive(Serialize, Deserialize)]
+pub struct DhcpTimestamps {
+    timestamps: HashMap<String, String>,
+
+    #[serde(skip)]
+    path: DhcpTimestampsFilePath,
+}
+
+pub enum DhcpTimestampsFilePath {
+    Hbn,
+    Dpu,
+    Test,
+    NotSet,
+}
+
+impl DhcpTimestampsFilePath {
+    pub fn path_str(&self) -> &str {
+        match self {
+            Self::Hbn => DHCP_TIMESTAMP_FILE_HBN_TMP,
+            Self::Dpu => DHCP_TIMESTAMP_FILE_DPU,
+            Self::Test => DHCP_TIMESTAMP_FILE_TEST,
+            Self::NotSet => "Not set",
+        }
+    }
+}
+
+impl Default for DhcpTimestampsFilePath {
+    fn default() -> Self {
+        Self::NotSet
+    }
+}
+
+impl DhcpTimestamps {
+    pub fn new(filepath: DhcpTimestampsFilePath) -> Self {
+        Self {
+            timestamps: HashMap::new(),
+            path: filepath,
+        }
+    }
+
+    pub fn add_timestamp(&mut self, host_id: String, timestamp: String) {
+        self.timestamps.insert(host_id, timestamp);
+    }
+
+    pub fn get_timestamp(&self, host_id: &String) -> Option<&String> {
+        self.timestamps.get(host_id)
+    }
+
+    pub fn write(&self) -> eyre::Result<()> {
+        if let DhcpTimestampsFilePath::NotSet = self.path {
+            // No-op
+            return Ok(());
+        }
+        let timestamp_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(self.path.path_str())?;
+
+        serde_json::to_writer(timestamp_file, self)?;
+        if let DhcpTimestampsFilePath::Hbn = self.path {
+            // Rename the file.
+            fs::rename(DHCP_TIMESTAMP_FILE_HBN_TMP, DHCP_TIMESTAMP_FILE_HBN)?;
+        }
+        Ok(())
+    }
+
+    pub fn read(&mut self) -> eyre::Result<()> {
+        if let DhcpTimestampsFilePath::NotSet = self.path {
+            // No-op
+            return Ok(());
+        }
+        let timestamp_file = fs::OpenOptions::new()
+            .read(true)
+            .open(self.path.path_str())?;
+        *self = serde_json::from_reader(timestamp_file)?;
+        Ok(())
+    }
+}
+
+impl Default for DhcpTimestamps {
+    fn default() -> Self {
+        Self::new(DhcpTimestampsFilePath::default())
+    }
+}
+
+impl IntoIterator for DhcpTimestamps {
+    type Item = (String, String);
+    type IntoIter = std::collections::hash_map::IntoIter<String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.timestamps.into_iter()
     }
 }

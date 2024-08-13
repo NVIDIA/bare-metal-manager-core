@@ -363,6 +363,7 @@ pub async fn record_dpu_network_status(
                 dpu_agent_version: None,
                 client_certificate_expiry_unix_epoch_secs: None,
                 fabric_interfaces: vec![],
+                last_dhcp_requests: vec![],
             }))
             .await
             .map(|response| response.into_inner())

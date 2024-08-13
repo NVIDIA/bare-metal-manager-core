@@ -248,6 +248,7 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,
             fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
         }))
         .await
         .unwrap();
