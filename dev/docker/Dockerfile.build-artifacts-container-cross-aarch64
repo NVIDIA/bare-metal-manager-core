@@ -1,4 +1,4 @@
-FROM rust:1.80
+FROM rust:1.80.0
 
 RUN dpkg --add-architecture arm64 && \
     apt-get update && \
@@ -11,8 +11,7 @@ RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v3.15
     chmod -R 755 /protobuf
 ENV PATH="/protobuf/bin:${PATH}"
 
-RUN rustup toolchain install 1.80.0
-RUN rustup target add --toolchain=1.80.0 aarch64-unknown-linux-gnu
+RUN rustup target add aarch64-unknown-linux-gnu
 
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ PKG_CONFIG_PATH=/lib/aarch64-linux-gnu/pkgconfig PKG_CONFIG_SYSROOT_DIR=/lib/aarch64-linux-gnu
 WORKDIR ./carbide
