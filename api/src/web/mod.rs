@@ -31,6 +31,7 @@ mod dpu_versions;
 mod expected_machine;
 mod explored_endpoint;
 mod filters;
+mod health;
 mod ib_partition;
 mod instance;
 mod interface;
@@ -91,6 +92,7 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/:machine_id", get(machine::detail))
+            .route("/machine/health/:machine_id", get(health::health))
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_json))
             .route("/managed-host/:machine_id", get(managed_host::detail))

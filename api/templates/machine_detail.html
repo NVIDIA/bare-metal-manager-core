@@ -16,6 +16,16 @@
 		{% endif %}
 		</td>
 	</tr>
+	<tr>
+		<th>Health Reports</th>
+		<td>
+			{% if !is_host %}
+				<a href="/admin/machine/health/{{ host_id }}">Go to health reports</a>
+			{% else %}
+				<a href="/admin/machine/health/{{ id }}">Go to health reports</a>
+			{% endif %}
+		</td>
+	</tr>
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
@@ -39,14 +49,6 @@
 	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
 	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
 </table>
-
-<h3>Health Probe Successes</h3>
-{% for success in health.successes %}
-<table>
-	<tr><th>ID</th><td>{{ success.id }}</td></tr>
-	<tr><th>Target</th><td>{% match success.target %}{% when Some with (target) %} {{ target }} {% else %}{% endmatch %}</td></tr>
-</table>
-{% endfor %}
 
 <h3>Health Probe Alerts</h3>
 {% for alert in health.alerts %}

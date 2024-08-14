@@ -89,6 +89,58 @@ pub async fn record_hardware_health_report(
     Ok(Response::new(()))
 }
 
+pub async fn get_hardware_health_report(
+    api: &Api,
+    request: Request<::rpc::common::MachineId>,
+) -> Result<Response<rpc::OptionalHealthReport>, Status> {
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_hardware_health_report",
+            e,
+        ))
+    })?;
+    let machine_id = request.into_inner();
+    let machine_id = try_parse_machine_id(&machine_id).map_err(CarbideError::from)?;
+    log_machine_id(&machine_id);
+
+    let host_machine = Machine::find_one(
+        &mut txn,
+        &machine_id,
+        MachineSearchConfig {
+            include_dpus: false,
+            include_history: false,
+            include_predicted_host: false,
+            only_maintenance: false,
+            include_associated_machine_id: false,
+            exclude_hosts: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_hardware_health_report",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(::rpc::forge::OptionalHealthReport {
+        report: host_machine
+            .hardware_health_report()
+            .cloned()
+            .map(|hr| hr.into()),
+    }))
+}
+
 pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<::rpc::common::MachineId>,

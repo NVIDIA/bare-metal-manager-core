@@ -78,8 +78,8 @@ impl ManagedHostStateSnapshot {
         let mut get_health = || -> Result<HealthReport, &'static str> {
             // If there is an [`OverrideMode::Override`] health report override on
             // the host, then use that.
-            if let Some(r#override) = &self.host_snapshot.health_report_overrides.r#override {
-                return Ok(r#override.clone());
+            if let Some(over) = &self.host_snapshot.health_report_overrides.r#override {
+                return Ok(over.clone());
             }
 
             let mut output = health_report::HealthReport::empty("".to_string());
@@ -117,10 +117,13 @@ impl ManagedHostStateSnapshot {
                         .as_ref()
                         .ok_or("Missing DPU health")?,
                 );
+                for over in snapshot.health_report_overrides.merges.values() {
+                    output.merge(over);
+                }
             }
 
-            for r#override in self.host_snapshot.health_report_overrides.merges.values() {
-                output.merge(r#override);
+            for over in self.host_snapshot.health_report_overrides.merges.values() {
+                output.merge(over);
             }
 
             Ok(output)
@@ -381,12 +384,23 @@ impl MachineSnapshot {
 impl From<MachineSnapshot> for rpc::forge::Machine {
     fn from(machine: MachineSnapshot) -> Self {
         let health = match machine.machine_id.machine_type().is_dpu() {
-            true => machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
-                HealthReport::heartbeat_timeout(
-                    "forge-dpu-agent".to_string(),
-                    "No health data was received from DPU".to_string(),
-                )
-            }),
+            true => {
+                let mut health = machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
+                    HealthReport::heartbeat_timeout(
+                        "forge-dpu-agent".to_string(),
+                        "No health data was received from DPU".to_string(),
+                    )
+                });
+                match machine.health_report_overrides.r#override {
+                    Some(over) => over,
+                    None => {
+                        for over in machine.health_report_overrides.merges.values() {
+                            health.merge(over);
+                        }
+                        health
+                    }
+                }
+            }
             false => HealthReport::empty("aggregate-health".to_string()), // TODO: FixMe
         };
 

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Health Reports {{ id }}{% endblock %}
+
+{% block content %}
+<h1>{{ machine_type }} Health {{ id }}</h1>
+
+{% for report in reports %}
+<h2>{{ report.label }}</h2>
+{% match report.report %}
+{% when Some with (health) %}
+  <h3>Alerts</h3>
+  <table class="sortable">
+  	<thead>
+  		<tr>
+      	<th>ID</th>
+      	<th>Target</th>
+      	<th>In Alert Since</th>
+      	<th>Message</th>
+      	<th>Tenant Message</th>
+      	<th>Classifications</th>
+  		</tr>
+  	</thead>
+    <tbody>
+      {% for alert in health.alerts %}
+    		<tr>
+        	<td>{{ alert.id }}</td>
+        	<td>{{ alert.target }}</td>
+        	<td>{{ alert.in_alert_since }}</td>
+        	<td>{{ alert.message }}</td>
+        	<td>{{ alert.tenant_message }}</td>
+        	<td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td>
+    		</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <details>
+    <summary><h3 style="display: inline-block;">Successes</h3></summary>
+    <table class="sortable">
+    	<thead>
+    		<tr>
+        	<th>ID</th>
+        	<th>Target</th>
+    		</tr>
+    	</thead>
+      <tbody>
+      {% for success in health.successes %}
+    		<tr>
+        	<td>{{ success.id }}</td>
+        	<td>{{ success.target }}</td>
+    		</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <h3>Missing report</h3>
+  {% endmatch %}
+{%endfor%}
+{% endblock %}
+

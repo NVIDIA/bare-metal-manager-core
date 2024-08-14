@@ -87,6 +87,7 @@ service Forge {
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   rpc RecordHardwareHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
+  rpc GetHardwareHealthReport(common.MachineId) returns (OptionalHealthReport);
   rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
@@ -2209,6 +2210,10 @@ message LastDhcpRequest {
 message HardwareHealthReport {
   common.MachineId machine_id = 1;
   health.HealthReport report = 2;
+}
+
+message OptionalHealthReport {
+  optional health.HealthReport report = 1;
 }
 
 enum OverrideMode {
