@@ -63,11 +63,5 @@ RUN cd /tmp && curl -Lo ./grpcurl.tar.gz https://github.com/fullstorydev/grpcurl
 RUN cd /tmp && curl -Lo vault.zip https://releases.hashicorp.com/vault/1.14.1/vault_1.14.1_linux_arm64.zip && unzip vault.zip && chmod u+x vault && mv vault /usr/local/bin/ && rm vault.zip
 RUN cd /usr/local/bin && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && chmod +x /usr/local/bin/kubectl
 
-ENV GO_VERSION=1.21.1
-RUN curl -LO https://golang.org/dl/go${GO_VERSION}.linux-arm64.tar.gz && \
-    tar -C /usr/local -xzf go${GO_VERSION}.linux-arm64.tar.gz && \
-    rm go${GO_VERSION}.linux-arm64.tar.gz
-ENV PATH=$PATH:/usr/local/go/bin
-
 # create a postgres user
 RUN /etc/init.d/postgresql start && su postgres -c "/usr/lib/postgresql/15/bin/createuser -d root" && /etc/init.d/postgresql stop
