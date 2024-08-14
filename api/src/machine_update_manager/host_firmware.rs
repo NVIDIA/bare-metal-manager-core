@@ -57,7 +57,6 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
-        _multi_dpu_enabled: bool,
     ) -> CarbideResult<HashSet<MachineId>> {
         let machine_updates = self.check_for_updates(txn, available_updates).await?;
         let mut updates_started = HashSet::default();

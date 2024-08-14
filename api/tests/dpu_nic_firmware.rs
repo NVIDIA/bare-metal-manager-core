@@ -55,7 +55,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default(), false)
+        .start_updates(&mut txn, 10, &HashSet::default())
         .await?;
 
     assert_eq!(started_count.len(), 1);
@@ -128,7 +128,7 @@ async fn test_start_updates_with_multidpu(
         .expect("Failed to create transaction");
 
     let dpus_started = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default(), true)
+        .start_updates(&mut txn, 10, &HashSet::default())
         .await?;
 
     assert_eq!(dpus_started.len(), 1);
@@ -155,60 +155,6 @@ async fn test_start_updates_with_multidpu(
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
     assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
-
-    Ok(())
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_start_updates_with_multidpu_disabled(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
-    let rpc_host_id: rpc::MachineId = host_machine_id.to_string().into();
-
-    let host = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![rpc_host_id.clone()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
-    let rpc_dpu_ids = host.associated_dpu_machine_ids;
-    let dpu_machine_id = MachineId::from_str(&rpc_dpu_ids[0].id).unwrap();
-    let dpu_machine_id2 = MachineId::from_str(&rpc_dpu_ids[1].id).unwrap();
-
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
-
-    let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
-        metrics: None,
-    };
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-
-    let dpus_started = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default(), false)
-        .await?;
-
-    assert_eq!(dpus_started.len(), 0);
-    assert!(!dpus_started.contains(&dpu_machine_id));
-    assert!(!dpus_started.contains(&dpu_machine_id2));
-    assert!(!dpus_started.contains(&host_machine_id));
 
     Ok(())
 }
@@ -249,7 +195,7 @@ async fn test_get_updates_in_progress(
     assert!(updating_count.is_empty());
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default(), false)
+        .start_updates(&mut txn, 10, &HashSet::default())
         .await?;
 
     let updating_count = dpu_nic_firmware_update
@@ -335,7 +281,7 @@ async fn test_clear_complated_updates(
         .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default(), false)
+        .start_updates(&mut txn, 10, &HashSet::default())
         .await?;
 
     assert!(!started_count.contains(&dpu_machine_id));

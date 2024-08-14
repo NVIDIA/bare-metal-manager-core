@@ -38,7 +38,6 @@ pub trait MachineUpdateModule: Send + Sync + fmt::Display {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
-        multi_dpu_enabled: bool,
     ) -> CarbideResult<HashSet<MachineId>>;
 
     async fn clear_completed_updates(

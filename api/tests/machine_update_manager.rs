@@ -61,7 +61,6 @@ impl MachineUpdateModule for TestUpdateModule {
         _txn: &mut Transaction<'_, Postgres>,
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
-        _multi_dpu_enabled: bool,
     ) -> CarbideResult<HashSet<MachineId>> {
         if let Ok(mut guard) = self.start_updates_called.lock() {
             (*guard) += 1;

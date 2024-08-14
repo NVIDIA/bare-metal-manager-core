@@ -9,7 +9,10 @@ use carbide::{
         network::{HealthStatus, MachineNetworkStatusObservation},
     },
 };
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine, host::create_host_machine};
+use common::api_fixtures::{
+    create_test_env, dpu::create_dpu_machine, host::create_host_machine,
+    managed_host::create_managed_host_multi_dpu,
+};
 
 use crate::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
@@ -260,5 +263,168 @@ async fn test_find_unavailable_outdated_dpus(
     assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
     assert_eq!(dpus.first().unwrap().host_machine_id, host_machine_id);
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_available_outdated_dpus_multidpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut txn = env.pool.begin().await?;
+
+    let mut expected_dpu_firmware_versions = HashMap::new();
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        &mut txn,
+        &expected_dpu_firmware_versions,
+        None,
+    )
+    .await?;
+
+    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    assert_eq!(dpus.len(), all_dpus.len());
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut expected_dpu_firmware_versions = HashMap::new();
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    let dpu_machine_id = all_dpus[0].id().clone();
+    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+        &mut txn,
+        &DpuMachineUpdate {
+            host_machine_id: host_machine_id.clone(),
+            dpu_machine_id: all_dpus[0].id().clone(),
+            firmware_version: "test_version".to_string(),
+            product_name: "BlueField SoC".to_string(),
+        },
+        expected_dpu_firmware_versions.clone(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        &mut txn,
+        &expected_dpu_firmware_versions,
+        None,
+    )
+    .await?;
+
+    assert!(dpus.is_empty());
+
+    let mut txn = env.pool.begin().await?;
+    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
+        .into_iter()
+        .partition(|x| x.reprovisioning_requested().is_some());
+    assert_eq!(dpu_under_reprov.len(), 1);
+    assert_eq!(dpu_not_under_reprov.len(), 1);
+    assert_eq!(dpu_under_reprov[0].id().clone(), dpu_machine_id);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut expected_dpu_firmware_versions = HashMap::new();
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+        &mut txn,
+        &DpuMachineUpdate {
+            host_machine_id: host_machine_id.clone(),
+            dpu_machine_id: all_dpus[1].id().clone(),
+            firmware_version: "test_version".to_string(),
+            product_name: "BlueField SoC".to_string(),
+        },
+        expected_dpu_firmware_versions.clone(),
+    )
+    .await
+    .unwrap();
+    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+        &mut txn,
+        &DpuMachineUpdate {
+            host_machine_id: host_machine_id.clone(),
+            dpu_machine_id: all_dpus[0].id().clone(),
+            firmware_version: "test_version".to_string(),
+            product_name: "BlueField SoC".to_string(),
+        },
+        expected_dpu_firmware_versions.clone(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        &mut txn,
+        &expected_dpu_firmware_versions,
+        None,
+    )
+    .await?;
+
+    assert!(dpus.is_empty());
+
+    let mut txn = env.pool.begin().await?;
+    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
+        .into_iter()
+        .partition(|x| x.reprovisioning_requested().is_some());
+    assert_eq!(dpu_under_reprov.len(), 2);
+    assert_eq!(dpu_not_under_reprov.len(), 0);
     Ok(())
 }

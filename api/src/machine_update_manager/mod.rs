@@ -58,7 +58,6 @@ pub struct MachineUpdateManager {
     run_interval: Duration,
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
     metrics: Option<Arc<Mutex<MachineUpdateManagerMetrics>>>,
-    multi_dpu_enabled: bool,
 }
 
 impl MachineUpdateManager {
@@ -81,7 +80,6 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules: modules,
             metrics: None,
-            multi_dpu_enabled: config.multi_dpu.enabled,
         }
     }
 
@@ -132,7 +130,6 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules,
             metrics: Some(machine_update_metrics),
-            multi_dpu_enabled: config.multi_dpu.enabled,
         }
     }
 
@@ -219,12 +216,7 @@ impl MachineUpdateManager {
                     self.max_concurrent_machine_updates - current_updating_machines.len() as i32;
 
                 let updates_started = update_module
-                    .start_updates(
-                        &mut txn,
-                        available_updates,
-                        &current_updating_machines,
-                        self.multi_dpu_enabled,
-                    )
+                    .start_updates(&mut txn, available_updates, &current_updating_machines)
                     .await?;
 
                 tracing::debug!("started: {:?}", updates_started);

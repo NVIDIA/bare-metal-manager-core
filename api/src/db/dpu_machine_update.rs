@@ -45,6 +45,11 @@ impl DpuMachineUpdate {
     /// 1. the installed firmware does not match the expected firmware
     /// 2. the DPU is not marked for reprovisioning
     /// 3. the DPU is not marked for maintenance.
+    /// 4. If all DPUs need upgrade, put all in queue. State machine supports upgrading multiple
+    ///    DPUs of a managedhost.
+    /// 5. If some of the DPUs for a managed host need upgrade, put them in queue.
+    ///     5.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
+    ///       managedhost. This is done by confirming that Host is not under maintenance.
     ///
     pub async fn find_available_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
@@ -74,7 +79,7 @@ impl DpuMachineUpdate {
             WHERE m.reprovisioning_requested IS NULL 
             AND mi.machine_id != mi.attached_dpu_machine_id
             AND m.controller_state = '{"state": "ready"}'
-            AND m.maintenance_start_time IS NULL 
+            AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
             AND (network_status_observation->'health_status'->>'is_healthy')::boolean is true 
             "#.to_owned();
 
@@ -127,6 +132,7 @@ impl DpuMachineUpdate {
             INNER JOIN machine_topologies mt ON m.id = mt.machine_id
             WHERE m.reprovisioning_requested IS NULL 
             AND mi.machine_id != mi.attached_dpu_machine_id 
+            AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
             AND (m.controller_state != '{"state": "ready"}'
             OR (network_status_observation->'health_status'->>'is_healthy')::boolean is false) 
             AND m.maintenance_start_time IS NULL "#.to_owned();
@@ -194,6 +200,12 @@ impl DpuMachineUpdate {
             from: machine_update.firmware_version.clone(),
             to: expected_version.clone(),
         });
+        let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
+            // In case of multidpu, DPUs can have different versions.
+            // Host should show only the target version.
+            from: "".to_string(),
+            to: expected_version.clone(),
+        });
         let req = ReprovisionRequest {
             requested_at: chrono::Utc::now(),
             initiator: initiator.to_string(),
@@ -214,7 +226,7 @@ impl DpuMachineUpdate {
 
         let query = r#"UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$2 AND maintenance_reference IS NULL;"#;
         sqlx::query(query)
-            .bind(initiator.to_string())
+            .bind(initiator_host.to_string())
             .bind(machine_update.host_machine_id.to_string())
             .execute(txn.deref_mut())
             .await
