@@ -40,9 +40,7 @@ use crate::command_line::NetworkVirtualizationType;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
-use crate::instance_metadata_endpoint::{
-    get_instance_metadata_router, InstanceMetadataRouterStateImpl,
-};
+use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterStateImpl};
 use crate::instrumentation::{create_metrics, get_metrics_router, MetricsState, WithTracingLayer};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -824,13 +822,13 @@ fn spawn_metadata_service(
         metadata_service_address,
         Router::new()
             .nest(
-                "/latest/meta-data",
-                get_instance_metadata_router(instance_metadata_state.clone())
+                "/latest",
+                get_fmds_router(instance_metadata_state.clone())
                     .with_tracing_layer(metrics_state.clone()),
             )
             .nest(
-                "/2009-04-04/meta-data",
-                get_instance_metadata_router(instance_metadata_state.clone())
+                "/2009-04-04",
+                get_fmds_router(instance_metadata_state.clone())
                     .with_tracing_layer(metrics_state.clone()),
             ),
     )
