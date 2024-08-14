@@ -5,10 +5,8 @@ use std::{
 };
 
 use crate::{
-    cfg::CarbideConfig,
-    db::{self, dpu_machine_update::DpuMachineUpdate},
-    machine_update_manager::MachineUpdateManager,
-    model::machine::machine_id::MachineId,
+    cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
+    machine_update_manager::MachineUpdateManager, model::machine::machine_id::MachineId,
     CarbideResult,
 };
 use async_trait::async_trait;
@@ -56,7 +54,6 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
-        multi_dpu_enabled: bool,
     ) -> CarbideResult<HashSet<MachineId>> {
         let machine_updates: Vec<DpuMachineUpdate> = self
             .check_for_updates(txn, available_updates)
@@ -77,28 +74,6 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 continue;
             }
 
-            // if multi-dpu is disabled, check if the host of this dpu has other DPUs.
-            if !multi_dpu_enabled {
-                let interfaces = db::machine_interface::find_by_machine_ids(
-                    txn,
-                    &[machine_update.host_machine_id.clone()],
-                )
-                .await?;
-                let Some(machine_interfaces) = interfaces.get(&machine_update.host_machine_id)
-                else {
-                    tracing::warn!(
-                        host_machine_id = machine_update.host_machine_id.to_string(),
-                        dpu_machine_id = machine_update.dpu_machine_id.to_string(),
-                        "Host associated with DPU has no interfaces"
-                    );
-                    continue;
-                };
-
-                if machine_interfaces.len() != 1 {
-                    tracing::debug!(host_machine_id=machine_update.host_machine_id.to_string(), dpu_machine_id=machine_update.dpu_machine_id.to_string(), "Multi-dpu machine found with multi-dpu support disabled.  skipping NIC firmware update");
-                    continue;
-                }
-            }
             DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
                 txn,
                 machine_update,
