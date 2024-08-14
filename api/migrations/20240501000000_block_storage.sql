@@ -3,7 +3,7 @@
 ALTER TABLE IF EXISTS instances
     ADD COLUMN IF NOT EXISTS storage_config_version     VARCHAR(64) NOT NULL DEFAULT ('V1-T1666644937952267'),
     ADD COLUMN IF NOT EXISTS storage_config             jsonb       NOT NULL DEFAULT ('{"volumes": []}'),
-    ADD COLUMN IF NOT EXISTS storage_status_observation jsonb       NOT NULL DEFAULT ('{"storage_config_version": "V1-T1666644937952267", "observed_at": "2023-01-01 00:00:00.000000+00"}')
+    ADD COLUMN IF NOT EXISTS storage_status_observation jsonb       NOT NULL DEFAULT ('{"config_version": "V1-T1666644937952267", "volumes": [], "observed_at": "2023-01-01T00:00:00.000000000Z"}')
 ;
 
 -- Add new tables for storage objects
