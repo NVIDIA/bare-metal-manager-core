@@ -93,7 +93,7 @@ services:
       - >
         sleep 20 # Let PostgreSQL start
 
-        xzcat /app/code/dev/dev_db_20240806.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
+        xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
 
         cargo watch -C api -x "run --target-dir /tmp/carbide-api --
         run --config-path=/app/code/dev/docker-env/carbide-api-config.toml"

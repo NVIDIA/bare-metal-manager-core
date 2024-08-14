@@ -34,12 +34,33 @@ const UNKNOWN: &str = "Unknown";
 #[template(path = "managed_host_show.html")]
 struct ManagedHostShow {
     hosts: Vec<ManagedHostRowDisplay>,
+    grouped_hosts: Option<GroupedHosts>,
+    active_group_by: String,
+    active_health_filter: String,
+    active_maintenance_filter: String,
     active_vendor_filter: String,
     vendors: Vec<String>,
     active_state_filter: String,
     states: Vec<String>,
-    active_category_filter: String,
-    categories: [&'static str; 4],
+    gpus: Vec<String>,
+    active_gpu_filter: String,
+    ibs: Vec<String>,
+    active_ib_filter: String,
+    mems: Vec<(isize, String)>,
+    active_mem_filter: isize,
+    is_filtered: bool,
+}
+
+struct GroupedHosts {
+    headers: Vec<&'static str>,
+    groups: Vec<HostGroup>,
+    total: usize,
+}
+
+struct HostGroup {
+    num_in_group: usize,
+    group_fields: Vec<String>,
+    filter: String,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -81,6 +102,80 @@ enum DpuProperty {
     OobMac,
 }
 
+// derive PartialOrd will order them in the declared order, which for our purposes should be
+// alphabetical except for Unknown which is last.
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
+enum GroupingKey {
+    Health,
+    HostMemory,
+    NumGPUs,
+    NumIBIFs,
+    State,
+    Unknown,
+}
+
+impl GroupingKey {
+    fn params_to_vec(s: &str) -> Vec<GroupingKey> {
+        let mut v: Vec<GroupingKey> = s
+            .split(',')
+            .map(GroupingKey::from_param)
+            .filter(|g| *g != GroupingKey::Unknown)
+            .collect();
+        // This sort is what makes the string match in the template (select/option) work
+        v.sort_unstable();
+        v
+    }
+
+    fn from_param(s: &str) -> GroupingKey {
+        match s {
+            "host_memory" => GroupingKey::HostMemory,
+            "health" => GroupingKey::Health,
+            "num_gpus" => GroupingKey::NumGPUs,
+            "num_ib_ifs" => GroupingKey::NumIBIFs,
+            "state" => GroupingKey::State,
+            _ => GroupingKey::Unknown,
+        }
+    }
+
+    fn vec_to_params(v: &[GroupingKey]) -> String {
+        v.iter().map(|gk| gk.as_param()).join(",")
+    }
+
+    fn as_param(&self) -> &'static str {
+        match self {
+            GroupingKey::HostMemory => "host_memory",
+            GroupingKey::Health => "health",
+            GroupingKey::NumGPUs => "num_gpus",
+            GroupingKey::NumIBIFs => "num_ib_ifs",
+            GroupingKey::State => "state",
+            GroupingKey::Unknown => "",
+        }
+    }
+
+    fn filter_name(&self) -> &'static str {
+        use GroupingKey::*;
+        match self {
+            Health => "health-filter",
+            HostMemory => "mem-filter",
+            NumGPUs => "gpu-filter",
+            NumIBIFs => "ib-filter",
+            State => "state-filter",
+            Unknown => "",
+        }
+    }
+
+    fn header(&self) -> &'static str {
+        match self {
+            GroupingKey::HostMemory => "Host Memory (GiB)",
+            GroupingKey::Health => "DPU Health",
+            GroupingKey::NumGPUs => "GPU #",
+            GroupingKey::NumIBIFs => "IB IFs #",
+            GroupingKey::State => "State",
+            GroupingKey::Unknown => "",
+        }
+    }
+}
+
 impl ManagedHostRowDisplay {
     fn dpu_properties(&self, property: DpuProperty) -> String {
         let lines: Vec<String> = match property {
@@ -111,6 +206,28 @@ impl ManagedHostRowDisplay {
             DpuProperty::OobMac => self.dpus.iter().map(|d| d.oob_mac.clone()).collect(),
         };
         lines.join("<br/>")
+    }
+
+    fn grouping_key(&self, cols: &[GroupingKey]) -> String {
+        let mut k = Vec::with_capacity(cols.len());
+        use GroupingKey::*;
+        for col in cols {
+            match col {
+                HostMemory => k.push(mem_to_size(&self.host_memory).to_string()),
+                Health => {
+                    if self.is_network_healthy {
+                        k.push("Healthy".to_string())
+                    } else {
+                        k.push("Unhealthy".to_string())
+                    }
+                }
+                NumGPUs => k.push(self.num_gpus.to_string()),
+                NumIBIFs => k.push(self.num_ib_ifs.to_string()),
+                State => k.push(short_state(&self.state).to_string()),
+                Unknown => {}
+            }
+        }
+        k.join(",").to_string()
     }
 }
 
@@ -164,7 +281,7 @@ impl From<ManagedHostAttachedDpu> for AttachedDpuRowDisplay {
 /// List managed hosts
 pub async fn show_html(
     state: AxumState<Arc<Api>>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
     let managed_hosts = match fetch_managed_hosts(state).await {
         Ok(m) => m,
@@ -178,91 +295,176 @@ pub async fn show_html(
         }
     };
 
-    let active_vendor_filter = params
-        .get("vendor-filter")
-        .cloned()
+    let active_health_filter = params.remove("health-filter").unwrap_or("all".to_string());
+    let active_maintenance_filter = params
+        .remove("maintenance-filter")
         .unwrap_or("all".to_string());
-    let active_state_filter = params
-        .get("state-filter")
-        .cloned()
-        .unwrap_or("all".to_string());
-    let active_category_filter = params
-        .get("category-filter")
-        .cloned()
-        .unwrap_or("all".to_string());
+    let active_vendor_filter = params.remove("vendor-filter").unwrap_or("all".to_string());
+    let active_state_filter = params.remove("state-filter").unwrap_or("all".to_string());
+    let active_gpu_filter = params.remove("gpu-filter").unwrap_or("all".to_string());
+    let active_ib_filter = params.remove("ib-filter").unwrap_or("all".to_string());
+    let active_mem_filter = params
+        .remove("mem-filter")
+        .and_then(|ms| ms.parse::<isize>().ok())
+        .unwrap_or(-1);
+
+    let group_by_param = params.remove("group-by").unwrap_or("none".to_string());
+    let group_by = GroupingKey::params_to_vec(&group_by_param);
 
     let mut hosts = Vec::new();
     let mut vendors = HashSet::new();
     let mut states = HashSet::new();
+    let mut gpus = HashSet::new();
+    let mut ibs = HashSet::new();
+    let mut mems = HashSet::new();
     for mo in managed_hosts.into_iter() {
         let m: ManagedHostRowDisplay = mo.into();
         if !m.vendor.is_empty() {
             vendors.insert(m.vendor.clone());
         }
-        states.insert(m.state.clone());
+        states.insert(short_state(&m.state).to_string());
+        gpus.insert(m.num_gpus);
+        ibs.insert(m.num_ib_ifs);
+        let barry = mem_to_size(&m.host_memory);
+        mems.insert((barry, format!("{barry} GiB")));
 
         if active_vendor_filter != "all" && active_vendor_filter != m.vendor.to_lowercase() {
             continue;
         }
-        if active_state_filter != "all" && active_state_filter != m.state.to_lowercase() {
+        if active_state_filter != "all"
+            && active_state_filter != short_state(&m.state).to_lowercase()
+        {
             continue;
         }
-        match active_category_filter.as_str() {
-            "all" => {}
-            "maintenance" => {
-                if m.maintenance_reference.is_empty() {
-                    continue;
-                }
+        if active_gpu_filter != "all" {
+            let Ok(gf) = active_gpu_filter.parse::<usize>() else {
+                tracing::warn!("Invalid GPU filter: '{active_gpu_filter}'");
+                continue;
+            };
+            if gf != m.num_gpus {
+                continue;
             }
-            "active" => {
-                if !m.maintenance_reference.is_empty() {
-                    continue;
-                }
+        }
+        if active_ib_filter != "all" {
+            let Ok(ibf) = active_ib_filter.parse::<usize>() else {
+                tracing::warn!("Invalid IB IFs filter: '{active_ib_filter}'");
+                continue;
+            };
+            if ibf != m.num_ib_ifs {
+                continue;
             }
-            "active not ready" => {
-                if !m.maintenance_reference.is_empty() {
-                    continue;
-                }
-                let state = m.state.to_lowercase();
-                if state == "ready" || state == "assigned/ready" {
-                    continue;
-                }
+        }
+        if active_mem_filter != -1 && active_mem_filter != barry {
+            continue;
+        }
+        if active_health_filter != "all" {
+            if active_health_filter == "healthy" && !m.is_network_healthy {
+                continue;
             }
-            "unhealthy network" => {
-                if m.is_network_healthy {
-                    continue;
-                }
+            if active_health_filter == "unhealthy" && m.is_network_healthy {
+                continue;
             }
-            _ => {
-                return (StatusCode::BAD_REQUEST, "Unknown category filter").into_response();
+        }
+        if active_maintenance_filter != "all" {
+            if active_maintenance_filter == "active" && !m.maintenance_reference.is_empty() {
+                continue;
+            }
+            if active_maintenance_filter == "maintenance" && m.maintenance_reference.is_empty() {
+                continue;
             }
         }
 
         hosts.push(m);
     }
+
     hosts.sort_unstable();
 
     let mut vendors: Vec<String> = vendors.into_iter().collect();
     vendors.sort_unstable();
-
     let mut states: Vec<String> = states.into_iter().collect();
     states.sort_unstable();
+    let mut gpus: Vec<String> = gpus.into_iter().map(|x| x.to_string()).collect();
+    gpus.sort_unstable();
+    let mut ibs: Vec<String> = ibs.into_iter().map(|x| x.to_string()).collect();
+    ibs.sort_unstable();
+    let mut mems: Vec<(isize, String)> = mems.into_iter().collect();
+    mems.sort_unstable_by(|(size_a, _), (size_b, _)| {
+        size_a
+            .partial_cmp(size_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let is_filtered = active_health_filter != "all"
+        || active_maintenance_filter != "all"
+        || active_vendor_filter != "all"
+        || active_state_filter != "all"
+        || active_gpu_filter != "all"
+        || active_ib_filter != "all"
+        || active_mem_filter != -1;
 
     let tmpl = ManagedHostShow {
+        grouped_hosts: group_hosts(&hosts, &group_by),
+        active_group_by: GroupingKey::vec_to_params(&group_by),
+        active_health_filter,
+        active_maintenance_filter,
         hosts,
         active_vendor_filter,
         vendors,
         active_state_filter,
         states,
-        active_category_filter,
-        categories: [
-            "maintenance",
-            "active",
-            "active not ready",
-            "unhealthy network",
-        ],
+        gpus,
+        active_gpu_filter,
+        ibs,
+        active_ib_filter,
+        mems,
+        active_mem_filter,
+        is_filtered,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+fn group_hosts(hosts: &[ManagedHostRowDisplay], group_by: &[GroupingKey]) -> Option<GroupedHosts> {
+    if group_by.is_empty() || hosts.is_empty() {
+        return None;
+    }
+
+    let mut count = HashMap::new();
+    let mut groups = HashMap::new();
+    for h in hosts {
+        let k = h.grouping_key(group_by);
+        count.entry(k.clone()).and_modify(|c| *c += 1).or_insert(1);
+        groups.insert(k, h);
+    }
+
+    let mut total = 0;
+    let mut groups = Vec::new();
+    for (k, num) in count {
+        let fields: Vec<String> = k.as_str().split(',').map(|s| s.to_string()).collect();
+        let filter = filter_expr(group_by, &fields);
+        groups.push(HostGroup {
+            num_in_group: num,
+            group_fields: fields,
+            filter,
+        });
+        total += num;
+    }
+    groups.sort_unstable_by_key(|g| std::cmp::Reverse(g.num_in_group));
+
+    let headers = group_by.iter().map(|c| c.header()).collect();
+    Some(GroupedHosts {
+        headers,
+        groups,
+        total,
+    })
+}
+
+// keys: health,host_memory,num_gpus,num_ib_ifs,state
+// OUT: state-filter=all&gpu-filter=all&ib-filter=all&mem-filter=all
+fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
+    keys.iter()
+        .zip(values.iter())
+        .map(|(k, v)| format!("{}={}", k.filter_name(), v.to_lowercase()))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
@@ -550,4 +752,30 @@ pub async fn maintenance(
     }
 
     Redirect::to(&view_url)
+}
+
+fn mem_to_size(mem: &str) -> isize {
+    if mem == UNKNOWN {
+        return 0;
+    }
+    let parts: Vec<&str> = mem.split_whitespace().collect();
+
+    // The first number is the size, and the second part is the unit (GiB or TiB)
+    let Ok(size) = parts[0].parse::<f64>() else {
+        tracing::warn!("Invalid memory format: '{mem}'");
+        return 0;
+    };
+    let unit = parts[1];
+    (match unit {
+        "GiB" => size,
+        "TiB" => size * 1024.0,
+        _ => {
+            tracing::warn!("Invalid unit '{}' in mem string '{mem}'", parts[1]);
+            return 0;
+        }
+    }) as isize
+}
+
+fn short_state(s: &str) -> &str {
+    s.split(' ').next().unwrap_or_default()
 }
