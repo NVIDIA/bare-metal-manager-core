@@ -94,6 +94,7 @@ pub async fn run(
                 agent.metadata_service.address.clone(),
                 agent.telemetry.metrics_address.clone(),
                 instance_metadata_state.clone(),
+                machine_id.to_string(),
             )
             .map_err(|e| eyre::eyre!("Failed to run metadata service: {:#}", e))
             .ok()
@@ -625,7 +626,6 @@ pub async fn run(
             biased;
             _ = term_signal.recv() => {
                 systemd::notify_stop().await?;
-                // @TODO(Felicity): make sure network monitor exits if send fails
                 let _ = close_sender.send(true);
                 if let Some(handle) = network_monitor_handle {
                     let _ = handle.await;
@@ -767,6 +767,7 @@ fn spawn_metadata_service(
     metadata_service_address: String,
     metrics_address: String,
     state: Arc<InstanceMetadataRouterStateImpl>,
+    machine_id: String,
 ) -> Result<Arc<MetricsState>, Box<dyn std::error::Error>> {
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
@@ -792,6 +793,22 @@ fn spawn_metadata_service(
         .with_view(create_metric_view_for_retry_histograms(
             "*_(attempts|retries)_*",
         )?)
+        .with_view(metrics::new_view(
+            metrics::Instrument::new().name("*_network_latency*"),
+            metrics::Stream::new().aggregation(metrics::Aggregation::ExplicitBucketHistogram {
+                boundaries: vec![
+                    0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 5.0, 10.0, 100.0, 500.0, 1000.0,
+                ],
+                record_min_max: true,
+            }),
+        )?)
+        .with_view(metrics::new_view(
+            metrics::Instrument::new().name("*_network_loss_percentage*"),
+            metrics::Stream::new().aggregation(metrics::Aggregation::ExplicitBucketHistogram {
+                boundaries: vec![0.2, 0.4, 0.6, 0.8, 1.0],
+                record_min_max: true,
+            }),
+        )?)
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
@@ -800,7 +817,8 @@ fn spawn_metadata_service(
 
     let instance_metadata_state = state.clone();
 
-    let metrics_state = create_metrics(meter);
+    let metrics_state = create_metrics(meter, machine_id);
+    metrics_state.register_callback();
 
     start_server(
         metadata_service_address,

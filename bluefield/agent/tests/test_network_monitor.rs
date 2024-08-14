@@ -6,7 +6,7 @@ use std::time::Duration;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use agent::instrumentation::create_metrics;
-use agent::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, Ping};
+use agent::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -16,6 +16,7 @@ use eyre::{Context, Result};
 use forge_host_support::agent_config::AgentConfig;
 use forge_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
+use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
 use tokio::sync::{watch, Mutex};
 use tokio::time::sleep;
@@ -85,14 +86,14 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     let forge_api = agent.forge_system.api_server;
 
+    let machine_id = DPU_ID;
+
     // Initialize the test metric meter
     info!("Initializing test meter");
     let test_meter = TestMeter::default();
-    let metrics_states = create_metrics(test_meter.meter());
+    let metrics_states = create_metrics(test_meter.meter(), machine_id.to_string());
 
     // Initialize network monitor
-    let machine_id = DPU_ID;
-
     let forge_api_clone = forge_api.clone();
     let client_config_clone = forge_client_config.clone();
     let (close_sender, mut close_receiver) = watch::channel(false);
@@ -161,29 +162,17 @@ fn verify_metrics(test_meter: &TestMeter) {
     );
 
     let expected_network_latency_count = format!("{} 1", attribute);
-    let expected_network_reachable_count = format!("{} 1", attribute);
     let expected_network_loss_percentage_sum = format!("{} 0.8", attribute);
 
     // Verify network_latency_count
-    match test_meter.formatted_metric("forge_dpu_agent_network_latency_count") {
+    match test_meter.formatted_metric("forge_dpu_agent_network_latency_milliseconds_count") {
         Some(network_latency_count) => {
             assert_eq!(
                 network_latency_count, expected_network_latency_count,
-                "forge_dpu_agent_network_latency_count does not match"
+                "forge_dpu_agent_network_latency_milliseconds_count does not match"
             );
         }
-        None => panic!("forge_dpu_agent_network_latency_count metric not found"),
-    }
-
-    // Verify network_reachable_count
-    match test_meter.formatted_metric("forge_dpu_agent_network_reachable_count") {
-        Some(network_reachable_count) => {
-            assert_eq!(
-                network_reachable_count, expected_network_reachable_count,
-                "forge_dpu_agent_network_reachable_count does not match"
-            );
-        }
-        None => panic!("forge_dpu_agent_network_reachable_count metric not found"),
+        None => panic!("forge_dpu_agent_network_latency_milliseconds_count metric not found"),
     }
 
     // Verify network_loss_percentage_sum
@@ -252,6 +241,7 @@ impl TestMeter {
 
 impl Default for TestMeter {
     /// Builds an OpenTelemetry `Meter` for unit-testing purposes
+
     fn default() -> Self {
         // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
         // for tracking milliseconds
@@ -263,9 +253,23 @@ impl Default for TestMeter {
             .without_target_info()
             .build()
             .unwrap();
-        let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
-            .with_reader(metrics_exporter)
-            .build();
+        let view = metrics::new_view(
+            metrics::Instrument::new().name("*_network_*"), // Match all instruments with "network" in their name
+            metrics::Stream::new().aggregation(metrics::Aggregation::ExplicitBucketHistogram {
+                boundaries: vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+                record_min_max: true,
+            }),
+        )
+        .ok();
+        let meter_provider = match view {
+            Some(metric_view) => opentelemetry_sdk::metrics::MeterProvider::builder()
+                .with_reader(metrics_exporter)
+                .with_view(metric_view)
+                .build(),
+            None => opentelemetry_sdk::metrics::MeterProvider::builder()
+                .with_reader(metrics_exporter)
+                .build(),
+        };
 
         TestMeter {
             meter: meter_provider.meter("dpu-agent"),
@@ -277,7 +281,11 @@ impl Default for TestMeter {
 pub struct MockPinger;
 #[async_trait]
 impl Ping for MockPinger {
-    async fn ping_dpu(&self, dpu_info: DpuInfo, _interface: IpAddr) -> Result<DpuPingResult> {
+    async fn ping_dpu(
+        &self,
+        dpu_info: DpuInfo,
+        _interface: IpAddr,
+    ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)> {
         info!("Received ping request for {}", dpu_info);
         let ping_result = DpuPingResult {
             dpu_info,
