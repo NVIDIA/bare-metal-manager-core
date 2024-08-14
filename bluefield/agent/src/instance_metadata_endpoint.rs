@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use std::sync::Arc;
 
 use arc_swap::ArcSwapOption;
@@ -34,10 +33,16 @@ use crate::util::{create_forge_client, phone_home};
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
 const USER_DATA_CATEGORY: &str = "user-data";
+const META_DATA_CATEGORY: &str = "meta-data";
 const GUID: &str = "guid";
 const IB_PARTITION: &str = "partition";
 const LID: &str = "lid";
 const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
+const DEVICES_CATEGORY: &str = "devices";
+const INFINIBAND_CATEGORY: &str = "infiniband";
+const MACHINE_ID_CATEGORY: &str = "machine-id";
+const INSTANCE_ID_CATEGORY: &str = "instance-id";
+const PHONE_HOME_CATEGORY: &str = "phone_home";
 
 #[automock]
 #[async_trait]
@@ -109,15 +114,19 @@ impl InstanceMetadataRouterStateImpl {
     }
 }
 
-pub fn get_instance_metadata_router(
-    metadata_router_state: Arc<dyn InstanceMetadataRouterState>,
-) -> Router {
+pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterState>) -> Router {
+    let user_data_router =
+        Router::new().route(&format!("/{}", USER_DATA_CATEGORY), get(get_userdata));
+
     // TODO add handling for non-supported URIs
     let ib_router = Router::new()
-        .route("/devices", get(get_devices))
-        .route("/devices/:device", get(get_instances))
+        .route(&format!("/{}", DEVICES_CATEGORY), get(get_devices))
+        .route(
+            &format!("/{}/:device", DEVICES_CATEGORY),
+            get(get_instances),
+        )
         .nest(
-            "/devices/:device",
+            &format!("/{}/:device", DEVICES_CATEGORY),
             Router::new()
                 .route("/instances", get(get_instances))
                 .route("/instances/:instance", get(get_instance_attributes))
@@ -127,18 +136,48 @@ pub fn get_instance_metadata_router(
                 ),
         );
 
+    let service_router = Router::new()
+        .nest(&format!("/{}", INFINIBAND_CATEGORY), ib_router)
+        .route(&format!("/{}", PHONE_HOME_CATEGORY), post(post_phone_home))
+        .route(&format!("/{}", INSTANCE_ID_CATEGORY), get(get_instance_id))
+        .route(&format!("/{}", MACHINE_ID_CATEGORY), get(get_machine_id))
+        .route("/:category", get(get_metadata_parameter));
+
+    let metadata_router = Router::new()
+        // The additional ending slash is a cloud init issue as found when looking at the cloud init src
+        // https://bugs.launchpad.net/cloud-init/+bug/1356855
+        .route(
+            &format!("/{}/", META_DATA_CATEGORY),
+            get(get_metadata_params),
+        )
+        .route(
+            &format!("/{}", META_DATA_CATEGORY),
+            get(get_metadata_params),
+        )
+        .nest(&format!("/{}", META_DATA_CATEGORY), service_router);
+
     Router::new()
-        .nest("/infiniband", ib_router)
-        .route("/phone_home", post(post_phone_home))
-        .route("/instance-id", get(get_instance_id))
-        .route("/machine-id", get(get_machine_id))
-        .route("/:category", get(get_metadata_parameter))
+        .merge(metadata_router)
+        .merge(user_data_router)
         .with_state(metadata_router_state)
 }
 
 async fn get_metadata_parameter(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path(category): Path<String>,
+) -> (StatusCode, String) {
+    extract_metadata(category, state)
+}
+
+async fn get_userdata(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    extract_metadata(USER_DATA_CATEGORY.to_string(), state)
+}
+
+fn extract_metadata(
+    category: String,
+    state: Arc<dyn InstanceMetadataRouterState>,
 ) -> (StatusCode, String) {
     if let Some(metadata) = state.read().as_ref() {
         return match category.as_str() {
@@ -157,7 +196,6 @@ async fn get_metadata_parameter(
         )
     }
 }
-
 async fn get_machine_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
@@ -202,6 +240,15 @@ async fn get_instance_id(
             "instance id not available".to_string(),
         )
     }
+}
+
+async fn get_metadata_params(
+    State(_state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    (
+        StatusCode::OK,
+        [HOSTNAME_CATEGORY, MACHINE_ID_CATEGORY, INSTANCE_ID_CATEGORY].join("\n"),
+    )
 }
 
 async fn get_devices(
@@ -408,7 +455,7 @@ mod tests {
 
         let arc_mock_router_state = Arc::new(mock_router_state);
 
-        let router = get_instance_metadata_router(arc_mock_router_state);
+        let router = get_fmds_router(arc_mock_router_state);
 
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -469,7 +516,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "public-ipv4",
+            "meta-data/public-ipv4",
             &metadata.address,
             StatusCode::OK,
         )
@@ -495,8 +542,40 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "hostname",
+            "meta-data/hostname",
             &metadata.hostname,
+            StatusCode::OK,
+        )
+        .await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_metadata_listing() {
+        let metadata = InstanceMetadata {
+            instance_id: None,
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+            ib_devices: None,
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
+        };
+
+        let expected_output =
+            [HOSTNAME_CATEGORY, MACHINE_ID_CATEGORY, INSTANCE_ID_CATEGORY].join("\n");
+
+        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        send_request_and_check_response(server_port, "meta-data", &expected_output, StatusCode::OK)
+            .await;
+        // Also check the metadata url with the end slash is valid
+        send_request_and_check_response(
+            server_port,
+            "meta-data/",
+            &expected_output,
             StatusCode::OK,
         )
         .await;
@@ -534,7 +613,7 @@ mod tests {
         let (server, server_port) = setup_server(None).await;
         send_request_and_check_response(
             server_port,
-            "hostname",
+            "meta-data/hostname",
             "metadata currently unavailable",
             StatusCode::INTERNAL_SERVER_ERROR,
         )
@@ -577,7 +656,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices",
+            "meta-data/infiniband/devices",
             "0=pfguid1\n1=pfguid2\n",
             StatusCode::OK,
         )
@@ -610,7 +689,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/2",
+            "meta-data/infiniband/devices/2",
             "no device at index: 2",
             StatusCode::NOT_FOUND,
         )
@@ -650,7 +729,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances",
+            "meta-data/infiniband/devices/0/instances",
             "0=test-guid1\n1=test-guid2\n",
             StatusCode::OK,
         )
@@ -685,7 +764,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances/0",
+            "meta-data/infiniband/devices/0/instances/0",
             "guid\npartition\nlid",
             StatusCode::OK,
         )
@@ -718,7 +797,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances/0",
+            "meta-data/infiniband/devices/0/instances/0",
             "lid",
             StatusCode::OK,
         )
@@ -751,7 +830,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances/3",
+            "meta-data/infiniband/devices/0/instances/3",
             "no instance at index: 3",
             StatusCode::NOT_FOUND,
         )
@@ -784,7 +863,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances/0/guid",
+            "meta-data/infiniband/devices/0/instances/0/guid",
             "test-guid",
             StatusCode::OK,
         )
@@ -817,7 +896,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "infiniband/devices/0/instances/0/partition",
+            "meta-data/infiniband/devices/0/instances/0/partition",
             "ib partition not found at index: 0",
             StatusCode::NOT_FOUND,
         )
@@ -843,7 +922,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "instance-id",
+            "meta-data/instance-id",
             "67e55044-10b1-426f-9247-bb680e5fe0c8",
             StatusCode::OK,
         )
@@ -869,7 +948,7 @@ mod tests {
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
         send_request_and_check_response(
             server_port,
-            "machine-id",
+            "meta-data/machine-id",
             "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg",
             StatusCode::OK,
         )
