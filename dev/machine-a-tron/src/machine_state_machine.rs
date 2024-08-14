@@ -17,10 +17,12 @@ use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
 use crate::logging::LogSink;
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PXEresponse,
+    forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PxeError,
+    PxeResponse,
 };
 use bmc_mock::{BmcCommand, BmcMockError, BmcMockHandle, MachineInfo};
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
+use rpc::forge_agent_control_response::Action;
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///
@@ -60,12 +62,11 @@ pub enum BmcRegistrationMode {
 }
 
 #[derive(Debug)]
-pub enum MachineState {
+enum MachineState {
     BmcInit,
     MachineDown(MachineDownState),
-    Init(BmcInitializedState),
+    Init(InitState),
     DhcpComplete(DhcpCompleteState),
-    HardwareDiscoveryComplete(HardwareDiscoveryCompleteState),
     MachineUp(MachineUpState),
 }
 
@@ -113,8 +114,9 @@ impl MachineStateMachine {
                 // should strive to emulate real machinese in these cases: For instance, failing to
                 // get DHCP may mean we just boot to the host OS (ie. PXE boot failure), the correct
                 // state for which depends on whether we've installed forge-agent or not, etc.
-                self.logger
-                    .error(format!("Error running state machine, will retry: {e}"));
+                self.logger.error(format!(
+                    "Error running state machine in state {self}, will retry: {e}",
+                ));
                 let jitter_ms = rand::thread_rng().gen::<u64>() % 10_000;
                 Duration::from_millis(jitter_ms + 5_000)
             }
@@ -155,12 +157,13 @@ impl MachineStateMachine {
                 ));
 
                 let maybe_bmc_mock_handle = self.run_bmc_mock(dhcp_info.ip_address).await?;
-                Ok(NextState::Advance(MachineState::Init(
-                    BmcInitializedState {
+                Ok(NextState::Advance(MachineState::Init(InitState {
+                    bmc_state: BmcInitializedState {
                         _bmc_mock_handle: maybe_bmc_mock_handle,
                         bmc_dhcp_info: dhcp_info,
                     },
-                )))
+                    installed_os: OsImage::Host,
+                })))
             }
             MachineState::MachineDown(inner_state) => {
                 let reboot_delay_secs = match self.machine_info {
@@ -170,9 +173,7 @@ impl MachineStateMachine {
                 let elapsed = inner_state.since.elapsed();
                 let delay = Duration::from_secs(reboot_delay_secs);
                 if elapsed >= delay {
-                    Ok(NextState::Advance(MachineState::Init(
-                        inner_state.bmc_state.clone(),
-                    )))
+                    Ok(NextState::Advance(inner_state.power_on()))
                 } else {
                     Ok(NextState::SleepFor(delay - elapsed))
                 }
@@ -211,11 +212,9 @@ impl MachineStateMachine {
                     return Err(MachineStateError::DhcpError);
                 };
 
-                let next_state = MachineState::DhcpComplete(DhcpCompleteState {
-                    bmc_state: inner_state.clone(),
-                    machine_dhcp_info,
-                });
-                Ok(NextState::Advance(next_state))
+                Ok(NextState::Advance(
+                    inner_state.dhcp_complete(machine_dhcp_info),
+                ))
             }
             MachineState::DhcpComplete(inner_state) => {
                 let Some(machine_interface_id) = inner_state
@@ -233,153 +232,204 @@ impl MachineStateMachine {
                     MachineInfo::Dpu(_) => MachineArchitecture::Arm,
                     MachineInfo::Host(_) => MachineArchitecture::X86,
                 };
-                match send_pxe_boot_request(
+
+                let pxe_response = send_pxe_boot_request(
                     &self.app_context,
                     architecture,
                     machine_interface_id.clone(),
                     Some(inner_state.machine_dhcp_info.ip_address.to_string()),
                 )
-                .await
-                {
-                    PXEresponse::Exit => {
-                        let next_state = MachineState::MachineUp(MachineUpState {
-                            machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
-                            bmc_state: inner_state.bmc_state.clone(),
-                            machine_discovery_result: None,
-                        });
-                        return Ok(NextState::Advance(next_state));
-                    }
-                    PXEresponse::Error => {
-                        return Err(MachineStateError::PxeError);
-                    }
-                    PXEresponse::Efi => {
-                        // Continue to the next state
-                    }
-                }
-
-                let start = Instant::now();
-                let machine_discovery_result = api_client::discover_machine(
-                    &self.app_context,
-                    &self.config.template_dir,
-                    rpc_machine_type(&self.machine_info),
-                    MockDiscoveryData {
-                        machine_interface_id,
-                        network_interface_macs: self
-                            .machine_info
-                            .dhcp_mac_addresses()
-                            .iter()
-                            .map(MacAddress::to_string)
-                            .collect(),
-                        product_serial: self.machine_info.product_serial(),
-                        chassis_serial: self.machine_info.chassis_serial(),
-                        host_mac_address: self
-                            .machine_info
-                            .host_mac_address()
-                            .map(|m| m.to_string()),
-                    },
-                )
                 .await?;
 
-                self.logger.info(format!(
-                    "discover_machine took {}ms",
-                    start.elapsed().as_millis()
-                ));
-                let next_state =
-                    MachineState::HardwareDiscoveryComplete(HardwareDiscoveryCompleteState {
-                        machine_discovery_result,
-                        bmc_state: inner_state.bmc_state.clone(),
-                        machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
-                    });
-                Ok(NextState::Advance(next_state))
+                let booted_os = match pxe_response {
+                    PxeResponse::Exit => inner_state.installed_os,
+                    PxeResponse::Scout => OsImage::Scout,
+                    PxeResponse::DpuAgent => OsImage::DpuAgent,
+                };
+
+                Ok(NextState::Advance(inner_state.machine_up(booted_os)))
             }
-            MachineState::HardwareDiscoveryComplete(inner_state) => {
-                let machine_id = self.machine_id().ok_or(MissingMachineId)?;
-                let start = Instant::now();
-                api_client::update_bmc_metadata(
-                    &self.app_context,
-                    &self.config.template_dir,
-                    rpc_machine_type(&self.machine_info),
-                    machine_id.clone(),
-                    inner_state.bmc_state.bmc_dhcp_info.ip_address,
-                    self.machine_info.bmc_mac_address(),
-                )
+            MachineState::MachineUp(inner_state) => match inner_state.booted_os {
+                OsImage::DpuAgent => self.run_dpu_agent_iteration(inner_state).await,
+                OsImage::Scout => self.run_scout_iteration(inner_state).await,
+                OsImage::Host => {
+                    if matches!(self.machine_info, MachineInfo::Dpu(_)) {
+                        return Err(MachineStateError::WrongOsForMachine("DPU is trying to boot to empty Host OS. This should not happen (Carbide image should have been installed)".to_string()));
+                    }
+                    Ok(NextState::SleepFor(Duration::MAX))
+                }
+            },
+        }
+    }
+
+    /// Pretend we're the Dpu Agent image (carbide.efi), performing discovery and sending network health checks
+    async fn run_dpu_agent_iteration(
+        &self,
+        machine_up_state: &MachineUpState,
+    ) -> Result<NextState, MachineStateError> {
+        if matches!(self.machine_info, MachineInfo::Host(_)) {
+            return Err(MachineStateError::WrongOsForMachine(
+                "ERROR: Running DpuAgent OS on a host machine, this should not happen.".to_string(),
+            ));
+        }
+
+        // Run discovery once to get the machine ID
+        let Some(machine_discovery_result) = machine_up_state.machine_discovery_result.as_ref()
+        else {
+            // No machine_discovery_result means we just booted. Run discovery now.
+            let machine_discovery_result = self
+                .run_machine_discovery(&machine_up_state.machine_dhcp_info)
                 .await?;
+            // Put the DpuAgent image as the installed_os so that we can boot to it when PXE tells us to local.
+            return Ok(NextState::Advance(
+                machine_up_state
+                    .install_os_with_discovery_result(OsImage::DpuAgent, machine_discovery_result),
+            ));
+        };
 
-                self.logger.info(format!(
-                    "update_bmc_metadata took {}ms",
-                    start.elapsed().as_millis()
+        let machine_id = machine_discovery_result
+            .machine_id
+            .as_ref()
+            .ok_or(MissingMachineId)?;
+
+        // Ask the API server what to do next
+        let start = Instant::now();
+        let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
+        let action = get_fac_action(&control_response);
+        self.logger.info(format!(
+            "get action took {}ms; action={:?}",
+            start.elapsed().as_millis(),
+            action,
+        ));
+
+        match action {
+            Action::Discovery => self.send_discovery_complete(machine_id).await?,
+            Action::Noop => {}
+            _ => {
+                self.logger.warn(format!(
+                    "Dpu agent got unknown action from forge_agent_control: {:?}",
+                    action
                 ));
-
-                let control_response =
-                    forge_agent_control(&self.app_context, machine_id.clone()).await;
-                let action = get_fac_action(&control_response);
-                self.logger.info(format!(
-                    "get action took {}ms; action={:?} (ignored)",
-                    start.elapsed().as_millis(),
-                    action,
-                ));
-
-                let start = Instant::now();
-                api_client::discovery_complete(&self.app_context, machine_id.clone()).await?;
-                self.logger.info(format!(
-                    "discovery_complete took {}ms",
-                    start.elapsed().as_millis()
-                ));
-
-                // Hosts will send a validation report after sending discovery info
-                if let MachineInfo::Host(_) = self.machine_info {
-                    let machine_id = self.machine_id().ok_or(MissingMachineId)?;
-                    let start = Instant::now();
-                    let control_response =
-                        forge_agent_control(&self.app_context, machine_id.clone()).await;
-                    let action = get_fac_action(&control_response);
-                    self.logger.info(format!(
-                        "get action took {}ms; action={:?} (ignored)",
-                        start.elapsed().as_millis(),
-                        action,
-                    ));
-
-                    if let Some(validation_id) = get_validation_id(&control_response) {
-                        api_client::machine_validation_complete(
-                            &self.app_context,
-                            machine_id,
-                            validation_id,
-                        )
-                        .await?;
-                    }
-                }
-
-                api_client::reboot_completed(&self.app_context, machine_id).await?;
-
-                let next_state = MachineState::MachineUp(MachineUpState {
-                    machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
-                    bmc_state: inner_state.bmc_state.clone(),
-                    machine_discovery_result: Some(inner_state.machine_discovery_result.clone()),
-                });
-                Ok(NextState::Advance(next_state))
-            }
-            MachineState::MachineUp(_) => {
-                match self.machine_info {
-                    MachineInfo::Dpu(_) => match self.machine_id() {
-                        Some(machine_id) => {
-                            // DPUs send network status periodically
-                            self.send_network_status_observation(machine_id).await?;
-                            Ok(NextState::SleepFor(self.config.network_status_run_interval))
-                        }
-                        None => {
-                            // When a DPU first boots it doesn't have a machine-id allocated yet
-                            self.logger.info("Booted without machine-id (likely waiting for site-explorer), not sending network status. Will wait to be rebooted by API server".to_string());
-                            Ok(NextState::SleepFor(Duration::MAX))
-                        }
-                    },
-                    MachineInfo::Host(_) => {
-                        // Hosts don't run forge-agent, so don't send network status. We're now
-                        // booted up, so we don't need to run again until we get rebooted.
-                        Ok(NextState::SleepFor(Duration::MAX))
-                    }
-                }
             }
         }
+        // DPUs send network status periodically
+        self.send_network_status_observation(machine_id.to_owned())
+            .await?;
+        Ok(NextState::SleepFor(self.config.network_status_run_interval))
+    }
+
+    /// Pretend we're the Scout image (which hosts can PXE boot too but don't install), which performs discovery and periodically runs actions via ForgeAgentControl.
+    async fn run_scout_iteration(
+        &self,
+        machine_up_state: &MachineUpState,
+    ) -> Result<NextState, MachineStateError> {
+        if matches!(self.machine_info, MachineInfo::Dpu(_)) {
+            return Err(MachineStateError::WrongOsForMachine(
+                "ERROR: Running Scout OS on a DPU machine, this should not happen.".to_string(),
+            ));
+        }
+
+        let Some(machine_discovery_result) = machine_up_state.machine_discovery_result.as_ref()
+        else {
+            // No machine_discovery_result means scout has not yet run this boot. Run discovery now.
+            let machine_discovery_result = self
+                .run_machine_discovery(&machine_up_state.machine_dhcp_info)
+                .await?;
+            let machine_id = machine_discovery_result
+                .machine_id
+                .as_ref()
+                .ok_or(MissingMachineId)?;
+
+            // Inform the API that we have finished our reboot (ie. scout is now running)
+            api_client::reboot_completed(&self.app_context, machine_id.clone()).await?;
+
+            return Ok(NextState::Advance(
+                machine_up_state
+                    .install_os_with_discovery_result(OsImage::Host, machine_discovery_result),
+            ));
+        };
+
+        let machine_id = machine_discovery_result
+            .machine_id
+            .as_ref()
+            .ok_or(MissingMachineId)?;
+
+        // Ask the API server what to do next
+        let start = Instant::now();
+        let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
+        let action = get_fac_action(&control_response);
+        self.logger.info(format!(
+            "get action took {}ms; action={:?}",
+            start.elapsed().as_millis(),
+            action,
+        ));
+
+        match action {
+            Action::Discovery => self.send_discovery_complete(machine_id).await?,
+            Action::MachineValidation => {
+                if let Some(validation_id) = get_validation_id(&control_response) {
+                    api_client::machine_validation_complete(
+                        &self.app_context,
+                        machine_id,
+                        validation_id,
+                    )
+                    .await?;
+                }
+            }
+            Action::Reset => {
+                self.logger
+                    .info("Got Reset action in scout image, sending cleanup_complete".to_string());
+                api_client::cleanup_complete(&self.app_context, machine_id).await?;
+            }
+            Action::Noop => {}
+            _ => {
+                self.logger.warn(format!(
+                    "Scout image got unknown action from forge_agent_control: {:?}",
+                    action
+                ));
+            }
+        }
+
+        Ok(NextState::SleepFor(self.config.scout_run_interval))
+    }
+
+    async fn run_machine_discovery(
+        &self,
+        machine_dhcp_info: &DhcpResponseInfo,
+    ) -> Result<MachineDiscoveryResult, MachineStateError> {
+        let Some(machine_interface_id) =
+            machine_dhcp_info.interface_id.as_ref().map(|u| rpc::Uuid {
+                value: u.to_string(),
+            })
+        else {
+            return Err(MachineStateError::MissingInterfaceId);
+        };
+
+        let start = Instant::now();
+        let machine_discovery_result = api_client::discover_machine(
+            &self.app_context,
+            &self.config.template_dir,
+            rpc_machine_type(&self.machine_info),
+            MockDiscoveryData {
+                machine_interface_id,
+                network_interface_macs: self
+                    .machine_info
+                    .dhcp_mac_addresses()
+                    .iter()
+                    .map(MacAddress::to_string)
+                    .collect(),
+                product_serial: self.machine_info.product_serial(),
+                chassis_serial: self.machine_info.chassis_serial(),
+                host_mac_address: self.machine_info.host_mac_address().map(|m| m.to_string()),
+            },
+        )
+        .await?;
+
+        self.logger.info(format!(
+            "discover_machine took {}ms",
+            start.elapsed().as_millis()
+        ));
+        Ok(machine_discovery_result)
     }
 
     async fn send_network_status_observation(
@@ -436,38 +486,27 @@ impl MachineStateMachine {
     }
 
     pub fn power_down(&mut self) {
-        let bmc_state = match &self.state {
-            MachineState::BmcInit => return,
-            MachineState::MachineDown(s) => &s.bmc_state,
-            MachineState::Init(s) => s,
-            MachineState::DhcpComplete(s) => &s.bmc_state,
-            MachineState::HardwareDiscoveryComplete(s) => &s.bmc_state,
-            MachineState::MachineUp(s) => &s.bmc_state,
+        let Some(bmc_state) = self.bmc_state() else {
+            return;
         };
         self.state = MachineState::MachineDown(MachineDownState {
             since: Instant::now(),
             bmc_state: bmc_state.clone(),
+            installed_os: self.installed_os(),
         })
     }
 
-    pub fn machine_id(&self) -> Option<rpc::MachineId> {
+    pub fn machine_id(&self) -> Option<&rpc::MachineId> {
         match &self.state {
             MachineState::BmcInit => None,
-            MachineState::MachineDown(state) => state.bmc_state.bmc_dhcp_info.machine_id.as_ref(),
-            MachineState::Init(state) => state.bmc_dhcp_info.machine_id.as_ref(),
-            MachineState::DhcpComplete(state) => state.machine_dhcp_info.machine_id.as_ref(),
-            MachineState::HardwareDiscoveryComplete(state) => state
-                .machine_discovery_result
-                .machine_id
-                .as_ref()
-                .or(state.machine_dhcp_info.machine_id.as_ref()),
-            MachineState::MachineUp(state) => state
+            MachineState::MachineDown(_) => None,
+            MachineState::Init(_) => None,
+            MachineState::DhcpComplete(_) => None,
+            MachineState::MachineUp(s) => s
                 .machine_discovery_result
                 .as_ref()
-                .and_then(|r| r.machine_id.as_ref())
-                .or(state.machine_dhcp_info.machine_id.as_ref()),
+                .and_then(|m| m.machine_id.as_ref()),
         }
-        .cloned()
     }
 
     pub fn machine_ip(&self) -> Option<Ipv4Addr> {
@@ -476,21 +515,40 @@ impl MachineStateMachine {
             MachineState::MachineDown(_) => None,
             MachineState::Init(_) => None,
             MachineState::DhcpComplete(s) => Some(s.machine_dhcp_info.ip_address),
-            MachineState::HardwareDiscoveryComplete(s) => Some(s.machine_dhcp_info.ip_address),
             MachineState::MachineUp(s) => Some(s.machine_dhcp_info.ip_address),
         }
     }
 
     pub fn bmc_ip(&self) -> Option<Ipv4Addr> {
+        self.bmc_state().map(|b| b.bmc_dhcp_info.ip_address)
+    }
+
+    pub fn booted_os(&self) -> MaybeOsImage {
+        if let MachineState::MachineUp(machine_up_state) = &self.state {
+            MaybeOsImage(Some(machine_up_state.booted_os))
+        } else {
+            MaybeOsImage(None)
+        }
+    }
+
+    fn bmc_state(&self) -> Option<&BmcInitializedState> {
+        let bmc_state = match &self.state {
+            MachineState::BmcInit => return None,
+            MachineState::MachineDown(s) => &s.bmc_state,
+            MachineState::Init(s) => &s.bmc_state,
+            MachineState::DhcpComplete(s) => &s.bmc_state,
+            MachineState::MachineUp(s) => &s.bmc_state,
+        };
+        Some(bmc_state)
+    }
+
+    fn installed_os(&self) -> OsImage {
         match &self.state {
-            MachineState::BmcInit => None,
-            MachineState::MachineDown(s) => Some(s.bmc_state.bmc_dhcp_info.ip_address),
-            MachineState::Init(s) => Some(s.bmc_dhcp_info.ip_address),
-            MachineState::DhcpComplete(s) => Some(s.bmc_state.bmc_dhcp_info.ip_address),
-            MachineState::HardwareDiscoveryComplete(s) => {
-                Some(s.bmc_state.bmc_dhcp_info.ip_address)
-            }
-            MachineState::MachineUp(s) => Some(s.bmc_state.bmc_dhcp_info.ip_address),
+            MachineState::BmcInit => OsImage::Host,
+            MachineState::MachineDown(s) => s.installed_os,
+            MachineState::Init(s) => s.installed_os,
+            MachineState::DhcpComplete(s) => s.installed_os,
+            MachineState::MachineUp(s) => s.installed_os,
         }
     }
 
@@ -527,39 +585,102 @@ impl MachineStateMachine {
         };
         Ok(maybe_bmc_mock_handle)
     }
+
+    async fn send_discovery_complete(
+        &self,
+        machine_id: &rpc::MachineId,
+    ) -> Result<(), ClientApiError> {
+        let start = Instant::now();
+        api_client::discovery_complete(&self.app_context, machine_id.clone()).await?;
+        self.logger.info(format!(
+            "discovery_complete took {}ms",
+            start.elapsed().as_millis()
+        ));
+        Ok(())
+    }
 }
 
 // MARK: - Associated state definitions
 #[derive(Debug, Clone)]
-pub struct BmcInitializedState {
+struct BmcInitializedState {
     bmc_dhcp_info: DhcpResponseInfo,
     _bmc_mock_handle: Option<Arc<BmcMockHandle>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct MachineDownState {
+struct MachineDownState {
     since: Instant,
     bmc_state: BmcInitializedState,
+    installed_os: OsImage,
+}
+
+impl MachineDownState {
+    fn power_on(&self) -> MachineState {
+        MachineState::Init(InitState {
+            bmc_state: self.bmc_state.clone(),
+            installed_os: self.installed_os,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct DhcpCompleteState {
+struct InitState {
+    bmc_state: BmcInitializedState,
+    installed_os: OsImage,
+}
+
+impl InitState {
+    fn dhcp_complete(&self, machine_dhcp_info: DhcpResponseInfo) -> MachineState {
+        MachineState::DhcpComplete(DhcpCompleteState {
+            machine_dhcp_info,
+            bmc_state: self.bmc_state.clone(),
+            installed_os: self.installed_os,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DhcpCompleteState {
     machine_dhcp_info: DhcpResponseInfo,
     bmc_state: BmcInitializedState,
+    installed_os: OsImage,
+}
+
+impl DhcpCompleteState {
+    fn machine_up(&self, os: OsImage) -> MachineState {
+        MachineState::MachineUp(MachineUpState {
+            machine_dhcp_info: self.machine_dhcp_info.clone(),
+            bmc_state: self.bmc_state.clone(),
+            machine_discovery_result: None,
+            booted_os: os,
+            installed_os: self.installed_os,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct HardwareDiscoveryCompleteState {
-    machine_dhcp_info: DhcpResponseInfo,
-    bmc_state: BmcInitializedState,
-    machine_discovery_result: MachineDiscoveryResult,
-}
-
-#[derive(Debug, Clone)]
-pub struct MachineUpState {
+struct MachineUpState {
     machine_dhcp_info: DhcpResponseInfo,
     bmc_state: BmcInitializedState,
     machine_discovery_result: Option<MachineDiscoveryResult>,
+    booted_os: OsImage,
+    installed_os: OsImage,
+}
+
+impl MachineUpState {
+    fn install_os_with_discovery_result(
+        &self,
+        installed_os: OsImage,
+        machine_discovery_result: MachineDiscoveryResult,
+    ) -> MachineState {
+        MachineState::MachineUp(MachineUpState {
+            machine_dhcp_info: self.machine_dhcp_info.clone(),
+            bmc_state: self.bmc_state.clone(),
+            booted_os: self.booted_os,
+            installed_os,
+            machine_discovery_result: Some(machine_discovery_result),
+        })
+    }
 }
 
 impl Display for MachineState {
@@ -569,7 +690,6 @@ impl Display for MachineState {
             Self::MachineDown(_) => "MachineDown",
             Self::Init(_) => "Init",
             Self::DhcpComplete(_) => "DhcpComplete",
-            Self::HardwareDiscoveryComplete(_) => "HardwareDiscoveryComplete",
             Self::MachineUp(_) => "MachineUp",
         };
         write!(f, "{str_repr}")
@@ -579,6 +699,44 @@ impl Display for MachineState {
 impl Display for MachineStateMachine {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.state.fmt(f)
+    }
+}
+
+/// Represents the image that can be booted to via PXE or installed on-device
+#[derive(Debug, Clone, Copy)]
+pub enum OsImage {
+    /// This is the carbide.efi image and should only run on DPUs. It can be run via PXE or installed.
+    DpuAgent,
+    /// This is the scout image and can be run on hosts via PXE but should not be installed
+    Scout,
+    /// Default installed OS, will sleep forever when booted to.
+    Host,
+}
+
+impl Default for OsImage {
+    fn default() -> Self {
+        Self::Host
+    }
+}
+
+impl Display for OsImage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OsImage::DpuAgent => f.write_str("Dpu Agent"),
+            OsImage::Scout => f.write_str("Scout"),
+            OsImage::Host => f.write_str("Host OS"),
+        }
+    }
+}
+
+pub struct MaybeOsImage(Option<OsImage>);
+
+impl Display for MaybeOsImage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => f.write_str("<None>"),
+            Some(os_image) => write!(f, "{}", os_image),
+        }
     }
 }
 
@@ -602,10 +760,12 @@ pub enum MachineStateError {
     ClientApi(#[from] ClientApiError),
     #[error("Failed to get DHCP address")]
     DhcpError,
-    #[error("Failed to get PXE response")]
-    PxeError,
+    #[error("Failed to get PXE response: {0}")]
+    PxeError(#[from] PxeError),
     #[error("Failed to run BMC mock: {0}")]
     BmcMock(#[from] BmcMockError),
+    #[error("{0}")]
+    WrongOsForMachine(String),
 }
 
 #[derive(thiserror::Error, Debug)]

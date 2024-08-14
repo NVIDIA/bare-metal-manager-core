@@ -13,6 +13,7 @@
 use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, MachineATronConfig, MachineConfig};
 use bmc_mock::ListenerOrAddress;
+use futures::future::join_all;
 use grpcurl::grpcurl;
 use host::machine_validation_completed;
 use sqlx::{Postgres, Row};
@@ -25,7 +26,7 @@ use std::{
     path::{self, PathBuf},
     time::{self, Duration},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{oneshot, RwLock};
 use tokio::time::sleep;
 
 mod api_server;
@@ -141,7 +142,14 @@ async fn test_integration() -> eyre::Result<()> {
     let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
 
     // Create instance with phone_home enabled
-    let instance_id = instance::create(carbide_api_addr, &host_machine_id, &segment_id, true)?;
+    let instance_id = instance::create(
+        carbide_api_addr,
+        &host_machine_id,
+        &segment_id,
+        Some("test"),
+        true,
+        true,
+    )?;
     let metrics = metrics::wait_for_metric_line(
         carbide_metrics_addr,
         r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
@@ -157,7 +165,7 @@ async fn test_integration() -> eyre::Result<()> {
         "machine_reboot_attempts_in_booting_with_discovery_image",
     );
 
-    instance::release(carbide_api_addr, &host_machine_id, &instance_id)?;
+    instance::release(carbide_api_addr, &host_machine_id, &instance_id, true)?;
 
     let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
     metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
@@ -256,6 +264,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                 run_interval_idle: Duration::from_secs(1),
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
+                scout_run_interval: Duration::from_secs(1),
             },
         )]),
         carbide_api_url: Some(format!(
@@ -300,50 +309,91 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         utils::start_api_server(test_env.clone(), Some(bmc_mock_handle.address), true).await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
-    subnet::create(carbide_api_addr, &tenant1_vpc)?;
+    let segment_id = subnet::create(carbide_api_addr, &tenant1_vpc)?;
 
-    let mut mat_handle =
+    let (machine_actors, mat_handle) =
         machine_a_tron::run_local(mat_config, root_dir, bmc_address_registry.clone())
             .await
             .unwrap();
 
+    let (done_tx, done_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let all_result = join_all(machine_actors.iter().map(|machine_actor| {
+            let segment_id = segment_id.clone();
+            async move {
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                let machine_id = machine_actor
+                    .observed_machine_id()
+                    .await?
+                    .expect("Machine ID should be set if host is ready")
+                    .to_string();
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                let instance_id = instance::create(
+                    test_env.carbide_api_addr,
+                    &machine_id,
+                    &segment_id,
+                    None,
+                    false,
+                    false,
+                )?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Assigned/Ready")
+                    .await?;
+
+                let instance_json = instance::get_instance_json_by_machine_id(
+                    carbide_api_addr,
+                    machine_actor
+                        .observed_machine_id()
+                        .await?
+                        .expect("HostMachine should have a Machine ID once it's in ready state")
+                        .to_string()
+                        .as_str(),
+                )?;
+                let serde_json::Value::Object(interface) =
+                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
+                else {
+                    panic!("Allocated instance does not have interface configuration")
+                };
+
+                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
+                    panic!("Interface does not have addresses")
+                };
+                assert_eq!(addrs.len(), 1);
+
+                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
+                    panic!("Interface does not have gateways set")
+                };
+                assert_eq!(gateways.len(), 1);
+
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+                instance::release(test_env.carbide_api_addr, &machine_id, &instance_id, false)?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                Ok::<(), eyre::Report>(())
+            }
+        }))
+        .await;
+        _ = done_tx.send(all_result);
+    });
+
     let timeout = Duration::from_secs(20 * 60);
-    let machine_actors = tokio::select! {
+    let results = tokio::select! {
         _ = sleep(timeout) => {
             panic!("Timed out after {} seconds waiting for machines to achieve ready status", timeout.as_secs());
         }
-        msg = mat_handle.wait_until_ready() => msg,
-    }?;
+        all_result = done_rx => all_result.unwrap(),
+    };
 
-    assert_eq!(machine_actors.len(), host_count as usize);
-
-    // Ensure each instance has correctly configured network interfaces
-    for machine_actor in machine_actors {
-        let instance_json = instance::get_instance_json_by_machine_id(
-            carbide_api_addr,
-            machine_actor
-                .observed_machine_id()
-                .await?
-                .expect("HostMachine should have a Machine ID once it's in ready state")
-                .to_string()
-                .as_str(),
-        )?;
-        let serde_json::Value::Object(interface) =
-            &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
-        else {
-            panic!("Allocated instance does not have interface configuration")
-        };
-
-        let serde_json::Value::Array(addrs) = &interface["addresses"] else {
-            panic!("Interface does not have addresses")
-        };
-        assert_eq!(addrs.len(), 1);
-
-        let serde_json::Value::Array(gateways) = &interface["gateways"] else {
-            panic!("Interface does not have gateways set")
-        };
-        assert_eq!(gateways.len(), 1);
-    }
+    assert_eq!(results.len(), host_count as usize);
+    assert!(results.into_iter().all(|r| r.is_ok()));
 
     mat_handle.stop().await?;
     server_handle.stop().await?;

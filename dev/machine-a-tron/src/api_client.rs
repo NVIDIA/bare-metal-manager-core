@@ -1,6 +1,7 @@
 use crate::config::MachineATronContext;
 use base64::prelude::*;
 use mac_address::MacAddress;
+use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::PxeInstructions;
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
@@ -627,18 +628,53 @@ pub async fn delete_vpc(
 
 pub async fn machine_validation_complete(
     app_context: &MachineATronContext,
-    machine_id: rpc::MachineId,
+    machine_id: &rpc::MachineId,
     validation_id: rpc::common::Uuid,
 ) -> ClientApiResult<()> {
     with_forge_client(app_context, |mut client| async move {
         client
             .machine_validation_completed(tonic::Request::new(
                 rpc::forge::MachineValidationCompletedRequest {
-                    machine_id: Some(machine_id),
+                    machine_id: Some(machine_id.clone()),
                     machine_validation_error: None,
                     validation_id: Some(validation_id),
                 },
             ))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|_| ())
+}
+
+pub async fn cleanup_complete(
+    app_context: &MachineATronContext,
+    machine_id: &rpc::MachineId,
+) -> ClientApiResult<()> {
+    let cleanup_info = rpc::MachineCleanupInfo {
+        machine_id: Some(machine_id.to_string().into()),
+        nvme: Some(CleanupStepResult {
+            result: 0,
+            message: "".to_string(),
+        }),
+        ram: Some(CleanupStepResult {
+            result: 0,
+            message: "".to_string(),
+        }),
+        mem_overwrite: Some(CleanupStepResult {
+            result: 0,
+            message: "".to_string(),
+        }),
+        ib: Some(CleanupStepResult {
+            result: 0,
+            message: "".to_string(),
+        }),
+        result: 0,
+    };
+
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .cleanup_machine_completed(tonic::Request::new(cleanup_info))
             .await
             .map_err(ClientApiError::InvocationError)
     })

@@ -76,6 +76,7 @@ pub struct HostDetails {
     pub oob_ip: String,
     pub machine_ip: String,
     pub dpus: Vec<HostDetails>,
+    pub booted_os: String,
     pub logs: Vec<String>,
 }
 
@@ -103,6 +104,7 @@ impl HostDetails {
         ));
         result.push_str(&format!("Machine IP: {}\n", self.machine_ip));
         result.push_str(&format!("BMC IP: {}\n", self.oob_ip));
+        result.push_str(&format!("Booted OS: {}\n", self.booted_os));
         result.push_str(&format!("MAT State: {}\n", self.mat_state));
         result.push_str(&format!("API State: {}\n", self.api_state));
 
