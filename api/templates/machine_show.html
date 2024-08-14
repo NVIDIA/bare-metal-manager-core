@@ -18,9 +18,11 @@
 		<th>MAC Address</th>
 		<th>Sys Vendor</th>
 		<th>Product Serial</th>
-		{% if machines[0].is_host %}
-			<th>GPU #</th>
-			<th>IB IFs #</th>
+		{% if let Some(machine) = machines.first() %}
+			{% if machine.is_host %}
+				<th>GPU #</th>
+				<th>IB IFs #</th>
+			{% endif %}
 		{% endif %}
 	</tr>
 	</thead>
