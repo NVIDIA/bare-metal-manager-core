@@ -20,11 +20,11 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence};
 use tokio::sync::{mpsc, watch};
 use tokio::task;
 use tokio::time::{self, Duration, Instant};
-use tracing::error;
 
 use crate::hbn;
 use crate::instrumentation::MetricsState;
 
+// @TODO: this should be able to be configured
 const MAX_PINGS_PER_DPU: u32 = 5; // Number of pings for each DPU in each check cycle
 const DPU_LIST_FETCH_INTERVAL: u64 = 30 * 60; // Interval in seconds for fetching DPU list from API
 
@@ -71,7 +71,6 @@ impl DpuPingResult {
     }
 }
 
-// @TODO(Felicity): dynamically change pinger depending on configuration
 /// Network monitor struct handles network connectivity checks
 pub struct NetworkMonitor {
     machine_id: String,                 // DPU id
@@ -102,13 +101,16 @@ impl NetworkMonitor {
         let mut peer_dpus = Vec::new();
         let mut loopback_ip: Option<IpAddr> = None;
 
-        match find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
+        match self
+            .find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone())
+            .await
+        {
             Ok((dpu_info, new_peer_dpus)) => {
                 peer_dpus = new_peer_dpus;
                 loopback_ip = Some(dpu_info.ip);
             }
             Err(e) => {
-                tracing::error!("Network monitor failed to get dpu info list from API {}", e);
+                tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
             }
         }
 
@@ -119,16 +121,17 @@ impl NetworkMonitor {
         loop {
             tokio::select! {
                 _ = close_receiver.changed() => {
+                    tracing::info!("Network monitor stopped");
                     break;
                 }
                 _ = peer_dpus_fetch_interval.tick() => {
-                    match find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
+                    match self.find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
                         Ok((dpu_info, new_peer_dpus)) => {
                             peer_dpus = new_peer_dpus;
                             loopback_ip = Some(dpu_info.ip);
                         }
                         Err(e) => {
-                            tracing::error!("Failed to fetch list of peer DPUs: {}", e);
+                            tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
                             peer_dpus = Vec::new();
                             loopback_ip = None;
                         }
@@ -154,7 +157,7 @@ impl NetworkMonitor {
         if let (Some(ip), false) = (loopback_ip, peer_dpus.is_empty()) {
             let start_time = Instant::now();
             if let Err(e) = self.monitor_concurrent(peer_dpus, ip, false).await {
-                error!("Failed to run network check: {}", e);
+                tracing::error!("Failed to run network check: {}", e);
             }
             elapsed_time = start_time.elapsed();
         }
@@ -164,18 +167,16 @@ impl NetworkMonitor {
 
     /// Adjust loop period based on check duration, cap to next multiple of 30 seconds
     pub fn set_loop_interval(&self, elapsed_time: &Duration) -> Duration {
+        // @TODO: make interval configurable
         Duration::from_secs(max(((elapsed_time.as_secs() + 29) / 30) * 30, 30))
     }
 
     /// Handle one time network check request from commandline
     /// Fetches new list from
     pub async fn run_onetime(&mut self, forge_api: &str, client_config: ForgeClientConfig) {
-        let (loopback_ip, peer_dpus) = match find_peer_dpu_machines(
-            &self.machine_id,
-            forge_api,
-            client_config.clone(),
-        )
-        .await
+        let (loopback_ip, peer_dpus) = match self
+            .find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone())
+            .await
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
             Err(e) => {
@@ -187,7 +188,7 @@ impl NetworkMonitor {
         match self.monitor_concurrent(&peer_dpus, loopback_ip, true).await {
             Ok(Some(results)) => self.format_results(&results, loopback_ip.to_string()),
             Ok(None) => tracing::info!("No results found"),
-            Err(e) => error!("Failed to run network check: {}", e),
+            Err(e) => tracing::error!("Failed to run network check: {}", e),
         }
     }
 
@@ -199,7 +200,7 @@ impl NetworkMonitor {
         loopback_ip: IpAddr,
         enable_record_result: bool,
     ) -> Result<Option<Vec<DpuPingResult>>, eyre::Report> {
-        let concurrent_limit = 100;
+        let concurrent_limit = 20; // Important for not overwhelming hbn container exec
 
         let (tx, mut rx) = mpsc::channel(100);
 
@@ -218,6 +219,7 @@ impl NetworkMonitor {
             .for_each_concurrent(concurrent_limit, |peer_dpu| {
                 let metrics = self.metrics.clone();
                 let machine_id = self.machine_id.clone();
+                let peer_dpu_id = peer_dpu.id.clone();
                 let tx_clone = tx.clone();
                 async move {
                     match self.pinger.ping_dpu(peer_dpu.clone(), loopback_ip).await {
@@ -234,17 +236,17 @@ impl NetworkMonitor {
                             }
 
                             if enable_record_result {
-                                // @TODO(Felicity): instead of logging, consider export as error label in metrics
                                 if let Err(e) = tx_clone.send(ping_result).await {
-                                    error!(
+                                    tracing::error!(
                                         "Failed to record result for dpu {}: {}",
-                                        peer_dpu.id, e
+                                        peer_dpu.id,
+                                        e
                                     );
                                 }
                             }
                         }
-                        Err(e) => {
-                            error!("Failed to ping dpu {}: {}", peer_dpu.id, e);
+                        Err((error_type, _report)) => {
+                            self.record_error_metrics(error_type, Some(peer_dpu_id.clone()));
                         }
                     }
                 }
@@ -294,7 +296,61 @@ impl NetworkMonitor {
 
         match serde_json::to_string_pretty(&final_result) {
             Ok(json) => println!("{}", json),
-            Err(e) => error!("Failed to serialize results to JSON: {}", e),
+            Err(e) => tracing::error!("Failed to serialize results to JSON: {}", e),
+        }
+    }
+
+    /// Finds peer DPUs
+    pub async fn find_peer_dpu_machines(
+        &self,
+        dpu_machine_id: &str,
+        forge_api: &str,
+        client_config: ForgeClientConfig,
+    ) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
+        // Get list of DPU information from API
+        let dpu_info_list = fetch_dpu_info_list(forge_api, client_config)
+            .await
+            .map_err(|e| {
+                self.record_error_metrics(NetworkMonitorError::ApiRpcCallError, None);
+                e
+            })?;
+
+        // Get this DPU loopback IP
+        let dpu_info: DpuInfo = dpu_info_list
+            .dpu_list
+            .iter()
+            .find(|dpu_info| dpu_info.id == dpu_machine_id)
+            .ok_or_else(|| eyre::eyre!("DPU with id {} not found", dpu_machine_id))?
+            .clone()
+            .try_into()
+            .map_err(|error| {
+                self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
+                error
+            })?;
+
+        // Remove this DPU from the list
+        let peer_dpus: Vec<DpuInfo> = dpu_info_list
+            .dpu_list
+            .into_iter()
+            .filter(|dpu_info| dpu_info.id != dpu_machine_id)
+            .filter_map(|dpu_info| dpu_info.try_into().ok())
+            .collect();
+
+        Ok((dpu_info, peer_dpus))
+    }
+
+    fn record_error_metrics(&self, error_type: NetworkMonitorError, dest_dpu_id: Option<String>) {
+        if let Some(metrics) = &self.metrics.clone() {
+            match dest_dpu_id {
+                Some(dest_dpu_id) => metrics.record_communication_error(
+                    self.machine_id.clone(),
+                    dest_dpu_id,
+                    error_type.to_string(),
+                ),
+                None => {
+                    metrics.record_monitor_error(self.machine_id.clone(), error_type.to_string())
+                }
+            };
         }
     }
 }
@@ -324,35 +380,6 @@ pub(crate) async fn fetch_dpu_info_list(
     Ok(response.into_inner())
 }
 
-/// Finds peer DPUs
-pub async fn find_peer_dpu_machines(
-    dpu_machine_id: &str,
-    forge_api: &str,
-    client_config: ForgeClientConfig,
-) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
-    // Get list of DPU information from API
-    let dpu_info_list = fetch_dpu_info_list(forge_api, client_config).await?;
-
-    // Get this DPU loopback IP
-    let dpu_info: DpuInfo = dpu_info_list
-        .dpu_list
-        .iter()
-        .find(|dpu_info| dpu_info.id == dpu_machine_id)
-        .ok_or_else(|| eyre::eyre!("DPU with id {} not found", dpu_machine_id))?
-        .clone()
-        .try_into()?;
-
-    // Remove this DPU from the list
-    let peer_dpus: Vec<DpuInfo> = dpu_info_list
-        .dpu_list
-        .into_iter()
-        .filter(|dpu_info| dpu_info.id != dpu_machine_id)
-        .filter_map(|dpu_info| dpu_info.try_into().ok())
-        .collect();
-
-    Ok((dpu_info, peer_dpus))
-}
-
 #[async_trait]
 pub trait Ping: Send + Sync {
     /// Ping a DPU and return the ping result
@@ -360,7 +387,7 @@ pub trait Ping: Send + Sync {
         &self,
         dpu_info: DpuInfo,
         loopback_ip: IpAddr,
-    ) -> Result<DpuPingResult, eyre::Report>;
+    ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)>;
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
@@ -371,7 +398,6 @@ pub enum NetworkPingerType {
 
 impl fmt::Display for NetworkPingerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // enums are a special case where their debug impl is their name
         fmt::Debug::fmt(self, f)
     }
 }
@@ -430,10 +456,16 @@ impl Ping for OobNetBindPinger {
         &self,
         dpu_info: DpuInfo,
         _loopback_ip: IpAddr,
-    ) -> Result<DpuPingResult, eyre::Report> {
+    ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)> {
         let interface = "oob_net0";
         let config = Config::builder().interface(interface).build();
-        let client = Client::new(&config)?;
+        let client = Client::new(&config).map_err(|e| {
+            let error_message = format!("Unable to build pinger with interface {interface}: {}", e);
+            (
+                NetworkMonitorError::PingInterfaceError,
+                eyre::eyre!(error_message),
+            )
+        })?;
 
         // For each IP, ping MAX_PINGS_PER_DPU times
         let ping_futures = (0..MAX_PINGS_PER_DPU)
@@ -492,10 +524,11 @@ impl Ping for HbnExecPinger {
         &self,
         dpu_info: DpuInfo,
         loopback_ip: IpAddr,
-    ) -> Result<DpuPingResult, eyre::Report> {
+    ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)> {
         let container_id: String = hbn::get_hbn_container_id()
             .await
-            .wrap_err("Failed to get hbn container id")?;
+            .wrap_err("Failed to get hbn container id")
+            .map_err(|e| (NetworkMonitorError::HbnContainerIdNotFound, e))?;
 
         match hbn::run_in_container(
             &container_id,
@@ -513,25 +546,36 @@ impl Ping for HbnExecPinger {
         )
         .await
         {
-            Ok(stdout) => parse_ping_stdout(dpu_info, &stdout),
+            Ok(stdout) => parse_ping_stdout(dpu_info, &stdout)
+                .map_err(|e| (NetworkMonitorError::PingOutputParseError, e)),
             Err(err) => {
+                // Ping fail could be 100% loss or error, 100% loss is treated as unreachable but not error
                 let err_string = format!("{err}");
                 let err_re = Regex::new(
                     r"(?s)cmd \'(.+)\' failed with status: (.+), stderr: (.+), stdout: (.+)",
                 )
                 .map_err(|regex_err| {
-                    eyre::eyre!(
-                        "Unexpected parse error for container ping result: {}",
-                        regex_err.to_string()
+                    (
+                        NetworkMonitorError::PingOutputParseError,
+                        eyre::eyre!(
+                            "Unexpected parse error for container ping result: {}",
+                            regex_err.to_string()
+                        ),
                     )
                 })?;
 
                 let stdout = err_re
                     .captures(&err_string)
                     .and_then(|caps| caps.get(4).map(|m| m.as_str()))
-                    .ok_or_else(|| eyre::eyre!("Error running ping in container: {}", err))?;
+                    .ok_or_else(|| {
+                        (
+                            NetworkMonitorError::HbnContainerCommandExecError,
+                            eyre::eyre!("Error running ping in container: {}", err),
+                        )
+                    })?;
 
                 parse_ping_stdout(dpu_info, stdout)
+                    .map_err(|e| (NetworkMonitorError::PingOutputParseError, e))
             }
         }
     }
@@ -574,4 +618,22 @@ pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResul
         success_count,
         average_latency: Some(Duration::from_secs_f64(latency / 1000.0)),
     })
+}
+
+#[derive(Debug)]
+pub enum NetworkMonitorError {
+    ApiRpcCallError,
+    DpuNotFound,
+    HbnContainerIdNotFound,
+    HbnContainerCommandExecError,
+    PingError,
+    PingInterfaceError,
+    PingOutputParseError,
+    UnknownError,
+}
+
+impl fmt::Display for NetworkMonitorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
 }
