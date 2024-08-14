@@ -1164,3 +1164,74 @@ scheduled-test:machine-lifecycle-test:
   script:
     - source /tests/venv/bin/activate
     - python3 $CI_PROJECT_DIR/tests/machine-lifecycle/machine_lifecycle_test.py
+
+#
+# Pre-merge test to spin up a single-node Forge control plane directly on the GitLab runner and check the health status
+# of all kubernetes resources.
+# Guide here: https://gitlab-master.nvidia.com/nvmetal/ci-tools/internal-services-images/-/blob/main/README.md
+#
+# TODO: Expand test to cover connecting to an Acorn managed-host
+#
+pre-merge-test:
+  stage: test
+  tags:
+    - dev-env-carbide
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - '.skaffold/**/*'
+        - 'api/**/*'
+        - 'bluefield/**/*'
+        - 'common/**/*'
+        - 'dev/**/*'
+        - 'dhcp/**/*'
+        - 'dhcp-server/**/*'
+        - 'dns/**/*'
+        - 'health/**/*'
+        - 'include/**/*'
+        - 'pxe/**/*'
+        - 'rpc/**/*'
+        - 'scout/**/*'
+        - '.envrc'
+        - 'Cargo.lock'
+        - 'Cargo.toml'
+        - 'justfile'
+        - 'Makefile.toml'
+        - 'rust-toolchain.toml'
+        - 'skaffold.yml'
+      when: manual
+  allow_failure: false
+  needs:
+    - job: export-docker-json-config
+  variables:
+    VAULT_NAMESPACE: ngc-forge
+    DEBUG_JUST: true
+    LOG_ARGO: true
+    DPU_NAME: no-dpu  # TODO: Set value when we get an Acorn managed-host to include in test
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: $VAULT_ADDR
+  before_script:
+    - set -euo pipefail
+    - mkdir -p ~/.docker
+    - cp .docker/config.json ~/.docker/config.json
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
+  script:
+    - .gitlab/pre-merge-test.sh
+  after_script:
+    - set -euo pipefail
+    - cp /tmp/argo_watch.log .
+    - cp /tmp/argo_logs.log .
+    - cd ../forged
+    - source /root/.bashrc
+    - eval "$(direnv export bash)"
+    - just clean
+  artifacts:
+    when: always
+    paths:
+      - argo_logs.log
+      - argo_watch.log
