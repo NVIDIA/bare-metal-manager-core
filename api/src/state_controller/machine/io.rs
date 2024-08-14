@@ -13,7 +13,6 @@
 //! State Controller IO implementation for Machines
 
 use config_version::{ConfigVersion, Versioned};
-use itertools::Itertools;
 
 use crate::{
     cfg::HardwareHealthReportsConfig,
@@ -187,15 +186,19 @@ impl StateControllerIO for MachineStateControllerIO {
 
         match state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
-                let dpu_state = dpu_states.states.values().collect_vec();
-                let Some(dpu_state) = dpu_state.first() else {
+                // Min state indicates the least processed DPU. The state machine is blocked
+                // becasue of this.
+                let dpu_state = dpu_states.states.values().min();
+                let Some(dpu_state) = dpu_state else {
                     return ("unknown", "dpu");
                 };
                 ("dpudiscovering", discovering_state_name(dpu_state))
             }
             ManagedHostState::DPUInit { dpu_states } => {
-                let dpu_state = dpu_states.states.values().collect_vec();
-                let Some(dpu_state) = dpu_state.first() else {
+                // Min state indicates the least processed DPU. The state machine is blocked
+                // becasue of this.
+                let dpu_state = dpu_states.states.values().min();
+                let Some(dpu_state) = dpu_state else {
                     return ("unknown", "dpu");
                 };
                 ("dpunotready", dpuinit_state_name(dpu_state))
@@ -229,9 +232,10 @@ impl StateControllerIO for MachineStateControllerIO {
 
         match &state.value {
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
-                // TODO: multidpu: handle it for all DPUs.
-                let dpu_state = dpu_states.states.values().collect_vec();
-                let Some(dpu_state) = dpu_state.first() else {
+                // Min state indicates the least processed DPU. The state machine is blocked
+                // becasue of this.
+                let dpu_state = dpu_states.states.values().min();
+                let Some(dpu_state) = dpu_state else {
                     return false;
                 };
 
@@ -249,9 +253,10 @@ impl StateControllerIO for MachineStateControllerIO {
                 }
             }
             ManagedHostState::DPUInit { dpu_states } => {
-                // TODO: multidpu: handle it for all DPUs.
-                let dpu_state = dpu_states.states.values().collect_vec();
-                let Some(dpu_state) = dpu_state.first() else {
+                // Min state indicates the least processed DPU. The state machine is blocked
+                // becasue of this.
+                let dpu_state = dpu_states.states.values().min();
+                let Some(dpu_state) = dpu_state else {
                     return false;
                 };
 

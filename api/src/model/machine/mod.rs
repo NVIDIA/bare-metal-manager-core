@@ -556,7 +556,8 @@ impl ManagedHostState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+// Since order is derived, Enum members must be in initial to last state sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
     FirmwareUpgrade,
@@ -797,7 +798,8 @@ pub struct FailureDetails {
     pub source: FailureSource,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+// Since order is derived, Enum members must be in initial to last state sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "bmcfirmwareupdatesubstate", rename_all = "lowercase")]
 pub enum BmcFirmwareUpdateSubstate {
     WaitForUpdateCompletion {
@@ -813,7 +815,7 @@ pub enum BmcFirmwareUpdateSubstate {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpudiscoverystate", rename_all = "lowercase")]
 pub enum DpuDiscoveringState {
     /// Dpu discovery via redfish states
@@ -874,7 +876,8 @@ impl DpuDiscoveringState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+// Since order is derived, Enum members must be in initial to last state sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
     Init,
@@ -884,7 +887,7 @@ pub enum DpuInitState {
     WaitingForPlatformConfiguration,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum PerformPowerOperation {
     Off,
@@ -1173,17 +1176,40 @@ impl Display for MeasuringState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedHostState::DpuDiscoveringState { .. } => {
-                write!(f, "DPUDiscovering")
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                // Min state indicates the least processed DPU. The state machine is blocked
+                // becasue of this.
+                let dpu_lowest_state = dpu_states
+                    .states
+                    .values()
+                    .min()
+                    .map(|x| x.to_string())
+                    .unwrap_or("Unknown".to_string());
+
+                write!(f, "DPUDiscovering/{dpu_lowest_state}")
             }
-            ManagedHostState::DPUInit { .. } => write!(f, "DPUInitializing"),
+            ManagedHostState::DPUInit { dpu_states } => {
+                let dpu_lowest_state = dpu_states
+                    .states
+                    .values()
+                    .min()
+                    .map(|x| x.to_string())
+                    .unwrap_or("Unknown".to_string());
+                write!(f, "DPUInitializing/{dpu_lowest_state}")
+            }
             ManagedHostState::HostInit { machine_state } => {
                 write!(f, "HostInitializing/{}", machine_state)
             }
             ManagedHostState::Ready => write!(f, "Ready"),
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
-                InstanceState::DPUReprovision { .. } => {
-                    write!(f, "Assigned/Reprovision")
+                InstanceState::DPUReprovision { dpu_states } => {
+                    let dpu_lowest_state = dpu_states
+                        .states
+                        .values()
+                        .min()
+                        .map(|x| x.to_string())
+                        .unwrap_or("Unknown".to_string());
+                    write!(f, "Assigned/Reprovision/{dpu_lowest_state}")
                 }
                 _ => {
                     write!(f, "Assigned/{}", instance_state)
@@ -1196,8 +1222,14 @@ impl Display for ManagedHostState {
             ManagedHostState::Failed { details, .. } => {
                 write!(f, "Failed/{}", details.cause)
             }
-            ManagedHostState::DPUReprovision { .. } => {
-                write!(f, "Reprovisioning")
+            ManagedHostState::DPUReprovision { dpu_states } => {
+                let dpu_lowest_state = dpu_states
+                    .states
+                    .values()
+                    .min()
+                    .map(|x| x.to_string())
+                    .unwrap_or("Unknown".to_string());
+                write!(f, "Reprovisioning/{dpu_lowest_state}")
             }
             ManagedHostState::HostReprovision { reprovision_state } => {
                 write!(f, "HostReprovisioning/{}", reprovision_state)
@@ -1617,6 +1649,8 @@ mod tests {
                 }
             }
         );
+
+        assert_eq!(deserialized.to_string(), "Reprovisioning/FirmwareUpgrade");
     }
 
     #[test]
@@ -1640,6 +1674,11 @@ mod tests {
                     }
                 },
             }
+        );
+
+        assert_eq!(
+            deserialized.to_string(),
+            "Assigned/Reprovision/FirmwareUpgrade"
         );
     }
 
