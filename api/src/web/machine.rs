@@ -428,7 +428,7 @@ pub async fn detail(
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-fn get_machine_type(machine_id: &str) -> String {
+pub fn get_machine_type(machine_id: &str) -> String {
     if machine_id.starts_with("fm100p") {
         "Host (Predicted)"
     } else if machine_id.starts_with("fm100h") {
