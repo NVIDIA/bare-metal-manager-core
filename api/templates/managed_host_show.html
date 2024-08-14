@@ -3,22 +3,36 @@
 {% block title %}Managed Hosts{% endblock %}
 
 {% block content %}
-{% if active_category_filter == "all" && active_vendor_filter == "all" && active_state_filter == "all" %}
 <div id="json"><a href="/admin/managed-host.json">JSON</a></div>
+{% if is_filtered && grouped_hosts.is_some() %}
+	<h1>Grouped and Filtered Managed Hosts</h1>
+{% else if grouped_hosts.is_some() %}
+	<h1>Grouped Managed Hosts</h1>
+{% else if is_filtered %}
+	<h1>Filtered Managed Hosts</h1>
+{% else %}
+	<h1>All Managed Hosts</h1>
 {% endif %}
-<h1>Managed Hosts</h1>
 
 <form id="filter-container" action="" method="get">
 	<div>
-		<select id="category-filter" name="category-filter">
+		<label for="health-filter">DPU health</label>
+		<select id="health-filter" name="health-filter">
 			<option value="all">All</option>
-			{% for c in categories %}
-			<option value="{{ c|lower }}" {% if active_category_filter == c.to_lowercase() %}selected{% endif %}>{{ c|capitalize }}</option>
-			{% endfor %}
+			<option value="healthy" {% if active_health_filter == "healthy" %}selected{% endif %}>Healthy</option>
+			<option value="unhealthy" {% if active_health_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
 		</select>
 	</div>
 	<div>
-		<label for="vendor-filter">Vendor:</label>
+		<label for="maintenance-filter">Maint.</label>
+		<select id="maintenance-filter" name="maintenance-filter">
+			<option value="all">All</option>
+			<option value="active" {% if active_maintenance_filter == "active" %}selected{% endif %}>Active</option>
+			<option value="maintenance" {% if active_maintenance_filter == "maintenance" %}selected{% endif %}>Maintenance</option>
+		</select>
+	</div>
+	<div>
+		<label for="vendor-filter">Vendor</label>
 		<select id="vendor-filter" name="vendor-filter">
 			<option value="all">All</option>
 			{% for v in vendors %}
@@ -28,7 +42,7 @@
 		</select>
 	</div>
 	<div>
-		<label for="state-filter">State:</label>
+		<label for="state-filter">State</label>
 		<select id="state-filter" name="state-filter">
 			<option value="all">All</option>
 			{% for s in states %}
@@ -36,79 +50,55 @@
 			{% endfor %}
 		</select>
 	</div>
+	<div>
+		<label for="gpu-filter"># GPUs</label>
+		<select id="gpu-filter" name="gpu-filter">
+			<option value="all">All</option>
+			{% for x in gpus %}
+			<option value="{{ x }}" {% if active_gpu_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
+			{% endfor %}
+		</select>
+	</div>
+	<div>
+		<label for="ib-filter"># IB IFs</label>
+		<select id="ib-filter" name="ib-filter">
+			<option value="all">All</option>
+			{% for x in ibs %}
+			<option value="{{ x }}" {% if active_ib_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
+			{% endfor %}
+		</select>
+	</div>
+	<div>
+		<label for="mem-filter">Mem</label>
+		<select id="mem-filter" name="mem-filter">
+			<option value="-1">All</option>
+			{% for (val, display) in mems %}
+			<option value="{{ val }}" {% if active_mem_filter|as_ref == val %}selected{% endif %}>{{ display }}</option>
+			{% endfor %}
+		</select>
+	</div>
   <div>
-      <input type="submit" value="Update">
+      <input type="submit" value="Filter">
   </div>
+
+  <div style="margin-left: auto">
+	  <label for="group-by">Group by</label>
+	  <select id="group-by" name="group-by">
+		  <option value="none">None</option>
+		  <option value="state" {% if active_group_by == "state" %}selected{% endif %}>State</option>
+		  <option value="health,state" {% if active_group_by == "health,state" %}selected{% endif %}>Health, state</option>
+		  <option value="host_memory,num_gpus,num_ib_ifs"{% if active_group_by == "host_memory,num_gpus,num_ib_ifs" %}selected{% endif %}>Host type</option>
+		  <option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
+	  </select>
+  </div>
+  <div>
+      <input type="submit" value="Group">
+  </div>
+
 </form>
-<table class="sortable">
-	<thead>
-		<tr>
-			<th>Host ID</th>
-			<th>DPU ID</th>
-			{% if active_category_filter == "maintenance" %}
-				<th>Maintenance Ref</th>
-				<th>Maintenance Start</th>
-			{% endif %}
-			<th>State</th>
-			<th>DPU Health</th>
-			<th>IPs</th>
-			<th>MACs</th>
-			{% if active_category_filter != "maintenance" %}
-				<th>GPU #</th>
-				<th>IB IFs #</th>
-				<th>Host Memory</th>
-			{% endif %}
-		<tr/>
-	</thead>
-	<tbody>
-	{% for host in hosts %}
-		<tr>
-			<td>{{ host.machine_id|managed_host_id_link|safe }}</td>
-			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe }}</td>
-			{% if active_category_filter == "maintenance" %}
-				<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
-				<td>{{ host.maintenance_start_time }}</td>
-			{% endif %}
-			<td title="{{ host.state_reason }}">{{ host.state }}</td>
-			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
-			<td style="padding: 0;">
-				<table style="width: 100%;">
-					<tr><th>Host BMC</th><td><a href="/admin/explored-endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
-					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcIp)|safe }}</td></tr>
-					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobIp)|safe }}</td></tr>
-				</table>
-			</td>
-			<td style="padding: 0;">
-				<table style="width: 100%;">
-					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
-					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcMac)|safe  }}</td></tr>
-					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobMac)|safe  }}</td></tr>
-				</table>
-			</td>
-			{% if active_category_filter != "maintenance" %}
-				<td>{{ host.num_gpus }}</td>
-				<td>{{ host.num_ib_ifs }}</td>
-				<td>{{ host.host_memory }}</td>
-			{% endif %}
-		</tr>
-	{% endfor %}
-		<tfoot>
-			<tr>
-				<th>{{ hosts.len() }} item{% if hosts.len() != 1 %}s{% endif %}</th>
-				<th></th>
-				<th></th>
-				<th></th>
-				<th></th>
-				<th></th>
-				<th></th>
-				<th></th>
-				{% if active_category_filter != "maintenance" %}
-				<th></th>
-				{% endif %}
-			</tr>
-		</tfoot>
-	</tbody>
-</table>
+{% if grouped_hosts.is_none() %}
+	{% include "managed_host_individual_table.html" %}
+{% else %}
+	{% include "managed_host_grouped_table.html" %}
+{% endif %}
 {% endblock %}
