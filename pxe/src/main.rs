@@ -11,6 +11,7 @@
  */
 use std::{env, fmt::Debug, fmt::Display};
 
+use crate::metrics::RequestMetrics;
 use ::rpc::forge;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use clap::Parser;
@@ -26,12 +27,12 @@ use rocket::{
     Request,
 };
 use rocket_dyn_templates::Template;
-use rocket_prometheus::PrometheusMetrics;
 use rpc::forge::CloudInitInstructionsRequest;
 use serde::Serialize;
 
 mod logging;
 mod machine_architecture;
+mod metrics;
 mod routes;
 
 #[derive(Debug)]
@@ -270,10 +271,7 @@ async fn main() -> Result<(), rocket::Error> {
         }
     }
 
-    // overwrite the default namespace
-    env::set_var("ROCKET_PROMETHEUS_NAMESPACE", "carbide_pxe");
-    let prometheus =
-        PrometheusMetrics::new().with_request_filter(|request| request.uri().path() != "/metrics");
+    let metrics = RequestMetrics::new();
 
     println!("Start carbide-pxe version {}", forge_version::version!());
     rocket::build()
@@ -282,8 +280,8 @@ async fn main() -> Result<(), rocket::Error> {
         .mount("/api/v0/tls", routes::tls::routes())
         .mount("/public", FileServer::from(opts.static_dir))
         .attach(logging::RequestLogger)
-        .attach(prometheus.clone())
-        .mount("/metrics", prometheus)
+        .attach(metrics.clone())
+        .mount("/metrics", metrics)
         .attach(Template::fairing())
         .attach(AdHoc::try_on_ignite(
             "Carbide API Config",
