@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::measurement;
 use carbide::model::machine::machine_id::MachineId;
+use utils::has_duplicates;
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -272,7 +273,7 @@ pub enum ExpectedMachineAction {
     #[clap(about = "Delete expected machine")]
     Delete(ExpectedMachineQuery),
     #[clap(about = "Update expected machine")]
-    Update(ExpectedMachine),
+    Update(UpdateExpectedMachine),
     /// Replace all entries in the expected machines table with the entries from an inputted json file.
     ///
     /// Example json file:
@@ -313,6 +314,76 @@ pub struct ExpectedMachine {
         help = "Chassis serial number of the expected machine"
     )]
     pub chassis_serial_number: String,
+    #[clap(
+        short = 'd',
+        long = "fallback-dpu-serial-number",
+        value_name = "DPU_SERIAL_NUMBER",
+        help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
+        action = clap::ArgAction::Append
+    )]
+    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+}
+
+impl ExpectedMachine {
+    pub fn has_duplicate_dpu_serials(&self) -> bool {
+        match self.fallback_dpu_serial_numbers.clone() {
+            Some(fallback_dpu_serial_numbers) => has_duplicates(fallback_dpu_serial_numbers),
+            None => false,
+        }
+    }
+}
+#[derive(Parser, Debug, Serialize, Deserialize)]
+pub struct UpdateExpectedMachine {
+    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
+    pub bmc_mac_address: String,
+    #[clap(
+        short = 'u',
+        long,
+        requires("bmc_password"),
+        help = "BMC username of the expected machine"
+    )]
+    pub bmc_username: Option<String>,
+    #[clap(
+        short = 'p',
+        long,
+        requires("bmc_username"),
+        help = "BMC password of the expected machine"
+    )]
+    pub bmc_password: Option<String>,
+    #[clap(
+        short = 's',
+        long,
+        help = "Chassis serial number of the expected machine"
+    )]
+    pub chassis_serial_number: Option<String>,
+    #[clap(
+        short = 'd',
+        long = "fallback-dpu-serial-number",
+        value_name = "DPU_SERIAL_NUMBER",
+        group="dpu_serial",
+        help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
+        action = clap::ArgAction::Append
+    )]
+    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+}
+
+impl UpdateExpectedMachine {
+    pub fn validate(&self) -> Result<(), String> {
+        // TODO: It is possible to do these checks by clap itself, via arg groups
+        if self.bmc_username.is_none()
+            && self.bmc_password.is_none()
+            && self.chassis_serial_number.is_none()
+            && self.fallback_dpu_serial_numbers.is_none()
+        {
+            return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
+        }
+        if let Some(dpu_serials) = self.fallback_dpu_serial_numbers.clone() {
+            if has_duplicates(&dpu_serials) {
+                return Err("Duplicate dpu serial numbers found".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Parser, Debug)]

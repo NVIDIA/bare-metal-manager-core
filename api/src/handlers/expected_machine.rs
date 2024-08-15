@@ -57,6 +57,7 @@ pub(crate) async fn get(
                 bmc_username: expected_machine.bmc_username,
                 bmc_password: expected_machine.bmc_password,
                 chassis_serial_number: expected_machine.serial_number,
+                fallback_dpu_serial_numbers: expected_machine.fallback_dpu_serial_numbers,
             };
 
             Ok(tonic::Response::new(rpc_expected_machine))
@@ -76,7 +77,11 @@ pub(crate) async fn add(
     log_request_data(&request);
 
     let request = request.into_inner();
-
+    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+        return Err(
+            CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
+        );
+    }
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
@@ -97,6 +102,7 @@ pub(crate) async fn add(
         request.bmc_username,
         request.bmc_password,
         request.chassis_serial_number,
+        request.fallback_dpu_serial_numbers,
     )
     .await?;
 
@@ -130,6 +136,7 @@ pub(crate) async fn delete(
         bmc_username: rpc_expected_machine.bmc_username,
         serial_number: rpc_expected_machine.chassis_serial_number,
         bmc_password: rpc_expected_machine.bmc_password,
+        fallback_dpu_serial_numbers: rpc_expected_machine.fallback_dpu_serial_numbers,
     };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -165,7 +172,11 @@ pub(crate) async fn update(
     log_request_data(&request);
 
     let request = request.into_inner();
-
+    if utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
+        return Err(
+            CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
+        );
+    }
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
@@ -174,8 +185,9 @@ pub(crate) async fn update(
     let mut expected_machine = ExpectedMachine {
         bmc_mac_address: parsed_mac,
         bmc_username: request.bmc_username.clone(),
-        serial_number: request.chassis_serial_number,
+        serial_number: request.chassis_serial_number.clone(),
         bmc_password: request.bmc_password.clone(),
+        fallback_dpu_serial_numbers: request.fallback_dpu_serial_numbers.clone(),
     };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -188,7 +200,13 @@ pub(crate) async fn update(
     })?;
 
     expected_machine
-        .update_bmc_credentials(&mut txn, request.bmc_username, request.bmc_password)
+        .update(
+            &mut txn,
+            request.bmc_username,
+            request.bmc_password,
+            request.chassis_serial_number,
+            request.fallback_dpu_serial_numbers,
+        )
         .await?;
 
     txn.commit().await.map_err(|e| {
@@ -266,6 +284,7 @@ pub(crate) async fn get_all(
                 bmc_username: machine.bmc_username,
                 bmc_password: machine.bmc_password,
                 chassis_serial_number: machine.serial_number,
+                fallback_dpu_serial_numbers: machine.fallback_dpu_serial_numbers,
             })
             .collect(),
     }))

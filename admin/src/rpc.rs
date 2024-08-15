@@ -1620,6 +1620,7 @@ pub async fn add_expected_machine(
     bmc_username: String,
     bmc_password: String,
     chassis_serial_number: String,
+    fallback_dpu_serial_numbers: Option<Vec<String>>,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
@@ -1628,6 +1629,7 @@ pub async fn add_expected_machine(
             bmc_username,
             bmc_password,
             chassis_serial_number,
+            fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
         });
 
         client
@@ -1641,17 +1643,22 @@ pub async fn add_expected_machine(
 
 pub async fn update_expected_machine(
     bmc_mac_address: String,
-    bmc_username: String,
-    bmc_password: String,
-    chassis_serial_number: String,
+    bmc_username: Option<String>,
+    bmc_password: Option<String>,
+    chassis_serial_number: Option<String>,
+    fallback_dpu_serial_numbers: Option<Vec<String>>,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
+    let expected_machine = get_expected_machine(bmc_mac_address.clone(), api_config).await?;
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ExpectedMachine {
             bmc_mac_address,
-            bmc_username,
-            bmc_password,
-            chassis_serial_number,
+            bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
+            bmc_password: bmc_password.unwrap_or(expected_machine.bmc_password),
+            chassis_serial_number: chassis_serial_number
+                .unwrap_or(expected_machine.chassis_serial_number),
+            fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
+                .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
         });
 
         client
@@ -1676,6 +1683,9 @@ pub async fn replace_all_expected_machines(
                     bmc_username: machine.bmc_username,
                     bmc_password: machine.bmc_password,
                     chassis_serial_number: machine.chassis_serial_number,
+                    fallback_dpu_serial_numbers: machine
+                        .fallback_dpu_serial_numbers
+                        .unwrap_or_default(),
                 })
                 .collect(),
         });
