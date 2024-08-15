@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
 
-use super::{machine::DbMachineId, DatabaseError};
+use super::DatabaseError;
 use crate::db;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
@@ -167,7 +167,7 @@ impl BmcMetaDataUpdateRequest {
         // A entry with same machine id is already created by discover_machine call.
         // Just update json by adding a ipmi_ip entry.
         let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
-        let _: Option<(DbMachineId,)> = sqlx::query_as(query)
+        let _: Option<(MachineId,)> = sqlx::query_as(query)
             .bind(json!(bmc_info))
             .bind(self.machine_id.to_string())
             .fetch_optional(txn.deref_mut())

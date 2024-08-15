@@ -19,8 +19,8 @@ use std::net::IpAddr;
 
 use crate::{
     db::{
-        domain::DomainId, machine::DbMachineId, machine_interface::MachineInterfaceId,
-        network_segment::NetworkSegmentId, DatabaseError,
+        domain::DomainId, machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId,
+        DatabaseError,
     },
     dhcp::allocation::DhcpError,
     model::{
@@ -37,7 +37,7 @@ use crate::{
 ///
 /// A DhcpRecord is populated by a database view (named machine_dhcp_records).
 ///
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 pub struct DhcpRecord {
     machine_id: Option<MachineId>,
     segment_id: NetworkSegmentId,
@@ -52,25 +52,6 @@ pub struct DhcpRecord {
 
     prefix: IpNetwork,
     gateway: Option<IpAddr>,
-}
-
-impl<'r> FromRow<'r, PgRow> for DhcpRecord {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
-
-        Ok(DhcpRecord {
-            machine_id: machine_id.map(|id| id.into_inner()),
-            segment_id: row.try_get("segment_id")?,
-            machine_interface_id: row.try_get("machine_interface_id")?,
-            subdomain_id: row.try_get("subdomain_id")?,
-            fqdn: row.try_get("fqdn")?,
-            mac_address: row.try_get("mac_address")?,
-            address: row.try_get("address")?,
-            mtu: row.try_get("mtu")?,
-            prefix: row.try_get("prefix")?,
-            gateway: row.try_get("gateway")?,
-        })
-    }
 }
 
 impl From<DhcpRecord> for rpc::DhcpRecord {
@@ -132,10 +113,8 @@ pub struct InstanceDhcpRecord {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for InstanceDhcpRecord {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
-
         Ok(InstanceDhcpRecord {
-            machine_id: machine_id.map(|id| id.into_inner()),
+            machine_id: row.try_get("machine_id")?,
             segment_id: row.try_get("segment_id")?,
             machine_interface_id: row.try_get("machine_interface_id")?,
             subdomain_id: row.try_get("subdomain_id")?,

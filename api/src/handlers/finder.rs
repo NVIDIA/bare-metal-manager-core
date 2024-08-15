@@ -321,11 +321,11 @@ async fn search(
                 let message = match e.machine_id.as_ref() {
                     Some(machine_id) => format!(
                         "{ip} belongs to machine {} (interface {}) on network segment {} of type {}",
-                        machine_id, e.interface_id, e.segment_name, e.segment_type,
+                        machine_id, e.id, e.name, e.network_segment_type,
                     ),
                     None => format!(
                         "{ip} belongs to interface {} on network segment {} of type {}. It is not attached to a machine.",
-                        e.interface_id, e.segment_name, e.segment_type,
+                        e.id, e.name, e.network_segment_type,
                         ),
                 };
                 rpc::IpAddressMatch {

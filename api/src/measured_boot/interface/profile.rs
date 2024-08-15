@@ -15,7 +15,6 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
-use crate::db::machine::DbMachineId;
 use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
@@ -389,14 +388,11 @@ pub async fn get_machines_for_profile_id(
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, DbMachineId>(query)
+    sqlx::query_as::<_, MachineId>(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_id", e))?
-        .into_iter()
-        .map(|d| d.into_inner())
-        .collect())
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_id", e))
 }
 
 /// get_machines_for_profile_name returns a unique list of all CandidateMachineId
@@ -409,14 +405,11 @@ pub async fn get_machines_for_profile_name(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, DbMachineId>(query)
+    sqlx::query_as::<_, MachineId>(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_name", e))?
-        .into_iter()
-        .map(|d| d.into_inner())
-        .collect())
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_name", e))
 }
 
 /// import_measurement_system_profiles takes a vector of MeasurementSystemProfileRecord

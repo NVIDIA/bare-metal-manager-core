@@ -17,7 +17,6 @@
 
 use std::ops::DerefMut;
 
-use crate::db::machine::DbMachineId;
 use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
@@ -357,14 +356,11 @@ pub async fn get_machines_for_bundle_id(
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, DbMachineId>(query)
+    sqlx::query_as::<_, MachineId>(query)
         .bind(bundle_id)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_id", e))?
-        .into_iter()
-        .map(|d| d.into_inner())
-        .collect())
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_id", e))
 }
 
 /// get_machines_for_bundle_name returns a unique list of all CandidateMachineId
@@ -377,14 +373,11 @@ pub async fn get_machines_for_bundle_name(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, DbMachineId>(query)
+    sqlx::query_as::<_, MachineId>(query)
         .bind(bundle_name)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_name", e))?
-        .into_iter()
-        .map(|d| d.into_inner())
-        .collect())
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_name", e))
 }
 
 /// delete_bundle_for_id deletes a bundle record.

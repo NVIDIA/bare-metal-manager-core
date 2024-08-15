@@ -11,32 +11,14 @@ use crate::{
     CarbideError,
 };
 
-use super::{machine::DbMachineId, DatabaseError};
+use super::DatabaseError;
 
 #[derive(FromRow)]
-pub struct DbDpuMachineUpdate {
-    pub host_machine_id: DbMachineId,
-    pub dpu_machine_id: DbMachineId,
-    pub firmware_version: String,
-    pub product_name: String,
-}
-
 pub struct DpuMachineUpdate {
     pub host_machine_id: MachineId,
     pub dpu_machine_id: MachineId,
     pub firmware_version: String,
     pub product_name: String,
-}
-
-impl From<DbDpuMachineUpdate> for DpuMachineUpdate {
-    fn from(value: DbDpuMachineUpdate) -> Self {
-        DpuMachineUpdate {
-            host_machine_id: value.host_machine_id.into(),
-            dpu_machine_id: value.dpu_machine_id.into(),
-            firmware_version: value.firmware_version,
-            product_name: value.product_name,
-        }
-    }
 }
 
 impl DpuMachineUpdate {
@@ -103,7 +85,7 @@ impl DpuMachineUpdate {
             query += &format!(" LIMIT ${};", bind_index);
         }
 
-        let mut q = sqlx::query_as::<_, DbDpuMachineUpdate>(&query);
+        let mut q = sqlx::query_as::<_, DpuMachineUpdate>(&query);
         for (product_name, expected_version) in expected_firmware_versions {
             q = q.bind(product_name).bind(expected_version);
         }
@@ -117,7 +99,7 @@ impl DpuMachineUpdate {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
-        Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
+        Ok(result)
     }
 
     pub async fn find_unavailable_outdated_dpus(
@@ -153,7 +135,7 @@ impl DpuMachineUpdate {
         }
         query += ")\n";
 
-        let mut q = sqlx::query_as::<_, DbDpuMachineUpdate>(&query);
+        let mut q = sqlx::query_as::<_, DpuMachineUpdate>(&query);
         for (product_name, expected_version) in expected_firmware_versions {
             q = q.bind(product_name).bind(expected_version);
         }
@@ -163,7 +145,7 @@ impl DpuMachineUpdate {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
-        Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
+        Ok(result)
     }
 
     pub async fn get_fw_updates_running_count(
@@ -246,13 +228,13 @@ impl DpuMachineUpdate {
             WHERE m.reprovisioning_requested->>'initiator' like $1
             AND mi.attached_dpu_machine_id != mi.machine_id;"#;
 
-        let result: Vec<DbDpuMachineUpdate> = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
+        let result: Vec<DpuMachineUpdate> = sqlx::query_as::<_, DpuMachineUpdate>(query)
             .bind(&reference)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(result.into_iter().map(DpuMachineUpdate::from).collect())
+        Ok(result)
     }
 
     pub async fn get_updated_machines(
@@ -271,16 +253,12 @@ impl DpuMachineUpdate {
         AND m.maintenance_reference like $1
         AND m.reprovisioning_requested IS NULL"#;
 
-        let updated_machines: Vec<DbDpuMachineUpdate> =
-            sqlx::query_as::<_, DbDpuMachineUpdate>(query)
-                .bind(&reference)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let updated_machines: Vec<DpuMachineUpdate> = sqlx::query_as::<_, DpuMachineUpdate>(query)
+            .bind(&reference)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(updated_machines
-            .into_iter()
-            .map(DpuMachineUpdate::from)
-            .collect())
+        Ok(updated_machines)
     }
 }

@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    machine::{DbMachineId, Machine, MachineSearchConfig},
+    machine::{Machine, MachineSearchConfig},
     ObjectFilter,
 };
 
@@ -28,7 +28,7 @@ use super::{
 // MachineValidation
 //
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct MachineValidation {
     pub id: Uuid,
     pub machine_id: MachineId,
@@ -37,18 +37,6 @@ pub struct MachineValidation {
     pub end_time: Option<DateTime<Utc>>,
 }
 
-impl<'r> FromRow<'r, PgRow> for MachineValidation {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let mc_id: DbMachineId = row.try_get("machine_id")?;
-        Ok(MachineValidation {
-            id: row.try_get("id")?,
-            machine_id: mc_id.into_inner(),
-            name: row.try_get("name")?,
-            start_time: row.try_get("start_time")?,
-            end_time: row.try_get("end_time")?,
-        })
-    }
-}
 impl MachineValidation {
     async fn find_by<'a>(
         txn: &mut Transaction<'_, Postgres>,

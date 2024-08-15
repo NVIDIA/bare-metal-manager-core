@@ -14,10 +14,9 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 
 use itertools::Itertools;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 
 use super::{
-    machine::DbMachineId,
     machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter},
     network_segment::NetworkSegmentType,
     DatabaseError,
@@ -124,22 +123,10 @@ impl MachineInterfaceAddress {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 pub struct MachineInterfaceSearchResult {
-    pub interface_id: MachineInterfaceId,
+    pub id: MachineInterfaceId,
     pub machine_id: Option<MachineId>,
-    pub segment_name: String,
-    pub segment_type: NetworkSegmentType,
-}
-
-impl<'r> FromRow<'r, PgRow> for MachineInterfaceSearchResult {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
-        Ok(MachineInterfaceSearchResult {
-            interface_id: row.try_get("id")?,
-            machine_id: machine_id.map(|id| id.into_inner()),
-            segment_name: row.try_get("name")?,
-            segment_type: row.try_get("network_segment_type")?,
-        })
-    }
+    pub name: String,
+    pub network_segment_type: NetworkSegmentType,
 }

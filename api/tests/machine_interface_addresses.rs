@@ -71,7 +71,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     assert!(bmc_ip.is_some());
     let res = MachineInterfaceAddress::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
     assert!(res.is_some());
-    assert_eq!(res.unwrap().interface_id, interface.id);
+    assert_eq!(res.unwrap().id, interface.id);
 
     Ok(())
 }

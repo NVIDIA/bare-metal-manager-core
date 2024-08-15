@@ -27,7 +27,7 @@ use sqlx::{
 use tonic::Status;
 
 use crate::{
-    db::{instance_address::InstanceAddress, machine::DbMachineId, DatabaseError},
+    db::{instance_address::InstanceAddress, DatabaseError},
     model::{
         instance::{
             config::{
@@ -186,7 +186,6 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         #[derive(serde::Deserialize)]
         struct OptionalStorageStatusObservation(Option<InstanceStorageStatusObservation>);
 
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
         let tenant_org = TenantOrganizationId::try_from(tenant_org_str)
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
@@ -260,7 +259,7 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
 
         Ok(InstanceSnapshot {
             id: row.try_get("id")?,
-            machine_id: machine_id.into_inner(),
+            machine_id: row.try_get("machine_id")?,
             requested: row.try_get("requested")?,
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
@@ -505,7 +504,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let query =
             "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2 RETURNING machine_id";
         // Fetch one to make sure atleast one row is updated.
-        let _: (DbMachineId,) = sqlx::query_as(query)
+        let _: (MachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())

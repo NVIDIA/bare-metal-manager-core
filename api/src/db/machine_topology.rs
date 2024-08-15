@@ -20,7 +20,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::machine::DbMachineId;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
 use crate::{CarbideError, CarbideResult};
@@ -41,10 +40,8 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
         // as a JSON field instead of a string.
         let topology: sqlx::types::Json<TopologyData> = row.try_get("topology")?;
 
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
-
         Ok(MachineTopology {
-            machine_id: machine_id.into_inner(),
+            machine_id: row.try_get("machine_id")?,
             topology: topology.0,
             created: row.try_get("created")?,
             _updated: row.try_get("updated")?,
@@ -198,22 +195,21 @@ impl MachineTopology {
     ) -> Result<Option<MachineId>, DatabaseError> {
         let query =
             "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
-        Ok(sqlx::query_as::<_, DbMachineId>(query)
+        sqlx::query_as::<_, MachineId>(query)
             .bind(address)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            .map(|db_id| db_id.into_inner()))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_machine_bmc_pairs(
         txn: &mut Transaction<'_, Postgres>,
         bmc_ips: Vec<String>,
-    ) -> Result<Vec<(DbMachineId, String)>, DatabaseError> {
+    ) -> Result<Vec<(MachineId, String)>, DatabaseError> {
         let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
             FROM machine_topologies
             WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
-        sqlx::query_as::<_, (DbMachineId, String)>(query)
+        sqlx::query_as::<_, (MachineId, String)>(query)
             .bind(bmc_ips)
             .fetch_all(txn.deref_mut())
             .await
@@ -235,11 +231,10 @@ impl MachineTopology {
     ) -> Result<Vec<MachineId>, DatabaseError> {
         let query =
             "SELECT machine_id FROM machine_topologies WHERE topology::text ilike '%' || $1 || '%'";
-        sqlx::query_as::<_, DbMachineId>(query)
+        sqlx::query_as::<_, MachineId>(query)
             .bind(to_find)
             .fetch_all(txn.deref_mut())
             .await
-            .map(|ids| ids.into_iter().map(Into::into).collect())
             .map_err(|e| {
                 DatabaseError::new(file!(), line!(), "machine_topologies find_freetext", e)
             })
@@ -252,7 +247,7 @@ impl MachineTopology {
     ) -> Result<(), DatabaseError> {
         let query =
                 "UPDATE machine_topologies SET topology_update_needed=$2 WHERE machine_id=$1 RETURNING machine_id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(value)
             .fetch_one(txn.deref_mut())

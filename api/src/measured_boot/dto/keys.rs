@@ -82,7 +82,7 @@ impl fmt::Display for TrustedMachineId {
 }
 
 // Make TrustedMachineId bindable directly into a sqlx query.
-// Similar code exists for DbMachineId as well as MachineId.
+// Similar code exists for other IDs, including MachineId.
 impl sqlx::Encode<'_, sqlx::Postgres> for TrustedMachineId {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         buf.extend(self.to_string().as_bytes());

@@ -15,7 +15,7 @@ use std::ops::DerefMut;
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 
-use super::{machine::DbMachineId, DatabaseError, ObjectFilter};
+use super::{DatabaseError, ObjectFilter};
 use crate::model::{
     hardware_info::LldpSwitchData,
     machine::machine_id::MachineId,
@@ -201,7 +201,7 @@ impl DpuToNetworkDeviceMap {
         // delete the association.
         let query = r#"DELETE from port_to_network_device_map WHERE dpu_id=$1 RETURNING dpu_id"#;
 
-        let _ids = sqlx::query_as::<_, DbMachineId>(query)
+        let _ids = sqlx::query_as::<_, MachineId>(query)
             .bind(dpu_id.to_string())
             .fetch_all(txn.deref_mut())
             .await

@@ -16,7 +16,7 @@ use std::{fmt::Display, net::IpAddr};
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Row};
 
-use crate::db::{machine::DbMachineId, DatabaseError};
+use crate::db::DatabaseError;
 
 use super::machine::machine_id::MachineId;
 
@@ -124,25 +124,12 @@ impl<'r> FromRow<'r, PgRow> for NetworkDevice {
 /// A entry represents connection between DPU and its port with a network device.
 // TODO: Add switch port name also. It will be easy to find connecting port at switch and use it for
 // debugging.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct DpuToNetworkDeviceMap {
     dpu_id: MachineId,
     local_port: DpuLocalPorts,
     remote_port: String,
     network_device_id: String,
-}
-
-impl<'r> FromRow<'r, PgRow> for DpuToNetworkDeviceMap {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let dpu_id: DbMachineId = row.try_get("dpu_id")?;
-
-        Ok(DpuToNetworkDeviceMap {
-            dpu_id: dpu_id.into_inner(),
-            local_port: row.try_get("local_port")?,
-            remote_port: row.try_get("remote_port")?,
-            network_device_id: row.try_get("network_device_id")?,
-        })
-    }
 }
 
 #[derive(Debug, Clone, FromRow)]

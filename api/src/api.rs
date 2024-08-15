@@ -3064,9 +3064,9 @@ impl Forge for Api {
         let rpc_pairs = rpc::MachineIdBmcIpPairs {
             pairs: pairs
                 .into_iter()
-                .map(|(db_machine_id, bmc_ip)| rpc::MachineIdBmcIp {
+                .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
                     machine_id: Some(::rpc::common::MachineId {
-                        id: db_machine_id.into_inner().to_string(),
+                        id: machine_id.to_string(),
                     }),
                     bmc_ip,
                 })
