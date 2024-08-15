@@ -12,6 +12,7 @@ use machine_a_tron::{
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use rpc::forge_tls_client::ForgeClientConfig;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
@@ -72,8 +73,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let dpu_bmc_mock_router =
         bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
-    let host_bmc_mock_router =
-        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
+    let mut host_redfish_decompressed = HashMap::new();
+    let host_bmc_mock_router = bmc_mock::tar_router(
+        TarGzOption::Disk(&app_config.bmc_mock_host_tar),
+        Some(&mut host_redfish_decompressed),
+    )?;
+    let host_redfish_routes = host_redfish_decompressed
+        .into_values()
+        .next()
+        .expect("router creation should cache routes");
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let use_single_bmc_mock = app_config.use_single_bmc_mock;
@@ -154,8 +162,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (tui_handle, tui_event_tx) = if tui_enabled {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
 
+        let host_redfish_routes = host_redfish_routes.clone();
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, app_tx);
+            let mut tui = Tui::new(ui_rx, app_tx, host_redfish_routes);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);

@@ -9,6 +9,7 @@ mod machine_a_tron;
 mod machine_state_machine;
 mod machine_utils;
 mod subnet;
+mod tabs;
 mod tui;
 mod vpc;
 
