@@ -22,7 +22,7 @@ pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
 pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV: &str = include_str!("../templates/nvue_startup_etv.conf");
-const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn-classic.conf");
+const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut l3_domains = Vec::with_capacity(conf.l3_domains.len());
