@@ -19,7 +19,7 @@ pub struct DhcpConfig {
     pub carbide_nameservers: Vec<Ipv4Addr>,
     // Mandatory for Controller mode.
     pub carbide_api_url: Option<String>,
-    pub carbide_ntpserver: Option<Ipv4Addr>,
+    pub carbide_ntpservers: Vec<Ipv4Addr>,
     pub carbide_provisioning_server_ipv4: Ipv4Addr,
     pub carbide_dhcp_server: Ipv4Addr,
 }
@@ -43,7 +43,7 @@ impl Default for DhcpConfig {
             rebinding_time_secs: 432000,
             carbide_nameservers: vec![],
             carbide_api_url: None,
-            carbide_ntpserver: None,
+            carbide_ntpservers: vec![],
 
             // These two must be updated with valid values.
             carbide_provisioning_server_ipv4: Ipv4Addr::from([127, 0, 0, 1]),
@@ -55,13 +55,13 @@ impl Default for DhcpConfig {
 impl DhcpConfig {
     pub fn from_forge_dhcp_config(
         carbide_provisioning_server_ipv4: Ipv4Addr,
-        carbide_ntpserver: Option<Ipv4Addr>,
+        carbide_ntpservers: Vec<Ipv4Addr>,
         carbide_nameservers: Vec<Ipv4Addr>,
         loopback_ip: Ipv4Addr,
     ) -> Result<Self, DhcpDataError> {
         Ok(DhcpConfig {
             carbide_nameservers,
-            carbide_ntpserver,
+            carbide_ntpservers,
             carbide_provisioning_server_ipv4,
             carbide_dhcp_server: loopback_ip,
             ..Default::default()

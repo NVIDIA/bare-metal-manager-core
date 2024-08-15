@@ -44,7 +44,7 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 pub struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: String,
-    ntpserver: String,
+    ntpservers: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     forge_root_ca_path: String,
     forge_client_cert_path: String,
@@ -73,7 +73,7 @@ impl Default for CarbideDhcpContext {
                 .unwrap_or_else(|_| tls_default::CLIENT_CERT.to_string()),
             forge_client_key_path: std::env::var("FORGE_CLIENT_KEY_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
-            ntpserver: "172.20.0.24".to_string(), // local ntp server
+            ntpservers: "172.20.0.24,172.20.0.26,172.20.0.27".to_string(), // local ntp servers
             provisioning_server_ipv4: None,
             metrics_endpoint: None,
             metrics: None,
@@ -144,10 +144,10 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn carbide_set_config_ntp(ntpserver: *const c_char) {
-    let ntp_str = CStr::from_ptr(ntpserver).to_str().unwrap().to_owned();
+pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
+    let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
 
-    CONFIG.write().unwrap().ntpserver = ntp_str;
+    CONFIG.write().unwrap().ntpservers = ntp_str;
 }
 
 /// Take the config parameter from Kea and configure it as our metrics endpoint
