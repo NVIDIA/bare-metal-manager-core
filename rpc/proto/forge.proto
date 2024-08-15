@@ -658,6 +658,8 @@ enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
   // 1 was previously FORGE_NATIVE_NETWORKING
   ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
+  FNN_CLASSIC = 3;
+  FNN_L3 = 4;
 }
 
 message VpcUpdateRequest {

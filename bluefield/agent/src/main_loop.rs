@@ -382,6 +382,13 @@ pub async fn run(
                             )
                             .await
                         }
+                        // TODO(chet,bill): Fill this in soon!
+                        NetworkVirtualizationType::FnnClassic => Err(eyre::eyre!(
+                            "fnn-classic support not implemented in the forge-dpu-agent yet"
+                        )),
+                        NetworkVirtualizationType::FnnL3 => Err(eyre::eyre!(
+                            "fnn-l3 support not implemented in the forge-dpu-agent yet"
+                        )),
                     };
 
                     let joined_result = match (update_result, dhcp_result) {
