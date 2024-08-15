@@ -471,25 +471,49 @@ pub async fn create(
         .begin()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
+
+    // If either requested addresses are auto-generated, we lock the entire table
+    // by way of the inner_txn.
     let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
         .execute(&mut *inner_txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-    let dhcp_handler = UsedAdminNetworkIpResolver {
+    // Use the UsedAdminNetworkIpResolver, which specifically looks at
+    // the machine interface addresses table in the database for finding
+    // the next available IP.
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
         segment_id: segment.id,
-    };
+    });
+
+    // In the case of machine interfaces, the IpAllocator is going to remain
+    // a hard-coded /32 allocation prefix. This is in constrast to tenant
+    // instances, which may be a /32, or in the case of FNN, a /30 or otherwise.
+    let prefix_length = 32;
+    let addresses_allocator = IpAllocator::new(
+        &mut inner_txn,
+        segment,
+        dhcp_handler,
+        addresses,
+        prefix_length,
+    )
+    .await?;
+
     let mut hostname: String = "".to_string();
-    // If either requested addresses are auto-generated, we lock the entire table.
-    let addresses_allocator =
-        IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
     let mut allocated_addresses = Vec::new();
     for (_, maybe_address) in addresses_allocator {
         let address = maybe_address?;
-        allocated_addresses.push(address);
+        if address.prefix() != prefix_length {
+            return Err(
+                CarbideError::GenericError(
+                    format!(
+                        "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
+                        prefix_length, address.prefix())));
+        }
+        allocated_addresses.push(address.ip());
         if hostname.is_empty() && address.is_ipv4() {
-            hostname = address.to_string().replace('.', "-");
+            hostname = address_to_hostname(&address.ip())?;
         }
     }
     if hostname.is_empty() {
@@ -497,38 +521,19 @@ pub async fn create(
             "Could not generate hostname".to_string(),
         ));
     }
-    let query = "INSERT INTO machine_interfaces
-        (segment_id, mac_address, hostname, domain_id, primary_interface)
-        VALUES
-        ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
-    let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
-        .bind(segment.id())
-        .bind(macaddr)
-        .bind(hostname)
-        .bind(domain_id)
-        .bind(primary_interface)
-        .fetch_one(&mut *inner_txn)
-        .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr)
-            }
-            sqlx::Error::Database(e)
-                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
-            {
-                CarbideError::OnePrimaryInterface
-            }
-            _ => DatabaseError::new(file!(), line!(), query, err).into(),
-        })?;
 
-    let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
+    let interface_id = insert_machine_interface(
+        &mut inner_txn,
+        segment.id(),
+        macaddr,
+        hostname,
+        domain_id,
+        primary_interface,
+    )
+    .await?;
+
     for address in allocated_addresses {
-        sqlx::query(query)
-            .bind(interface_id)
-            .bind(address)
-            .fetch_all(&mut *inner_txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        insert_machine_interface_address(&mut inner_txn, &interface_id, &address).await?;
     }
 
     inner_txn
@@ -570,6 +575,79 @@ pub async fn find_by_ip_or_id(
             kind: "machine_interface",
             id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
         }),
+    }
+}
+
+/// insert_machine_interface inserts a new machine interface record
+/// into the database, returning the newly minted MachineInterfaceId
+/// for the corresponding record.
+async fn insert_machine_interface(
+    txn: &mut Transaction<'_, Postgres>,
+    segment_id: &NetworkSegmentId,
+    mac_address: &MacAddress,
+    hostname: String,
+    domain_id: Option<DomainId>,
+    is_primary_interface: bool,
+) -> CarbideResult<MachineInterfaceId> {
+    let query = "INSERT INTO machine_interfaces
+        (segment_id, mac_address, hostname, domain_id, primary_interface)
+        VALUES
+        ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
+
+    let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
+        .bind(segment_id)
+        .bind(mac_address)
+        .bind(hostname)
+        .bind(domain_id)
+        .bind(is_primary_interface)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
+                CarbideError::NetworkSegmentDuplicateMacAddress(*mac_address)
+            }
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+            {
+                CarbideError::OnePrimaryInterface
+            }
+            _ => DatabaseError::new(file!(), line!(), query, err).into(),
+        })?;
+
+    Ok(interface_id)
+}
+
+/// insert_machine_interface_address inserts a new machine interface
+/// address entry into the database. In the case of machine interfaces,
+/// this explicitly takes an `IpAddr`, since machine interfaces are
+/// always going to be a /32. It is up to the caller to ensure a possible
+/// IpNetwork returned from the IpAllocator is of the correct size.
+async fn insert_machine_interface_address(
+    txn: &mut Transaction<'_, Postgres>,
+    interface_id: &MachineInterfaceId,
+    address: &IpAddr,
+) -> CarbideResult<()> {
+    let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
+    sqlx::query(query)
+        .bind(interface_id)
+        .bind(address)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+    Ok(())
+}
+
+/// address_to_hostname converts an IpAddr address to a hostname,
+/// verifying the resulting hostname is actually a valid DNS name
+/// before returning it.
+fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
+    let hostname = address.to_string().replace('.', "-");
+    match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
+        true => Ok(hostname),
+        false => Err(CarbideError::GenericError(format!(
+            "invalid address to hostname: {}",
+            hostname
+        ))),
     }
 }
 
@@ -799,45 +877,73 @@ pub async fn delete_by_ip(
 
 #[async_trait::async_trait]
 impl UsedIpResolver for UsedAdminNetworkIpResolver {
+    // DEPRECATED
+    // With the introduction of `used_prefixes()` this is no
+    // longer an accurate approach for finding all allocated
+    // IPs in a segment, since used_ips() completely ignores
+    // the fact wider prefixes may have been allocated, even
+    // though in the case of machine interfaces, its probably
+    // always going to just be a /32.
+    //
+    // used_ips returns the used (or allocated) IPs for machine
+    // interfaces in a given network segment.
+    //
+    // More specifically, this is intended to specifically
+    // target the `address` column of the `machine_interface_addresses`
+    // table, in which a single /32 is stored (although, as an
+    // `inet`, it could techincally also have a prefix length).
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpAddr,)>, DatabaseError> {
+    ) -> Result<Vec<IpAddr>, DatabaseError> {
+        // IpAddrContainer is a small private struct used
+        // for binding the result of the subsequent SQL
+        // query, so we can implement FromRow and return
+        // a Vec<IpAddr> a bit more easily.
+        #[derive(FromRow)]
+        struct IpAddrContainer {
+            address: IpAddr,
+        }
+
         let query = "
 SELECT address FROM machine_interface_addresses
 INNER JOIN machine_interfaces ON machine_interfaces.id = machine_interface_addresses.interface_id
 INNER JOIN network_segments ON machine_interfaces.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
 
-        sqlx::query_as(query)
+        let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(containers.iter().map(|c| c.address).collect())
     }
 
+    // used_prefixes returns the used (or allocated) prefixes
+    // for machine interfaces in a given network segment.
+    //
     // NOTE(Chet): This is kind of a hack! Machine interfaces
-    // aren't allocated prefixes, and I think it might be
-    // confusing if we added `prefix` column to the
+    // aren't allocated prefixes other than a /32, and I think
+    // it might be confusing if we added a `prefix` column to the
     // machine_interface_addresses table (since it's always
     // just going to be a /32 anyway).
     //
-    // So, instead of database schema changes, just get all of
-    // the used IPs and turn them into IpNetworks.
+    // So, instead of database schema changes, this just gets all
+    // of the used IPs and turns them into IpNetworks.
     //
     // This could also potentially just always return an error
     // saying its not implemented for machine_interfaces, BUT,
-    // at some point soon, the IpAllocator is going to do it's
-    // next-available-ip matching based on used_prefixes, so
-    // this will [probably] need to exist in this form.
+    // it keeps it cleaner knowing the IpAllocator works via
+    // calling used_prefixes() regardless of who is using it.
     async fn used_prefixes(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+    ) -> Result<Vec<IpNetwork>, DatabaseError> {
         let used_ips = self.used_ips(txn).await?;
-        let mut ip_networks: Vec<(IpNetwork,)> = Vec::new();
+        let mut ip_networks: Vec<IpNetwork> = Vec::new();
         for used_ip in used_ips {
-            let network = IpNetwork::new(used_ip.0, 32).map_err(|e| {
+            let network = IpNetwork::new(used_ip, 32).map_err(|e| {
                 DatabaseError::new(
                     file!(),
                     line!(),
@@ -848,8 +954,19 @@ WHERE network_segments.id = $1::uuid";
                     )),
                 )
             })?;
-            ip_networks.push((network,));
+            ip_networks.push(network);
         }
         Ok(ip_networks)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_address_to_hostname() {
+        let address: IpAddr = "192.168.1.0".parse().unwrap();
+        let hostname = address_to_hostname(&address).unwrap();
+        assert_eq!("192-168-1-0", hostname);
     }
 }

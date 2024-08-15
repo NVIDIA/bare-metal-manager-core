@@ -28,6 +28,7 @@ console-subscriber = { git = "https://github.com/grahamking/console.git", branch
 const_format = "0.2.26"
 dashmap = "5.5.3"
 data-encoding = "2.3.3"
+domain = "0.10.1"
 eyre = "*"
 figment = { version = "0.10.10", features = ["env", "toml"] }
 futures = "0.3"
@@ -47,6 +48,7 @@ md5 = "0.7"
 names = { version = "0.14.0", default-features = false }
 num_cpus = "1.16.0"
 num-bigint-dig = "0.8.4"
+octseq = "0.5.1"
 once_cell = "1.13.1"
 opentelemetry = { version = "0.21", features = ["logs"] }
 opentelemetry-semantic-conventions = "0.13.0"

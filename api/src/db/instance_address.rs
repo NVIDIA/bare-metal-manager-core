@@ -266,23 +266,31 @@ WHERE network_prefixes.segment_id = $1::uuid";
             }
             let circuit_id = circuit_id.remove(0);
 
-            let dhcp_handler = UsedOverlayNetworkIpResolver {
-                segment_id: segment.id,
-            };
+            // Use the UsedOverlayNetworkIpResolver, which specifically looks at
+            // the instance addresses table in the database for finding
+            // the next available IP prefix allocation (with [assumed] support for
+            // allocations of varying-sized networks).
+            let dhcp_handler: Box<dyn UsedIpResolver + Send> =
+                Box::new(UsedOverlayNetworkIpResolver {
+                    segment_id: segment.id,
+                });
 
+            // TODO(chet): FNN will be leveraging the IpAllocator to allocate
+            // a /30 for a tenant instance (or, at least, something other than
+            // a /32). For now, hard-code 32 as the length -- the plan is to
+            // update the InstanceInterfaceConfig to request the prefix_length.
             let allocated_addresses = IpAllocator::new(
                 &mut inner_txn,
                 segment,
-                &dhcp_handler,
+                dhcp_handler,
                 AddressSelectionStrategy::Automatic,
+                32,
             )
             .await?;
 
             let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address, prefix)
                          VALUES ($1::uuid, $2, $3::inet, $4::cidr)";
-            for (prefix_id, address) in allocated_addresses {
-                let address = address?;
-
+            for (prefix_id, allocated_prefix) in allocated_addresses {
                 // TODO(chet): Prefix is currently a hard-coded to /32 from the instance
                 // address, but will soon be changing as part of FNN needing to be able
                 // to allocate a tenant *prefix* (e.g. a /30) per DPU on a tenant instance.
@@ -291,19 +299,29 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 // size requested in a given network segment, and the IpAllocator is going
                 // to be modified to find the next available prefix of prefix_length within
                 // that segment.
-                let prefix = IpNetwork::new(address, 32).map_err(CarbideError::from)?;
+                //
+                // In that world, this prefix will go into the `prefix` column, and the
+                // address (in the `address` column) will be the host IP from the prefix.
+                let allocated_prefix = allocated_prefix?;
+                let host_ip = get_host_ip(&allocated_prefix)?;
 
                 sqlx::query(query)
                     .bind(instance_id)
                     .bind(circuit_id.to_owned())
-                    .bind(address)
-                    .bind(prefix)
+                    .bind(host_ip)
+                    .bind(allocated_prefix)
                     .fetch_all(&mut *inner_txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-                iface.ip_addrs.insert(prefix_id, address);
+
+                // This currently only populates the InstanceInterfaceConfig ip_addrs
+                // with the host IP, meaning, if the instance-allocated network is
+                // a /32 IpNetwork, it will be the IP. If it's a /30 (say, for FNN), it
+                // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
+                // as the visibly-assigned IP address for the instance.
+                iface.ip_addrs.insert(prefix_id, host_ip);
             }
         }
 
@@ -322,36 +340,107 @@ pub struct UsedOverlayNetworkIpResolver {
 
 #[async_trait::async_trait]
 impl UsedIpResolver for UsedOverlayNetworkIpResolver {
+    // DEPRECATED
+    // With the introduction of `used_prefixes()` this is no
+    // longer an accurate approach for finding all allocated
+    // IPs in a segment, since used_ips() completely ignores
+    // the fact wider prefixes may have been allocated.
+    //
+    // used_ips returns the used (or allocated) IPs for instances
+    // in a given network segment.
+    //
+    // More specifically, this is intended to specifically
+    // target the `address` column of the `instance_addresses`
+    // table, in which a single /32 is stored (although, as an
+    // `inet`, it could techincally also have a prefix length).
     async fn used_ips(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpAddr,)>, DatabaseError> {
+    ) -> Result<Vec<IpAddr>, DatabaseError> {
+        // IpAddrContainer is a small private struct used
+        // for binding the result of the subsequent SQL
+        // query, so we can implement FromRow and return
+        // a Vec<IpAddr> a bit more easily.
+        #[derive(FromRow)]
+        struct IpAddrContainer {
+            address: IpAddr,
+        }
+
         let query: &str = "
 SELECT address FROM instance_addresses
 INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
 INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
-        sqlx::query_as(query)
+
+        let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(containers.iter().map(|c| c.address).collect())
     }
 
+    // used_prefixes returns the used (or allocated) prefixes
+    // for instances in a given network segment.
+    //
+    // More specifically, this is intended to specifically
+    // target the `prefix` column of the `instance_addresses`
+    // table, which is a `cidr` type. It could contain as
+    // small as a /32 (for single IP instance allocations,
+    // which would effectively match the `address` column),
+    // or a /30 (for FNN prefix allocations), where the `address`
+    // column would contain the host IP allocated from the
+    // /30 prefix.
     async fn used_prefixes(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<(IpNetwork,)>, DatabaseError> {
+    ) -> Result<Vec<IpNetwork>, DatabaseError> {
+        // IpNetworkContainer is a small private struct used
+        // for binding the result of the subsequent SQL
+        // query, so we can implement FromRow and return
+        // a Vec<IpNetwork> a bit more easily.
+        #[derive(FromRow)]
+        struct IpNetworkContainer {
+            prefix: IpNetwork,
+        }
+
         let query: &str = "
-SELECT instance_addresses.prefix FROM instance_addresses
+SELECT instance_addresses.prefix as prefix FROM instance_addresses
 INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
 INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
-        sqlx::query_as(query)
+
+        let containers: Vec<IpNetworkContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(containers.iter().map(|c| c.prefix).collect())
+    }
+}
+
+/// get_host_ip returns the host IP for a tenant instance
+/// for a given IpNetwork. This is being initially introduced
+/// for the purpose of FNN /30 allocations (where the host IP
+/// ends up being the 4th IP -- aka the second IP of the second
+/// /31 allocation in the /30), and will probably change with
+/// a wider refactor + intro of Carbide IP Prefix Management.
+fn get_host_ip(network: &IpNetwork) -> CarbideResult<IpAddr> {
+    match network.prefix() {
+        32 => Ok(network.ip()),
+        30 => match network.iter().nth(3) {
+            Some(ip_addr) => Ok(ip_addr),
+            None => Err(CarbideError::GenericError(format!(
+                "no viable host IP found in network: {}",
+                network
+            ))),
+        },
+        _ => Err(CarbideError::GenericError(format!(
+            "tenant instance network size unsupported: {}",
+            network.prefix()
+        ))),
     }
 }
 
