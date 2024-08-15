@@ -327,19 +327,52 @@ async fn main() -> color_eyre::Result<()> {
                 instance::handle_reboot(reboot_request, api_config).await?
             }
             Instance::Release(release_request) => {
-                let instance_id = match (release_request.instance, release_request.machine) {
-                    (Some(instance_id), _) => uuid::Uuid::parse_str(&instance_id)?.into(),
-                    (_, Some(machine_id)) => {
+                if !config.cloud_unsafe_op {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                    )
+                    .into());
+                }
+
+                let mut instance_ids: Vec<::rpc::common::Uuid> = Vec::new();
+
+                match (
+                    release_request.instance,
+                    release_request.machine,
+                    release_request.label_key,
+                ) {
+                    (Some(instance_id), _, _) => {
+                        instance_ids.push(uuid::Uuid::parse_str(&instance_id)?.into())
+                    }
+                    (_, Some(machine_id), _) => {
                         let instances =
                             rpc::get_instances_by_machine_id(api_config, machine_id).await?;
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances assigned to that machine");
                         }
-                        instances.instances[0].id.clone().unwrap()
+                        instance_ids.push(instances.instances[0].id.clone().unwrap());
                     }
-                    _ => unreachable!("clap will enforce exactly one of the two"),
+                    (_, _, Some(key)) => {
+                        let instances = rpc::get_all_instances(
+                            api_config,
+                            None,
+                            Some(key),
+                            release_request.label_value,
+                            config.internal_page_size,
+                        )
+                        .await?;
+                        if instances.instances.is_empty() {
+                            color_eyre::eyre::bail!("No instances with the passed label.key exist");
+                        }
+                        instance_ids = instances
+                            .instances
+                            .iter()
+                            .filter_map(|instance| instance.id.clone())
+                            .collect();
+                    }
+                    _ => {}
                 };
-                rpc::release_instance(api_config, instance_id).await?
+                rpc::release_instances(api_config, instance_ids).await?
             }
             Instance::Allocate(allocate_request) => {
                 if !config.cloud_unsafe_op {
@@ -375,6 +408,8 @@ async fn main() -> color_eyre::Result<()> {
                         &hid_for_instance,
                         &allocate_request.subnet.clone(),
                         &format!("{}_{}", allocate_request.prefix_name.clone(), i),
+                        &allocate_request.label_key,
+                        &allocate_request.label_value,
                     )
                     .await
                     {

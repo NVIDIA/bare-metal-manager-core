@@ -200,19 +200,21 @@ pub async fn reboot_instance(
     .await
 }
 
-pub async fn release_instance(
+pub async fn release_instances(
     api_config: &ApiConfig<'_>,
-    instance_id: ::rpc::common::Uuid,
+    instance_ids: Vec<::rpc::common::Uuid>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstanceReleaseRequest {
-            id: Some(instance_id),
-        });
-        client
-            .release_instance(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        for instance_id in instance_ids {
+            let request = tonic::Request::new(rpc::InstanceReleaseRequest {
+                id: Some(instance_id),
+            });
+            client
+                .release_instance(request)
+                .await
+                .map(|response| response.into_inner())
+                .map_err(CarbideCliError::ApiInvocationError)?;
+        }
         Ok(())
     })
     .await
@@ -2069,6 +2071,8 @@ pub async fn allocate_instance(
     host_machine_id: &str,
     network_segment_name: &String, // This is the same string passed as Subnet argument in the CLI.
     instance_name: &String,
+    label_key: &Option<String>,
+    label_value: &Option<String>,
 ) -> CarbideCliResult<rpc::Instance> {
     with_forge_client(api_config, |mut client| async move {
         let segment_request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
@@ -2125,6 +2129,22 @@ pub async fn allocate_instance(
             storage: None,
         };
 
+        let mut labels = vec![rpc::Label {
+            key: "cloud-unsafe-op".to_string(),
+            value: Some("true".to_string()),
+        }];
+
+        match (label_key, label_value) {
+            (None, Some(_)) => {
+                tracing::error!("label key cannot be empty while value is not empty.");
+            }
+            (Some(key), _) => labels.push(rpc::Label {
+                key: key.to_string(),
+                value: label_value.clone(),
+            }),
+            (None, None) => {}
+        }
+
         let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(::rpc::common::MachineId {
@@ -2134,10 +2154,7 @@ pub async fn allocate_instance(
             metadata: Some(rpc::Metadata {
                 name: instance_name.to_string(),
                 description: "instance created from admin-cli".to_string(),
-                labels: vec![rpc::Label {
-                    key: "cloud-unsafe-op".to_string(),
-                    value: Some("true".to_string()),
-                }],
+                labels,
             }),
         });
 

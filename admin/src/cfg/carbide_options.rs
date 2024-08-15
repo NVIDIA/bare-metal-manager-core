@@ -1009,13 +1009,19 @@ pub struct RebootInstance {
 #[clap(group(
         ArgGroup::new("release_instance")
         .required(true)
-        .args(&["instance", "machine"])))]
+        .args(&["instance", "machine", "label_key"])))]
 pub struct ReleaseInstance {
     #[clap(short, long)]
     pub instance: Option<String>,
 
     #[clap(short, long)]
     pub machine: Option<String>,
+
+    #[clap(long, help = "The key of label instance to query")]
+    pub label_key: Option<String>,
+
+    #[clap(long, help = "The value of label instance to query")]
+    pub label_value: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -1028,6 +1034,12 @@ pub struct AllocateInstance {
 
     #[clap(short, long, required = true)]
     pub prefix_name: String,
+
+    #[clap(long, help = "The key of label instance to query")]
+    pub label_key: Option<String>,
+
+    #[clap(long, help = "The value of label instance to query")]
+    pub label_value: Option<String>,
 }
 
 #[derive(Parser, Debug)]
