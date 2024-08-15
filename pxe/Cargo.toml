@@ -31,6 +31,7 @@ forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 prometheus = "0.13.4"
+log = "0.4.21"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
