@@ -21,7 +21,6 @@ use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, OverrideMode};
-use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
@@ -332,60 +331,6 @@ impl From<Machine> for MachineSnapshot {
     }
 }
 
-/// A wrapper around `MachineId` that implements `sqlx::Decode` and `sqlx::FromRow`
-#[derive(Debug, Clone)]
-pub struct DbMachineId(MachineId);
-
-impl DbMachineId {
-    pub fn into_inner(self) -> MachineId {
-        self.0
-    }
-}
-
-impl From<DbMachineId> for MachineId {
-    fn from(value: DbMachineId) -> Self {
-        value.0
-    }
-}
-
-impl<DB> sqlx::Type<DB> for DbMachineId
-where
-    DB: sqlx::Database,
-    String: sqlx::Type<DB>,
-{
-    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
-        String::type_info()
-    }
-
-    fn compatible(ty: &DB::TypeInfo) -> bool {
-        String::compatible(ty)
-    }
-}
-
-impl<'r, DB> sqlx::Decode<'r, DB> for DbMachineId
-where
-    DB: sqlx::Database,
-    String: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        // We first read the MachineId as a String. The function for this already
-        // exists and we delegate
-        let str_id: String = String::decode(value)?;
-        // Then we parse the ID
-        let id = MachineId::from_str(&str_id).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        Ok(DbMachineId(id))
-    }
-}
-
-impl<'r> sqlx::FromRow<'r, PgRow> for DbMachineId {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let id: DbMachineId = row.try_get(0)?;
-        Ok(id)
-    }
-}
-
 impl Machine {
     /// Returns whether the Machine is a DPU, based on the HardwareInfo that
     /// was available when the Machine was discovered
@@ -581,14 +526,14 @@ SELECT m.id FROM
         AND
         $2::inet <<= np.prefix";
 
-        let id: Option<DbMachineId> = sqlx::query_as(query)
+        let id: Option<MachineId> = sqlx::query_as(query)
             .bind(macaddr)
             .bind(relay)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(id.map(|id| id.into_inner()))
+        Ok(id)
     }
 
     /// Returns the ID of the machine object
@@ -930,13 +875,13 @@ SELECT m.id FROM
     ) -> Result<Option<MachineId>, DatabaseError> {
         let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
 
-        let machine_id: Option<DbMachineId> = sqlx::query_as(query)
+        let machine_id: Option<MachineId> = sqlx::query_as(query)
             .bind(fqdn)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(machine_id.map(|id| id.into_inner()))
+        Ok(machine_id)
     }
 
     /// Finds a machine by a query
@@ -1025,7 +970,7 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1044,7 +989,7 @@ SELECT m.id FROM
         };
 
         let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(sqlx::types::Json(&data))
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
@@ -1058,7 +1003,7 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1072,7 +1017,7 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET bios_password_set_time=NOW() WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1086,7 +1031,7 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1103,13 +1048,13 @@ SELECT m.id FROM
                 WHERE attached_dpu_machine_id=$1
                 AND attached_dpu_machine_id != machine_id"#;
 
-        let machine_id: Option<DbMachineId> = sqlx::query_as(query)
+        let machine_id: Option<MachineId> = sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(machine_id.map(MachineId::from))
+        Ok(machine_id)
     }
 
     pub async fn find_host_by_dpu_machine_id(
@@ -1167,13 +1112,13 @@ SELECT m.id FROM
                   ON m.id = mi.attached_dpu_machine_id
                 WHERE mi.machine_id=$1"#;
 
-        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+        let machine_ids: Vec<MachineId> = sqlx::query_as(query)
             .bind(host_machine_id.to_string())
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(machine_ids.into_iter().map(MachineId::from).collect_vec())
+        Ok(machine_ids)
     }
 
     /// Only does the update if the passed observation is newer than any existing one
@@ -1187,7 +1132,7 @@ SELECT m.id FROM
              (network_status_observation IS NULL
                 OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
             ) RETURNING id";
-        let _id: (DbMachineId,) = sqlx::query_as(query)
+        let _id: (MachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(&observation))
             .bind(machine_id.to_string())
             .bind(observation.observed_at.to_rfc3339())
@@ -1214,7 +1159,7 @@ SELECT m.id FROM
             .observed_at
             .map(|o| o.to_rfc3339())
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-        let _id: (DbMachineId,) = sqlx::query_as(&query)
+        let _id: (MachineId,) = sqlx::query_as(&query)
             .bind(sqlx::types::Json(&health_report))
             .bind(machine_id.to_string())
             .bind(observed_at)
@@ -1262,7 +1207,7 @@ SELECT m.id FROM
             path
         );
 
-        let _id: (DbMachineId,) = sqlx::query_as(&query)
+        let _id: (MachineId,) = sqlx::query_as(&query)
             .bind(sqlx::types::Json(&health_report))
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
@@ -1291,7 +1236,7 @@ SELECT m.id FROM
             path
         );
 
-        let _id: (DbMachineId,) = sqlx::query_as(&query)
+        let _id: (MachineId,) = sqlx::query_as(&query)
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1310,7 +1255,7 @@ SELECT m.id FROM
         let query =
             "UPDATE machines SET agent_reported_inventory = $1::json WHERE id = $2 RETURNING id";
         tracing::debug!(machine_id = %machine_id, "Updating machine inventory");
-        let _id: (DbMachineId,) = sqlx::query_as(query)
+        let _id: (MachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(&inventory))
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
@@ -1386,7 +1331,7 @@ SELECT m.id FROM
         let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
-        let query_result: Result<DbMachineId, _> = sqlx::query_as(query)
+        let query_result: Result<MachineId, _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(sqlx::types::Json(new_state))
             .bind(machine_id.to_string())
@@ -1462,7 +1407,7 @@ SELECT m.id FROM
         };
 
         let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
-        let _id: (DbMachineId,) = sqlx::query_as(query)
+        let _id: (MachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(failure_details))
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
@@ -1514,7 +1459,7 @@ SELECT m.id FROM
 
         let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version) 
                                 VALUES($1, $2, $3, $4, $5, $6) RETURNING id"#;
-        let row: (DbMachineId,) = sqlx::query_as(query)
+        let machine_id: MachineId = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
             .bind(state_version.version_string())
             .bind(sqlx::types::Json(&state))
@@ -1525,7 +1470,6 @@ SELECT m.id FROM
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-        let machine_id = row.0.into_inner();
         if machine_id != *stable_machine_id {
             return Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
                 stable_machine_id.clone(),
@@ -1560,7 +1504,7 @@ SELECT m.id FROM
         };
 
         let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(req))
             .fetch_one(txn.deref_mut())
@@ -1581,7 +1525,7 @@ SELECT m.id FROM
                                     jsonb_set(reprovisioning_requested,
                                                 '{started_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(current_time))
             .fetch_one(txn.deref_mut())
@@ -1600,7 +1544,7 @@ SELECT m.id FROM
         };
 
         let query = "UPDATE machines SET host_reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(req))
             .fetch_one(&mut **txn)
@@ -1616,7 +1560,7 @@ SELECT m.id FROM
     ) -> Result<(), DatabaseError> {
         let query =
             "UPDATE machines SET host_reprovisioning_requested = NULL WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
@@ -1661,7 +1605,7 @@ SELECT m.id FROM
                                     jsonb_set(reprovisioning_requested,
                                                 '{user_approval_received}', $2, true)
                        WHERE id=$1 RETURNING id"#;
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(true))
             .fetch_one(txn.deref_mut())
@@ -1687,7 +1631,7 @@ SELECT m.id FROM
             .to_string();
 
         let str_list: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
-        let _id = sqlx::query_as::<_, DbMachineId>(&query)
+        let _id = sqlx::query_as::<_, MachineId>(&query)
             .bind(sqlx::types::Json(restart_request))
             .bind(str_list)
             .fetch_one(txn.deref_mut())
@@ -1718,7 +1662,7 @@ SELECT m.id FROM
             query.replace("{validate_started}", "")
         };
 
-        let _id = sqlx::query_as::<_, DbMachineId>(&query)
+        let _id = sqlx::query_as::<_, MachineId>(&query)
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1844,12 +1788,12 @@ SELECT m.id FROM
         }
 
         let q = qb.build_query_as();
-        let machine_ids: Vec<DbMachineId> = q
+        let machine_ids: Vec<MachineId> = q
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
 
-        Ok(machine_ids.into_iter().map(MachineId::from).collect())
+        Ok(machine_ids)
     }
 
     pub async fn get_host_machine_ids_for_state_model_version(
@@ -1859,7 +1803,7 @@ SELECT m.id FROM
         let query = r#"SELECT id FROM machines WHERE 
                                (starts_with(id, 'fm100h') OR starts_with(id, 'fm100p')) 
                                AND machine_state_model_version=$1"#;
-        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+        let machine_ids: Vec<MachineId> = sqlx::query_as(query)
             .bind(version)
             .fetch_all(txn.deref_mut())
             .await
@@ -1872,7 +1816,7 @@ SELECT m.id FROM
                 )
             })?;
 
-        Ok(machine_ids.into_iter().map(MachineId::from).collect())
+        Ok(machine_ids)
     }
 
     pub async fn update_state(
@@ -1951,7 +1895,7 @@ SELECT m.id FROM
     ) -> Result<(), DatabaseError> {
         let query =
             "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
@@ -1985,7 +1929,7 @@ SELECT m.id FROM
         failure: FailureDetails,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
-        let _id: (DbMachineId,) = sqlx::query_as(query)
+        let _id: (MachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(failure))
             .bind(machine_id.to_string())
             .fetch_one(txn.deref_mut())

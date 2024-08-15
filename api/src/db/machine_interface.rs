@@ -26,7 +26,6 @@ use sqlx::{Acquire, FromRow, Postgres, Row, Transaction, Type};
 use tonic::Status;
 
 use super::dhcp_entry::DhcpEntry;
-use super::machine::DbMachineId;
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::domain::DomainId;
@@ -182,14 +181,10 @@ impl ColumnInfo for MachineIdColumn {
 
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
-        let attached_dpu_machine_id: Option<DbMachineId> =
-            row.try_get("attached_dpu_machine_id")?;
-
         Ok(MachineInterfaceSnapshot {
             id: row.try_get("id")?,
-            attached_dpu_machine_id: attached_dpu_machine_id.map(|id| id.into_inner()),
-            machine_id: machine_id.map(|id| id.into_inner()),
+            attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
+            machine_id: row.try_get("machine_id")?,
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,

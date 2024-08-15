@@ -14,23 +14,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::model::machine::machine_id::MachineId;
 
-use super::{machine::DbMachineId, DatabaseError};
+use super::DatabaseError;
 
 #[derive(Debug, FromRow)]
-pub struct DbHostMachineUpdate {
-    pub id: DbMachineId,
-}
-
 pub struct HostMachineUpdate {
     pub id: MachineId,
-}
-
-impl From<DbHostMachineUpdate> for HostMachineUpdate {
-    fn from(value: DbHostMachineUpdate) -> Self {
-        HostMachineUpdate {
-            id: value.id.into(),
-        }
-    }
 }
 
 impl HostMachineUpdate {
@@ -38,10 +26,9 @@ impl HostMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
         let query = "SELECT id FROM machines WHERE host_reprovisioning_requested IS NOT NULL AND host_reprovisioning_requested != 'null';";
-        sqlx::query_as::<_, DbHostMachineUpdate>(query)
+        sqlx::query_as::<_, HostMachineUpdate>(query)
             .fetch_all(&mut **txn)
             .await
-            .map(|machine| machine.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
     }
 
@@ -50,10 +37,9 @@ impl HostMachineUpdate {
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
         let query =
             "SELECT id FROM machines WHERE controller_state->'state' = '\"hostreprovision\"';";
-        sqlx::query_as::<_, DbHostMachineUpdate>(query)
+        sqlx::query_as::<_, HostMachineUpdate>(query)
             .fetch_all(&mut **txn)
             .await
-            .map(|machine| machine.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
     }
 }

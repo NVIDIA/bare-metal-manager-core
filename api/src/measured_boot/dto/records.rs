@@ -23,7 +23,6 @@
 */
 
 use super::keys::UuidEmptyStringError;
-use crate::db::machine::DbMachineId;
 use crate::db::machine_topology::TopologyData;
 use crate::db::DbTable;
 use crate::measured_boot::dto::keys::{
@@ -576,7 +575,7 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct MeasurementReportRecord {
     // report_id is the auto-generated UUID specific to this report.
     pub report_id: MeasurementReportId,
@@ -586,17 +585,6 @@ pub struct MeasurementReportRecord {
 
     // ts is the timestamp the report record was created.
     pub ts: chrono::DateTime<Utc>,
-}
-
-impl<'r> FromRow<'r, PgRow> for MeasurementReportRecord {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
-        Ok(Self {
-            report_id: row.try_get("report_id")?,
-            machine_id: machine_id.into_inner(),
-            ts: row.try_get("ts")?,
-        })
-    }
 }
 
 impl MeasurementReportRecord {
@@ -743,7 +731,7 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct MeasurementJournalRecord {
     // journal is the auto-generated UUID specific to this
     // journal entry.
@@ -780,21 +768,6 @@ pub struct MeasurementJournalRecord {
 
     // ts is the timestamp the journal record was created.
     pub ts: chrono::DateTime<Utc>,
-}
-
-impl<'r> FromRow<'r, PgRow> for MeasurementJournalRecord {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
-        Ok(Self {
-            journal_id: row.try_get("journal_id")?,
-            machine_id: machine_id.into_inner(),
-            report_id: row.try_get("report_id")?,
-            profile_id: row.try_get("profile_id")?,
-            bundle_id: row.try_get("bundle_id")?,
-            state: row.try_get("state")?,
-            ts: row.try_get("ts")?,
-        })
-    }
 }
 
 impl MeasurementJournalRecord {
@@ -969,7 +942,7 @@ impl From<MeasurementMachineStatePb> for MeasurementMachineState {
 /// the whole row, but we don't really
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct CandidateMachineRecord {
     // machine_id is the ID of the machine, e.g. fm100hxxxxx.
     pub machine_id: MachineId,
@@ -982,18 +955,6 @@ pub struct CandidateMachineRecord {
 
     // updated is the timestamp this record was updated.
     pub updated: chrono::DateTime<Utc>,
-}
-
-impl<'r> FromRow<'r, PgRow> for CandidateMachineRecord {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
-        Ok(Self {
-            machine_id: machine_id.into_inner(),
-            topology: row.try_get("topology")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-        })
-    }
 }
 
 impl From<CandidateMachineRecord> for CandidateMachineSummaryPb {

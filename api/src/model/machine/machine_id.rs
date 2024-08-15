@@ -19,6 +19,7 @@ use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo};
+use sqlx::Row;
 
 /// The `MachineId` uniquely identifies a machine that is managed by the Forge system
 ///
@@ -52,15 +53,41 @@ impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
         sqlx::encode::IsNull::No
     }
 }
-impl sqlx::Type<sqlx::Postgres> for MachineId {
-    fn type_info() -> PgTypeInfo {
-        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
 
-    fn compatible(ty: &PgTypeInfo) -> bool {
-        <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+impl<'r, DB> sqlx::Decode<'r, DB> for MachineId
+where
+    DB: sqlx::Database,
+    String: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let str_id: String = String::decode(value)?;
+        Ok(MachineId::from_str(&str_id).map_err(|e| sqlx::Error::Decode(Box::new(e)))?)
     }
 }
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for MachineId {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let id: MachineId = row.try_get(0)?;
+        Ok(id)
+    }
+}
+
+impl<DB> sqlx::Type<DB> for MachineId
+where
+    DB: sqlx::Database,
+    String: sqlx::Type<DB>,
+{
+    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
+        String::type_info()
+    }
+
+    fn compatible(ty: &DB::TypeInfo) -> bool {
+        String::compatible(ty)
+    }
+}
+
 impl PgHasArrayType for MachineId {
     fn array_type_info() -> PgTypeInfo {
         <&str as PgHasArrayType>::array_type_info()

@@ -17,7 +17,7 @@ use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
-    db::{machine::DbMachineId, DatabaseError},
+    db::DatabaseError,
     model::machine::{machine_id::MachineId, MachineStateHistory, ManagedHostState},
 };
 
@@ -48,13 +48,12 @@ impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory 
 
 impl<'r> FromRow<'r, PgRow> for DbMachineStateHistory {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
         let state_version_str: &str = row.try_get("state_version")?;
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         Ok(DbMachineStateHistory {
-            machine_id: machine_id.into_inner(),
+            machine_id: row.try_get("machine_id")?,
             state: row.try_get("state")?,
             state_version,
             _timestamp: row.try_get("timestamp")?,
