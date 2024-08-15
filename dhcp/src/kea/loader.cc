@@ -64,14 +64,14 @@ extern "C" {
 			}
 		}
 
-        ConstElementPtr ntpserver = handle->getParameter("carbide-ntpserver");
-        if (ntpserver) {
-            if(ntpserver->getType() != Element::string) {
+        ConstElementPtr ntpservers = handle->getParameter("carbide-ntpserver");
+        if (ntpservers) {
+            if(ntpservers->getType() != Element::string) {
                 // TODO: handle invalid data type for ntpserver
                 return (1);
             } else {
                 // TOOD: proper logging
-                carbide_set_config_ntp(ntpserver->stringValue().c_str());
+                carbide_set_config_ntp(ntpservers->stringValue().c_str());
             }
         }
 

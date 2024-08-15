@@ -140,7 +140,7 @@ pub async fn run(
     let mut is_hbn_up = false;
     let mut has_logged_stable = false;
 
-    let (pxe_ip, ntp_ip, nameservers) = if !agent.machine.is_fake_dpu {
+    let (pxe_ip, ntpservers, nameservers) = if !agent.machine.is_fake_dpu {
         let mut url_resolver = UrlResolver::try_new()?;
 
         let pxe_ip = *url_resolver
@@ -153,25 +153,24 @@ pub async fn run(
         // This log should be removed after some time.
         tracing::info!(%pxe_ip, "Pxe server resolved");
 
-        let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
+        let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
             Ok(x) => {
-                let ntp_server_ip = x.first();
                 // This log should be removed after some time.
-                tracing::info!(?ntp_server_ip, "Ntp server resolved");
-                ntp_server_ip.cloned()
+                tracing::info!(?x, "NTP servers resolved.");
+                x
             }
             Err(e) => {
-                tracing::error!(error = %e, "NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack.");
-                None
+                tracing::error!(error = %e, "NTP servers couldn't be resolved. Dhcp-server won't send NTP server IPs in dhcpoffer/ack.");
+                vec![]
             }
         };
 
         let nameservers = url_resolver.nameservers();
-        (pxe_ip, ntp_ip, nameservers)
+        (pxe_ip, ntpservers, nameservers)
     } else {
         (
             Ipv4Addr::from([127, 0, 0, 1]),
-            None,
+            vec![],
             vec![IpAddr::from([127, 0, 0, 1])],
         )
     };
@@ -340,7 +339,7 @@ pub async fn run(
                         conf,
                         agent.hbn.skip_reload,
                         pxe_ip,
-                        ntp_ip,
+                        ntpservers.clone(),
                         nameservers.clone(),
                         nvt,
                     )

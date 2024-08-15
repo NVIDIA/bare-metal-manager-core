@@ -400,10 +400,9 @@ fn create_dhcp_reply_packet(
     msg.opts_mut()
         .insert(DhcpOption::ClientIdentifier(client_identifier));
 
-    if let Some(ntp_server) = config.dhcp_config.carbide_ntpserver {
-        msg.opts_mut()
-            .insert(DhcpOption::NtpServers(vec![ntp_server]));
-    }
+    msg.opts_mut().insert(DhcpOption::NtpServers(
+        config.dhcp_config.carbide_ntpservers.clone(),
+    ));
 
     if let Some(vendor_class) = vendor_class {
         msg.opts_mut().insert(DhcpOption::ClassIdentifier(

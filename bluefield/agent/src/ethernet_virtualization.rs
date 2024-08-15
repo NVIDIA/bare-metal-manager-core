@@ -433,7 +433,7 @@ pub async fn update_dhcp(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
     pxe_ip: Ipv4Addr,
-    ntp_ip: Option<Ipv4Addr>,
+    ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
     nvt: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
@@ -459,7 +459,7 @@ pub async fn update_dhcp(
             &paths_dhcp_server,
             network_config,
             pxe_ip,
-            ntp_ip,
+            ntpservers,
             nameservers,
         ) {
             Ok(true) => PostAction {
@@ -680,7 +680,7 @@ fn write_dhcp_server_config(
     dhcp_server_path: &DhcpServerPaths,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     pxe_ip: Ipv4Addr,
-    ntp_ip: Option<Ipv4Addr>,
+    ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
 ) -> eyre::Result<bool> {
     match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay") {
@@ -734,7 +734,7 @@ fn write_dhcp_server_config(
         Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
     }
 
-    let next_contents = dhcp::build_server_config(pxe_ip, ntp_ip, nameservers, loopback_ip)?;
+    let next_contents = dhcp::build_server_config(pxe_ip, ntpservers, nameservers, loopback_ip)?;
     match write(
         next_contents,
         &dhcp_server_path.config,
@@ -1641,7 +1641,7 @@ mod tests {
         assert_eq!(received.rebinding_time_secs, expected.rebinding_time_secs);
         assert_eq!(received.carbide_nameservers, expected.carbide_nameservers);
         assert_eq!(received.carbide_api_url, expected.carbide_api_url);
-        assert_eq!(received.carbide_ntpserver, expected.carbide_ntpserver);
+        assert_eq!(received.carbide_ntpservers, expected.carbide_ntpservers);
         assert_eq!(
             received.carbide_provisioning_server_ipv4,
             expected.carbide_provisioning_server_ipv4
@@ -1720,7 +1720,11 @@ mod tests {
 
         let dhcp_config = DhcpConfig {
             carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
-            carbide_ntpserver: Some(Ipv4Addr::from([127, 0, 0, 1])),
+            carbide_ntpservers: vec![
+                Ipv4Addr::from([127, 0, 0, 1]),
+                Ipv4Addr::from([127, 0, 0, 2]),
+                Ipv4Addr::from([127, 0, 0, 3]),
+            ],
             carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
             lease_time_secs: 604800,
             renewal_time_secs: 3600,
@@ -1785,7 +1789,11 @@ mod tests {
             },
             &network_config,
             Ipv4Addr::from([10, 0, 0, 1]),
-            Some(Ipv4Addr::from([127, 0, 0, 1])),
+            vec![
+                Ipv4Addr::from([127, 0, 0, 1]),
+                Ipv4Addr::from([127, 0, 0, 2]),
+                Ipv4Addr::from([127, 0, 0, 3]),
+            ],
             vec![IpAddr::from([10, 1, 1, 1])],
         ) {
             Err(err) => {
@@ -1823,7 +1831,7 @@ mod tests {
             },
             &network_config,
             Ipv4Addr::from([10, 0, 0, 1]),
-            None,
+            vec![],
             vec![IpAddr::from([10, 1, 1, 1])],
         ) {
             Err(err) => {
@@ -1838,7 +1846,7 @@ mod tests {
         }
         let dhcp_config = DhcpConfig {
             carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
-            carbide_ntpserver: None,
+            carbide_ntpservers: vec![],
             carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
             lease_time_secs: 604800,
             renewal_time_secs: 3600,

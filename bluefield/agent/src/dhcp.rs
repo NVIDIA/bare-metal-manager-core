@@ -65,13 +65,13 @@ pub fn blank() -> String {
 
 pub fn build_server_config(
     pxe_ip: Ipv4Addr,
-    ntp_ip: Option<Ipv4Addr>,
+    ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<Ipv4Addr>,
     loopback_ip: Ipv4Addr,
 ) -> Result<String, eyre::Report> {
     let dhcp_config = utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip,
-        ntp_ip,
+        ntpservers,
         nameservers,
         loopback_ip,
     )?;
