@@ -208,14 +208,13 @@ pub struct VpcSearchQuery {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let config_version_str: &str = row.try_get("version")?;
-        let version = config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
+        // TODO(chet): Once `tenant_keyset_id` is taken care of,
+        // this entire FromRow implementation can go away with a
+        // rename of `tenant_organization_id` to match (or just
+        // a rename of the `organization_id` column).
         Ok(Vpc {
             id: row.try_get("id")?,
-            version,
+            version: row.try_get("version")?,
             name: row.try_get("name")?,
             tenant_organization_id: row.try_get("organization_id")?,
             created: row.try_get("created")?,
@@ -233,16 +232,13 @@ impl NewVpc {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vpc, DatabaseError> {
-        let version = ConfigVersion::initial();
-        let version_string = version.version_string();
-
         let query =
             "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type) VALUES ($1, $2, $3, $4, $5) RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
             .bind(&self.name)
             .bind(&self.tenant_organization_id)
-            .bind(&version_string)
+            .bind(ConfigVersion::initial())
             .bind(self.network_virtualization_type)
             .fetch_one(txn.deref_mut())
             .await
@@ -462,9 +458,7 @@ impl UpdateVpc {
                 vpcs[0].version
             }
         };
-        let current_version_str = current_version.version_string();
         let next_version = current_version.increment();
-        let next_version_str = next_version.version_string();
 
         // network_virtualization_type cannot be changed currently
         // TODO check number of changed rows
@@ -475,9 +469,9 @@ impl UpdateVpc {
         let query_result = sqlx::query_as(query)
             .bind(&self.name)
             .bind(&self.tenant_organization_id)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(self.id)
-            .bind(&current_version_str)
+            .bind(current_version)
             .fetch_one(txn.deref_mut())
             .await;
 

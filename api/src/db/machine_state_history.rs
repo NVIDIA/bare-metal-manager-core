@@ -14,7 +14,7 @@ use std::ops::DerefMut;
 
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
     db::DatabaseError,
@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// History of Machine states for a single Machine
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 struct DbMachineStateHistory {
     /// The ID of the machine that experienced the state change
     machine_id: MachineId,
@@ -34,7 +34,8 @@ struct DbMachineStateHistory {
     state_version: ConfigVersion,
 
     /// The timestamp of the state change
-    _timestamp: DateTime<Utc>,
+    #[allow(dead_code)]
+    timestamp: DateTime<Utc>,
 }
 
 impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory {
@@ -43,21 +44,6 @@ impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory 
             state: event.state,
             state_version: event.state_version,
         }
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for DbMachineStateHistory {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let state_version_str: &str = row.try_get("state_version")?;
-        let state_version = state_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        Ok(DbMachineStateHistory {
-            machine_id: row.try_get("machine_id")?,
-            state: row.try_get("state")?,
-            state_version,
-            _timestamp: row.try_get("timestamp")?,
-        })
     }
 }
 
@@ -125,7 +111,7 @@ pub async fn persist(
     sqlx::query_as::<_, DbMachineStateHistory>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(state))
-        .bind(state_version.version_string())
+        .bind(state_version)
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

@@ -273,15 +273,6 @@ impl fmt::Display for NetworkSegmentType {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for NetworkSegment {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let config_version_str: &str = row.try_get("version")?;
-        let version = config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
-        let controller_state_version_str: &str = row.try_get("controller_state_version")?;
-        let controller_state_version = controller_state_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<NetworkSegmentControllerState> =
             row.try_get("controller_state")?;
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
@@ -289,11 +280,14 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 
         Ok(NetworkSegment {
             id: row.try_get("id")?,
-            version,
+            version: row.try_get("version")?,
             name: row.try_get("name")?,
             subdomain_id: row.try_get("subdomain_id")?,
             vpc_id: row.try_get("vpc_id")?,
-            controller_state: Versioned::new(controller_state.0, controller_state_version),
+            controller_state: Versioned::new(
+                controller_state.0,
+                row.try_get("controller_state_version")?,
+            ),
             controller_state_outcome: state_outcome.map(|x| x.0),
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
@@ -459,7 +453,6 @@ impl NewNetworkSegment {
         initial_state: NetworkSegmentControllerState,
     ) -> Result<NetworkSegment, DatabaseError> {
         let version = ConfigVersion::initial();
-        let version_string = version.version_string();
 
         let query = "INSERT INTO network_segments (
                 id,
@@ -481,8 +474,8 @@ impl NewNetworkSegment {
             .bind(self.subdomain_id)
             .bind(self.vpc_id)
             .bind(self.mtu)
-            .bind(&version_string)
-            .bind(&version_string)
+            .bind(version)
+            .bind(version)
             .bind(sqlx::types::Json(&initial_state))
             .bind(self.vlan_id)
             .bind(self.vni)
@@ -766,16 +759,14 @@ impl NetworkSegment {
         expected_version: ConfigVersion,
         new_state: &NetworkSegmentControllerState,
     ) -> Result<bool, DatabaseError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.version_string();
 
         let query = "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
         let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(segment_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
