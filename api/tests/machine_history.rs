@@ -225,13 +225,12 @@ async fn test_old_machine_state_history(
 
     let mut txn = env.pool.begin().await?;
 
-    let version = ConfigVersion::initial();
     let query =
         "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
     sqlx::query(query)
         .bind(dpu_machine_id.to_string())
         .bind(r#"{"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}}"#)
-        .bind(version.to_string())
+        .bind(ConfigVersion::initial())
         .execute(&mut *txn)
         .await?;
 

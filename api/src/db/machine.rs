@@ -193,20 +193,12 @@ pub struct Machine {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let controller_state_version_str: &str = row.try_get("controller_state_version")?;
-        let controller_state_version = controller_state_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<ManagedHostState> =
             row.try_get("controller_state")?;
 
         let stable_string: String = row.try_get("id")?;
         let id = MachineId::from_str(&stable_string).unwrap();
 
-        let network_config_version_str: &str = row.try_get("network_config_version")?;
-        let network_config_version = network_config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let network_config: sqlx::types::Json<ManagedHostNetworkConfig> =
             row.try_get("network_config")?;
 
@@ -251,8 +243,11 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             _deployed: row.try_get("deployed")?,
-            state: Versioned::new(controller_state.0, controller_state_version),
-            network_config: Versioned::new(network_config.0, network_config_version),
+            state: Versioned::new(controller_state.0, row.try_get("controller_state_version")?),
+            network_config: Versioned::new(
+                network_config.0,
+                row.try_get("network_config_version")?,
+            ),
             network_status_observation,
             history: Vec::new(),
             interfaces: Vec::new(),
@@ -606,7 +601,7 @@ SELECT m.id FROM
         let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
         )
-        .bind(version.version_string())
+        .bind(version)
         .bind(sqlx::types::Json(state))
         .bind(self.id().to_string())
         .fetch_one(txn.deref_mut())
@@ -1324,18 +1319,16 @@ SELECT m.id FROM
         // earlier than the host. But we might want to replicate it to the host machine,
         // as we do with `controller_state`.
 
-        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.version_string();
 
         let query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
         let query_result: Result<MachineId, _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(machine_id.to_string())
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -1461,9 +1454,9 @@ SELECT m.id FROM
                                 VALUES($1, $2, $3, $4, $5, $6) RETURNING id"#;
         let machine_id: MachineId = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
-            .bind(state_version.version_string())
+            .bind(state_version)
             .bind(sqlx::types::Json(&state))
-            .bind(network_config_version.version_string())
+            .bind(network_config_version)
             .bind(sqlx::types::Json(&network_config))
             .bind(CURRENT_STATE_MODEL_VERSION)
             .fetch_one(txn.deref_mut())

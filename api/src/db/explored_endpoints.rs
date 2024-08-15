@@ -42,10 +42,6 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let report: sqlx::types::Json<EndpointExplorationReport> =
             row.try_get("exploration_report")?;
-        let version_str: &str = row.try_get("version")?;
-        let report_version = version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let preingestion_state: sqlx::types::Json<PreingestionState> =
             row.try_get("preingestion_state")?;
         let waiting_for_explorer_refresh = row.try_get("waiting_for_explorer_refresh")?;
@@ -54,7 +50,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
             report: report.0,
-            report_version,
+            report_version: row.try_get("version")?,
             preingestion_state: preingestion_state.0,
             waiting_for_explorer_refresh,
             exploration_requested,
@@ -244,10 +240,10 @@ impl DbExploredEndpoint {
 UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh = false, exploration_requested = false
 WHERE address = $3 AND version=$4";
         let query_result = sqlx::query(query)
-            .bind(new_version.version_string())
+            .bind(new_version)
             .bind(sqlx::types::Json(exploration_report))
             .bind(address)
-            .bind(old_version.version_string())
+            .bind(old_version)
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -282,7 +278,7 @@ WHERE address = $3 AND version=$4";
             "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address;";
         let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
             .bind(address)
-            .bind(version.version_string())
+            .bind(version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -406,11 +402,10 @@ WHERE address = $3 AND version=$4";
         INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state)
         VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}')
         ON CONFLICT DO NOTHING";
-        let version = ConfigVersion::initial();
         let _result = sqlx::query(query)
             .bind(address)
             .bind(sqlx::types::Json(&exploration_report))
-            .bind(version.version_string())
+            .bind(ConfigVersion::initial())
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

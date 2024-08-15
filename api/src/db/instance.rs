@@ -210,32 +210,15 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             hostname: row.try_get("hostname")?,
         };
 
-        let network_config_version_str: &str = row.try_get("network_config_version")?;
-        let network_config_version = network_config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let network_config: sqlx::types::Json<InstanceNetworkConfig> =
             row.try_get("network_config")?;
         let network_status_observation: sqlx::types::Json<OptionalNetworkStatusObservation> =
             row.try_get("network_status_observation")?;
 
-        let ib_config_version_str: &str = row.try_get("ib_config_version")?;
-        let ib_config_version = ib_config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let ib_config: sqlx::types::Json<InstanceInfinibandConfig> = row.try_get("ib_config")?;
         let ib_status_observation: sqlx::types::Json<OptionalIbStatusObservation> =
             row.try_get("ib_status_observation")?;
 
-        let version_str: &str = row.try_get("config_version")?;
-        let config_version = version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
-        let storage_config_version_str: &str = row.try_get("storage_config_version")?;
-        let storage_config_version = storage_config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let storage_config: sqlx::types::Json<InstanceStorageConfig> =
             row.try_get("storage_config")?;
         let storage_status_observation: sqlx::types::Json<OptionalStorageStatusObservation> =
@@ -266,10 +249,10 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
             config,
-            config_version,
-            network_config_version,
-            ib_config_version,
-            storage_config_version,
+            config_version: row.try_get("config_version")?,
+            network_config_version: row.try_get("network_config_version")?,
+            ib_config_version: row.try_get("ib_config_version")?,
+            storage_config_version: row.try_get("storage_config_version")?,
             observations: InstanceStatusObservations {
                 network: network_status_observation.0 .0,
                 infiniband: ib_status_observation.0 .0,
@@ -522,22 +505,20 @@ WHERE s.network_config->>'loopback_ip'=$1";
         new_state: &InstanceNetworkConfig,
         increment_version: bool,
     ) -> Result<(), DatabaseError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = if increment_version {
             expected_version.increment()
         } else {
             expected_version
         };
-        let next_version_str = next_version.version_string();
 
         let query = "UPDATE instances SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -584,9 +565,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         config: InstanceConfig,
         metadata: Metadata,
     ) -> Result<(), CarbideError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.version_string();
 
         let os_ipxe_script;
         let os_user_data;
@@ -604,7 +583,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             WHERE id=$10 AND config_version=$11
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(os_ipxe_script)
             .bind(os_user_data)
             .bind(config.os.run_provisioning_instructions_on_every_boot)
@@ -614,7 +593,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(&metadata.description)
             .bind(sqlx::types::Json(&metadata.labels))
             .bind(instance_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -639,9 +618,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         expected_version: ConfigVersion,
         os: OperatingSystem,
     ) -> Result<(), CarbideError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.version_string();
 
         let os_ipxe_script;
         let os_user_data;
@@ -657,13 +634,13 @@ WHERE s.network_config->>'loopback_ip'=$1";
             WHERE id=$6 AND config_version=$7
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(os_ipxe_script)
             .bind(os_user_data)
             .bind(os.run_provisioning_instructions_on_every_boot)
             .bind(os.phone_home_enabled)
             .bind(instance_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -686,22 +663,20 @@ WHERE s.network_config->>'loopback_ip'=$1";
         new_state: &InstanceInfinibandConfig,
         increment_version: bool,
     ) -> Result<(), DatabaseError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = if increment_version {
             expected_version.increment()
         } else {
             expected_version
         };
-        let next_version_str = next_version.version_string();
 
         let query = "UPDATE instances SET ib_config_version=$1, ib_config=$2::json
             WHERE id=$3 AND ib_config_version=$4
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -719,13 +694,11 @@ WHERE s.network_config->>'loopback_ip'=$1";
         new_state: &InstanceStorageConfig,
         increment_version: bool,
     ) -> Result<(), DatabaseError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = if increment_version {
             expected_version.increment()
         } else {
             expected_version
         };
-        let next_version_str = next_version.version_string();
 
         // check if volumes need to be allocated, currently only supporting pre-created volumes
         // todo: handle volume creation as part of instance allocation
@@ -766,10 +739,10 @@ WHERE s.network_config->>'loopback_ip'=$1";
             WHERE id=$3 AND storage_config_version=$4
             RETURNING id";
         let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(&mut **txn)
             .await;
 
@@ -880,12 +853,10 @@ impl<'a> NewInstance<'a> {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<InstanceSnapshot, DatabaseError> {
-        let network_version_string = self.network_config_version.version_string();
         // None means we haven't observed any network status from forge-dpu-agent yet
         // The first report from the agent will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
-        let ib_config_version = self.ib_config_version.version_string();
         // None means we haven't registered the Host at UFM yet
         let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
 
@@ -898,7 +869,6 @@ impl<'a> NewInstance<'a> {
             }
         }
 
-        let storage_config_version = self.storage_config_version.version_string();
         let storage_status_observation = Option::<InstanceStorageStatusObservation>::None;
 
         let query = "INSERT INTO instances (
@@ -936,20 +906,20 @@ impl<'a> NewInstance<'a> {
             .bind(self.config.os.run_provisioning_instructions_on_every_boot)
             .bind(self.config.tenant.tenant_organization_id.as_str())
             .bind(sqlx::types::Json(&self.config.network))
-            .bind(&network_version_string)
+            .bind(self.network_config_version)
             .bind(sqlx::types::Json(network_status_observation))
             .bind(sqlx::types::Json(&self.config.infiniband))
-            .bind(&ib_config_version)
+            .bind(self.ib_config_version)
             .bind(sqlx::types::Json(ib_status_observation))
             .bind(&self.config.tenant.tenant_keyset_ids)
             .bind(self.config.os.phone_home_enabled)
             .bind(&self.metadata.name)
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))
-            .bind(self.config_version.version_string())
+            .bind(self.config_version)
             .bind(&self.config.tenant.hostname)
             .bind(sqlx::types::Json(&self.config.storage))
-            .bind(&storage_config_version)
+            .bind(self.storage_config_version)
             .bind(sqlx::types::Json(storage_status_observation))
             .fetch_one(&mut **txn)
             .await

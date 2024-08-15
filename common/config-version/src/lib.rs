@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use sqlx::Row;
 use std::{
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -265,6 +266,49 @@ impl<'de> serde::Deserialize<'de> for ConfigVersion {
         let version =
             ConfigVersion::from_str(&str_value).map_err(|err| Error::custom(err.to_string()))?;
         Ok(version)
+    }
+}
+
+impl<DB> sqlx::Type<DB> for ConfigVersion
+where
+    DB: sqlx::Database,
+    String: sqlx::Type<DB>,
+{
+    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
+        String::type_info()
+    }
+
+    fn compatible(ty: &DB::TypeInfo) -> bool {
+        String::compatible(ty)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for ConfigVersion {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend(self.to_string().as_bytes());
+        sqlx::encode::IsNull::No
+    }
+}
+
+impl<'r, DB> sqlx::Decode<'r, DB> for ConfigVersion
+where
+    DB: sqlx::Database,
+    String: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let source = String::decode(value)?;
+        let config_version =
+            Self::from_str(&source).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        Ok(config_version)
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ConfigVersion {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let config_version = row.try_get(0)?;
+        Ok(config_version)
     }
 }
 

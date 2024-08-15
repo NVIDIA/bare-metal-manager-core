@@ -54,15 +54,11 @@ impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHist
 
 impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let state_version_str: &str = row.try_get("state_version")?;
-        let state_version = state_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         Ok(NetworkSegmentStateHistory {
             _id: row.try_get("id")?,
             segment_id: row.try_get("segment_id")?,
             state: row.try_get("state")?,
-            state_version,
+            state_version: row.try_get("state_version")?,
             timestamp: row.try_get("timestamp")?,
         })
     }
@@ -120,7 +116,7 @@ impl NetworkSegmentStateHistory {
         sqlx::query(query)
             .bind(segment_id)
             .bind(sqlx::types::Json(state))
-            .bind(state_version.version_string())
+            .bind(state_version)
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

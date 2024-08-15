@@ -53,7 +53,6 @@ where
     ) -> Result<(), ResourcePoolError> {
         let free_state = ResourcePoolEntryState::Free;
         let initial_version = ConfigVersion::initial();
-        let version_str = initial_version.to_string();
 
         for vals in all_values.chunks(BIND_LIMIT / 4) {
             let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version) ";
@@ -63,7 +62,7 @@ where
                     .push_bind(v.to_string())
                     .push_bind(self.value_type)
                     .push_bind(sqlx::types::Json(&free_state))
-                    .push_bind(&version_str);
+                    .push_bind(initial_version);
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();

@@ -234,15 +234,6 @@ pub struct IBPartition {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for IBPartition {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let config_version_str: &str = row.try_get("config_version")?;
-        let version = config_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
-        let controller_state_version_str: &str = row.try_get("controller_state_version")?;
-        let controller_state_version = controller_state_version_str
-            .parse()
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<IBPartitionControllerState> =
             row.try_get("controller_state")?;
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
@@ -260,7 +251,7 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
 
         Ok(IBPartition {
             id: row.try_get("id")?,
-            version,
+            version: row.try_get("config_version")?,
             config: IBPartitionConfig {
                 name: row.try_get("name")?,
                 pkey: Some(pkey as u16),
@@ -275,7 +266,10 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
 
-            controller_state: Versioned::new(controller_state.0, controller_state_version),
+            controller_state: Versioned::new(
+                controller_state.0,
+                row.try_get("controller_state_version")?,
+            ),
             controller_state_outcome: state_outcome.map(|x| x.0),
         })
     }
@@ -379,7 +373,6 @@ impl NewIBPartition {
         ib_fabric_config: &IBFabricManagerConfig,
     ) -> Result<IBPartition, DatabaseError> {
         let version = ConfigVersion::initial();
-        let version_string = version.version_string();
         let state = IBPartitionControllerState::Provisioning;
         let conf = &self.config;
 
@@ -405,8 +398,8 @@ impl NewIBPartition {
             .bind(conf.mtu)
             .bind(conf.rate_limit)
             .bind(conf.service_level)
-            .bind(&version_string)
-            .bind(&version_string)
+            .bind(version)
+            .bind(version)
             .bind(sqlx::types::Json(state))
             .bind(ib_fabric_config.max_partition_per_tenant)
             .fetch_one(txn.deref_mut())
@@ -548,16 +541,14 @@ impl IBPartition {
         expected_version: ConfigVersion,
         new_state: &IBPartitionControllerState,
     ) -> Result<bool, DatabaseError> {
-        let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
-        let next_version_str = next_version.version_string();
 
         let query = "UPDATE ib_partitions SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
         let query_result: Result<IBPartitionId, _> = sqlx::query_as(query)
-            .bind(&next_version_str)
+            .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(partition_id)
-            .bind(&expected_version_str)
+            .bind(expected_version)
             .fetch_one(txn.deref_mut())
             .await;
 
