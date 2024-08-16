@@ -108,6 +108,7 @@ fn build_exploration_report(
         }],
         machine_id,
         versions: HashMap::default(),
+        model: None,
     }
 }
 
@@ -141,5 +142,6 @@ fn build_dpu_exploration_report(machine_id_str: &str) -> EndpointExplorationRepo
         service: vec![],
         machine_id,
         versions: HashMap::default(),
+        model: None,
     }
 }

@@ -12,6 +12,7 @@
 pub mod address_selection_strategy;
 pub mod attestation;
 pub mod bmc_metadata;
+pub mod desired_firmware;
 pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod domain;

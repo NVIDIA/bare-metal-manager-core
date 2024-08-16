@@ -13,29 +13,21 @@
 use super::machine_update_module::MachineUpdateModule;
 use crate::{
     cfg::{CarbideConfig, FirmwareConfig},
-    db::{
-        explored_endpoints::DbExploredEndpoint,
-        host_machine_update::HostMachineUpdate,
-        machine::{Machine, MachineSearchConfig},
-        machine_topology::MachineTopology,
-    },
+    db::{desired_firmware, host_machine_update::HostMachineUpdate, machine::Machine},
     model::machine::machine_id::MachineId,
     CarbideResult,
 };
 use async_trait::async_trait;
 use opentelemetry::metrics::{ObservableGauge, Observer};
 use sqlx::{Postgres, Transaction};
-use std::{
-    any::Any,
-    collections::HashSet,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{any::Any, collections::HashSet, fmt, sync::Arc};
+use tokio::sync::Mutex;
 
 pub struct HostFirmwareUpdate {
-    pub metrics: Option<Arc<Mutex<HostFirmwareUpdateMetrics>>>,
+    pub metrics: Option<Arc<std::sync::Mutex<HostFirmwareUpdateMetrics>>>,
     config: Arc<CarbideConfig>,
     firmware_config: FirmwareConfig,
+    desired_firmware_set: Arc<Mutex<bool>>,
 }
 
 #[async_trait]
@@ -58,6 +50,14 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
     ) -> CarbideResult<HashSet<MachineId>> {
+        let mut desired_firmware_set = self.desired_firmware_set.lock().await;
+        if !*desired_firmware_set {
+            // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
+            desired_firmware::snapshot_desired_firmware(txn, &self.firmware_config).await?;
+            *desired_firmware_set = true;
+        }
+        drop(desired_firmware_set);
+
         let machine_updates = self.check_for_updates(txn, available_updates).await?;
         let mut updates_started = HashSet::default();
         if let Some(metrics) = &self.metrics {
@@ -91,7 +91,9 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     }
 
     async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        match HostMachineUpdate::find_upgrade_needed(txn).await {
+        match HostMachineUpdate::find_upgrade_needed(txn, self.config.firmware_global.autoupdate)
+            .await
+        {
             Ok(upgrade_needed) => {
                 if let Some(metrics) = &self.metrics {
                     if let Ok(mut metrics) = metrics.lock() {
@@ -122,7 +124,9 @@ impl HostFirmwareUpdate {
     ) -> Option<Self> {
         let config = config.clone();
 
-        let metrics = Arc::new(Mutex::new(HostFirmwareUpdateMetrics::new(meter.clone())));
+        let metrics = Arc::new(std::sync::Mutex::new(HostFirmwareUpdateMetrics::new(
+            meter.clone(),
+        )));
         let metrics_clone = metrics.clone();
         if let Ok(locked_metrics) = metrics.lock() {
             if let Err(e) =
@@ -143,6 +147,7 @@ impl HostFirmwareUpdate {
             firmware_config,
             config,
             metrics: Some(metrics),
+            desired_firmware_set: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -155,53 +160,26 @@ impl HostFirmwareUpdate {
         if available_updates == 0 {
             return Ok(machines);
         };
-        // TODO: We would like this to pare down the results in the query itself, FORGE-3870
-        for endpoint in DbExploredEndpoint::find_all(txn).await? {
-            // Async functions in a closure is messy, so no iter().filter_map() here.
+        // find_upgrade_needed filters for just things that need upgrades
+        for update_needed in
+            HostMachineUpdate::find_upgrade_needed(txn, self.config.firmware_global.autoupdate)
+                .await?
+        {
             if available_updates == 0 {
                 return Ok(machines);
             };
-            let Some(vendor) = endpoint.report.vendor else {
-                continue;
-            };
-            let Some(model) = endpoint.report.model() else {
-                continue;
-            };
-            let Some(host_info) = self.firmware_config.find(vendor, model) else {
-                continue;
-            };
-
-            for (component, current_version) in endpoint.report.versions {
-                if let Some(desired) = host_info.components.get(&component) {
-                    if let Some(desired) = desired.known_firmware.iter().find(|x| x.default) {
-                        if desired.version != current_version {
-                            tracing::debug!(
-                                "machine_update_manager: Host {:?} has {:?} version {} desired {}",
-                                endpoint.address,
-                                component,
-                                current_version,
-                                desired.version,
-                            );
-                            // Machines do not have their BMC IPs directly listed, we need machine topology
-                            let Some(machine_id) = MachineTopology::find_machine_id_by_bmc_ip(
-                                txn,
-                                endpoint.address.to_string().as_str(),
-                            )
-                            .await?
-                            else {
-                                // Should generally not happen, but if we somehow lost info about the host we shouldn't be messing with it.
-                                break;
-                            };
-                            if !firmware_updates_enabled(txn, &self.config, &machine_id).await? {
-                                break;
-                            }
-                            available_updates -= 1;
-                            machines.push(machine_id);
-                            break;
-                        }
-                    }
-                }
+            if self
+                .config
+                .firmware_global
+                .host_disable_autoupdate
+                .iter()
+                .any(|x| **x == update_needed.id.to_string())
+            {
+                // This machine is specifically disabled
+                break;
             }
+            available_updates -= 1;
+            machines.push(update_needed.id);
         }
         Ok(machines)
     }
@@ -260,46 +238,4 @@ impl HostFirmwareUpdateMetrics {
             &[],
         );
     }
-}
-
-/// firmware_update_enabled detrmines if firmware updates are enabled for this specific machine.  Database setting has top priority, then configuration file setting, then global.
-async fn firmware_updates_enabled(
-    txn: &mut Transaction<'_, Postgres>,
-    config: &CarbideConfig,
-    machine_id: &MachineId,
-) -> CarbideResult<bool> {
-    let Some(machine) = Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await?
-    else {
-        // Machine is missing?  Best do nothing.
-        return Ok(false);
-    };
-
-    if let Some(setting) = machine.firmware_autoupdate() {
-        // Specified in DB
-        return Ok(setting);
-    }
-
-    let machine_id_string = machine_id.to_string();
-
-    if config
-        .firmware_global
-        .host_disable_autoupdate
-        .iter()
-        .any(|x| **x == machine_id_string)
-    {
-        // Explicitly disabled in config file
-        return Ok(false);
-    }
-    if config
-        .firmware_global
-        .host_enable_autoupdate
-        .iter()
-        .any(|x| **x == machine_id_string)
-    {
-        // Explicitly enabled in config file
-        return Ok(true);
-    }
-
-    // Use the global
-    Ok(config.firmware_global.autoupdate)
 }
