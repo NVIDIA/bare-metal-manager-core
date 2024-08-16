@@ -162,7 +162,7 @@ impl MachineStateMachine {
                         _bmc_mock_handle: maybe_bmc_mock_handle,
                         bmc_dhcp_info: dhcp_info,
                     },
-                    installed_os: OsImage::Host,
+                    installed_os: OsImage::NoOs,
                 })))
             }
             MachineState::MachineDown(inner_state) => {
@@ -252,9 +252,15 @@ impl MachineStateMachine {
             MachineState::MachineUp(inner_state) => match inner_state.booted_os {
                 OsImage::DpuAgent => self.run_dpu_agent_iteration(inner_state).await,
                 OsImage::Scout => self.run_scout_iteration(inner_state).await,
-                OsImage::Host => {
-                    if matches!(self.machine_info, MachineInfo::Dpu(_)) {
-                        return Err(MachineStateError::WrongOsForMachine("DPU is trying to boot to empty Host OS. This should not happen (Carbide image should have been installed)".to_string()));
+                OsImage::NoOs => {
+                    match self.machine_info {
+                        MachineInfo::Host(_) => {
+                            self.logger.info("Host booted to tenant OS".to_string())
+                        }
+                        MachineInfo::Dpu(_) => self.logger.info(
+                            "DPU booted to empty OS, will wait for carbide to reboot us"
+                                .to_string(),
+                        ),
                     }
                     Ok(NextState::SleepFor(Duration::MAX))
                 }
@@ -345,7 +351,7 @@ impl MachineStateMachine {
 
             return Ok(NextState::Advance(
                 machine_up_state
-                    .install_os_with_discovery_result(OsImage::Host, machine_discovery_result),
+                    .install_os_with_discovery_result(OsImage::NoOs, machine_discovery_result),
             ));
         };
 
@@ -544,7 +550,7 @@ impl MachineStateMachine {
 
     fn installed_os(&self) -> OsImage {
         match &self.state {
-            MachineState::BmcInit => OsImage::Host,
+            MachineState::BmcInit => OsImage::NoOs,
             MachineState::MachineDown(s) => s.installed_os,
             MachineState::Init(s) => s.installed_os,
             MachineState::DhcpComplete(s) => s.installed_os,
@@ -710,12 +716,12 @@ pub enum OsImage {
     /// This is the scout image and can be run on hosts via PXE but should not be installed
     Scout,
     /// Default installed OS, will sleep forever when booted to.
-    Host,
+    NoOs,
 }
 
 impl Default for OsImage {
     fn default() -> Self {
-        Self::Host
+        Self::NoOs
     }
 }
 
@@ -724,7 +730,7 @@ impl Display for OsImage {
         match self {
             OsImage::DpuAgent => f.write_str("Dpu Agent"),
             OsImage::Scout => f.write_str("Scout"),
-            OsImage::Host => f.write_str("Host OS"),
+            OsImage::NoOs => f.write_str("No OS"),
         }
     }
 }
