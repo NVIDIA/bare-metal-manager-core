@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use prometheus::{opts, Encoder, HistogramVec, IntCounterVec, Registry, TextEncoder};
+use prometheus::{
+    opts, Encoder, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder,
+};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::route::{Handler, Outcome};
 use rocket::{Data, Request, Response, Route};
@@ -26,7 +28,20 @@ pub struct RequestMetrics {
     registry: Registry,
     http_requests_total: Option<IntCounterVec>,
     http_request_duration_seconds: Option<HistogramVec>,
+    http_response_size_bytes: Option<HistogramVec>,
 }
+
+const SIZE_BUCKETS: &[f64; 9] = &[
+    100.0,
+    1000.0,
+    10000.0,
+    100000.0,
+    1000000.0,
+    10000000.0,
+    100000000.0,
+    1000000000.0,
+    10000000000.0,
+];
 
 impl RequestMetrics {
     pub fn new() -> Self {
@@ -37,7 +52,7 @@ impl RequestMetrics {
         let http_requests_total_opts =
             opts!("http_requests_total", "Total number of HTTP requests").namespace(namespace);
         let http_requests_total =
-            match IntCounterVec::new(http_requests_total_opts, &["endpoint", "method", "code"]) {
+            match IntCounterVec::new(http_requests_total_opts, &["path", "method", "code"]) {
                 Ok(counter) => Some(counter),
                 Err(err) => {
                     eprintln!("Failed to initialize http_requests_total: {}", err);
@@ -53,7 +68,7 @@ impl RequestMetrics {
         .namespace(namespace);
         let http_request_duration_seconds = match HistogramVec::new(
             http_request_duration_seconds_opts.into(),
-            &["endpoint", "method", "code"],
+            &["path", "method", "code"],
         ) {
             Ok(histogram) => Some(histogram),
             Err(err) => {
@@ -64,6 +79,21 @@ impl RequestMetrics {
                 None
             }
         };
+
+        // init http_response_size_bytes
+        let http_response_size_bytes_opts = HistogramOpts {
+            common_opts: opts!("http_response_size_bytes", "HTTP response size in bytes",)
+                .namespace(namespace),
+            buckets: Vec::from(SIZE_BUCKETS as &'static [f64]),
+        };
+        let http_response_size_bytes =
+            match HistogramVec::new(http_response_size_bytes_opts, &["path", "method"]) {
+                Ok(histogram) => Some(histogram),
+                Err(err) => {
+                    eprintln!("Failed to initialize http_response_size_bytes: {}", err);
+                    None
+                }
+            };
 
         // register
         if let Some(total) = http_requests_total.clone() {
@@ -78,10 +108,17 @@ impl RequestMetrics {
             });
         }
 
+        if let Some(size) = http_response_size_bytes.clone() {
+            registry.register(Box::new(size)).unwrap_or_else(|err| {
+                eprintln!("Failed to register http_response_size_bytes: {}", err);
+            });
+        }
+
         Self {
             registry,
             http_requests_total,
             http_request_duration_seconds,
+            http_response_size_bytes,
         }
     }
 }
@@ -151,12 +188,23 @@ impl Fairing for RequestMetrics {
 
         let method = request.method().as_str();
         let code = response.status().code.to_string();
+        let body_size = response.body_mut().size().await.unwrap_or(0);
+
+        // set http_response_size_bytes
+        if let Some(http_response_size_bytes) = self.http_response_size_bytes.clone() {
+            http_response_size_bytes
+                .with_label_values(&[endpoint.as_str(), method])
+                .observe(body_size as f64);
+        }
+
+        // set http_requests_total
         if let Some(http_requests_total) = self.http_requests_total.clone() {
             http_requests_total
                 .with_label_values(&[endpoint.as_str(), method, code.as_str()])
                 .inc();
         }
 
+        // set http_request_duration_seconds
         let start_time = request.local_cache(|| RequestStart(None));
         if let Some(duration) = start_time.0.map(|st| st.elapsed()) {
             let duration_secs = duration.as_secs_f64();

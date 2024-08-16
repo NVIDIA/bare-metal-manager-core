@@ -914,6 +914,7 @@ dependencies = [
  "forge-host-support",
  "forge-tls",
  "forge-version",
+ "log",
  "prometheus",
  "rocket",
  "rocket_codegen",
