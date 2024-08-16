@@ -29,7 +29,7 @@ use carbide::{
     },
     preingestion_manager::PreingestionManager,
     state_controller::machine::handler::MachineStateHandlerBuilder,
-    CarbideError, CarbideResult,
+    CarbideResult,
 };
 use common::api_fixtures::{network_segment::create_admin_network_segment, TestEnv};
 use rpc::forge::forge_server::Forge;
@@ -40,7 +40,6 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
     sync::Arc,
-    time::Duration,
 };
 
 #[ctor::ctor]
@@ -439,11 +438,8 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
-    let _handle = update_manager
-        .start()
-        .map_err(|x| CarbideError::GenericError(x.to_string()))?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    // Update manager is running in the background, and should notice that the host is underversioned, setting the request to update it
+    // Update manager should notice that the host is underversioned, setting the request to update it
+    update_manager.run_single_iteration().await?;
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
@@ -646,8 +642,8 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
-    // Now wait a bit to let update manager run again, it should not put us back to reprovisioning.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Now let update manager run again, it should not put us back to reprovisioning.
+    update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -687,10 +683,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
-    let _handle = update_manager
-        .start()
-        .map_err(|x| CarbideError::GenericError(x.to_string()))?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -703,7 +696,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
     txn.commit().await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    update_manager.run_single_iteration().await?;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
@@ -722,10 +715,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
-    let _handle = update_manager
-        .start()
-        .map_err(|x| CarbideError::GenericError(x.to_string()))?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    update_manager.run_single_iteration().await?;
 
     // Globally disabled, so it should not have requested an update
     let mut txn = env.pool.begin().await.unwrap();
@@ -739,7 +729,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
     Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
     txn.commit().await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    update_manager.run_single_iteration().await?;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
