@@ -1,3 +1,6 @@
+use serde::{Serialize, Serializer};
+use std::collections::{BTreeMap, HashMap};
+
 pub mod admin_cli;
 pub mod cmd;
 pub mod managed_host_display;
@@ -15,6 +18,18 @@ pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<St
         Transition | DoNothing | Todo => None,
         Wait | Error => p.outcome_msg.clone(),
     }
+}
+
+// ordered_map is used with serde to take a HashMap and always serialize it in key sorted order
+pub fn ordered_map<S, K: Ord + Serialize, V: Serialize>(
+    value: &HashMap<K, V>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
 }
 
 pub fn has_duplicates<T>(iter: T) -> bool

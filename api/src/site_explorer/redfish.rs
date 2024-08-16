@@ -258,6 +258,7 @@ impl RedfishClient {
             service,
             vendor,
             versions: HashMap::default(),
+            model: None,
         })
     }
 }

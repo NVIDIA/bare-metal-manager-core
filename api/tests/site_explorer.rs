@@ -242,6 +242,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                     ],
                 }],
                 versions: HashMap::default(),
+                model: None,
             }),
         );
         guard.insert(
@@ -262,6 +263,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
+                model: None,
             }),
         );
     }
@@ -522,6 +524,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             }],
             machine_id: None, // Only DPU reports have a machine ID listed
             versions: HashMap::default(),
+            model: None,
         });
     }
 
@@ -746,6 +749,7 @@ async fn test_site_explorer_reexplore(
                     ],
                 }],
                 versions: HashMap::default(),
+                model: None,
             }),
         );
         guard.insert(
@@ -1004,6 +1008,7 @@ async fn test_site_explorer_creates_managed_host(
             ],
         }],
         versions: HashMap::default(),
+        model: None,
     };
     dpu_report.generate_machine_id();
 
@@ -1469,6 +1474,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 ],
             }],
             versions: HashMap::default(),
+            model: None,
         };
         dpu_report.generate_machine_id();
         explored_dpus.push(ExploredDpu {
@@ -1738,6 +1744,7 @@ async fn test_site_explorer_clear_last_known_error(
             ],
         }],
         versions: HashMap::default(),
+        model: None,
     };
     dpu_report1.generate_machine_id();
 
@@ -1921,6 +1928,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             ],
         }],
         versions: Default::default(),
+        model: None,
     };
 
     let host_exploration_report = EndpointExplorationReport {
@@ -2006,6 +2014,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         }],
         machine_id: None,
         versions: Default::default(),
+        model: None,
     };
 
     let new_dpu_report = |sn: String| -> EndpointExplorationReport {
@@ -2334,6 +2343,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
             ],
         }],
         versions: HashMap::default(),
+        model: None,
     };
     dpu_report.generate_machine_id();
 
@@ -2521,6 +2531,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             ],
         }],
         versions: HashMap::default(),
+        model: None,
     };
     dpu_report.generate_machine_id();
     let dpu_machine_id = dpu_report.machine_id.clone().unwrap();

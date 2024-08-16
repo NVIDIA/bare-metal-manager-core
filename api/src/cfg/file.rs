@@ -866,6 +866,10 @@ impl FirmwareConfig {
             .to_owned()?;
         self.find(vendor, model)
     }
+
+    pub fn map(&self) -> HashMap<String, Firmware> {
+        self.map.clone()
+    }
 }
 
 pub fn default_max_find_by_ids() -> u32 {

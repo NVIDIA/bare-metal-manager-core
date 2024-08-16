@@ -86,6 +86,18 @@ impl BMCVendor {
         }
     }
 
+    /// to_pascalcase converts to StringLikeThis to match serialization
+    pub fn to_pascalcase(self) -> String {
+        match self {
+            BMCVendor::Lenovo => "Lenovo",
+            BMCVendor::Dell => "Dell",
+            BMCVendor::Supermicro => "Supermicro",
+            BMCVendor::Hpe => "Hpe",
+            BMCVendor::Nvidia => "Nvidia",
+            BMCVendor::Unknown => "Unknown",
+        }
+        .to_string()
+    }
     pub fn is_lenovo(&self) -> bool {
         *self == Self::Lenovo
     }

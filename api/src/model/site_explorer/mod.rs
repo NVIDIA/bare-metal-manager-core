@@ -54,9 +54,16 @@ pub struct EndpointExplorationReport {
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<MachineId>,
-    /// Parsed versions
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Parsed versions, serializtion override means it will always be sorted
+    #[serde(
+        default,
+        serialize_with = "utils::ordered_map",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
     pub versions: HashMap<FirmwareComponentType, String>,
+    /// Model, parsed out of chassis and service
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl EndpointExplorationReport {
@@ -486,6 +493,7 @@ impl EndpointExplorationReport {
             vendor: None,
             machine_id: None,
             versions: HashMap::default(),
+            model: None,
         }
     }
 
@@ -1058,6 +1066,7 @@ mod tests {
             ],
             machine_id: None,
             versions: HashMap::default(),
+            model: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1108,6 +1117,7 @@ mod tests {
             ],
             machine_id: None,
             versions: HashMap::default(),
+            model: None,
         };
         report.generate_machine_id();
 

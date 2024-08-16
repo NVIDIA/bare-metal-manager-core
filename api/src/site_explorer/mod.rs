@@ -805,6 +805,7 @@ impl SiteExplorer {
                             // do not keep stale data.
                             report.versions = HashMap::default();
                         }
+                        report.model = report.model();
                     }
 
                     (

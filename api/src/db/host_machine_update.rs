@@ -24,9 +24,35 @@ pub struct HostMachineUpdate {
 impl HostMachineUpdate {
     pub async fn find_upgrade_needed(
         txn: &mut Transaction<'_, Postgres>,
+        global_enabled: bool,
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
-        let query = "SELECT id FROM machines WHERE host_reprovisioning_requested IS NOT NULL AND host_reprovisioning_requested != 'null';";
-        sqlx::query_as::<_, HostMachineUpdate>(query)
+        let from_global = if global_enabled {
+            " OR machines.firmware_autoupdate IS NULL"
+        } else {
+            ""
+        };
+
+        // Both desired_firmware.versions and explored_endpoints.exploration_report->>'Versions' are sorted, and will have their keys
+        // defined based on the firmware config.  If a new key (component type) is added to the configuration, we would initally flag
+        // everything, but nothing would happen to them and the next time site explorer runs on those hosts they will be made to match.
+        let query = format!(
+            r#"select machines.id, explored_endpoints.exploration_report->>'Vendor', explored_endpoints.exploration_report->>'Model'
+        FROM explored_endpoints
+        INNER JOIN machine_topologies 
+            ON SPLIT_PART(explored_endpoints.address::text, '/', 1) = machine_topologies.topology->'bmc_info'->>'ip'
+        INNER JOIN machines
+            ON machine_topologies.machine_id = machines.id
+        INNER JOIN desired_firmware
+            ON explored_endpoints.exploration_report->>'Vendor' = desired_firmware.vendor AND explored_endpoints.exploration_report->>'Model' = desired_firmware.model
+        WHERE machines.id LIKE 'fm100h%'
+            AND machines.controller_state->>'state' = 'ready'
+            AND machines.host_reprovisioning_requested IS NULL
+            AND desired_firmware.versions != explored_endpoints.exploration_report->>'Versions'
+            AND (machines.firmware_autoupdate = TRUE{})
+        ;"#,
+            from_global
+        );
+        sqlx::query_as::<_, HostMachineUpdate>(query.as_str())
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))

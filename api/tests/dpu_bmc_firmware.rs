@@ -179,6 +179,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             ],
         }],
         versions: HashMap::default(),
+        model: None,
     };
     dpu_report.generate_machine_id();
 

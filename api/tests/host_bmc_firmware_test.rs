@@ -280,7 +280,7 @@ fn build_exploration_report(
         Some(MachineId::from_str(machine_id_str).unwrap())
     };
 
-    EndpointExplorationReport {
+    let mut report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         vendor: Some(bmc_vendor::BMCVendor::Dell),
         last_exploration_error: None,
@@ -324,7 +324,10 @@ fn build_exploration_report(
         }],
         machine_id,
         versions: HashMap::default(),
-    }
+        model: None,
+    };
+    report.model = report.model();
+    report
 }
 
 async fn insert_dpu_endpoint(
@@ -376,6 +379,7 @@ fn build_dpu_exploration_report(
         }],
         machine_id,
         versions: HashMap::default(),
+        model: None,
     }
 }
 
