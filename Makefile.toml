@@ -64,6 +64,7 @@ workspace = false
 script = '''
 docker run \
 	--rm \
+	--pull always \
 	--user $(id -u):$(id -g) \
 	--volume $(pwd):/code \
 	--workdir /code \
@@ -81,6 +82,7 @@ workspace = false
 script = '''
 docker run \
 	--rm \
+	--pull always \
 	--user $(id -u):$(id -g) \
 	--volume $(pwd):/code \
 	--workdir /code \
@@ -109,9 +111,10 @@ description = "Cross compile forge-scout and forge-admin-cli for aarch64, intend
 workspace = false
 script = '''
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --pull always \
     --env CARGO_HOME=/cargo \
     -v $CARGO_HOME:/cargo \
-    build-artifacts-container-cross-aarch64 \
+    build-artifacts-container-cross-aarch64:latest \
     "cargo" \
     "build" \
     "--release" \
@@ -120,7 +123,7 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "admin" \
     "-p" \
     "scout" 
-docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64 "aarch64-linux-gnu-strip" \
+docker run --rm --pull always -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-admin-cli" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
 '''
@@ -179,7 +182,7 @@ category = "Docker Compose"
 description = "Brings up a full Carbide stack"
 workspace = false
 command = "docker-compose"
-args = ["up", "-d", "--build"]
+args = ["up", "-d", "--build", "--pull"]
 dependencies = [
   { name = "mkdir-static-x86_64", path = "${REPO_ROOT}/pxe" },
   { name = "mkdir-static-aarch64", path = "${REPO_ROOT}/pxe" },
