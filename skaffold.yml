@@ -56,6 +56,12 @@ build:
       sync:
         infer:
           - "nvmetal-scout-burn-in"
+    - image: carbide-hardware-health
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.health.localdev
+      sync:
+        infer:
+          - "hw-health"
 manifests:
   kustomize:
     paths:
