@@ -243,10 +243,7 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
 
         let routers = self.routers.clone();
         Box::pin(async move {
-            // Hold the lock on the router until we finish calling the request
-            let lock = routers.read().await;
-
-            let Some(router) = lock.get(&forwarded_host).cloned() else {
+            let Some(router) = routers.read().await.get(&forwarded_host).cloned() else {
                 let err = format!("no BMC mock configured for host: {forwarded_host}");
                 tracing::info!("{err}");
                 return Ok(Response::builder()

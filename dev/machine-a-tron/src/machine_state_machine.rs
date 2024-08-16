@@ -332,9 +332,17 @@ impl MachineStateMachine {
         let Some(machine_discovery_result) = machine_up_state.machine_discovery_result.as_ref()
         else {
             // No machine_discovery_result means scout has not yet run this boot. Run discovery now.
-            let machine_discovery_result = self
+            tracing::trace!("Running initial discovery after boot");
+            let machine_discovery_result = match self
                 .run_machine_discovery(&machine_up_state.machine_dhcp_info)
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(error=%e, "Error running discovery after booting scout image. Will sleep until we are rebooted");
+                    return Ok(NextState::SleepFor(Duration::MAX));
+                }
+            };
             let machine_id = machine_discovery_result
                 .machine_id
                 .as_ref()
@@ -418,7 +426,7 @@ impl MachineStateMachine {
                     .map(MacAddress::to_string)
                     .collect(),
                 product_serial: self.machine_info.product_serial(),
-                chassis_serial: self.machine_info.chassis_serial(),
+                chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
                 host_mac_address: self.machine_info.host_mac_address().map(|m| m.to_string()),
             },
         )

@@ -701,7 +701,7 @@ impl Forge for Api {
             // In case host interface is created, this method will return existing one, instead
             // creating new everytime.
             let machine_interface =
-                db::machine_interface::create_host_machine_interface_proactively(
+                db::machine_interface::create_host_machine_dpu_interface_proactively(
                     &mut txn,
                     Some(&hardware_info),
                     machine.id(),

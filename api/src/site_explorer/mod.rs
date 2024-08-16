@@ -63,7 +63,9 @@ mod redfish;
 mod redfish_endpoint_explorer;
 pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
 mod identify;
+use crate::model::hardware_info::NetworkInterface;
 pub use identify::{identify_bmc, IdentifyError};
+
 mod managed_host;
 
 use self::metrics::exploration_error_to_metric_label;
@@ -294,14 +296,14 @@ impl SiteExplorer {
     async fn create_machines(
         &self,
         metrics: &mut SiteExplorationMetrics,
-        explored_managed_hosts: Vec<ExploredManagedHost>,
+        explored_managed_hosts: Vec<(ExploredManagedHost, EndpointExplorationReport)>,
     ) -> CarbideResult<()> {
         // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
         // for every identified ManagedHost even if we don't create any objects.
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
-        for host in explored_managed_hosts {
+        for (host, report) in explored_managed_hosts {
             match self
-                .create_managed_host(host, &self.database_connection)
+                .create_managed_host(host, report, &self.database_connection)
                 .await
             {
                 Ok(true) => metrics.created_machines += 1,
@@ -319,6 +321,7 @@ impl SiteExplorer {
     pub async fn create_managed_host(
         &self,
         explored_host: ExploredManagedHost,
+        mut report: EndpointExplorationReport,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
         let mut managed_host = ManagedHost::init(explored_host);
@@ -326,14 +329,29 @@ impl SiteExplorer {
             DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
         })?;
 
+        // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
+        if managed_host.explored_host.dpus.is_empty() {
+            if !self.config.allow_zero_dpu_hosts {
+                let error = CarbideError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
+                tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
+                return Err(error);
+            }
+            tracing::info!("Creating managed_host with zero DPUs");
+            let did_create = self
+                .create_zero_dpu_machine(&mut txn, &mut managed_host, &mut report)
+                .await?;
+            if !did_create {
+                // Site explorer has already created a machine for this endpoint previously, skip.
+                return Ok(false);
+            }
+        }
+
         let mut dpu_ids = vec![];
-
         for dpu_report in managed_host.explored_host.dpus.clone().iter() {
-            // can_visit makes sure that all optional fields on dpu_report are actually set (like the machine-id etc)
-            // Thats why we can unwrap the results of dpu_report directly going forward (though, we shouldnt -- TODO (sp))
-            self.can_visit(dpu_report)?;
-
-            let dpu_machine_id = dpu_report.report.machine_id.clone().unwrap();
+            // machine_id_if_valid_report makes sure that all optional fields on dpu_report are
+            // actually set (like the machine-id etc) and returns the machine_id if everything
+            // is valid.
+            let dpu_machine_id = dpu_report.machine_id_if_valid_report()?.clone();
             dpu_ids.push(dpu_machine_id);
 
             if !self.create_dpu(&mut txn, dpu_report).await? {
@@ -387,7 +405,7 @@ impl SiteExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
         expected_machines: HashMap<IpAddr, ExpectedMachine>,
-    ) -> CarbideResult<Vec<ExploredManagedHost>> {
+    ) -> CarbideResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
                 file!(),
@@ -514,13 +532,28 @@ impl SiteExplorer {
                 // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
                 // (ensuring that the second DPU has also made the DHCP request).
                 if !dpu_added {
-                    tracing::info!(
-                        address = %ep.address,
-                        exploration_report = ?ep,
-                        "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
-                        dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
-                    );
-                    continue;
+                    if expected_num_dpus_attached_to_host > 0 {
+                        tracing::warn!(
+                            address = %ep.address,
+                            exploration_report = ?ep,
+                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
+                            dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
+                        );
+                        continue;
+                    } else if !self.config.allow_zero_dpu_hosts {
+                        tracing::warn!(
+                            address = %ep.address,
+                            exploration_report = ?ep,
+                            "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration.",
+                        );
+                        continue;
+                    } else {
+                        tracing::info!(
+                            address = %ep.address,
+                            exploration_report = ?ep,
+                            "identified zero-DPU managed host",
+                        );
+                    }
                 }
             }
 
@@ -542,7 +575,7 @@ impl SiteExplorer {
                         dpus_explored_for_host.insert(0, dpu);
                     }
                     is_sorted = true;
-                } else {
+                } else if !dpus_explored_for_host.is_empty() {
                     let all_mac = dpus_explored_for_host
                         .iter()
                         .map(|x| {
@@ -568,14 +601,25 @@ impl SiteExplorer {
                         .to_lowercase()
                 });
             }
-            managed_hosts.push(ExploredManagedHost {
-                host_bmc_ip: ep.address,
-                dpus: dpus_explored_for_host,
-            });
+            managed_hosts.push((
+                ExploredManagedHost {
+                    host_bmc_ip: ep.address,
+                    dpus: dpus_explored_for_host,
+                },
+                ep.report.clone(),
+            ));
             metrics.exploration_identified_managed_hosts += 1;
         }
 
-        DbExploredManagedHost::update(&mut txn, &managed_hosts).await?;
+        DbExploredManagedHost::update(
+            &mut txn,
+            managed_hosts
+                .iter()
+                .map(|h| h.0.clone())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await?;
 
         txn.commit().await.map_err(|e| {
             DatabaseError::new(file!(), line!(), "end update_explored_endpoints data", e)
@@ -796,7 +840,9 @@ impl SiteExplorer {
 
                     // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
-                        report.generate_machine_id();
+                        if let Err(error) = report.generate_machine_id(false) {
+                            tracing::error!(%error, "Can not generate MachineId for explored endpoint");
+                        }
                         if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
                         {
                             report.parse_versions(&fw_info);
@@ -930,11 +976,6 @@ impl SiteExplorer {
         Ok(expected_machines)
     }
 
-    fn can_visit(&self, explored_dpu: &ExploredDpu) -> CarbideResult<()> {
-        explored_dpu.has_valid_report()?;
-        Ok(())
-    }
-
     // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.
     // If the DPU does not exist in the machines table, the function creates a new DPU machine and configures it appropriately. create_dpu returns true.
     // If the DPU already exists in the machines table, this is a no-op. create_dpu returns false.
@@ -953,8 +994,96 @@ impl SiteExplorer {
                 .await?;
             return Ok(true);
         }
-
         Ok(false)
+    }
+
+    async fn create_zero_dpu_machine(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        managed_host: &mut ManagedHost,
+        report: &mut EndpointExplorationReport,
+    ) -> CarbideResult<bool> {
+        // If there's already a machine with the same MAC address as this endpoint, return false. We
+        // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
+        // already.
+        let mac_addresses = report.all_mac_addresses();
+        for mac_address in &mac_addresses {
+            if Machine::find_by_mac_address(txn, mac_address)
+                .await?
+                .is_some()
+            {
+                return Ok(false);
+            }
+        }
+
+        let machine_id = match managed_host.machine_id.as_ref() {
+            Some(machine_id) => machine_id,
+            None => {
+                // Mint a predicted-host machine_id from the exploration report
+                report.generate_machine_id(true)?
+            }
+        };
+
+        tracing::info!(%machine_id, "Minted predicted host ID for zero-DPU machine");
+
+        let existing_machine = Machine::find_one(
+            txn,
+            machine_id,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+
+        if let Some(existing_machine) = existing_machine {
+            // There's already a machine with this ID, but we already looked above for machines with
+            // the same MAC address as this one, so something's weird here. Log this host's mac
+            // addresses and the ones from the colliding hosts to help in diagnosis.
+            let existing_macs = existing_machine
+                .hardware_info()
+                .map(|hw| hw.all_mac_addresses())
+                .unwrap_or_default();
+            tracing::warn!(
+                %machine_id,
+                ?existing_macs,
+                predicted_host_macs=?mac_addresses,
+                "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
+            );
+            return Ok(false);
+        }
+
+        self.create_machine_from_explored_managed_host(txn, managed_host, machine_id)
+            .await?;
+
+        let machine_id = machine_id.clone(); // 🦀 end the borrow so we can write to managed_host.machine_id
+        managed_host.machine_id = Some(machine_id.clone());
+
+        // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
+        // the exploration report
+        for iface in report
+            .systems
+            .first()
+            .map(|s| s.ethernet_interfaces.as_slice())
+            .unwrap_or_default()
+        {
+            let Some(mac_address) = iface.mac_address.as_ref() else {
+                continue;
+            };
+
+            let network_interface = NetworkInterface {
+                mac_address: mac_address.clone(),
+                pci_properties: None,
+            };
+            db::machine_interface::create_host_machine_non_dpu_interface_proactively(
+                txn,
+                &machine_id,
+                &network_interface,
+            )
+            .await?;
+        }
+
+        Ok(true)
     }
 
     // configure_dpu_interface checks the machine_interfaces table to see if the DPU's machine interface has its machine id set.
@@ -1066,7 +1195,7 @@ impl SiteExplorer {
         // In case host interface is created, this method will return existing one, instead
         // creating new everytime.
         let host_machine_interface =
-            db::machine_interface::create_host_machine_interface_proactively(
+            db::machine_interface::create_host_machine_dpu_interface_proactively(
                 txn,
                 Some(&dpu_hw_info),
                 explored_dpu.report.machine_id.as_ref().unwrap(),
@@ -1184,6 +1313,25 @@ impl SiteExplorer {
         .await?;
 
         Ok(predicted_machine_id)
+    }
+
+    // 1) Create a machine for this host using the passed machine_id
+    // 2) Update the "machine_topologies" table with the bmc info for this host
+    async fn create_machine_from_explored_managed_host(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        managed_host: &ManagedHost,
+        predicted_machine_id: &MachineId,
+    ) -> CarbideResult<()> {
+        _ = Machine::create(txn, predicted_machine_id, ManagedHostState::Created).await?;
+        let hardware_info = HardwareInfo::default();
+        self.update_machine_topology(
+            txn,
+            predicted_machine_id,
+            &managed_host.explored_host.bmc_info(),
+            &hardware_info,
+        )
+        .await
     }
 
     async fn update_machine_topology(

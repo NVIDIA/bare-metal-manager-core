@@ -369,7 +369,7 @@ impl MachineId {
     /// Generates a Machine ID from a hardware fingerprint
     ///
     /// Returns `None` if no sufficient data is available
-    fn from_hardware_info_with_type(
+    pub fn from_hardware_info_with_type(
         hardware_info: &HardwareInfo,
         machine_type: MachineType,
     ) -> Result<Self, MissingHardwareInfo> {
@@ -419,24 +419,14 @@ impl MachineId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, thiserror::Error)]
 pub enum MissingHardwareInfo {
-    /// The TPM certificate had no bytes
+    #[error("The TPM certificate has no bytes")]
     TPMCertEmpty,
-    /// Serial number missing (product, board and chassis)
+    #[error("Serial number missing (product, board and chassis)")]
     Serial,
-    /// TPM and dmi data are both missing
+    #[error("TPM and DMI data are both missing")]
     All,
-}
-
-impl std::fmt::Display for MissingHardwareInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TPMCertEmpty => f.write_str("The TPM certificate has no bytes"),
-            Self::Serial => f.write_str("Serial number missing (product, board and chassis)"),
-            Self::All => f.write_str("TPM and DMI data are both missing"),
-        }
-    }
 }
 
 impl Serialize for MachineId {

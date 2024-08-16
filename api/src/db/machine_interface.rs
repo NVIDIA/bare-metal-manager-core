@@ -33,7 +33,7 @@ use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::hardware_info::HardwareInfo;
+use crate::model::hardware_info::{HardwareInfo, NetworkInterface};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult};
@@ -753,12 +753,42 @@ pub async fn get_machine_interface_primary(
         })
 }
 
+/// Create a non-DPU interface for a host machine.
+pub async fn create_host_machine_non_dpu_interface_proactively(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+    network_interface: &NetworkInterface,
+) -> Result<MachineInterfaceSnapshot, CarbideError> {
+    let admin_network = NetworkSegment::admin(txn).await?;
+
+    // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
+    // segment.
+    let prefix = admin_network
+        .prefixes
+        .iter()
+        .filter(|x| x.prefix.is_ipv4())
+        .last()
+        .ok_or(CarbideError::AdminNetworkNotConfigured)?;
+
+    let Some(gateway) = prefix.gateway else {
+        return Err(CarbideError::AdminNetworkNotConfigured);
+    };
+
+    let host_mac = MacAddress::from_str(network_interface.mac_address.as_str())?;
+
+    let machine_interface =
+        find_or_create_machine_interface(txn, Some(machine_id.clone()), host_mac, gateway).await?;
+    associate_interface_with_machine(&machine_interface.id, machine_id, txn).await?;
+
+    Ok(machine_interface)
+}
+
 /// This function creates Proactive Host Machine Interface with all available information.
 /// Parsed Mac: Found in DPU's topology data
 /// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
 /// segment.
 /// Returns: Machine Interface, True if new interface is created.
-pub async fn create_host_machine_interface_proactively(
+pub async fn create_host_machine_dpu_interface_proactively(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,

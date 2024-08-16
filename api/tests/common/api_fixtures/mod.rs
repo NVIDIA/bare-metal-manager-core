@@ -20,7 +20,18 @@ use std::{
     time::SystemTime,
 };
 
+use crate::common::{
+    api_fixtures::{
+        dpu::create_dpu_machine,
+        host::create_host_machine,
+        managed_host::{ManagedHostConfig, ManagedHostSim},
+    },
+    mac_address_pool,
+    test_certificates::TestCertificateProvider,
+    test_meter::TestMeter,
+};
 use arc_swap::ArcSwap;
+use carbide::cfg::SiteExplorerConfig;
 use carbide::storage::{NvmeshClientPool, NvmeshSimClient};
 use carbide::{
     api::Api,
@@ -73,17 +84,6 @@ use rpc::forge::{
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
-
-use crate::common::{
-    api_fixtures::{
-        dpu::create_dpu_machine,
-        host::create_host_machine,
-        managed_host::{ManagedHostConfig, ManagedHostSim},
-    },
-    mac_address_pool,
-    test_certificates::TestCertificateProvider,
-    test_meter::TestMeter,
-};
 
 pub mod dpu;
 pub mod host;
@@ -146,6 +146,7 @@ impl TestEnv {
             meter: Some(self.test_meter.meter()),
             pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
             ipmi_tool: self.ipmi_tool.clone(),
+            site_config: self.config.clone(),
         }
     }
 
@@ -300,6 +301,7 @@ impl TestEnv {
             .ib_fabric_manager(self.ib_fabric_manager.clone())
             .forge_api(self.api.clone())
             .ipmi_tool(self.ipmi_tool.clone())
+            .site_config(self.config.clone())
             .state_handler(Arc::new(handler))
             .build_for_manual_iterations()
             .expect("Unable to build state controller")
@@ -523,7 +525,16 @@ pub fn get_config() -> CarbideConfig {
         dpu_nic_firmware_reprovision_update_enabled: true,
         max_concurrent_machine_updates: Some(10),
         machine_update_run_interval: Some(1),
-        site_explorer: carbide::cfg::default_site_explorer_config(),
+        site_explorer: SiteExplorerConfig {
+            enabled: false,
+            run_interval: std::time::Duration::from_secs(0),
+            concurrent_explorations: 0,
+            explorations_per_run: 0,
+            create_machines: Arc::new(ArcSwap::new(Arc::new(false))),
+            override_target_ip: None,
+            override_target_port: None,
+            allow_zero_dpu_hosts: false,
+        },
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
         attestation_enabled: false,

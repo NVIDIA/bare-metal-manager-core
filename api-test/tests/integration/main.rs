@@ -11,12 +11,15 @@
  */
 
 use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{BmcMockRegistry, MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
 use bmc_mock::ListenerOrAddress;
 use futures::future::join_all;
+use futures::FutureExt;
 use grpcurl::grpcurl;
 use host::machine_validation_completed;
+use itertools::Itertools;
 use sqlx::{Postgres, Row};
+use std::future::Future;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::{
@@ -26,7 +29,7 @@ use std::{
     path::{self, PathBuf},
     time::{self, Duration},
 };
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 mod api_server;
@@ -232,66 +235,15 @@ async fn test_integration() -> eyre::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+/// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
 async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
         return Ok(());
     };
-    let host_count = 10;
 
     let carbide_api_addr = test_env.carbide_api_addr;
-    let root_dir = test_env.root_dir.clone();
-
-    let mat_config = MachineATronConfig {
-        machines: BTreeMap::from([(
-            "config".to_string(),
-            MachineConfig {
-                host_count,
-                dpu_per_host_count: 2,
-                boot_delay: 1,
-                dpu_reboot_delay: 1,
-                host_reboot_delay: 1,
-                template_dir: root_dir
-                    .join("dev/machine-a-tron/templates")
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-                admin_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
-                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
-                vpc_count: 0,
-                subnets_per_vpc: 0,
-                run_interval_idle: Duration::from_secs(1),
-                run_interval_working: Duration::from_millis(100),
-                network_status_run_interval: Duration::from_secs(1),
-                scout_run_interval: Duration::from_secs(1),
-            },
-        )]),
-        carbide_api_url: Some(format!(
-            "https://{}:{}",
-            carbide_api_addr.ip(),
-            carbide_api_addr.port()
-        )),
-        log_file: None,
-        bmc_mock_host_tar: PathBuf::from(format!(
-            "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",
-            root_dir.to_string_lossy()
-        )),
-        bmc_mock_dpu_tar: PathBuf::from(format!(
-            "{}/dev/bmc-mock/nvidia_dpu.tar.gz",
-            root_dir.to_string_lossy()
-        )),
-        use_pxe_api: true,
-        pxe_server_host: None,
-        pxe_server_port: None,
-        bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
-        dhcp_server_address: None,
-        interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
-        tui_enabled: false,
-        sudo_command: None,
-        use_dhcp_api: true,
-        use_single_bmc_mock: false, // unused, we're constructing machines ourselves
-    };
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/dev/bmc-mock", test_env.root_dir.display()));
@@ -305,21 +257,117 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     )
     .await?;
 
+    // Begin the integration test by starting an API server. This will be shared between multiple
+    // individual machine-a-tron-based tests, which can run in parallel against the same instance.
     let server_handle =
         utils::start_api_server(test_env.clone(), Some(bmc_mock_handle.address), true).await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     let segment_id = subnet::create(carbide_api_addr, &tenant1_vpc)?;
 
-    let (machine_actors, mat_handle) =
-        machine_a_tron::run_local(mat_config, root_dir, bmc_address_registry.clone())
-            .await
-            .unwrap();
+    // Run several tests in parallel.
+    let all_tests = join_all([
+        test_machine_a_tron_multidpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
+        test_machine_a_tron_zerodpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
+    ]);
 
-    let (done_tx, done_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        let all_result = join_all(machine_actors.iter().map(|machine_actor| {
-            let segment_id = segment_id.clone();
+    tokio::select! {
+        results = all_tests => results.into_iter().try_collect()?,
+        _ = tokio::time::sleep(Duration::from_secs(20 * 60)) => {
+            panic!("Tests did not complete after 20 minutes")
+        }
+    }
+
+    server_handle.stop().await?;
+    test_env.db_pool.close().await;
+    bmc_mock_handle.stop().await?;
+    Ok(())
+}
+
+async fn test_machine_a_tron_multidpu(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    segment_id: &str,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(10, 2, test_env, bmc_mock_registry, |machine_actor| {
+        let segment_id = segment_id.to_string();
+        let carbide_api_addr = test_env.carbide_api_addr;
+        async move {
+            machine_actor
+                .wait_until_machine_up_with_api_state("Ready")
+                .await?;
+            let machine_id = machine_actor
+                .observed_machine_id()
+                .await?
+                .expect("Machine ID should be set if host is ready")
+                .to_string();
+            tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+            let instance_id = instance::create(
+                carbide_api_addr,
+                &machine_id,
+                &segment_id,
+                None,
+                false,
+                false,
+            )?;
+
+            machine_actor
+                .wait_until_machine_up_with_api_state("Assigned/Ready")
+                .await?;
+
+            let instance_json = instance::get_instance_json_by_machine_id(
+                carbide_api_addr,
+                machine_actor
+                    .observed_machine_id()
+                    .await?
+                    .expect("HostMachine should have a Machine ID once it's in ready state")
+                    .to_string()
+                    .as_str(),
+            )?;
+            let serde_json::Value::Object(interface) =
+                &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
+            else {
+                panic!("Allocated instance does not have interface configuration")
+            };
+
+            let serde_json::Value::Array(addrs) = &interface["addresses"] else {
+                panic!("Interface does not have addresses")
+            };
+            assert_eq!(addrs.len(), 1);
+
+            let serde_json::Value::Array(gateways) = &interface["gateways"] else {
+                panic!("Interface does not have gateways set")
+            };
+            assert_eq!(gateways.len(), 1);
+
+            tracing::info!(
+                "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+            );
+            instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
+
+            machine_actor
+                .wait_until_machine_up_with_api_state("Ready")
+                .await?;
+            tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+            Ok::<(), eyre::Report>(())
+        }
+    })
+    .await
+}
+
+async fn test_machine_a_tron_zerodpu(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    segment_id: &str,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        10,
+        0,
+        test_env,
+        bmc_mock_registry,
+        |machine_actor| {
+            let segment_id = segment_id.to_string();
+            let carbide_api_addr = test_env.carbide_api_addr;
             async move {
                 machine_actor
                     .wait_until_machine_up_with_api_state("Ready")
@@ -331,7 +379,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
                 let instance_id = instance::create(
-                    test_env.carbide_api_addr,
+                    carbide_api_addr,
                     &machine_id,
                     &segment_id,
                     None,
@@ -361,17 +409,17 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                 let serde_json::Value::Array(addrs) = &interface["addresses"] else {
                     panic!("Interface does not have addresses")
                 };
-                assert_eq!(addrs.len(), 1);
+                assert_eq!(addrs.len(), 0, "Interface should have no addresses, since we don't get network config from zero-dpu hosts");
 
                 let serde_json::Value::Array(gateways) = &interface["gateways"] else {
                     panic!("Interface does not have gateways set")
                 };
-                assert_eq!(gateways.len(), 1);
+                assert_eq!(gateways.len(), 0, "Interface should have no gateways, since we don't get network config from zero-dpu hosts");
 
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
-                instance::release(test_env.carbide_api_addr, &machine_id, &instance_id, false)?;
+                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
 
                 machine_actor
                     .wait_until_machine_up_with_api_state("Ready")
@@ -379,27 +427,86 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
             }
-        }))
-        .await;
-        _ = done_tx.send(all_result);
-    });
+        },
+    )
+    .await
+}
 
-    let timeout = Duration::from_secs(20 * 60);
-    let results = tokio::select! {
-        _ = sleep(timeout) => {
-            panic!("Timed out after {} seconds waiting for machines to achieve ready status", timeout.as_secs());
-        }
-        all_result = done_rx => all_result.unwrap(),
+async fn run_machine_a_tron_test<F, O>(
+    host_count: u32,
+    dpu_per_host_count: u32,
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    run_assertions: F,
+) -> eyre::Result<()>
+where
+    F: Fn(HostMachineActor) -> O,
+    O: Future<Output = eyre::Result<()>>,
+{
+    let mat_config = MachineATronConfig {
+        machines: BTreeMap::from([(
+            "config".to_string(),
+            MachineConfig {
+                host_count,
+                dpu_per_host_count,
+                boot_delay: 1,
+                dpu_reboot_delay: 1,
+                host_reboot_delay: 1,
+                template_dir: test_env
+                    .root_dir
+                    .join("dev/machine-a-tron/templates")
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                admin_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
+                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
+                vpc_count: 0,
+                subnets_per_vpc: 0,
+                run_interval_idle: Duration::from_secs(1),
+                run_interval_working: Duration::from_millis(100),
+                network_status_run_interval: Duration::from_secs(1),
+                scout_run_interval: Duration::from_secs(1),
+            },
+        )]),
+        carbide_api_url: Some(format!(
+            "https://{}:{}",
+            test_env.carbide_api_addr.ip(),
+            test_env.carbide_api_addr.port()
+        )),
+        log_file: None,
+        bmc_mock_host_tar: PathBuf::from(format!(
+            "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",
+            test_env.root_dir.to_string_lossy()
+        )),
+        bmc_mock_dpu_tar: PathBuf::from(format!(
+            "{}/dev/bmc-mock/nvidia_dpu.tar.gz",
+            test_env.root_dir.to_string_lossy()
+        )),
+        use_pxe_api: true,
+        pxe_server_host: None,
+        pxe_server_port: None,
+        bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
+        dhcp_server_address: None,
+        interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
+        tui_enabled: false,
+        sudo_command: None,
+        use_dhcp_api: true,
+        use_single_bmc_mock: false, // unused, we're constructing machines ourselves
     };
 
-    assert_eq!(results.len(), host_count as usize);
-    assert!(results.into_iter().all(|r| r.is_ok()));
+    let (machine_actors, mat_handle) = machine_a_tron::run_local(
+        mat_config,
+        test_env.root_dir.clone(),
+        bmc_mock_registry.clone(),
+    )
+    .await
+    .unwrap();
 
+    let results = join_all(machine_actors.into_iter().map(run_assertions)).await;
+    assert_eq!(results.len(), host_count as usize);
     mat_handle.stop().await?;
-    server_handle.stop().await?;
-    test_env.db_pool.close().await;
-    bmc_mock_handle.stop().await?;
-    Ok(())
+
+    results.into_iter().try_collect()
 }
 
 /// Bootstraps a Host in `ready` state. Returns the `machine_id`

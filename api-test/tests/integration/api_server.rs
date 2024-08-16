@@ -189,6 +189,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             ),
             override_target_ip: override_bmc_addr.map(|a| a.ip().to_string()),
             override_target_port: override_bmc_addr.map(|a| a.port()),
+            allow_zero_dpu_hosts: true,
         },
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,

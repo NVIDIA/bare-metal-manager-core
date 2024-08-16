@@ -15,6 +15,7 @@ use std::sync::Arc;
 use libredfish::RedfishError;
 use opentelemetry::metrics::Meter;
 
+use crate::cfg::CarbideConfig;
 use crate::storage::StorageError;
 use crate::{
     db::DatabaseError,
@@ -51,6 +52,9 @@ pub struct StateHandlerServices {
 
     /// An implementation of the IPMITool that understands how to reboot a machine
     pub ipmi_tool: Arc<dyn IPMITool>,
+
+    /// Access to the site config
+    pub site_config: Arc<CarbideConfig>,
 }
 
 /// The collection of generic objects which are referenced in StateHandlerContext

@@ -223,23 +223,44 @@ impl MachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<MachineStateHandlerContextObjects>,
     ) {
-        ctx.metrics.dpu_firmware_version = state.dpu_snapshots[0]
-            .hardware_info
-            .as_ref()
-            .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
-        ctx.metrics.machine_inventory_component_versions.extend(
-            state.dpu_snapshots[0]
-                .agent_reported_inventory
-                .clone()
-                .components
-                .into_iter()
-                .map(|mut component| {
-                    // Remove the URL field for metrics purposes. We don't want to report different metrics
-                    // just because the URL field in components differ. Only name and version are important
-                    component.url = String::new();
-                    component
-                }),
-        );
+        if let Some(dpu_snapshot) = state.dpu_snapshots.first() {
+            ctx.metrics.dpu_firmware_version = dpu_snapshot
+                .hardware_info
+                .as_ref()
+                .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
+            ctx.metrics.machine_inventory_component_versions.extend(
+                dpu_snapshot
+                    .agent_reported_inventory
+                    .clone()
+                    .components
+                    .into_iter()
+                    .map(|mut component| {
+                        // Remove the URL field for metrics purposes. We don't want to report different metrics
+                        // just because the URL field in components differ. Only name and version are important
+                        component.url = String::new();
+                        component
+                    }),
+            );
+
+            // Update DPU network health Prometheus metrics
+            // TODO: This needs to be fixed for multi-dpu
+            ctx.metrics.dpu_healthy = dpu_snapshot
+                .dpu_agent_health_report
+                .as_ref()
+                .map(|health| health.alerts.is_empty())
+                .unwrap_or(false);
+            if let Some(observation) = dpu_snapshot.network_status_observation.as_ref() {
+                ctx.metrics.agent_version = observation.agent_version.clone();
+                ctx.metrics.dpu_up = Utc::now().signed_duration_since(observation.observed_at)
+                    <= self.dpu_up_threshold;
+                for failed in &observation.health_status.failed {
+                    ctx.metrics.failed_dpu_healthchecks.insert(failed.clone());
+                }
+
+                ctx.metrics.machine_id = Some(observation.machine_id.clone());
+                ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
+            }
+        }
 
         ctx.metrics.available_gpus = state
             .host_snapshot
@@ -251,25 +272,6 @@ impl MachineStateHandler {
             .instance
             .as_ref()
             .map(|instance| instance.config.tenant.tenant_organization_id.clone());
-
-        // Update DPU network health Prometheus metrics
-        // TODO: This needs to be fixed for multi-dpu
-        ctx.metrics.dpu_healthy = state.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .as_ref()
-            .map(|health| health.alerts.is_empty())
-            .unwrap_or(false);
-        if let Some(observation) = state.dpu_snapshots[0].network_status_observation.as_ref() {
-            ctx.metrics.agent_version = observation.agent_version.clone();
-            ctx.metrics.dpu_up =
-                Utc::now().signed_duration_since(observation.observed_at) <= self.dpu_up_threshold;
-            for failed in &observation.health_status.failed {
-                ctx.metrics.failed_dpu_healthchecks.insert(failed.clone());
-            }
-
-            ctx.metrics.machine_id = Some(observation.machine_id.clone());
-            ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
-        }
 
         for alert in state.aggregate_health.alerts.iter() {
             ctx.metrics.health_probe_alerts.insert(alert.id.clone());
@@ -385,26 +387,37 @@ impl MachineStateHandler {
 
         match &managed_state {
             ManagedHostState::DpuDiscoveringState { .. } => {
-                let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+                if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                    tracing::info!(
+                        machine_id = %host_machine_id,
+                        "Skipping to HostInit because machine has no DPUs"
+                    );
+                    Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::WaitingForPlatformConfiguration,
+                        },
+                    ))
+                } else {
+                    let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+                    for dpu_snapshot in &state.dpu_snapshots.clone() {
+                        state_handler_outcome = self
+                            .dpu_handler
+                            .handle_dpu_discovering_state(
+                                state,
+                                dpu_snapshot,
+                                controller_state,
+                                txn,
+                                ctx,
+                            )
+                            .await?;
 
-                for dpu_snapshot in &state.dpu_snapshots.clone() {
-                    state_handler_outcome = self
-                        .dpu_handler
-                        .handle_dpu_discovering_state(
-                            state,
-                            dpu_snapshot,
-                            controller_state,
-                            txn,
-                            ctx,
-                        )
-                        .await?;
-
-                    if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
-                        return Ok(state_handler_outcome);
+                        if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
+                            return Ok(state_handler_outcome);
+                        }
                     }
-                }
 
-                Ok(state_handler_outcome)
+                    Ok(state_handler_outcome)
+                }
             }
             ManagedHostState::DPUInit { .. } => {
                 self.dpu_handler
@@ -1489,7 +1502,9 @@ impl StateHandler for MachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        if state.dpu_snapshots.is_empty() {
+        if !state.host_snapshot.associated_dpu_machine_ids.is_empty()
+            && state.dpu_snapshots.is_empty()
+        {
             return Err(StateHandlerError::GenericError(eyre!(
                 "No DPU snapshot found."
             )));
@@ -2797,7 +2812,14 @@ impl DpuMachineStateHandler {
                 .await?;
 
                 let boot_interface_mac = None; // libredfish will choose the DPU
-                if let Err(e) = dpu_redfish_client.forge_setup(boot_interface_mac).await {
+                if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
+                    dpu_redfish_client.as_ref(),
+                    boot_interface_mac,
+                    state.host_snapshot.associated_dpu_machine_ids.len(),
+                    ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
+                )
+                .await
+                {
                     tracing::error!(%e, "Failed to run forge_setup call");
                     return Err(StateHandlerError::RedfishError {
                         operation: "forge_setup",
@@ -2882,17 +2904,24 @@ impl StateHandler for DpuMachineStateHandler {
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
 
-        for dpu_snapshot in &state.dpu_snapshots.clone() {
-            state_handler_outcome = self
-                .handle_dpuinit_state(state, dpu_snapshot, txn, ctx)
-                .await?;
+        if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+            let next_state = ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForPlatformConfiguration,
+            };
+            Ok(StateHandlerOutcome::Transition(next_state))
+        } else {
+            for dpu_snapshot in &state.dpu_snapshots.clone() {
+                state_handler_outcome = self
+                    .handle_dpuinit_state(state, dpu_snapshot, txn, ctx)
+                    .await?;
 
-            if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
-                return Ok(state_handler_outcome);
+                if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
+                    return Ok(state_handler_outcome);
+                }
             }
-        }
 
-        Ok(state_handler_outcome)
+            Ok(state_handler_outcome)
+        }
     }
 }
 
@@ -3391,9 +3420,13 @@ impl StateHandler for HostMachineStateHandler {
                     {
                         Ok(redfish_client) => {
                             let boot_interface_mac = None; // libredfish will choose the DPU
-                            let forge_setup_failed = match redfish_client
-                                .forge_setup(boot_interface_mac)
-                                .await
+                            let forge_setup_failed = match call_forge_setup_and_handle_no_dpu_error(
+                                redfish_client.as_ref(),
+                                boot_interface_mac,
+                                state.host_snapshot.associated_dpu_machine_ids.len(),
+                                ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
+                            )
+                            .await
                             {
                                 Ok(_) => false,
                                 Err(e) => {
@@ -3723,11 +3756,23 @@ impl StateHandler for InstanceStateHandler {
                                 .to_string(),
                         ));
                     }
+
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForStorageConfig,
+                    };
+
                     // Check instance network config has been applied
                     // TODO: This would need to be checked per DPU
                     let expected = &instance.network_config_version;
                     let actual = match &instance.observations.network {
                         None => {
+                            if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                                tracing::info!(
+                                    machine_id = %host_machine_id,
+                                    "Skipping network config because machine has no DPUs"
+                                );
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            }
                             return Ok(StateHandlerOutcome::Wait(
                                 "Waiting for DPU agent to apply initial network config".to_string(),
                             ));
@@ -3757,10 +3802,6 @@ impl StateHandler for InstanceStateHandler {
                         instance.config.infiniband.ib_interfaces.clone(),
                     )
                     .await?;
-
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::WaitingForStorageConfig,
-                    };
 
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
@@ -3803,7 +3844,49 @@ impl StateHandler for InstanceStateHandler {
                         instance_state: InstanceState::Ready,
                     };
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                        // If there are no DPUs, there is no need for storage config, return ready.
+                        tracing::info!(
+                            machine_id = %host_machine_id,
+                            "Skipping storage config because machine has no DPUs"
+                        );
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    } else {
+                        let dpu_machine_id = &state.dpu_snapshots[0].machine_id;
+
+                        // attach volumes to instance
+                        storage::attach_storage_volumes(
+                            ctx.services,
+                            txn,
+                            instance.id,
+                            dpu_machine_id,
+                            instance.config.storage.clone(),
+                            false,
+                        )
+                        .await?;
+
+                        storage::record_storage_status_observation(
+                            ctx.services,
+                            txn,
+                            instance,
+                            instance.config.storage.clone(),
+                        )
+                        .await?;
+
+                        // Reboot host
+                        handler_host_power_control(
+                            state,
+                            ctx.services,
+                            SystemPowerControl::ForceRestart,
+                            txn,
+                        )
+                        .await?;
+
+                        // Instance is ready.
+                        // We can not determine if machine is rebooted successfully or not. Just leave
+                        // it like this and declare Instance Ready.
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    }
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
@@ -4163,13 +4246,18 @@ async fn lockdown_host(
     // - tpm clear (bios)
     // - boot once to pxe
     let boot_interface_mac = None; // libredfish will choose the DPU
-    redfish_client
-        .forge_setup(boot_interface_mac)
-        .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "forge_setup",
-            error: e,
-        })?;
+
+    call_forge_setup_and_handle_no_dpu_error(
+        redfish_client.as_ref(),
+        boot_interface_mac,
+        state.host_snapshot.associated_dpu_machine_ids.len(),
+        services.site_config.site_explorer.allow_zero_dpu_hosts,
+    )
+    .await
+    .map_err(|e| StateHandlerError::RedfishError {
+        operation: "forge_setup",
+        error: e,
+    })?;
 
     redfish_client
         .lockdown(libredfish::EnabledDisabled::Enabled)
@@ -4259,6 +4347,29 @@ fn can_restart_reprovision(
         dpu_reprovision_restart_requested_after_state_transition(version, *latest_requested_at),
         firmware_upgrade_needed,
     )
+}
+
+/// Call [`Redfish::forge_setup`], but ignore any [`RedfishError::NoDpu`] if we expect there to be no DPUs.
+///
+/// TODO(ken): This is a temporary workaround for work-in-progress on zero-DPU support (August 2024)
+/// The way we should do this going forward is to plumb the actual non-DPU MAC address we want to
+/// boot from, but that information is not in scope at this time. Once it is, and we pass it to
+/// forge_setup, we should no longer expect a NoDpu error and can thus call vanilla forge_setup again.
+async fn call_forge_setup_and_handle_no_dpu_error(
+    redfish_client: &dyn Redfish,
+    boot_interface_mac: Option<&str>,
+    expected_dpu_count: usize,
+    allow_zero_dpus: bool,
+) -> Result<(), RedfishError> {
+    let setup_result = redfish_client.forge_setup(boot_interface_mac).await;
+    match (setup_result, expected_dpu_count, allow_zero_dpus) {
+        (Err(RedfishError::NoDpu), 0, true) => {
+            tracing::info!("redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this.");
+            Ok(())
+        }
+        (Ok(()), _, _) => Ok(()),
+        (Err(e), _, _) => Err(e),
+    }
 }
 
 #[cfg(test)]

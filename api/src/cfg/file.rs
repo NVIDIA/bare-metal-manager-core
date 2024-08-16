@@ -500,6 +500,13 @@ pub struct SiteExplorerConfig {
     /// The port to connect to for redfish requests.
     /// This is a debug override and should not be used in production.
     pub override_target_port: Option<u16>,
+
+    #[serde(default)]
+    /// Whether to allow hosts with zero DPUs in site-explorer. This should typically be set to
+    /// false in production environments where we expect all hosts to have DPUs. When false, if we
+    /// encounter a host with no DPUs, site-explorer will throw an error for that host (because it
+    /// should be assumed that there's a bug in detecting the DPUs.)
+    pub allow_zero_dpu_hosts: bool,
 }
 
 impl PartialEq for SiteExplorerConfig {
@@ -633,6 +640,7 @@ pub fn default_site_explorer_config() -> SiteExplorerConfig {
         create_machines: crate::dynamic_settings::create_machines(false),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     }
 }
 
@@ -1220,6 +1228,7 @@ mod tests {
                 create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: None,
                 override_target_port: None,
+                allow_zero_dpu_hosts: false,
             }
         );
         assert_eq!(
@@ -1346,6 +1355,7 @@ mod tests {
                 create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
+                allow_zero_dpu_hosts: false,
             }
         );
 
@@ -1481,6 +1491,7 @@ mod tests {
                 create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
+                allow_zero_dpu_hosts: false,
             }
         );
 

@@ -126,6 +126,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .forge_api(env.api.clone())
                 .state_handler(machine_handler.clone())
                 .ipmi_tool(env.ipmi_tool.clone())
+                .site_config(env.config.clone())
                 .build_and_spawn()
                 .unwrap(),
         );

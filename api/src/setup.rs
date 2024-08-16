@@ -365,6 +365,7 @@ pub async fn start_api(
                 .build(),
         ))
         .ipmi_tool(ipmi_tool.clone())
+        .site_config(carbide_config.clone())
         .build_and_spawn()
         .expect("Unable to build MachineStateController");
 
@@ -388,6 +389,7 @@ pub async fn start_api(
             sc_pool_vni,
         )))
         .ipmi_tool(ipmi_tool.clone())
+        .site_config(carbide_config.clone())
         .build_and_spawn()
         .expect("Unable to build NetworkSegmentController");
 
@@ -403,6 +405,7 @@ pub async fn start_api(
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
             .ipmi_tool(ipmi_tool.clone())
+            .site_config(carbide_config.clone())
             .build_and_spawn()
             .expect("Unable to build IBPartitionStateController");
 
