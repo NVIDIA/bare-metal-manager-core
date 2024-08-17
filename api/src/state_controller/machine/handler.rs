@@ -52,7 +52,6 @@ use crate::{
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures::TryFutureExt;
 use http::StatusCode;
 use itertools::Itertools;
@@ -60,7 +59,6 @@ use libredfish::{
     model::task::{Task, TaskState},
     Boot, PowerState, Redfish, RedfishError, SystemPowerControl,
 };
-use mac_address::MacAddress;
 use std::{net::IpAddr, sync::Arc};
 use tokio::{fs::File, sync::Semaphore};
 
@@ -1973,6 +1971,7 @@ async fn handle_dpu_reprovision(
             // A NIC FW update from 24.39.2048 to 24.41.1000 can cause the Redfish service to become unavailable on Lenovos.
             // Forge initiates a NIC FW update in ReprovisionState::FirmwareUpgrade
             // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
+            /*
             if state.host_snapshot.bmc_vendor.is_lenovo() {
                 tracing::info!(
                     "Initiating BMC cold reset of lenovo machine {}",
@@ -2025,6 +2024,7 @@ async fn handle_dpu_reprovision(
                     .await
                     .map_err(StateHandlerError::GenericError)?;
             }
+            */
 
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
