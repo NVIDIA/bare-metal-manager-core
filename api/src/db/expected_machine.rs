@@ -103,12 +103,25 @@ impl ExpectedMachine {
             .map_err(|err: sqlx::Error| {
                 CarbideError::from(DatabaseError::new(file!(), line!(), sql, err))
             })?;
-        Ok(v.into_iter()
+
+        // expected_machines has a unique constraint on bmc_mac_address,
+        // but if the constraint gets dropped and we have multiple mac addresses,
+        // we want this code to generate an Err and not silently drop values
+        // and/or return nothing.
+        v.into_iter()
             .into_group_map_by(|exp| exp.bmc_mac_address)
             .drain()
-            .filter(|(_, v)| v.len() == 1)
-            .map(|(k, mut v)| (k, v.pop().unwrap()))
-            .collect())
+            .map(|(k, mut v)| {
+                if v.len() > 1 {
+                    Err(CarbideError::AlreadyFoundError {
+                        kind: "ExpectedMachine",
+                        id: k.to_string(),
+                    })
+                } else {
+                    Ok((k, v.pop().unwrap()))
+                }
+            })
+            .collect()
     }
 
     pub async fn find_all(
