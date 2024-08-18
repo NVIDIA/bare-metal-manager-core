@@ -188,13 +188,15 @@ impl DpuMachineUpdate {
             from: "".to_string(),
             to: expected_version.clone(),
         });
+
+        let reprovision_time = chrono::Utc::now();
         let req = ReprovisionRequest {
-            requested_at: chrono::Utc::now(),
+            requested_at: reprovision_time,
             initiator: initiator.to_string(),
             update_firmware: true,
             started_at: None,
             user_approval_received: false,
-            restart_reprovision_requested_at: chrono::Utc::now(),
+            restart_reprovision_requested_at: reprovision_time,
         };
 
         let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL;"#;

@@ -1487,13 +1487,14 @@ SELECT m.id FROM
         initiator: &str,
         update_firmware: bool,
     ) -> Result<(), DatabaseError> {
+        let reprovision_time = chrono::Utc::now();
         let req = ReprovisionRequest {
-            requested_at: chrono::Utc::now(),
+            requested_at: reprovision_time,
             initiator: initiator.to_string(),
             update_firmware,
             started_at: None,
             user_approval_received: false,
-            restart_reprovision_requested_at: chrono::Utc::now(),
+            restart_reprovision_requested_at: reprovision_time,
         };
 
         let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
