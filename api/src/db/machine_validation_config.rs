@@ -112,7 +112,7 @@ impl MachineValidationExternalConfig {
         name: &str,
     ) -> CarbideResult<Self> {
         let query = "SELECT * FROM machine_validation_external_config WHERE name=$1";
-        sqlx::query_as::<_, Self>(query)
+        sqlx::query_as(query)
             .bind(name)
             .fetch_one(txn.deref_mut())
             .await

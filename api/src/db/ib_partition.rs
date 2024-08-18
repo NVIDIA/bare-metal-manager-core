@@ -424,8 +424,7 @@ impl IBPartition {
     ) -> Result<Vec<IBPartitionId>, DatabaseError> {
         let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
-        let mut segment_id_stream =
-            sqlx::query_as::<_, IBPartitionId>(query).fetch(txn.deref_mut());
+        let mut segment_id_stream = sqlx::query_as(query).fetch(txn.deref_mut());
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id);
@@ -489,27 +488,27 @@ impl IBPartition {
 
         let all_records: Vec<IBPartition> = match filter {
             IBPartitionIdKeyedObjectFilter::All => {
-                sqlx::query_as::<_, IBPartition>(&base_query.replace("{where}", ""))
+                sqlx::query_as(&base_query.replace("{where}", ""))
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions All", e))?
             }
 
-            IBPartitionIdKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, IBPartition>(
-                &base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"),
-            )
-            .bind(uuids)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?,
+            IBPartitionIdKeyedObjectFilter::List(uuids) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"))
+                    .bind(uuids)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?
+            }
 
-            IBPartitionIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBPartition>(
-                &base_query.replace("{where}", "WHERE ib_partitions.id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions One", e))?,
+            IBPartitionIdKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE ib_partitions.id=$1"))
+                    .bind(uuid)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions One", e))?
+            }
         };
 
         Ok(all_records)
@@ -544,7 +543,7 @@ impl IBPartition {
         let next_version = expected_version.increment();
 
         let query = "UPDATE ib_partitions SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-        let query_result: Result<IBPartitionId, _> = sqlx::query_as(query)
+        let query_result = sqlx::query_as::<_, IBPartitionId>(query)
             .bind(next_version)
             .bind(sqlx::types::Json(new_state))
             .bind(partition_id)

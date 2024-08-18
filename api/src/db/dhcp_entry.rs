@@ -36,25 +36,25 @@ impl DhcpEntry {
 
         Ok(match filter {
             MachineInterfaceIdKeyedObjectFilter::All => {
-                sqlx::query_as::<_, DhcpEntry>(&base_query.replace("{where}", ""))
+                sqlx::query_as(&base_query.replace("{where}", ""))
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries All", e))?
             }
-            MachineInterfaceIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, DhcpEntry>(
-                &base_query.replace("{where}", "WHERE machine_interface_id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?,
-            MachineInterfaceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, DhcpEntry>(
-                &base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"),
-            )
-            .bind(list)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries List", e))?,
+            MachineInterfaceIdKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE machine_interface_id=$1"))
+                    .bind(uuid)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?
+            }
+            MachineInterfaceIdKeyedObjectFilter::List(list) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"))
+                    .bind(list)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries List", e))?
+            }
         })
     }
 

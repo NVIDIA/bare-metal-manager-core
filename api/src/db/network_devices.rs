@@ -249,7 +249,7 @@ impl DpuToNetworkDeviceMap {
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE network_device_id=$1";
 
-        sqlx::query_as::<_, Self>(base_query)
+        sqlx::query_as(base_query)
             .bind(device_id)
             .fetch_all(txn.deref_mut())
             .await
@@ -263,7 +263,7 @@ impl DpuToNetworkDeviceMap {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";
 
         let str_list: Vec<String> = dpu_ids.iter().map(|id| id.to_string()).collect();
-        sqlx::query_as::<_, DpuToNetworkDeviceMap>(base_query)
+        sqlx::query_as(base_query)
             .bind(str_list)
             .fetch_all(txn.deref_mut())
             .await

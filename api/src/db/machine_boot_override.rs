@@ -186,7 +186,7 @@ impl MachineBootOverride {
 
         let custom_pxes = match filter {
             ObjectColumnFilter::All => base_query
-                .build_query_as::<MachineBootOverride>()
+                .build_query_as()
                 .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
@@ -195,7 +195,7 @@ impl MachineBootOverride {
             ObjectColumnFilter::One(column, id) => base_query
                 .push(format!(" WHERE pxe.{}=", column.column_name()))
                 .push_bind(id)
-                .build_query_as::<MachineBootOverride>()
+                .build_query_as()
                 .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
@@ -210,7 +210,7 @@ impl MachineBootOverride {
                     .push(format!(" WHERE pxe.{} = ANY(", column.column_name()))
                     .push_bind(list)
                     .push(")")
-                    .build_query_as::<MachineBootOverride>()
+                    .build_query_as()
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {

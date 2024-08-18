@@ -38,7 +38,7 @@ pub async fn insert_measurement_profile_record(
     name: String,
 ) -> Result<MeasurementSystemProfileRecord, sqlx::Error> {
     let query = "insert into measurement_system_profiles(name) values($1) returning *";
-    sqlx::query_as::<_, MeasurementSystemProfileRecord>(query)
+    sqlx::query_as(query)
         .bind(name.clone())
         .fetch_one(txn.deref_mut())
         .await
@@ -73,7 +73,7 @@ async fn insert_measurement_profile_attr_record(
         MeasurementSystemProfileAttrRecord::db_table_name()
     );
 
-    sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
+    sqlx::query_as(&query)
         .bind(profile_id)
         .bind(key)
         .bind(value)
@@ -101,7 +101,7 @@ pub async fn rename_profile_for_profile_id(
         MeasurementSystemProfileId::db_primary_uuid_name()
     );
 
-    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as(&query)
         .bind(new_profile_name)
         .bind(profile_id)
         .fetch_one(txn.deref_mut())
@@ -121,7 +121,7 @@ pub async fn rename_profile_for_profile_name(
         MeasurementSystemProfileRecord::db_table_name(),
     );
 
-    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as(&query)
         .bind(new_profile_name)
         .bind(old_profile_name)
         .fetch_one(txn.deref_mut())
@@ -304,7 +304,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     ));
     query.push_bind(attrs_len);
 
-    let query = query.build_query_as::<MeasurementSystemProfileId>();
+    let query = query.build_query_as();
     let ids = query.fetch_optional(txn.deref_mut()).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_measurement_profile_id_by_attrs", e)
     })?;
@@ -355,7 +355,7 @@ pub async fn get_bundles_for_profile_id(
 ) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query =
         "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
-    sqlx::query_as::<_, MeasurementBundleId>(query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
         .await
@@ -372,7 +372,7 @@ pub async fn get_bundles_for_profile_name(
 ) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query =
         "select distinct bundle_id from measurement_bundles where name = $1 order by bundle_id";
-    sqlx::query_as::<_, MeasurementBundleId>(query)
+    sqlx::query_as(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())
         .await
@@ -388,7 +388,7 @@ pub async fn get_machines_for_profile_id(
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
-    sqlx::query_as::<_, MachineId>(query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
         .await
@@ -405,7 +405,7 @@ pub async fn get_machines_for_profile_name(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
-    sqlx::query_as::<_, MachineId>(query)
+    sqlx::query_as(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())
         .await
@@ -445,7 +445,7 @@ pub async fn import_measurement_profile(
         MeasurementSystemProfileRecord::db_table_name()
     );
 
-    sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
+    sqlx::query_as(&query)
         .bind(profile.profile_id)
         .bind(profile.name.clone())
         .bind(profile.ts)
@@ -485,7 +485,7 @@ pub async fn import_measurement_system_profiles_attr(
         MeasurementSystemProfileAttrRecord::db_table_name()
     );
 
-    sqlx::query_as::<_, MeasurementSystemProfileAttrRecord>(&query)
+    sqlx::query_as(&query)
         .bind(bundle.attribute_id)
         .bind(bundle.profile_id)
         .bind(bundle.key.clone())

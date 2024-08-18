@@ -37,7 +37,7 @@ pub async fn insert_into_approved_machines(
     comments: Option<String>,
 ) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "insert into measurement_approved_machines(machine_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
-    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as(query)
         .bind(machine_id)
         .bind(approval_type)
         .bind(pcr_registers)
@@ -52,7 +52,7 @@ pub async fn remove_from_approved_machines_by_approval_id(
     approval_id: MeasurementApprovedMachineId,
 ) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where approval_id = $1 returning *";
-    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as(query)
         .bind(approval_id)
         .fetch_one(txn.deref_mut())
         .await
@@ -71,7 +71,7 @@ pub async fn remove_from_approved_machines_by_machine_id(
     machine_id: MachineId,
 ) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where machine_id = $1 returning *";
-    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
+    sqlx::query_as(query)
         .bind(machine_id)
         .fetch_one(txn.deref_mut())
         .await
@@ -110,7 +110,7 @@ pub async fn insert_into_approved_profiles(
     comments: Option<String>,
 ) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "insert into measurement_approved_profiles(profile_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
-    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .bind(approval_type)
         .bind(pcr_registers)
@@ -125,7 +125,7 @@ pub async fn remove_from_approved_profiles_by_approval_id(
     approval_id: MeasurementApprovedProfileId,
 ) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where approval_id = $1 returning *";
-    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as(query)
         .bind(approval_id)
         .fetch_one(txn.deref_mut())
         .await
@@ -144,7 +144,7 @@ pub async fn remove_from_approved_profiles_by_profile_id(
     profile_id: MeasurementSystemProfileId,
 ) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where profile_id = $1 returning *";
-    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .fetch_one(txn.deref_mut())
         .await
@@ -172,7 +172,7 @@ pub async fn get_approval_for_profile_id(
 ) -> Result<Option<MeasurementApprovedProfileRecord>, DatabaseError> {
     // TODO(chet): get_object_for_id should become fetch_optional.
     let query = "select * from measurement_approved_profiles where profile_id = $1";
-    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .fetch_optional(txn.deref_mut())
         .await
@@ -210,7 +210,7 @@ pub async fn import_measurement_approved_machine(
         "insert into {}(approval_id, machine_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
         MeasurementApprovedMachineRecord::db_table_name()
     );
-    sqlx::query_as::<_, MeasurementApprovedMachineRecord>(&query)
+    sqlx::query_as(&query)
         .bind(record.approval_id)
         .bind(record.machine_id.clone())
         .bind(record.approval_type)
@@ -252,7 +252,7 @@ pub async fn import_measurement_approved_profile(
         "insert into {}(approval_id, profile_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
         MeasurementApprovedProfileRecord::db_table_name()
     );
-    sqlx::query_as::<_, MeasurementApprovedProfileRecord>(&query)
+    sqlx::query_as(&query)
         .bind(record.approval_id)
         .bind(record.profile_id)
         .bind(record.approval_type)

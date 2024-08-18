@@ -195,7 +195,7 @@ impl MachineTopology {
     ) -> Result<Option<MachineId>, DatabaseError> {
         let query =
             "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
-        sqlx::query_as::<_, MachineId>(query)
+        sqlx::query_as(query)
             .bind(address)
             .fetch_optional(txn.deref_mut())
             .await
@@ -209,7 +209,7 @@ impl MachineTopology {
         let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
             FROM machine_topologies
             WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
-        sqlx::query_as::<_, (MachineId, String)>(query)
+        sqlx::query_as(query)
             .bind(bmc_ips)
             .fetch_all(txn.deref_mut())
             .await

@@ -97,7 +97,7 @@ impl NetworkPrefix {
         prefix: &str,
     ) -> Result<Option<NetworkPrefix>, DatabaseError> {
         let query = "select * from network_prefixes where prefix && $1::inet";
-        let container = sqlx::query_as::<_, NetworkPrefix>(query)
+        let container = sqlx::query_as(query)
             .bind(prefix)
             .fetch_optional(txn.deref_mut())
             .await
@@ -119,7 +119,7 @@ impl NetworkPrefix {
         uuid: uuid::Uuid,
     ) -> Result<NetworkPrefix, DatabaseError> {
         let query = "select * from network_prefixes where id=$1";
-        sqlx::query_as::<_, NetworkPrefix>(query)
+        sqlx::query_as(query)
             .bind(uuid)
             .fetch_one(txn.deref_mut())
             .await
@@ -136,25 +136,25 @@ impl NetworkPrefix {
 
         Ok(match filter {
             NetworkSegmentIdKeyedObjectFilter::All => {
-                sqlx::query_as::<_, NetworkPrefix>(&base_query.replace("{where}", ""))
+                sqlx::query_as(&base_query.replace("{where}", ""))
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes All", e))?
             }
-            NetworkSegmentIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkPrefix>(
-                &base_query.replace("{where}", "WHERE segment_id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?,
-            NetworkSegmentIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, NetworkPrefix>(
-                &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
-            )
-            .bind(list)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes List", e))?,
+            NetworkSegmentIdKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE segment_id=$1"))
+                    .bind(uuid)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?
+            }
+            NetworkSegmentIdKeyedObjectFilter::List(list) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE segment_id=ANY($1)"))
+                    .bind(list)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes List", e))?
+            }
         })
     }
 
@@ -167,7 +167,7 @@ impl NetworkPrefix {
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1 ORDER BY ns.created";
 
-        let prefixes = sqlx::query_as::<_, NetworkPrefix>(query)
+        let prefixes = sqlx::query_as(query)
             .bind(vpc_id)
             .fetch_all(txn.deref_mut())
             .await

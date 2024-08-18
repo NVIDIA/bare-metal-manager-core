@@ -41,12 +41,10 @@ use crate::model::tenant::TenantOrganizationId;
 impl StorageCluster {
     pub async fn list(txn: &mut Transaction<'_, Postgres>) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * from storage_clusters".to_string();
-        let clusters = sqlx::query_as::<_, StorageCluster>(&query)
+        sqlx::query_as(&query)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster list", e))?;
-
-        Ok(clusters)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster list", e))
     }
 
     pub async fn get(
@@ -54,14 +52,11 @@ impl StorageCluster {
         cluster_id: Uuid,
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_clusters l WHERE l.id=$1".to_string();
-
-        let cluster = sqlx::query_as::<_, StorageCluster>(&query)
+        sqlx::query_as(&query)
             .bind(cluster_id.to_string())
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster get", e))?;
-
-        Ok(cluster)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster get", e))
     }
 
     /// make sure we can login to it and get some status info before storing it
@@ -191,13 +186,13 @@ impl StoragePool {
             filter = tenant_organization_id.unwrap().to_string();
         }
         if filter.is_empty() {
-            let pools = sqlx::query_as::<_, StoragePool>(&query.replace("{where}", ""))
+            let pools = sqlx::query_as(&query.replace("{where}", ""))
                 .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pools All", e))?;
             return Ok(pools);
         }
-        let pools = sqlx::query_as::<_, StoragePool>(&query.replace("{where}", &where_clause))
+        let pools = sqlx::query_as(&query.replace("{where}", &where_clause))
             .bind(filter)
             .fetch_all(&mut **txn)
             .await
@@ -210,14 +205,11 @@ impl StoragePool {
         pool_id: Uuid,
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_pools l WHERE l.id=$1".to_string();
-
-        let pool = sqlx::query_as::<_, StoragePool>(&query)
+        sqlx::query_as(&query)
             .bind(pool_id.to_string())
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool get", e))?;
-
-        Ok(pool)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool get", e))
     }
 
     pub async fn create(
@@ -361,11 +353,11 @@ impl StorageVolume {
                 sqlx::Error::Protocol("invalid filters".to_string()),
             ));
         }
-        let volumes = sqlx::query_as::<_, StorageVolume>(&query.replace("{where}", &where_clause))
+
+        sqlx::query_as(&query.replace("{where}", &where_clause))
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volume list", e))?;
-        Ok(volumes)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volume list", e))
     }
 
     pub async fn get(
@@ -373,13 +365,11 @@ impl StorageVolume {
         volume_id: Uuid,
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_volumes l WHERE l.id=$1".to_string();
-        let volume = sqlx::query_as::<_, StorageVolume>(&query)
+        sqlx::query_as(&query)
             .bind(volume_id.to_string())
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volumes One", e))?;
-
-        Ok(volume)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volumes One", e))
     }
 
     pub async fn create(
@@ -551,11 +541,10 @@ impl OsImage {
             );
             query.push_str(&where_clause);
         }
-        let os_images = sqlx::query_as::<_, OsImage>(&query)
+        sqlx::query_as(&query)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))?;
-        Ok(os_images)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
     }
 
     pub async fn get(
@@ -563,13 +552,11 @@ impl OsImage {
         os_image_id: Uuid,
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from os_images l WHERE l.id = $1".to_string();
-        let os_image = sqlx::query_as::<_, OsImage>(&query)
+        sqlx::query_as(&query)
             .bind(os_image_id.to_string())
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))?;
-
-        Ok(os_image)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
     }
 
     pub async fn create(

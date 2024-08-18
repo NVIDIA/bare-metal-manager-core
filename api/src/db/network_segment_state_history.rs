@@ -97,7 +97,7 @@ impl NetworkSegmentStateHistory {
             FROM network_segment_state_history
             WHERE segment_id=$1
             ORDER BY ID asc";
-        sqlx::query_as::<_, Self>(query)
+        sqlx::query_as(query)
             .bind(segment_id)
             .fetch_all(txn.deref_mut())
             .await
