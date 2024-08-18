@@ -14,7 +14,7 @@ use std::ops::DerefMut;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 
 use super::machine_interface::MachineInterfaceId;
 use super::DatabaseError;
@@ -23,7 +23,7 @@ use crate::CarbideResult;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, FromRow)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
@@ -32,36 +32,13 @@ pub struct ExpectedMachine {
     pub fallback_dpu_serial_numbers: Vec<String>,
 }
 
-impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(ExpectedMachine {
-            bmc_mac_address: row.try_get("bmc_mac_address")?,
-            bmc_username: row.try_get("bmc_username")?,
-            bmc_password: row.try_get("bmc_password")?,
-            serial_number: row.try_get("serial_number")?,
-            fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
-        })
-    }
-}
-
+#[derive(FromRow)]
 pub struct LinkedExpectedMachine {
     pub serial_number: String,
     pub bmc_mac_address: MacAddress, // from expected_machines table
     pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
     pub address: Option<String>,     // The explored endpoint
     pub machine_id: Option<String>,  // The machine
-}
-
-impl<'r> FromRow<'r, PgRow> for LinkedExpectedMachine {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(LinkedExpectedMachine {
-            serial_number: row.try_get("serial_number")?,
-            bmc_mac_address: row.try_get("bmc_mac_address")?,
-            interface_id: row.try_get("interface_id")?,
-            address: row.try_get("address")?,
-            machine_id: row.try_get("machine_id")?,
-        })
-    }
 }
 
 impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
