@@ -202,10 +202,32 @@ pub struct NetworkOptions {
     pub network_pinger_type: Option<NetworkPingerType>,
 }
 
+// TODO(chet): VpcVirtualizationType (from the api crate) and
+// NetworkVirtualizationType (from the bluefield crate)
+// should be merged together. I think the reason for having
+// two separate ones is so the bluefield crate doesn't pull
+// in the api crate, so we could just have a common location
+// for this to be. Of course, VpcVirtualizationType returns
+// a CarbideError, that would mean the common/network crate
+// would need to pull in the api crate (to get at CarbideError),
+// so we'd need to change the type error it returns too.
 #[derive(ValueEnum, Debug, Clone, Copy)]
 pub enum NetworkVirtualizationType {
-    Etv,
-    EtvNvue, // clap default is kebab-case, so this is "etv-nvue"
+    Etv,        // clap default is kebab-case, so this is "etv"
+    EtvNvue,    // and this is "etv-nvue"
+    FnnClassic, // and this is "fnn-classic"
+    FnnL3,      // and this is "fnn-l3"
+}
+
+impl NetworkVirtualizationType {
+    pub fn prefix_length(&self) -> u8 {
+        match self {
+            Self::Etv => 32,
+            Self::EtvNvue => 32,
+            Self::FnnClassic => 32,
+            Self::FnnL3 => 30,
+        }
+    }
 }
 
 impl fmt::Display for NetworkVirtualizationType {
@@ -220,6 +242,8 @@ impl From<rpc::forge::VpcVirtualizationType> for NetworkVirtualizationType {
         match v {
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer => Self::Etv,
             rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EtvNvue,
+            rpc::forge::VpcVirtualizationType::FnnClassic => Self::FnnClassic,
+            rpc::forge::VpcVirtualizationType::FnnL3 => Self::FnnL3,
         }
     }
 }
@@ -233,6 +257,8 @@ impl From<NetworkVirtualizationType> for rpc::forge::VpcVirtualizationType {
             NetworkVirtualizationType::EtvNvue => {
                 rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue
             }
+            NetworkVirtualizationType::FnnClassic => rpc::forge::VpcVirtualizationType::FnnClassic,
+            NetworkVirtualizationType::FnnL3 => rpc::forge::VpcVirtualizationType::FnnL3,
         }
     }
 }
