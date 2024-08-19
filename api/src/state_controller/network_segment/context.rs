@@ -10,10 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::state_controller::state_handler::StateHandlerContextObjects;
+use crate::state_controller::{
+    network_segment::metrics::NetworkSegmentMetrics, state_handler::StateHandlerContextObjects,
+};
 
 pub struct NetworkSegmentStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for NetworkSegmentStateHandlerContextObjects {
-    type ObjectMetrics = ();
+    type ObjectMetrics = NetworkSegmentMetrics;
 }

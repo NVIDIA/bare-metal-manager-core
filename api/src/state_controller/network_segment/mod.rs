@@ -15,3 +15,4 @@
 pub mod context;
 pub mod handler;
 pub mod io;
+pub mod metrics;
