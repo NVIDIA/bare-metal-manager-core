@@ -1413,7 +1413,7 @@ pub struct EndpointInfo {
     #[clap(
         long,
         action,
-        help = "By default shows only Unpaired Endpoints. If wants to see all, choose this option."
+        help = "By default shows all endpoints. If wants to see unpairedonly, choose this option."
     )]
     pub unpairedonly: bool,
 
