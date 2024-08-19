@@ -1189,7 +1189,7 @@ SELECT m.id FROM
     ) -> Result<(), DatabaseError> {
         let column_name = "health_report_overrides";
         let path = match mode {
-            OverrideMode::Merge => format!("merges,{}", health_report.source),
+            OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
             OverrideMode::Override => "override".to_string(),
         };
         let query = format!(

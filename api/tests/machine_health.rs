@@ -314,6 +314,63 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    let hardware_health = hr("hardware-health", vec![("Fan", None)], vec![]);
+    simulate_hardware_health_report(&env, &host_machine_id, hardware_health.clone()).await;
+
+    // Inserting an Override override then a Merge override with the same source
+    // should result in the Override override being replaced.
+    use rpc::forge::forge_server::Forge;
+    use tonic::Request;
+    let _ = env
+        .api
+        .insert_health_report_override(Request::new(
+            rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(host_machine_id.to_string().into()),
+                r#override: Some(rpc::forge::HealthReportOverride {
+                    report: Some(health_report::HealthReport::empty("".to_string()).into()),
+                    mode: health_report::OverrideMode::Override as i32,
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let aggregate_health = load_aggregate(&env, &host_machine_id).await.unwrap();
+    check_reports_equal(
+        "aggregate-host-health",
+        aggregate_health,
+        health_report::HealthReport::empty("".to_string()),
+    );
+
+    let merge_hr = hr("", vec![], vec![("Fan2", None, "")]);
+    let _ = env
+        .api
+        .insert_health_report_override(Request::new(
+            rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(host_machine_id.to_string().into()),
+                r#override: Some(rpc::forge::HealthReportOverride {
+                    report: Some(merge_hr.clone().into()),
+                    mode: health_report::OverrideMode::Merge as i32,
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+    let aggregate_health = load_aggregate(&env, &host_machine_id).await.unwrap();
+
+    let mut expected_health = hardware_health;
+    expected_health.merge(&merge_hr);
+    check_reports_equal("aggregate-host-health", aggregate_health, expected_health);
+
+    Ok(())
+}
+
 async fn create_env(pool: sqlx::PgPool) -> TestEnv {
     let mut config = get_config();
     config.host_health.hardware_health_reports = HardwareHealthReportsConfig::Enabled;

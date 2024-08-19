@@ -12,6 +12,7 @@
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use health_report::OverrideMode;
+use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         DatabaseError,
     },
-    model::machine::machine_id::try_parse_machine_id,
+    model::machine::machine_id::{try_parse_machine_id, MachineId},
     CarbideError,
 };
 
@@ -197,6 +198,59 @@ pub async fn list_health_report_overrides(
     }))
 }
 
+async fn remove_by_source(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: MachineId,
+    source: String,
+) -> Result<(), CarbideError> {
+    let host_machine = Machine::find_one(
+        txn,
+        &machine_id,
+        MachineSearchConfig {
+            include_dpus: false,
+            include_history: false,
+            include_predicted_host: false,
+            only_maintenance: false,
+            include_associated_machine_id: false,
+            exclude_hosts: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+
+    // Ensure this source already exists in override list
+    let mode = if host_machine
+        .health_report_overrides()
+        .r#override
+        .as_ref()
+        .map(|o| &o.source)
+        == Some(&source)
+    {
+        OverrideMode::Override
+    } else if host_machine
+        .health_report_overrides()
+        .merges
+        .contains_key(&source)
+    {
+        OverrideMode::Merge
+    } else {
+        return Err(CarbideError::NotFoundError {
+            kind: "machine with source",
+            id: source.to_string(),
+        });
+    };
+
+    Machine::remove_health_report_override(txn, &machine_id, mode, &source)
+        .await
+        .map_err(CarbideError::from)?;
+
+    Ok(())
+}
+
 pub async fn insert_health_report_override(
     api: &Api,
     request: Request<rpc::InsertHealthReportOverrideRequest>,
@@ -245,6 +299,13 @@ pub async fn insert_health_report_override(
     }
     report.update_in_alert_since(None);
 
+    // In case a report with the same source exists, either as merge or override,
+    // remove it. If such a report does not exist, ignore error.
+    match remove_by_source(&mut txn, machine_id.clone(), report.source.clone()).await {
+        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+
     Machine::insert_health_report_override(&mut txn, &machine_id, mode, &report)
         .await
         .map_err(CarbideError::from)?;
@@ -283,54 +344,7 @@ pub async fn remove_health_report_override(
     };
     log_machine_id(&machine_id);
 
-    let host_machine = Machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            include_associated_machine_id: false,
-            exclude_hosts: false,
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
-
-    // Ensure this source already exists in override list
-    let mode = if host_machine
-        .health_report_overrides()
-        .r#override
-        .as_ref()
-        .map(|o| &o.source)
-        == Some(&source)
-    {
-        OverrideMode::Override
-    } else if host_machine
-        .health_report_overrides()
-        .merges
-        .contains_key(&source)
-    {
-        OverrideMode::Merge
-    } else {
-        return Err(CarbideError::GenericError(format!(
-            "Found no machine with source {}",
-            machine_id
-        ))
-        .into());
-    };
-
-    // Not clear if there can be a race condition between obtaining the overrides
-    // and updating them: could possibly lead to erasing overrides that were
-    // added or removed in the middle.
-    Machine::remove_health_report_override(&mut txn, &machine_id, mode, &source)
-        .await
-        .map_err(CarbideError::from)?;
+    remove_by_source(&mut txn, machine_id, source).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
