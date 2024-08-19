@@ -57,7 +57,7 @@ use http::StatusCode;
 use itertools::Itertools;
 use libredfish::{
     model::task::{Task, TaskState},
-    Boot, PowerState, Redfish, RedfishError, SystemPowerControl,
+    Boot, Redfish, RedfishError, SystemPowerControl,
 };
 use std::{net::IpAddr, sync::Arc};
 use tokio::{fs::File, sync::Semaphore};
@@ -2374,43 +2374,6 @@ impl DpuMachineStateHandler {
                     .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-
-            DpuDiscoveringState::BmcFirmwareUpdate {
-                substate: BmcFirmwareUpdateSubstate::HostPowerOff,
-            } => {
-                let host_client = build_redfish_client_from_bmc_ip(
-                    state.host_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await?;
-
-                match host_client.get_power_state().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_power_state",
-                        error: e,
-                    }
-                })? {
-                    PowerState::Off => {
-                        handler_host_power_control(
-                            state,
-                            ctx.services,
-                            SystemPowerControl::On,
-                            txn,
-                        )
-                        .await?;
-                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                            substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
-                        }
-                        .next_state_with_all_dpus_updated(&state.managed_state)?;
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
-                    _ => Ok(StateHandlerOutcome::Wait(format!(
-                        "Waiting to host {:#?} power off",
-                        state.host_snapshot.bmc_addr()
-                    ))),
-                }
-            }
             DpuDiscoveringState::BmcFirmwareUpdate {
                 substate:
                     BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion { firmware_type: _ },
@@ -2436,23 +2399,6 @@ impl DpuMachineStateHandler {
                     }
                 }
 
-                if cec_updated {
-                    // For Cec firmware update need also to reboot a host
-                    handler_host_power_control(
-                        state,
-                        ctx.services,
-                        SystemPowerControl::ForceOff,
-                        txn,
-                    )
-                    .await?;
-
-                    let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                        substate: BmcFirmwareUpdateSubstate::HostPowerOff,
-                    }
-                    .next_state_with_all_dpus_updated(&state.managed_state)?;
-                    return Ok(StateHandlerOutcome::Transition(next_state));
-                }
-
                 for dpu_snapshot in &state.dpu_snapshots {
                     let dpu_redfish_client = build_redfish_client_from_bmc_ip(
                         dpu_snapshot.bmc_addr(),
@@ -2460,6 +2406,16 @@ impl DpuMachineStateHandler {
                         txn,
                     )
                     .await?;
+
+                    if cec_updated {
+                        dpu_redfish_client
+                            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "chassis_reset",
+                                error: e,
+                            })?;
+                    }
 
                     dpu_redfish_client.bmc_reset().await.map_err(|e| {
                         StateHandlerError::RedfishError {
