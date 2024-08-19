@@ -402,7 +402,7 @@ WHERE address = $3 AND version=$4";
         INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state)
         VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}')
         ON CONFLICT DO NOTHING";
-        let _result = sqlx::query(query)
+        sqlx::query(query)
             .bind(address)
             .bind(sqlx::types::Json(&exploration_report))
             .bind(ConfigVersion::initial())
@@ -418,11 +418,11 @@ WHERE address = $3 AND version=$4";
         address: IpAddr,
     ) -> Result<(), DatabaseError> {
         let query = r#"DELETE FROM explored_endpoints WHERE address=$1"#;
-        let _query_result = sqlx::query(query)
+        sqlx::query(query)
             .bind(address)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
