@@ -233,6 +233,27 @@ async fn test_network_segment_max_history_length(
         rpc::forge::TenantState::Ready
     );
 
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_available_ips_count")
+            .unwrap(),
+        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 253"#
+    );
+
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_total_ips_count")
+            .unwrap(),
+        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 256"#
+    );
+
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_reserved_ips_count")
+            .unwrap(),
+        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1"#
+    );
+
     let segment = get_segments(
         &env.api,
         segment_id,
@@ -603,4 +624,206 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             ))
         }
     }
+}
+
+async fn test_network_segment_metrics(
+    pool: sqlx::PgPool,
+    seg_type: i32,
+    seg_type_str: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let segment = create_network_segment_with_api(&env.api, true, true, None, seg_type, 1).await;
+    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
+
+    let state_handler = NetworkSegmentStateHandler::new(
+        chrono::Duration::milliseconds(500),
+        env.common_pools.ethernet.pool_vlan_id.clone(),
+        env.common_pools.ethernet.pool_vni.clone(),
+    );
+
+    env.run_network_segment_controller_iteration(state_handler.clone())
+        .await;
+
+    env.run_network_segment_controller_iteration(state_handler.clone())
+        .await;
+
+    assert_eq!(
+        get_segment_state(&env.api, segment_id).await,
+        rpc::forge::TenantState::Ready
+    );
+
+    let avail_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
+        seg_type_str
+    );
+
+    // We don't return stats for tenant network segments
+    // We do return stats for underlay and tor type network segments
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_available_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_available_ips_count")
+                .unwrap(),
+            avail_str
+        );
+    }
+
+    let total_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
+        seg_type_str
+    );
+
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_total_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_total_ips_count")
+                .unwrap(),
+            total_str
+        );
+    }
+
+    let reserved_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
+        seg_type_str
+    );
+
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_reserved_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_reserved_ips_count")
+                .unwrap(),
+            reserved_str
+        );
+    }
+
+    drop(env);
+
+    let env = create_test_env(pool).await;
+
+    // Delete the segment, releasing the VNI back to the pool
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: segment.id.clone(),
+        }))
+        .await?;
+
+    // Ready
+    env.run_network_segment_controller_iteration(state_handler.clone())
+        .await;
+    // DrainAllocatedIPs
+    env.run_network_segment_controller_iteration(state_handler.clone())
+        .await;
+
+    // Check to make sure we are returning stats even when the network segment
+    // is not in the Ready state.
+    let avail_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
+        seg_type_str
+    );
+
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_available_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_available_ips_count")
+                .unwrap(),
+            avail_str
+        );
+    }
+
+    let total_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
+        seg_type_str
+    );
+
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_total_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_total_ips_count")
+                .unwrap(),
+            total_str
+        );
+    }
+
+    let reserved_str = format!(
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
+        seg_type_str
+    );
+
+    if seg_type_str == "tenant" {
+        assert!(env
+            .test_meter
+            .formatted_metric("forge_reserved_ips_count")
+            .is_none());
+    } else {
+        assert_eq!(
+            env.test_meter
+                .formatted_metric("forge_reserved_ips_count")
+                .unwrap(),
+            reserved_str
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_metrics_admin(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    return test_network_segment_metrics(
+        pool,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        "admin".to_string(),
+    )
+    .await;
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_metrics_tenant(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    return test_network_segment_metrics(
+        pool,
+        rpc::forge::NetworkSegmentType::Tenant as i32,
+        "tenant".to_string(),
+    )
+    .await;
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_metrics_tor(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    return test_network_segment_metrics(
+        pool,
+        rpc::forge::NetworkSegmentType::Underlay as i32,
+        "tor".to_string(),
+    )
+    .await;
 }

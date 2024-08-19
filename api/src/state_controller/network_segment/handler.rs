@@ -18,7 +18,7 @@ use crate::{
     db::{
         self,
         instance_address::InstanceAddress,
-        network_segment::{NetworkSegment, NetworkSegmentId},
+        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentType},
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     resource_pool::DbResourcePool,
@@ -53,6 +53,35 @@ impl NetworkSegmentStateHandler {
             pool_vni,
         }
     }
+
+    fn record_metrics(
+        &self,
+        state: &mut NetworkSegment,
+        ctx: &mut StateHandlerContext<NetworkSegmentStateHandlerContextObjects>,
+    ) {
+        // If there are no prefixes return.
+        // Also, we don't want to put out stats for Tenant segments, as they are not under our control.
+        if state.prefixes.is_empty() || state.segment_type == NetworkSegmentType::Tenant {
+            return;
+        }
+
+        // The code below assumes that we have only one prefix of type IPV4
+        ctx.metrics.available_ips = state.prefixes[0].num_free_ips as usize;
+        ctx.metrics.reserved_ips = state.prefixes[0].num_reserved as usize;
+        ctx.metrics.seg_name = state.name.clone();
+
+        ctx.metrics.seg_type = state.segment_type.to_string();
+        ctx.metrics.seg_id = state.id.to_string();
+        ctx.metrics.prefix = state.prefixes[0].prefix.to_string();
+
+        let total = state.prefixes[0].prefix.size();
+
+        let total_cnt: u32 = match total {
+            ipnetwork::NetworkSize::V4(nf) => nf,
+            ipnetwork::NetworkSize::V6(_n128) => 0,
+        };
+        ctx.metrics.total_ips = total_cnt as usize;
+    }
 }
 
 #[async_trait::async_trait]
@@ -68,8 +97,10 @@ impl StateHandler for NetworkSegmentStateHandler {
         state: &mut NetworkSegment,
         controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
+        // record metrics irrespective of the state of the network segment
+        self.record_metrics(state, ctx);
         match controller_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;

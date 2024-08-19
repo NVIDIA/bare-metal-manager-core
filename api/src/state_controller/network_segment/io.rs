@@ -22,8 +22,11 @@ use crate::{
     model::controller_outcome::PersistentStateHandlerOutcome,
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::{
-        io::StateControllerIO, metrics::NoopMetricsEmitter,
-        network_segment::context::NetworkSegmentStateHandlerContextObjects,
+        io::StateControllerIO,
+        network_segment::{
+            context::NetworkSegmentStateHandlerContextObjects,
+            metrics::NetworkSegmentMetricsEmitter,
+        },
     },
 };
 
@@ -36,7 +39,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     type ObjectId = NetworkSegmentId;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = NetworkSegmentMetricsEmitter;
     type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "network_segments_controller_lock";
@@ -61,7 +64,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         let mut segments = NetworkSegment::find(
             txn,
             NetworkSegmentIdKeyedObjectFilter::One(*segment_id),
-            crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+            crate::db::network_segment::NetworkSegmentSearchConfig {
+                include_num_free_ips: true,
+                include_history: false,
+            },
         )
         .await?;
         if segments.is_empty() {
