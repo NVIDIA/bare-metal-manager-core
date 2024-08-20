@@ -37,8 +37,8 @@ use crate::model::instance::status::network::{
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
-use crate::model::RpcDataConversionError;
 use crate::{ethernet_virtualization, CarbideError};
+use ::rpc::errors::RpcDataConversionError;
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.

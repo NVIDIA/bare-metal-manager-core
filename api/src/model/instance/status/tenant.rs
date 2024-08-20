@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 
 /// The most recent tenant related status
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

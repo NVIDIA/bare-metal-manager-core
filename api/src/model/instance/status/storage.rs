@@ -13,7 +13,8 @@
 use crate::model::instance::config::storage::InstanceStorageConfig;
 use crate::model::instance::status::SyncState;
 use crate::model::storage::{StorageVolume, StorageVolumeHealth, StorageVolumeStatus};
-use crate::model::{RpcDataConversionError, StatusValidationError};
+use crate::model::StatusValidationError;
+use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use serde::{Deserialize, Serialize};

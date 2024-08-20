@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 
 /// Metadata that can get associated with Forge managed resources
 #[derive(Debug, Clone, Default)]

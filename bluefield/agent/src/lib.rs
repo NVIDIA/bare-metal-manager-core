@@ -17,7 +17,6 @@ use std::time::Instant;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use ::rpc::DiscoveryInfo;
-use command_line::NetworkVirtualizationType;
 pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
@@ -59,11 +58,6 @@ pub mod upgrade;
 mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
-
-// What to use if the server doesn't send it. Which it always should.
-// Once NVUE is rolled out we can remove this.
-pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: NetworkVirtualizationType =
-    NetworkVirtualizationType::Etv;
 
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";

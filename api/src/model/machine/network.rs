@@ -5,7 +5,7 @@ use config_version::ConfigVersion;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed

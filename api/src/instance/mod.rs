@@ -39,10 +39,11 @@ use crate::{
         },
         metadata::Metadata,
         tenant::TenantOrganizationId,
-        ConfigValidationError, RpcDataConversionError,
+        ConfigValidationError,
     },
     CarbideError, CarbideResult,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// User parameters for creating an instance
 #[derive(Debug)]

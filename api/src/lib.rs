@@ -20,24 +20,24 @@ use std::{
     net::IpAddr,
 };
 
-use config_version::{ConfigVersion, ConfigVersionParseError};
-use dhcp::allocation::DhcpError;
-use eyre::WrapErr;
-use mac_address::MacAddress;
-use model::{
-    hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
-    tenant::TenantError, ConfigValidationError, RpcDataConversionError,
-};
-use tokio::sync::oneshot::{Receiver, Sender};
-use tonic::Status;
-use tracing::subscriber::NoSubscriber;
-
 use crate::logging::setup::TelemetrySetup;
 use crate::logging::{
     metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
     setup::setup_telemetry,
 };
 use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
+use ::rpc::errors::RpcDataConversionError;
+use config_version::{ConfigVersion, ConfigVersionParseError};
+use dhcp::allocation::DhcpError;
+use eyre::WrapErr;
+use mac_address::MacAddress;
+use model::{
+    hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
+    tenant::TenantError, ConfigValidationError,
+};
+use tokio::sync::oneshot::{Receiver, Sender};
+use tonic::Status;
+use tracing::subscriber::NoSubscriber;
 
 pub mod api;
 #[cfg(feature = "tss-esapi")]

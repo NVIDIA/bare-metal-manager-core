@@ -9,11 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt, net::Ipv4Addr, path::PathBuf};
+use std::{net::Ipv4Addr, path::PathBuf};
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
 use crate::network_monitor::NetworkPingerType;
+use forge_network::virtualization::VpcVirtualizationType;
 
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]
@@ -128,7 +129,7 @@ pub struct FrrOptions {
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
     #[clap(long, default_value = "etv")]
-    pub network_virtualization_type: NetworkVirtualizationType,
+    pub network_virtualization_type: VpcVirtualizationType,
     #[clap(long, default_value = "0")]
     pub vpc_vni: u32,
     #[clap(long, use_value_delimiter = true)]
@@ -154,7 +155,7 @@ pub struct InterfacesOptions {
     )]
     pub network: Vec<String>,
     #[clap(long, default_value = "etv")]
-    pub network_virtualization_type: NetworkVirtualizationType,
+    pub network_virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Parser, Debug)]
@@ -168,7 +169,7 @@ pub struct DhcpOptions {
     #[clap(long, help = "Remote ID to be filled in Option 82 - Agent Remote ID")]
     pub remote_id: String,
     #[clap(long, default_value = "etv")]
-    pub network_virtualization_type: NetworkVirtualizationType,
+    pub network_virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Parser, Debug)]
@@ -184,7 +185,7 @@ pub struct RunOptions {
         long,
         help = "Use this network_virtualization_type for both service network and all instances."
     )]
-    pub override_network_virtualization_type: Option<NetworkVirtualizationType>,
+    pub override_network_virtualization_type: Option<VpcVirtualizationType>,
     #[clap(
         long,
         default_value = "false",
@@ -200,67 +201,6 @@ pub struct NetworkOptions {
         help = "Use this network_pinger_type for the interface used for pinging."
     )]
     pub network_pinger_type: Option<NetworkPingerType>,
-}
-
-// TODO(chet): VpcVirtualizationType (from the api crate) and
-// NetworkVirtualizationType (from the bluefield crate)
-// should be merged together. I think the reason for having
-// two separate ones is so the bluefield crate doesn't pull
-// in the api crate, so we could just have a common location
-// for this to be. Of course, VpcVirtualizationType returns
-// a CarbideError, that would mean the common/network crate
-// would need to pull in the api crate (to get at CarbideError),
-// so we'd need to change the type error it returns too.
-#[derive(ValueEnum, Debug, Clone, Copy)]
-pub enum NetworkVirtualizationType {
-    Etv,        // clap default is kebab-case, so this is "etv"
-    EtvNvue,    // and this is "etv-nvue"
-    FnnClassic, // and this is "fnn-classic"
-    FnnL3,      // and this is "fnn-l3"
-}
-
-impl NetworkVirtualizationType {
-    pub fn prefix_length(&self) -> u8 {
-        match self {
-            Self::Etv => 32,
-            Self::EtvNvue => 32,
-            Self::FnnClassic => 32,
-            Self::FnnL3 => 30,
-        }
-    }
-}
-
-impl fmt::Display for NetworkVirtualizationType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // enums are a special case where their debug impl is their name
-        fmt::Debug::fmt(self, f)
-    }
-}
-
-impl From<rpc::forge::VpcVirtualizationType> for NetworkVirtualizationType {
-    fn from(v: rpc::forge::VpcVirtualizationType) -> Self {
-        match v {
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizer => Self::Etv,
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EtvNvue,
-            rpc::forge::VpcVirtualizationType::FnnClassic => Self::FnnClassic,
-            rpc::forge::VpcVirtualizationType::FnnL3 => Self::FnnL3,
-        }
-    }
-}
-
-impl From<NetworkVirtualizationType> for rpc::forge::VpcVirtualizationType {
-    fn from(nvt: NetworkVirtualizationType) -> Self {
-        match nvt {
-            NetworkVirtualizationType::Etv => {
-                rpc::forge::VpcVirtualizationType::EthernetVirtualizer
-            }
-            NetworkVirtualizationType::EtvNvue => {
-                rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue
-            }
-            NetworkVirtualizationType::FnnClassic => rpc::forge::VpcVirtualizationType::FnnClassic,
-            NetworkVirtualizationType::FnnL3 => rpc::forge::VpcVirtualizationType::FnnL3,
-        }
-    }
 }
 
 impl Options {

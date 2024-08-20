@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;

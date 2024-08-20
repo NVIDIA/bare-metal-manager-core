@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::db::vpc::{UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter, VpcVirtualizationType};
+use carbide::db::vpc::{UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter};
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
+use forge_network::virtualization::VpcVirtualizationType;
 use rpc::forge::forge_server::Forge;
 
 use crate::common::api_fixtures::FIXTURE_VPC_ID;

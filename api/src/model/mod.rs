@@ -41,56 +41,6 @@ pub mod site_explorer;
 pub mod storage;
 pub mod tenant;
 
-/// Enumerates errors that can occur when converting from the RPC data format
-/// into the internal data model
-#[derive(Debug, thiserror::Error)]
-pub enum RpcDataConversionError {
-    #[error("Field {0} is not valid base64")]
-    InvalidBase64Data(&'static str),
-    #[error("Virtual Function ID of value {0} is not in the expected range 1-16")]
-    InvalidVirtualFunctionId(usize),
-    #[error("IP Address {0} is not valid")]
-    InvalidIpAddress(String),
-    #[error("MAC address {0} is not valid")]
-    InvalidMacAddress(String),
-    #[error("Version string {0} is not valid")]
-    InvalidConfigVersion(String),
-    #[error("Machine ID {0} is not valid")]
-    InvalidMachineId(String),
-    #[error("Timestamp {0} is not valid")]
-    InvalidTimestamp(String),
-    #[error("Tenant Org {0} is not valid")]
-    InvalidTenantOrg(String),
-    #[error("Interface Function Type {0} is not valid")]
-    InvalidInterfaceFunctionType(i32),
-    #[error("Invalid UUID for field of type {0}: {1}")]
-    InvalidUuid(&'static str, String),
-    #[error("Invalid value {1} for {0}")]
-    InvalidValue(String, String),
-    #[error("Argument {0} is missing")]
-    MissingArgument(&'static str),
-    #[error("Machine state {0} is invalid")]
-    InvalidMachineState(String),
-    #[error("Invalid NetworkSegmentType {0} is received.")]
-    InvalidNetworkSegmentType(i32),
-    #[error("Pci Device Info {0} is invalid")]
-    InvalidPciDeviceInfo(String),
-    #[error("VpcVirtualizationType {0} is invalid")]
-    InvalidVpcVirtualizationType(i32),
-    #[error("Invalid enum value received for critical error type: {0}")]
-    InvalidCriticalErrorType(i32),
-    #[error("Instance ID {0} is not valid")]
-    InvalidInstanceId(String),
-    #[error("VPC ID {0} is not valid")]
-    InvalidVpcId(String),
-    #[error("IB Partition ID {0} is not valid")]
-    InvalidIbPartitionId(String),
-    #[error("Network Segment ID {0} is not valid")]
-    InvalidNetworkSegmentId(String),
-    #[error("CIDR {0} is not valid")]
-    InvalidCidr(String),
-}
-
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
 /// into a `Vec<R>`.
 pub fn try_convert_vec<T, R, E>(source: Vec<T>) -> Result<Vec<R>, E>

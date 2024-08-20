@@ -15,7 +15,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::tenant::TenantOrganizationId;
-use crate::model::{ConfigValidationError, RpcDataConversionError};
+use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
 use once_cell::sync::Lazy;
 use regex::Regex;
 

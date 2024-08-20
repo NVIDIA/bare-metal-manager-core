@@ -25,8 +25,8 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-use crate::command_line::NetworkVirtualizationType;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
+use forge_network::virtualization::VpcVirtualizationType;
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -435,7 +435,7 @@ pub async fn update_dhcp(
     pxe_ip: Ipv4Addr,
     ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
-    nvt: NetworkVirtualizationType,
+    nvt: VpcVirtualizationType,
 ) -> eyre::Result<bool> {
     let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
     let path_dhcp_relay_nvue = FPath(hbn_root.join(dhcp::RELAY_PATH_NVUE));
@@ -479,7 +479,7 @@ pub async fn update_dhcp(
             }
             Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
         }
-    } else if matches!(nvt, NetworkVirtualizationType::EtvNvue) {
+    } else if matches!(nvt, VpcVirtualizationType::EthernetVirtualizerWithNvue) {
         // dhcp-relay managed by NVUE
         let _ = fs::remove_file(path_dhcp_relay);
         return Ok(false);

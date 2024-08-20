@@ -26,8 +26,9 @@ use crate::model::{
         },
         status::SyncState,
     },
-    RpcDataConversionError, SerializableMacAddress, StatusValidationError,
+    SerializableMacAddress, StatusValidationError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// Status of the networking subsystem of an instance
 ///

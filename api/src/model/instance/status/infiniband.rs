@@ -17,11 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ib::types::IBPort,
-    model::{
-        instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
-        RpcDataConversionError, StatusValidationError,
-    },
+    model::instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
+    model::StatusValidationError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// Status of the infiniband subsystem of an instance
 ///

@@ -16,8 +16,8 @@ use tonic::{Request, Response, Status};
 use crate::api::{log_request_data, Api};
 use crate::db::vpc::{NewVpc, UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter};
 use crate::db::DatabaseError;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 
 pub(crate) async fn create(
     api: &Api,
