@@ -163,6 +163,7 @@ pub struct ManagedHostOutput {
     pub is_network_healthy: bool,
     pub dpus: Vec<ManagedHostAttachedDpu>,
     pub exploration_report: Option<EndpointExplorationReport>,
+    pub failure_details: Option<String>,
 }
 
 impl From<&Machine> for ManagedHostOutput {
@@ -206,6 +207,7 @@ impl From<&Machine> for ManagedHostOutput {
                 .discovery_info
                 .as_ref()
                 .and_then(|di| get_memory_details(&di.memory_devices)),
+            failure_details: machine.failure_details.clone(),
             maintenance_reference: machine.maintenance_reference.clone(),
             maintenance_start_time: machine
                 .id
@@ -249,6 +251,7 @@ pub struct ManagedHostAttachedDpu {
     pub is_network_healthy: bool,
     pub network_error_msg: Option<String>,
     pub exploration_report: Option<EndpointExplorationReport>,
+    pub failure_details: Option<String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -353,6 +356,7 @@ impl ManagedHostAttachedDpu {
             is_primary,
             is_network_healthy,
             network_error_msg,
+            failure_details: dpu_machine.failure_details.clone(),
         };
 
         Some(result)

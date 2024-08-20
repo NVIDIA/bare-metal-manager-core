@@ -484,7 +484,6 @@ impl MachineStateHandler {
                 if state.instance.is_some() {
                     // Instance is requested by user. Let's configure it.
 
-                    // TODO: multidpu: Check for all DPUs
                     // Switch to using the network we just created for the tenant
                     for dpu_snapshot in &state.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
@@ -1671,7 +1670,7 @@ async fn handle_measuring_state(
                         })
                     }
                     // In this state, the machine is matching revoked measurements,
-                    // so see if that's still the case. If not, transition to
+                    // so see if thats still the case. If not, transition to
                     // whatever the next state is.
                     FailureCause::MeasurementsRevoked { .. } => {
                         Ok(match machine_state {
@@ -2102,23 +2101,26 @@ async fn set_managed_host_topology_update_needed(
 
 /// This function returns failure cause for both host and dpu.
 fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, FailureDetails)> {
-    // TODO: multidpu: Check for all DPUs
-    // TODO: This might return HashMap<dpu_id, failure> to handle failure from all dpus.
     // Return updated state only for errors which should cause machine to move into failed
     // state.
     if state.host_snapshot.failure_details.cause != FailureCause::NoError {
-        Some((
+        return Some((
             state.host_snapshot.machine_id.clone(),
             state.host_snapshot.failure_details.clone(),
-        ))
-    } else if state.dpu_snapshots[0].failure_details.cause != FailureCause::NoError {
-        Some((
-            state.dpu_snapshots[0].machine_id.clone(),
-            state.dpu_snapshots[0].failure_details.clone(),
-        ))
+        ));
     } else {
-        None
+        for dpu_snapshot in &state.dpu_snapshots {
+            // In case of the DPU, use first failed DPU and recover it before moving forward.
+            if dpu_snapshot.failure_details.cause != FailureCause::NoError {
+                return Some((
+                    dpu_snapshot.machine_id.clone(),
+                    dpu_snapshot.failure_details.clone(),
+                ));
+            }
+        }
     }
+
+    None
 }
 
 /// A `StateHandler` implementation for DPU machines
@@ -3753,26 +3755,27 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
-                    let dpu_machine_id = &state.dpu_snapshots[0].machine_id;
+                    if let Some(dpu_snapshot) = &state.dpu_snapshots.first() {
+                        let dpu_machine_id = &dpu_snapshot.machine_id;
+                        // attach volumes to instance
+                        storage::attach_storage_volumes(
+                            ctx.services,
+                            txn,
+                            instance.id,
+                            dpu_machine_id,
+                            instance.config.storage.clone(),
+                            false,
+                        )
+                        .await?;
 
-                    // attach volumes to instance
-                    storage::attach_storage_volumes(
-                        ctx.services,
-                        txn,
-                        instance.id,
-                        dpu_machine_id,
-                        instance.config.storage.clone(),
-                        false,
-                    )
-                    .await?;
-
-                    storage::record_storage_status_observation(
-                        ctx.services,
-                        txn,
-                        instance,
-                        instance.config.storage.clone(),
-                    )
-                    .await?;
+                        storage::record_storage_status_observation(
+                            ctx.services,
+                            txn,
+                            instance,
+                            instance.config.storage.clone(),
+                        )
+                        .await?;
+                    }
 
                     // Reboot host
                     handler_host_power_control(

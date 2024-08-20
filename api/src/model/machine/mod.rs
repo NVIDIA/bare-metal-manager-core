@@ -486,6 +486,11 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                     source: hr.source,
                 })
                 .collect(),
+            failure_details: if machine.failure_details.cause != FailureCause::NoError {
+                Some(machine.failure_details.to_string())
+            } else {
+                None
+            },
         }
     }
 }

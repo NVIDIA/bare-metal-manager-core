@@ -288,6 +288,9 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Admin IP", m.host_admin_ip.clone()),
         ("  Admin MAC", m.host_admin_mac.clone()),
     ];
+    if m.failure_details.is_some() {
+        data.push(("  Failure Details", m.failure_details))
+    }
     if m.is_network_healthy {
         data.push(("  Network is Healthy", Some("".to_string())));
     } else {
@@ -328,6 +331,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             ("  ID", dpu.machine_id.clone()),
             ("  State", dpu.state.clone()),
             ("  Primary", Some(dpu.is_primary.to_string())),
+            ("  Failure details", dpu.failure_details.clone()),
             (
                 "  Healthy",
                 Some(format!(
