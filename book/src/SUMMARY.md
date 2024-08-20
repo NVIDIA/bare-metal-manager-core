@@ -70,6 +70,7 @@
 - [Cleaning up the Gitlab Runner in CI when it runs out of disk space](playbooks/gitlab_runner_disk_cleanup.md)
 - [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
 - [Instance/Subnet/etc is stuck in a state](playbooks/stuck_objects.md)
+- [InfiniBand setup](playbooks/ib_runbook.md)
 
 # NVMesh
 
