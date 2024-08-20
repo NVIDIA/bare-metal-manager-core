@@ -142,13 +142,17 @@ pub async fn admin_network(
         .await
         .map_err(CarbideError::from)?;
 
+    // admin isn't an overlay network, so:
+    //  - vni: 0 (because there's no VNI)
+    //  - network: ip/32 (because there won't be an instance network allocation)
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
-        vni: 0, // admin isn't an overlay network, so no vni
+        vni: 0,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
+        interface_prefix: format!("{}/32", address.address),
         vpc_prefixes: vec![],
         prefix: prefix.prefix.to_string(),
         fqdn: format!("{}.{}", interface.hostname, domain),
@@ -187,10 +191,22 @@ pub async fn tenant_network(
                 instance_id, segment.id
             ))
         })?;
+
     let address = iface.ip_addrs.get(&v4_prefix.id).ok_or_else(|| {
         Status::internal(format!(
             "No IPv4 address is available for instance {} on segment {}",
             instance_id, segment.id
+        ))
+    })?;
+
+    // XXX! If `address` was assigned above (and didn't return a Status::internal error),
+    // but THIS fails, it means something didn't call iface.validate() when it should
+    // have -- validate() makes sure there is a 1:1 mapping for address:interface_prefix
+    // per network prefix ID.
+    let interface_prefix = iface.interface_prefixes.get(&v4_prefix.id).ok_or_else(|| {
+        Status::internal(format!(
+            "No IPv4 interface prefix allocation found for instance {} on segment {} and prefix {}",
+            instance_id, segment.id, v4_prefix.id
         ))
     })?;
 
@@ -220,6 +236,7 @@ pub async fn tenant_network(
         vni: segment.vni.unwrap_or_default() as u32,
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
+        interface_prefix: interface_prefix.to_string(),
         vpc_prefixes,
         prefix: v4_prefix.prefix.to_string(),
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by

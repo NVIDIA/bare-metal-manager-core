@@ -67,6 +67,9 @@ pub enum ConfigValidationError {
     #[error("Found segments attached to multiple VPCs.")]
     MultipleVpcFound,
 
+    #[error("IP addresses / IP networks not configured for the same prefixes.")]
+    NetworkPrefixAllocationMismatch,
+
     #[error("Segment {0} is not yet ready. Current state: {1}")]
     NetworkSegmentNotReady(NetworkSegmentId, String),
 

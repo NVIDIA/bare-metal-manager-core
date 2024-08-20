@@ -221,6 +221,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         vni: 10100,
         gateway: "192.168.0.0/16".to_string(),
         ip: "192.168.0.12".to_string(),
+        interface_prefix: "192.168.0.12/32".to_string(),
         virtual_function_id: None,
         vpc_prefixes: vec![],
         prefix: "192.168.0.1/32".to_string(),

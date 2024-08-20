@@ -291,18 +291,13 @@ WHERE network_prefixes.segment_id = $1::uuid";
             let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address, prefix)
                          VALUES ($1::uuid, $2, $3::inet, $4::cidr)";
             for (prefix_id, allocated_prefix) in allocated_addresses {
-                // TODO(chet): Prefix is currently a hard-coded to /32 from the instance
-                // address, but will soon be changing as part of FNN needing to be able
-                // to allocate a tenant *prefix* (e.g. a /30) per DPU on a tenant instance.
-                //
-                // The InstanceNetworkConfig will contain a prefix_length for the prefix
-                // size requested in a given network segment, and the IpAllocator is going
-                // to be modified to find the next available prefix of prefix_length within
-                // that segment.
-                //
-                // In that world, this prefix will go into the `prefix` column, and the
-                // address (in the `address` column) will be the host IP from the prefix.
                 let allocated_prefix = allocated_prefix?;
+
+                // This is used to populate the database (and the InstanceInterfaceConfig
+                // ip_addrs) with the host IP, meaning, if the instance-allocated prefix
+                // is a /32 IpNetwork, it will be the IP. If it's a /30 (say, for FNN), it
+                // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
+                // as the visibly-assigned IP address for the instance.
                 let host_ip = get_host_ip(&allocated_prefix)?;
 
                 sqlx::query(query)
@@ -316,12 +311,8 @@ WHERE network_prefixes.segment_id = $1::uuid";
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
 
-                // This currently only populates the InstanceInterfaceConfig ip_addrs
-                // with the host IP, meaning, if the instance-allocated network is
-                // a /32 IpNetwork, it will be the IP. If it's a /30 (say, for FNN), it
-                // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
-                // as the visibly-assigned IP address for the instance.
                 iface.ip_addrs.insert(prefix_id, host_ip);
+                iface.interface_prefixes.insert(prefix_id, allocated_prefix);
             }
         }
 
@@ -502,6 +493,7 @@ mod tests {
                     function_id,
                     network_segment_id,
                     ip_addrs: HashMap::default(),
+                    interface_prefixes: HashMap::default(),
                 }
             })
             .collect();

@@ -915,6 +915,7 @@ pub async fn network_configured_with_health(
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![iface.ip.clone()],
+            prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
         }]
     } else {
@@ -925,6 +926,7 @@ pub async fn network_configured_with_health(
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
                 addresses: vec![iface.ip.clone()],
+                prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
             });
         }
