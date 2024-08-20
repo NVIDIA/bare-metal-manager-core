@@ -28,6 +28,7 @@ use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
     model::{
         secure_boot::SecureBootMode,
+        sensor::GPUSensors,
         service_root::{RedfishVendor, ServiceRoot},
         task::Task,
         update_service::UpdateService,
@@ -824,6 +825,7 @@ impl Redfish for RedfishSimClient {
                 net_dev_func_capabilities: Some(Vec::new()),
                 net_dev_func_type: None,
                 links: None,
+                oem: None,
             },
         )
     }
@@ -1123,6 +1125,10 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
+        todo!();
+    }
+
+    async fn get_gpu_sensors(&self) -> Result<Vec<GPUSensors>, RedfishError> {
         todo!();
     }
 }

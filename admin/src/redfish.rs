@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{path::Path, time::Duration};
+
 use color_eyre::eyre::eyre;
 use libredfish::{
     model::{
@@ -21,7 +23,6 @@ use libredfish::{
     RedfishError, RoleId, SystemPowerControl,
 };
 use prettytable::{row, Table};
-use std::{path::Path, time::Duration};
 use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
@@ -141,7 +142,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     dev.firmware_version.unwrap_or_default(),
                     dev.part_number.unwrap_or_default(),
                     dev.serial_number.unwrap_or_default(),
-                    format!("{} {}", status.health.unwrap_or_default(), status.state),
+                    format!(
+                        "{} {}",
+                        status.health.unwrap_or_default(),
+                        status.state.unwrap_or("".to_string())
+                    ),
                 ]);
             }
             table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);

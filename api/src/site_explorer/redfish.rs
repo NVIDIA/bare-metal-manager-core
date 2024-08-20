@@ -14,11 +14,10 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use libredfish::{Redfish, RedfishError, RoleId};
-use regex::Regex;
-
 use bmc_vendor::BMCVendor;
 use forge_secrets::credentials::Credentials;
+use libredfish::{Redfish, RedfishError, RoleId};
+use regex::Regex;
 
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
@@ -565,7 +564,7 @@ impl From<SystemStatus> for libredfish::model::SystemStatus {
         libredfish::model::SystemStatus {
             health: status.health,
             health_rollup: status.health_rollup,
-            state: status.state,
+            state: Some(status.state),
         }
     }
 }
@@ -574,7 +573,7 @@ impl From<libredfish::model::SystemStatus> for SystemStatus {
         SystemStatus {
             health: status.health,
             health_rollup: status.health_rollup,
-            state: status.state.to_string(),
+            state: status.state.unwrap_or("".to_string()),
         }
     }
 }
