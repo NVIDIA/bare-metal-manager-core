@@ -60,7 +60,7 @@ pub async fn get_latest_journal_for_id(
     machine_id: MachineId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
-    sqlx::query_as::<_, MeasurementJournalRecord>(query)
+    sqlx::query_as(query)
         .bind(machine_id)
         .fetch_optional(txn.deref_mut())
         .await

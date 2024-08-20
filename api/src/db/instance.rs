@@ -321,12 +321,10 @@ impl Instance {
         }
 
         let query = builder.build_query_as();
-        let ids: Vec<InstanceId> = query
+        Ok(query
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?;
-
-        Ok(ids)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?)
     }
 
     pub async fn find(
@@ -412,13 +410,11 @@ impl Instance {
         id: InstanceId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT * from instances WHERE id = $1";
-        let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
+        sqlx::query_as(query)
             .bind(id)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(instance)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_id_by_machine_id(
@@ -426,13 +422,11 @@ impl Instance {
         machine_id: &MachineId,
     ) -> Result<Option<InstanceId>, DatabaseError> {
         let query = "SELECT id from instances WHERE machine_id = $1";
-        let instance_id = sqlx::query_as::<_, InstanceId>(query)
+        sqlx::query_as(query)
             .bind(machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(instance_id)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_machine_id(
@@ -440,13 +434,11 @@ impl Instance {
         machine_id: &MachineId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT * from instances WHERE machine_id = $1";
-        let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
+        sqlx::query_as(query)
             .bind(machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(instance)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_machine_ids(
@@ -454,13 +446,11 @@ impl Instance {
         machine_ids: &[MachineId],
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT * from instances WHERE machine_id = ANY($1)";
-        let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
+        sqlx::query_as(query)
             .bind(machine_ids)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(instance)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_relay_ip(
@@ -472,7 +462,7 @@ SELECT i.* from instances i
 INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
 INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
 WHERE s.network_config->>'loopback_ip'=$1";
-        sqlx::query_as::<_, InstanceSnapshot>(query)
+        sqlx::query_as(query)
             .bind(relay.to_string())
             .fetch_optional(txn.deref_mut())
             .await
@@ -898,7 +888,7 @@ impl<'a> NewInstance<'a> {
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json)
                     RETURNING *";
-        sqlx::query_as::<_, InstanceSnapshot>(query)
+        sqlx::query_as(query)
             .bind(self.instance_id)
             .bind(self.machine_id.to_string())
             .bind(os_user_data)

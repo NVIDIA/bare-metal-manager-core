@@ -205,13 +205,12 @@ pub async fn set_primary_interface(
     txn: &mut Transaction<'_, Postgres>,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+    sqlx::query_as(query)
         .bind(primary)
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-        .map(Into::<MachineInterfaceSnapshot>::into)
 }
 
 pub async fn associate_interface_with_dpu_machine(
@@ -221,13 +220,12 @@ pub async fn associate_interface_with_dpu_machine(
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let query =
         "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+    sqlx::query_as(query)
         .bind(dpu_machine_id.to_string())
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-        .map(Into::<MachineInterfaceSnapshot>::into)
 }
 
 pub async fn associate_interface_with_machine(
@@ -236,7 +234,7 @@ pub async fn associate_interface_with_machine(
     txn: &mut Transaction<'_, Postgres>,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+    sqlx::query_as(query)
         .bind(machine_id.to_string())
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
@@ -249,7 +247,6 @@ pub async fn associate_interface_with_machine(
             }
             _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
         })
-        .map(Into::<MachineInterfaceSnapshot>::into)
 }
 
 pub async fn find_by_mac_address(
@@ -266,23 +263,19 @@ pub async fn find_by_ip(
     let query = r#"SELECT mi.* FROM machine_interfaces mi
         INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
         WHERE mia.address = $1::inet"#;
-    let interface: Option<MachineInterfaceSnapshot> = sqlx::query_as(query)
+    sqlx::query_as(query)
         .bind(ip)
         .fetch_optional(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-    Ok(interface)
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
 pub async fn find_all(
     txn: &mut Transaction<'_, Postgres>,
 ) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
-    let interfaces = find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
+    find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
         .await
-        .map_err(CarbideError::from)?;
-
-    Ok(interfaces)
+        .map_err(CarbideError::from)
 }
 
 pub async fn find_by_machine_ids(

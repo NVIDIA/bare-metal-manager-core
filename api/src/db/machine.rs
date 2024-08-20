@@ -634,7 +634,7 @@ SELECT m.id FROM
                 } else {
                     ""
                 };
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", where_clause))
+                sqlx::query_as(&base_query.replace("{where}", where_clause))
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?
@@ -644,7 +644,7 @@ SELECT m.id FROM
                 if search_config.only_maintenance {
                     where_clause += " AND maintenance_reference IS NOT NULL";
                 }
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", &where_clause))
+                sqlx::query_as(&base_query.replace("{where}", &where_clause))
                     .bind(id.to_string())
                     .fetch_all(txn.deref_mut())
                     .await
@@ -656,7 +656,7 @@ SELECT m.id FROM
                     where_clause += " AND maintenance_reference IS NOT NULL";
                 }
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
-                sqlx::query_as::<_, Machine>(&base_query.replace("{where}", &where_clause))
+                sqlx::query_as(&base_query.replace("{where}", &where_clause))
                     .bind(str_list)
                     .fetch_all(txn.deref_mut())
                     .await
@@ -1372,13 +1372,12 @@ SELECT m.id FROM
         // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
         // also change.
         let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING *";
-        let res = sqlx::query_as::<_, Machine>(query)
+        Ok(sqlx::query_as(query)
             .bind(stable_machine_id.to_string())
             .bind(current_machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(res)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
 
     pub async fn update_failure_details(
@@ -1671,7 +1670,7 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM machines WHERE reprovisioning_requested IS NOT NULL";
-        sqlx::query_as::<_, Self>(query)
+        sqlx::query_as(query)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

@@ -85,7 +85,7 @@ impl DpuMachineUpdate {
             query += &format!(" LIMIT ${};", bind_index);
         }
 
-        let mut q = sqlx::query_as::<_, DpuMachineUpdate>(&query);
+        let mut q = sqlx::query_as(&query);
         for (product_name, expected_version) in expected_firmware_versions {
             q = q.bind(product_name).bind(expected_version);
         }
@@ -135,7 +135,7 @@ impl DpuMachineUpdate {
         }
         query += ")\n";
 
-        let mut q = sqlx::query_as::<_, DpuMachineUpdate>(&query);
+        let mut q = sqlx::query_as(&query);
         for (product_name, expected_version) in expected_firmware_versions {
             q = q.bind(product_name).bind(expected_version);
         }
@@ -230,7 +230,7 @@ impl DpuMachineUpdate {
             WHERE m.reprovisioning_requested->>'initiator' like $1
             AND mi.attached_dpu_machine_id != mi.machine_id;"#;
 
-        let result: Vec<DpuMachineUpdate> = sqlx::query_as::<_, DpuMachineUpdate>(query)
+        let result: Vec<DpuMachineUpdate> = sqlx::query_as(query)
             .bind(&reference)
             .fetch_all(txn.deref_mut())
             .await
@@ -255,7 +255,7 @@ impl DpuMachineUpdate {
         AND m.maintenance_reference like $1
         AND m.reprovisioning_requested IS NULL"#;
 
-        let updated_machines: Vec<DpuMachineUpdate> = sqlx::query_as::<_, DpuMachineUpdate>(query)
+        let updated_machines: Vec<DpuMachineUpdate> = sqlx::query_as(query)
             .bind(&reference)
             .fetch_all(txn.deref_mut())
             .await

@@ -83,7 +83,7 @@ pub async fn match_latest_reports(
     query.push("having count(*) = ");
     query.push_bind(pcr_register_len as i16);
 
-    let prepared = query.build_query_as::<MeasurementReportRecord>();
+    let prepared = query.build_query_as();
 
     prepared
         .fetch_all(txn.deref_mut())
@@ -100,7 +100,7 @@ pub async fn insert_measurement_report_record(
     machine_id: MachineId,
 ) -> Result<MeasurementReportRecord, DatabaseError> {
     let query = "insert into measurement_reports(machine_id) values($1) returning *";
-    sqlx::query_as::<_, MeasurementReportRecord>(query)
+    sqlx::query_as(query)
         .bind(machine_id)
         .fetch_one(txn.deref_mut())
         .await
@@ -139,7 +139,7 @@ async fn insert_measurement_report_value_record(
     value: &common::PcrRegisterValue,
 ) -> Result<MeasurementReportValueRecord, DatabaseError> {
     let query = "insert into measurement_reports_values(report_id, pcr_register, sha256) values($1, $2, $3) returning *";
-    sqlx::query_as::<_, MeasurementReportValueRecord>(query)
+    sqlx::query_as(query)
         .bind(report_id)
         .bind(value.pcr_register)
         .bind(&value.sha256)
@@ -273,7 +273,7 @@ pub async fn get_latest_measurement_report_records_by_machine_id(
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     let query =
         "select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc";
-    sqlx::query_as::<_, MeasurementReportRecord>(query)
+    sqlx::query_as(query)
         .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| {

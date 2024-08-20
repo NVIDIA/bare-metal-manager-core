@@ -552,13 +552,13 @@ impl NetworkSegment {
     ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
         let (query, mut segment_id_stream) = if let Some(segment_type) = segment_type {
             let query = "SELECT id FROM network_segments where network_segment_type=$1";
-            let stream = sqlx::query_as::<_, NetworkSegmentId>(query)
+            let stream = sqlx::query_as(query)
                 .bind(segment_type)
                 .fetch(txn.deref_mut());
             (query, stream)
         } else {
             let query = "SELECT id FROM network_segments";
-            let stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(txn.deref_mut());
+            let stream = sqlx::query_as(query).fetch(txn.deref_mut());
             (query, stream)
         };
 
@@ -610,26 +610,26 @@ impl NetworkSegment {
 
         let mut all_records: Vec<NetworkSegment> = match filter {
             NetworkSegmentIdKeyedObjectFilter::All => {
-                sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
+                sqlx::query_as(&base_query.replace("{where}", ""))
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments All", e))?
             }
 
-            NetworkSegmentIdKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, NetworkSegment>(
-                &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
-            )
-            .bind(uuids)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?,
-            NetworkSegmentIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkSegment>(
-                &base_query.replace("{where}", "WHERE network_segments.id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?,
+            NetworkSegmentIdKeyedObjectFilter::List(uuids) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"))
+                    .bind(uuids)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?
+            }
+            NetworkSegmentIdKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as(&base_query.replace("{where}", "WHERE network_segments.id=$1"))
+                    .bind(uuid)
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?
+            }
         };
 
         Self::update_prefix_into_network_segment_list(txn, search_config, &mut all_records).await?;

@@ -221,31 +221,29 @@ impl TenantKeyset {
             let base_query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 {where}";
 
             match keyset_filter {
-                ObjectFilter::All => {
-                    sqlx::query_as::<_, TenantKeyset>(&base_query.replace("{where}", ""))
+                ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
+                    .bind(organization_id.to_string())
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e)),
+
+                ObjectFilter::One(keyset_id) => {
+                    sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = $2"))
                         .bind(organization_id.to_string())
+                        .bind(keyset_id)
                         .fetch_all(txn.deref_mut())
                         .await
-                        .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e))
+                        .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
                 }
 
-                ObjectFilter::One(keyset_id) => sqlx::query_as::<_, TenantKeyset>(
-                    &base_query.replace("{where}", "AND keyset_id = $2"),
-                )
-                .bind(organization_id.to_string())
-                .bind(keyset_id)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
-
-                ObjectFilter::List(keyset_ids) => sqlx::query_as::<_, TenantKeyset>(
-                    &base_query.replace("{where}", "AND keyset_id = ANY($2)"),
-                )
-                .bind(organization_id.to_string())
-                .bind(keyset_ids)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
+                ObjectFilter::List(keyset_ids) => {
+                    sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = ANY($2)"))
+                        .bind(organization_id.to_string())
+                        .bind(keyset_ids)
+                        .fetch_all(txn.deref_mut())
+                        .await
+                        .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
+                }
             }
         } else {
             let query = "SELECT * FROM tenant_keysets";

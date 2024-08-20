@@ -65,7 +65,7 @@ impl RouteServer {
     pub async fn get(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<RouteServer>> {
         let query = r#"SELECT * FROM route_servers;"#;
 
-        Ok(sqlx::query_as::<_, RouteServer>(query)
+        Ok(sqlx::query_as(query)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)

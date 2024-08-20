@@ -52,7 +52,7 @@ impl HostMachineUpdate {
         ;"#,
             from_global
         );
-        sqlx::query_as::<_, HostMachineUpdate>(query.as_str())
+        sqlx::query_as(query.as_str())
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
@@ -63,7 +63,7 @@ impl HostMachineUpdate {
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
         let query =
             "SELECT id FROM machines WHERE controller_state->'state' = '\"hostreprovision\"';";
-        sqlx::query_as::<_, HostMachineUpdate>(query)
+        sqlx::query_as(query)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))

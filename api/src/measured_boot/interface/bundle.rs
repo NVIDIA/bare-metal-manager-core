@@ -40,7 +40,7 @@ pub async fn insert_measurement_bundle_record(
     match state {
         Some(set_state) => {
             let query = "insert into measurement_bundles(profile_id, name, state) values($1, $2, $3) returning *";
-            sqlx::query_as::<_, MeasurementBundleRecord>(query)
+            sqlx::query_as(query)
                 .bind(profile_id)
                 .bind(name.clone())
                 .bind(set_state)
@@ -50,7 +50,7 @@ pub async fn insert_measurement_bundle_record(
         None => {
             let query =
                 "insert into measurement_bundles(profile_id, name) values($1, $2) returning *";
-            sqlx::query_as::<_, MeasurementBundleRecord>(query)
+            sqlx::query_as(query)
                 .bind(profile_id)
                 .bind(name.clone())
                 .fetch_one(txn.deref_mut())
@@ -92,7 +92,7 @@ pub async fn insert_measurement_bundle_value_record(
 ) -> Result<MeasurementBundleValueRecord, DatabaseError> {
     let query = "insert into measurement_bundles_values(bundle_id, pcr_register, sha256) values($1, $2, $3) returning *";
 
-    sqlx::query_as::<_, MeasurementBundleValueRecord>(query)
+    sqlx::query_as(query)
         .bind(bundle_id)
         .bind(pcr_register)
         .bind(value)
@@ -120,7 +120,7 @@ pub async fn rename_bundle_for_bundle_id(
         MeasurementBundleId::db_primary_uuid_name()
     );
 
-    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as(&query)
         .bind(new_bundle_name)
         .bind(bundle_id)
         .fetch_optional(txn.deref_mut())
@@ -138,7 +138,7 @@ pub async fn rename_bundle_for_bundle_name(
         "update {} set name = $1 where name = $2 returning *",
         MeasurementBundleRecord::db_table_name(),
     );
-    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as(&query)
         .bind(new_bundle_name)
         .bind(old_bundle_name)
         .fetch_optional(txn.deref_mut())
@@ -163,7 +163,7 @@ pub async fn update_state_for_bundle_id(
                 MeasurementBundleRecord::db_table_name()
             );
 
-            sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+            sqlx::query_as(&query)
                 .bind(state)
                 .bind(bundle_id)
                 .bind(MeasurementBundleState::Revoked)
@@ -177,7 +177,7 @@ pub async fn update_state_for_bundle_id(
                 MeasurementBundleRecord::db_table_name()
             );
 
-            sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+            sqlx::query_as(&query)
                 .bind(state)
                 .bind(bundle_id)
                 .fetch_optional(txn.deref_mut())
@@ -356,7 +356,7 @@ pub async fn get_machines_for_bundle_id(
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
-    sqlx::query_as::<_, MachineId>(query)
+    sqlx::query_as(query)
         .bind(bundle_id)
         .fetch_all(txn.deref_mut())
         .await
@@ -373,7 +373,7 @@ pub async fn get_machines_for_bundle_name(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
-    sqlx::query_as::<_, MachineId>(query)
+    sqlx::query_as(query)
         .bind(bundle_name)
         .fetch_all(txn.deref_mut())
         .await
@@ -428,7 +428,7 @@ pub async fn import_measurement_bundle(
         "insert into {}(bundle_id, profile_id, name, ts, state) values($1, $2, $3, $4, $5) returning *",
         MeasurementBundleRecord::db_table_name()
     );
-    sqlx::query_as::<_, MeasurementBundleRecord>(&query)
+    sqlx::query_as(&query)
         .bind(bundle.bundle_id)
         .bind(bundle.profile_id)
         .bind(bundle.name.clone())
@@ -467,7 +467,7 @@ pub async fn import_measurement_bundles_value(
         "insert into {}(value_id, bundle_id, pcr_register, sha256, ts) values($1, $2, $3, $4, $5) returning *",
         MeasurementBundleValueRecord::db_table_name()
     );
-    sqlx::query_as::<_, MeasurementBundleValueRecord>(&query)
+    sqlx::query_as(&query)
         .bind(bundle.value_id)
         .bind(bundle.bundle_id)
         .bind(bundle.pcr_register)

@@ -46,17 +46,15 @@ impl MachineValidation {
         let base_query = "SELECT * FROM machine_validation result {where}".to_owned();
 
         let custom_results = match filter {
-            ObjectFilter::All => {
-                sqlx::query_as::<_, MachineValidation>(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?
-            }
+            ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
+                .fetch_all(txn.deref_mut())
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?,
             ObjectFilter::One(id) => {
                 let query = base_query
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
-                sqlx::query_as::<_, MachineValidation>(&query)
+                sqlx::query_as(&query)
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation One", e))?
@@ -82,7 +80,7 @@ impl MachineValidation {
                     )
                     .replace("{column}", column);
 
-                sqlx::query_as::<_, MachineValidation>(&query)
+                sqlx::query_as(&query)
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
@@ -295,19 +293,17 @@ impl MachineValidationResult {
         let base_query = "SELECT * FROM machine_validation_results result {where}".to_owned();
 
         let custom_results = match filter {
-            ObjectFilter::All => {
-                sqlx::query_as::<_, MachineValidationResult>(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_validation_results All", e)
-                    })?
-            }
+            ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
+                .fetch_all(txn.deref_mut())
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_validation_results All", e)
+                })?,
             ObjectFilter::One(id) => {
                 let query = base_query
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
-                sqlx::query_as::<_, MachineValidationResult>(&query)
+                sqlx::query_as(&query)
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
@@ -335,7 +331,7 @@ impl MachineValidationResult {
                     )
                     .replace("{column}", column);
 
-                sqlx::query_as::<_, MachineValidationResult>(&query)
+                sqlx::query_as(&query)
                     .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
