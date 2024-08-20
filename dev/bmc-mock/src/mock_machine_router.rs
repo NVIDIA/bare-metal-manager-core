@@ -1,4 +1,4 @@
-use crate::{call_router_with_new_request, rf, MachineInfo};
+use crate::{call_router_with_new_request, rf, DpuMachineInfo, MachineInfo};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{Method, Request, Response, StatusCode, Uri};
@@ -34,6 +34,10 @@ pub enum BmcCommand {
 
 /// Return an axum::Router that mocks various redfish calls to match the provided MachineInfo.
 /// Any redfish calls not explicitly mocked will be delegated to inner_router (typically a tar_router.)
+///
+// TODO: This router is now more and more coupled to a particular tar_router (dell_poweredge_r750.tar.gz).
+// At this point this module no longer can be said to wrap any old tar router, but instead only works with
+// the Dell router. At the very least we may want to rename this module.
 pub fn wrap_router_with_mock_machine(
     inner_router: Router,
     machine_info: MachineInfo,
@@ -56,6 +60,14 @@ pub fn wrap_router_with_mock_machine(
         .route(
             rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id"),
             get(get_chassis_network_adapter),
+        )
+        .route(
+            rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id/NetworkDeviceFunctions"),
+            get(get_chassis_network_adapters_network_device_functions_list),
+        )
+        .route(
+            rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id/NetworkDeviceFunctions/:function_id"),
+            get(get_chassis_network_adapters_network_device_function),
         )
         .route(rf!("Systems/:system_id"), get(get_system))
         .route(
@@ -80,6 +92,9 @@ pub fn wrap_router_with_mock_machine(
         )
         .route(rf!("Managers/:manager_id/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
                post(post_delete_job_queue),
+        )
+        .route(rf!("Systems/Bluefield/Settings"),
+               patch(patch_dpu_settings).get(fallback_to_inner_router),
         )
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
@@ -107,6 +122,32 @@ impl MockWrapperState {
 
         Ok(response_bytes)
     }
+
+    /// Given an identifier like NIC.Slot.1, get the DPU corresponding to it
+    fn find_dpu(&self, identifier: &str) -> Option<DpuMachineInfo> {
+        let MachineInfo::Host(host) = &self.machine_info else {
+            return None;
+        };
+        if !identifier.starts_with("NIC.Slot.") {
+            return None;
+        }
+        let Some(dpu_index) = identifier
+            .chars()
+            .last()
+            .and_then(|c| c.to_digit(10))
+            .map(|i| i as usize)
+        else {
+            tracing::error!("Invalid NIC slot: {}", identifier);
+            return None;
+        };
+
+        let Some(dpu) = host.dpus.get(dpu_index - 1) else {
+            tracing::error!("Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request", identifier, host.dpus.len());
+            return None;
+        };
+
+        Some(dpu.clone())
+    }
 }
 
 type MockWrapperResult = Result<Bytes, MockWrapperError>;
@@ -121,15 +162,6 @@ enum MockWrapperError {
     Infallible(#[from] Infallible),
     #[error("Inner request {0} {1} failed with HTTP error {2}: {3}")]
     InnerRequest(Method, Uri, StatusCode, String),
-    #[error("{0} {1} failed with HTTP error {2}: {3}")]
-    Generic(Method, Uri, StatusCode, String),
-}
-
-impl MockWrapperError {
-    fn generic(request: Request<Body>, status_code: StatusCode, message: String) -> Self {
-        let (head, _body) = request.into_parts();
-        Self::Generic(head.method, head.uri, status_code, message)
-    }
 }
 
 impl IntoResponse for MockWrapperError {
@@ -140,8 +172,7 @@ impl IntoResponse for MockWrapperError {
         }
 
         match self {
-            MockWrapperError::Generic(_, _, status_code, body_bytes)
-            | MockWrapperError::InnerRequest(_, _, status_code, body_bytes) => {
+            MockWrapperError::InnerRequest(_, _, status_code, body_bytes) => {
                 // Use the error's status code instead of INTERNAL_SERVER_ERROR
                 (status_code, body_bytes).into_response()
             }
@@ -272,60 +303,97 @@ async fn get_chassis_network_adapters(
 
 async fn get_chassis_network_adapter(
     State(mut state): State<MockWrapperState>,
-    Path((_chassis_id, network_adapter_id)): Path<(String, String)>,
+    Path((chassis_id, network_adapter_id)): Path<(String, String)>,
     request: Request<Body>,
 ) -> MockWrapperResult {
-    let MachineInfo::Host(host) = &state.machine_info else {
+    let Some(dpu) = state.find_dpu(&network_adapter_id) else {
         return state.call_inner_router(request).await;
-    };
-    if !network_adapter_id.starts_with("NIC.Slot.") {
-        return state.call_inner_router(request).await;
-    }
-    let Some(dpu_index) = network_adapter_id
-        .chars()
-        .last()
-        .and_then(|c| c.to_digit(10))
-        .map(|i| i as usize)
-    else {
-        return Err(MockWrapperError::generic(
-            request,
-            StatusCode::NOT_FOUND,
-            format!("Invalid NIC slot: {}", network_adapter_id),
-        ));
-    };
-    let Some(dpu) = host.dpus.get(dpu_index - 1) else {
-        tracing::error!("Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request", network_adapter_id, host.dpus.len());
-        return Err(MockWrapperError::generic(
-            request,
-            StatusCode::NOT_FOUND,
-            format!(
-                "Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs)",
-                network_adapter_id,
-                host.dpus.len()
-            ),
-        ));
     };
 
     // Build a NetworkAdapter from our mock DPU info (mainly just the serial number)
     let adapter = NetworkAdapter {
-        id: network_adapter_id,
+        id: network_adapter_id.clone(),
         manufacturer: Some("Mellanox Technologies".to_string()),
         model: Some("BlueField-2 SmartNIC Main Card".to_string()),
         part_number: Some("MBF2H5".to_string()),
         serial_number: Some(dpu.serial.clone()),
         odata: libredfish::OData {
-            odata_id: "odata_id".to_string(),
-            odata_type: "odata_type".to_string(),
+            odata_id: format!(
+                "/redfish/v1/Chassis/{}/NetworkAdapters/{}",
+                &chassis_id, network_adapter_id
+            ),
+            odata_type: "#NetworkAdapter.v1_7_0.NetworkAdapter".to_string(),
             odata_etag: None,
             odata_context: None,
         },
         ports: None,
-        network_device_functions: None,
+        network_device_functions: Some(ODataId {
+            odata_id: format!(
+                "/redfish/v1/Chassis/{}/NetworkAdapters/{}/NetworkDeviceFunctions",
+                &chassis_id, network_adapter_id
+            ),
+        }),
         name: None,
         status: None,
         controllers: None,
     };
+
     Ok(Bytes::from(serde_json::to_string(&adapter)?))
+}
+
+async fn get_chassis_network_adapters_network_device_functions_list(
+    State(mut state): State<MockWrapperState>,
+    Path((system_id, network_adapter_id)): Path<(String, String)>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let Some(_dpu) = state.find_dpu(&network_adapter_id) else {
+        return state.call_inner_router(request).await;
+    };
+
+    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
+            {
+      "@odata.context": "/redfish/v1/$metadata#NetworkDeviceFunctionCollection.NetworkDeviceFunctionCollection",
+      "@odata.id": format!("/redfish/v1/Chassis/{}/NetworkAdapters/{}/NetworkDeviceFunctions", system_id, network_adapter_id),
+      "@odata.type": "#NetworkDeviceFunctionCollection.NetworkDeviceFunctionCollection",
+      "Description": "Collection Of Network Device Function entities",
+      "Members": [
+        {
+          "@odata.id": format!("/redfish/v1/Chassis/{}/NetworkAdapters/{}/NetworkDeviceFunctions/{}-1", system_id, network_adapter_id, network_adapter_id),
+        }
+      ],
+      "Members@odata.count": 1,
+      "Name": "Network Device Function Collection"
+    }
+        ))?))
+}
+
+async fn get_chassis_network_adapters_network_device_function(
+    State(mut state): State<MockWrapperState>,
+    Path((system_id, network_adapter_id, _network_device_function_id)): Path<(
+        String,
+        String,
+        String,
+    )>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let Some(dpu) = state.find_dpu(&network_adapter_id) else {
+        return state.call_inner_router(request).await;
+    };
+
+    // Base our response on what we know exists in the upstream tar file (it has a DPU in NIC.Slot.5-1)
+    let upstream_response = state.call_inner_router(Request::builder()
+        .method(Method::GET)
+        .uri("/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkDeviceFunctions/NIC.Slot.5-1")
+        .body(Body::empty()).unwrap()).await?;
+
+    let json = String::from_utf8_lossy(upstream_response.as_ref())
+        .to_string()
+        .replace("System.Embedded.1", &system_id)
+        .replace("NIC.Slot.5", &network_adapter_id)
+        // NOTE: if the tar changes, this will likely change too.
+        .replace("B8:3F:D2:90:97:C4", &dpu.host_mac_address.to_string())
+        .replace("MT2242XZ00QA", &dpu.serial.to_string());
+    Ok(Bytes::from(json))
 }
 
 async fn get_system(
@@ -413,6 +481,14 @@ async fn patch_bios_settings(
         )
         .body(Body::from(""))
         .unwrap()
+}
+
+async fn patch_dpu_settings(
+    State(_state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> impl IntoResponse {
+    StatusCode::OK
 }
 
 async fn post_password_change(
