@@ -307,6 +307,35 @@ pub async fn get_machine(
     .await
 }
 
+pub async fn identify_serial(
+    app_context: &MachineATronContext,
+    serial: String,
+) -> ClientApiResult<::rpc::common::MachineId> {
+    with_forge_client(app_context, |mut client| async move {
+        let out = match client
+            .identify_serial(tonic::Request::new(rpc::forge::IdentifySerialRequest {
+                serial_number: serial,
+            }))
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m,
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                return Err(ClientApiError::ConfigError("SerialNotFound".to_string()));
+            }
+            Err(err) => {
+                tracing::error!(%err, "identify_serial error calling grpc identify_serial");
+                return Err(ClientApiError::ConfigError(err.to_string()));
+            }
+        };
+
+        out.machine_id.ok_or(ClientApiError::ConfigError(
+            "Serial number found without associated machine ID".to_string(),
+        ))
+    })
+    .await
+}
+
 pub async fn get_managed_host_network_config(
     app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
