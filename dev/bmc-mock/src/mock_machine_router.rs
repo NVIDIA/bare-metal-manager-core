@@ -1,4 +1,4 @@
-use crate::{rf, MachineInfo};
+use crate::{call_router_with_new_request, rf, MachineInfo};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{Method, Request, Response, StatusCode, Uri};
@@ -14,7 +14,6 @@ use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use tokio::sync::mpsc;
-use tower::Service;
 
 lazy_static! {
     static ref UEFI_DEVICE_PATH_MAC_ADDRESS_REGEX: Regex =
@@ -91,31 +90,16 @@ pub fn wrap_router_with_mock_machine(
 }
 
 impl MockWrapperState {
-    /// Wrapper arond self.inner_router.call which constructs a new request object. This works
-    /// around an issue where if you just call inner_router.call(request) when that request's
-    /// Path<> is parameterized (ie. /:system_id, etc) it fails if the inner router doesn't have
-    /// the same number of arguments in its path as we do.
-    ///
-    /// The error looks like:
-    ///
-    /// Wrong number of path arguments for `Path`. Expected 1 but got 3. Note that multiple parameters must be extracted with a tuple `Path<(_, _)>` or a struct `Path<YourParams>`
+    /// See docs in `call_router_with_new_request`
     async fn call_inner_router(&mut self, request: Request<Body>) -> MockWrapperResult {
-        let (head, body) = request.into_parts();
-
-        // Construct a new request matching the incoming one.
-        let mut rb = Request::builder().uri(&head.uri).method(&head.method);
-        for (key, value) in head.headers.iter() {
-            rb = rb.header(key, value);
-        }
-        let inner_request = rb.body(body).unwrap();
-
-        let response = self.inner_router.call(inner_request).await?;
+        let (method, uri) = (request.method().clone(), request.uri().clone());
+        let response = call_router_with_new_request(&mut self.inner_router, request).await;
         let status = response.status();
         let response_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         if !status.is_success() {
             return Err(MockWrapperError::InnerRequest(
-                head.method,
-                head.uri,
+                method,
+                uri,
                 status,
                 String::from_utf8_lossy(&response_bytes).to_string(),
             ));
