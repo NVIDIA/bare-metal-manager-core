@@ -18,9 +18,15 @@ pub async fn external_config_show(
 ) -> CarbideCliResult<()> {
     let response = rpc::get_machine_validation_external_config(config_name, api_config).await?;
 
+    println!("---------------------------");
     if response.config.is_some() {
-        println!("{:?}", response.config.unwrap_or_default());
+        // println!("{:?}", response.config.unwrap_or_default());
+        let s = String::from_utf8(response.config.unwrap_or_default().config)
+            .expect("Found invalid UTF-8");
+
+        println!("{}", s);
     }
+    println!("---------------------------");
     Ok(())
 }
 pub async fn external_config_add_update(

@@ -13,11 +13,13 @@ variables:
   ARTIFACTS_DOCKER_IMAGE_AARCH64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
   MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/machine_validation
+  MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/machine-validation-runner
 
   APPLICATION_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
   MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine_validation
+  MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine-validation-runner
 
   TEST_API_IMAGE: stg.nvcr.io/rkafbrtf9ezb/test-api
 
@@ -699,8 +701,11 @@ build-release-machine-validation-artifacts-x86_64:
   needs:
     - job: prepare-ci
       optional: false
+    - job: build-release-machine-validation-runner
+      optional: false
   dependencies:
     - prepare-ci
+    - build-release-machine-validation-runner
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-validation-config
   script:
@@ -722,6 +727,44 @@ build-release-machine-validation-artifacts-x86_64:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
       variables:
         DEPLOY_BUILT_CONTAINER: "false"
+
+build-release-machine-validation-runner:
+  stage: build
+  extends: build-push-container
+  needs:
+    - job: prepare-ci
+      optional: false
+  dependencies:
+    - prepare-ci
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-validation-runner
+  script:
+    - docker build -t intermediate-artifacts-$CI_COMMIT_SHORT_SHA -f $DOCKER_FILE --build-arg VERSION=$VERSION --build-arg CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA --build-arg CONTAINER_RUNTIME_X86_64=$CONTAINER_ARTIFACTS_X86_64 .
+    - docker tag "intermediate-artifacts-$CI_COMMIT_SHORT_SHA" $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION:latest
+    - docker save --output common/machine-validation/images/machine-validation-runner.tar $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION:latest
+    - |
+        echo "In case if there is registry access. May not be required Check later"
+        if test "$DEPLOY_BUILT_CONTAINER" = "true"; then
+          echo "Deploying build container: intermediate-artifacts-$CI_COMMIT_SHORT_SHA to $MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE:$VERSION"
+          docker tag "intermediate-artifacts-$CI_COMMIT_SHORT_SHA" "$MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE:$VERSION"
+          docker push "$MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE:$VERSION"
+        else
+          echo "Skipping deployment of intermediate-artifacts-$CI_COMMIT_SHORT_SHA"
+        fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/ || $CI_COMMIT_BRANCH =~ /^release\//
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+  artifacts:
+    paths:
+      - common/machine-validation/images
+    when: always
+    expire_in: 1 day
 
 build-release-artifacts-aarch64:
   stage: build

@@ -1,4 +1,7 @@
-MachineValidation:
+
+ExternalConfigs: 
+  - "shoreline"
+Tests: 
   Cpu:
     BenchMark:
       CpuMemoryTestFor10Min:
