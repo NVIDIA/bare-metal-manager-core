@@ -35,9 +35,12 @@ use tracing::{debug, error, info};
 
 mod machine_info;
 mod mock_machine_router;
+mod redfish_expander;
 mod tar_router;
+
 pub use machine_info::{DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{wrap_router_with_mock_machine, BmcCommand};
+pub use redfish_expander::wrap_router_with_redfish_expander;
 pub use tar_router::{tar_router, EntryMap, TarGzOption};
 
 static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
@@ -231,9 +234,9 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
         let routers = self.routers.clone();
         Box::pin(async move {
             // Hold the lock on the router until we finish calling the request
-            let mut lock = routers.write().await;
+            let lock = routers.read().await;
 
-            let Some(router) = lock.get_mut(&forwarded_host) else {
+            let Some(router) = lock.get(&forwarded_host).cloned() else {
                 let err = format!("no BMC mock configured for host: {forwarded_host}");
                 tracing::info!("{err}");
                 return Ok(Response::builder()
@@ -242,7 +245,9 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
                     .unwrap());
             };
 
-            router.call(request).await
+            wrap_router_with_redfish_expander(router)
+                .call(request)
+                .await
         })
     }
 }
@@ -314,4 +319,28 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
         }
     });
     command_tx
+}
+
+/// Wrapper arond axum::Router::call which constructs a new request object. This works
+/// around an issue where if you just call inner_router.call(request) when that request's
+/// Path<> is parameterized (ie. /:system_id, etc) it fails if the inner router doesn't have
+/// the same number of arguments in its path as we do.
+///
+/// The error looks like:
+///
+/// Wrong number of path arguments for `Path`. Expected 1 but got 3. Note that multiple parameters must be extracted with a tuple `Path<(_, _)>` or a struct `Path<YourParams>`
+async fn call_router_with_new_request(
+    router: &mut axum::Router,
+    request: axum::http::request::Request<Body>,
+) -> axum::response::Response {
+    let (head, body) = request.into_parts();
+
+    // Construct a new request matching the incoming one.
+    let mut rb = Request::builder().uri(&head.uri).method(&head.method);
+    for (key, value) in head.headers.iter() {
+        rb = rb.header(key, value);
+    }
+    let inner_request = rb.body(body).unwrap();
+
+    router.call(inner_request).await.expect("Infallible error")
 }
