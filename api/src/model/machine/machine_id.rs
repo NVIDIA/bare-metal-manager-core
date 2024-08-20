@@ -14,13 +14,13 @@ use std::{fmt::Write, ops::Deref, str::FromStr};
 
 use crate::db::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
-use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
+use crate::model::hardware_info::HardwareInfo;
+use ::rpc::errors::RpcDataConversionError;
 use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo};
 use sqlx::Row;
-
 /// The `MachineId` uniquely identifies a machine that is managed by the Forge system
 ///
 /// `MachineId`s are derived from a hardware fingerprint, and are thereby

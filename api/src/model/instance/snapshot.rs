@@ -20,8 +20,8 @@ use crate::model::{
     },
     machine::{machine_id::MachineId, ManagedHostState, ReprovisionRequest},
     metadata::Metadata,
-    RpcDataConversionError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// Represents a snapshot view of an `Instance`
 ///

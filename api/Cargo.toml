@@ -108,6 +108,7 @@ x509-certificate = "0.23.1"
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version" }
+forge-network = { path = "../common/network" }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }

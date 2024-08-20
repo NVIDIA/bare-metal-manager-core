@@ -18,7 +18,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::db::instance::InstanceId;
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {

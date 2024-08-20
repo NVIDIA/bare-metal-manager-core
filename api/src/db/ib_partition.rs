@@ -32,7 +32,6 @@ use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
 use crate::model::machine::MachineSnapshot;
-use crate::model::RpcDataConversionError;
 use crate::{
     db::instance::InstanceId,
     db::DatabaseError,
@@ -43,6 +42,7 @@ use crate::{
     model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// IBPartitionId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed

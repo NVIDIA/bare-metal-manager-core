@@ -27,8 +27,8 @@
 use crate::db::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
 use crate::model::machine::machine_id::MachineId;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo};

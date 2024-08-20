@@ -27,8 +27,8 @@ use crate::measured_boot::{
     model::report::MeasurementReport,
 };
 use crate::model::machine::machine_id::MachineId;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,

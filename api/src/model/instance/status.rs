@@ -19,8 +19,8 @@ use crate::model::{
         storage::InstanceStorageConfig, InstanceConfig,
     },
     machine::{InstanceState, ManagedHostState, ReprovisionRequest},
-    RpcDataConversionError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 pub mod infiniband;
 pub mod network;

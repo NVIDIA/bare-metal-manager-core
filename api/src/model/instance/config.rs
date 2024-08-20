@@ -23,8 +23,9 @@ use crate::model::{
         storage::InstanceStorageConfig, tenant_config::TenantConfig,
     },
     os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
-    ConfigValidationError, RpcDataConversionError,
+    ConfigValidationError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// Instance configuration
 ///

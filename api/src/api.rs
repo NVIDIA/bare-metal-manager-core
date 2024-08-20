@@ -62,10 +62,10 @@ use crate::model::machine::{
     FailureSource, ManagedHostState, ManagedHostStateSnapshot,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
-use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
 use crate::storage::NvmeshClientPool;
+use ::rpc::errors::RpcDataConversionError;
 
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};

@@ -20,7 +20,8 @@ use base64::prelude::*;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{try_convert_vec, RpcDataConversionError};
+use crate::model::try_convert_vec;
+use ::rpc::errors::RpcDataConversionError;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HardwareInfo {

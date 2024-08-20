@@ -34,7 +34,6 @@ use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
-use crate::model::RpcDataConversionError;
 use crate::{
     db::{
         self,
@@ -46,6 +45,7 @@ use crate::{
     model::network_segment::NetworkSegmentControllerState,
 };
 use crate::{CarbideError, CarbideResult};
+use ::rpc::errors::RpcDataConversionError;
 use tonic::Status;
 
 const DEFAULT_MTU_TENANT: i32 = 9000;

@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 // TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
 use super::network::{InterfaceFunctionId, InterfaceFunctionType};
 use crate::db::ib_partition::IBPartitionId;
-use crate::model::{ConfigValidationError, RpcDataConversionError};
+use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
 
 /// Desired infiniband configuration for an instance
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

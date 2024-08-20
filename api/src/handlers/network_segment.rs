@@ -22,8 +22,8 @@ use crate::db::network_segment::NewNetworkSegment;
 use crate::db::network_segment::{NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter};
 use crate::db::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 
 pub(crate) async fn find_ids(
     api: &Api,

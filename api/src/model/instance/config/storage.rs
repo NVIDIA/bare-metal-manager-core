@@ -15,7 +15,8 @@
 use std::convert::TryFrom;
 
 use crate::model::storage::StorageVolumeAttributes;
-use crate::model::{ConfigValidationError, RpcDataConversionError};
+use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 

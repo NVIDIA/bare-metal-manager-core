@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
-    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, RpcDataConversionError,
+    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
 };
 use crate::cfg::HardwareHealthReportsConfig;
 use crate::{
@@ -37,6 +37,7 @@ use crate::{
     state_controller::state_handler::StateHandlerError,
     CarbideError,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 pub mod health_override;
 pub mod machine_id;

@@ -47,8 +47,8 @@ use rpc::protos::measured_boot::{
 };
 
 use crate::model::machine::machine_id::MachineId;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 

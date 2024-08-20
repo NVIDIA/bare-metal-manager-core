@@ -18,7 +18,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge::VpcVirtualizationType;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
@@ -36,7 +35,6 @@ use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 use {opentelemetry_sdk as sdk, opentelemetry_semantic_conventions as semcov};
 
-use crate::command_line::NetworkVirtualizationType;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
@@ -50,6 +48,7 @@ use crate::{
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
     sysfs, systemd, upgrade, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
 };
+use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -286,10 +285,10 @@ pub async fn run(
                     .filter_map(|x| IpNetwork::from_str(x.prefix.as_str()).ok())
                     .collect();
 
-                // i32 -> VpcVirtualizationType -> NetworkVirtualizationType
+                // i32 -> VpcVirtualizationType -> VpcVirtualizationType
                 let nvt_from_remote = conf
                     .network_virtualization_type
-                    .and_then(|vi| VpcVirtualizationType::try_from(vi).ok())
+                    .and_then(|vi| rpc::VpcVirtualizationType::try_from(vi).ok())
                     .map(|v| v.into());
                 // If HBN is too old, this will be overridden once we are sure HBN is up
                 let mut nvt = options
@@ -297,7 +296,7 @@ pub async fn run(
                     .or(nvt_from_remote)
                     .unwrap_or_else(|| {
                         tracing::warn!("Missing network_virtualization_type, defaulting");
-                        super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+                        DEFAULT_NETWORK_VIRTUALIZATION_TYPE
                     });
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(conf);
@@ -328,10 +327,10 @@ pub async fn run(
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
 
                     if hbn_version < nvue_minimum_hbn_version
-                        && matches!(nvt, NetworkVirtualizationType::EtvNvue)
+                        && matches!(nvt, VpcVirtualizationType::EthernetVirtualizerWithNvue)
                     {
                         tracing::trace!("Site does not support NVUE, HBN version {hbn_version} is too old. Using ETV.");
-                        nvt = NetworkVirtualizationType::Etv;
+                        nvt = VpcVirtualizationType::EthernetVirtualizer;
                     }
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
@@ -346,7 +345,7 @@ pub async fn run(
                     .await;
 
                     let update_result = match nvt {
-                        NetworkVirtualizationType::Etv => {
+                        VpcVirtualizationType::EthernetVirtualizer => {
                             ethernet_virtualization::update_files(
                                 &agent.hbn.root_dir,
                                 conf,
@@ -354,7 +353,7 @@ pub async fn run(
                             )
                             .await
                         }
-                        NetworkVirtualizationType::EtvNvue => {
+                        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                             if hbn_version >= fmds_minimum_hbn_version {
                                 // Apply the interface plan. This is where we actually configure
                                 // the interface on the Dpu
@@ -383,10 +382,10 @@ pub async fn run(
                             .await
                         }
                         // TODO(chet,bill): Fill this in soon!
-                        NetworkVirtualizationType::FnnClassic => Err(eyre::eyre!(
+                        VpcVirtualizationType::FnnClassic => Err(eyre::eyre!(
                             "fnn-classic support not implemented in the forge-dpu-agent yet"
                         )),
-                        NetworkVirtualizationType::FnnL3 => Err(eyre::eyre!(
+                        VpcVirtualizationType::FnnL3 => Err(eyre::eyre!(
                             "fnn-l3 support not implemented in the forge-dpu-agent yet"
                         )),
                     };

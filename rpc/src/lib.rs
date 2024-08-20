@@ -49,6 +49,7 @@ pub use crate::protos::machine_discovery::{
 };
 pub use crate::protos::site_explorer;
 
+pub mod errors;
 pub mod forge_tls_client;
 pub mod protos;
 

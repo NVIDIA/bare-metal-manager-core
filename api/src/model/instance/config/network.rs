@@ -16,7 +16,8 @@ use std::{
 };
 
 use crate::db::network_segment::NetworkSegmentId;
-use crate::model::{ConfigValidationError, RpcDataConversionError};
+use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 
 // Specifies whether a network interface is physical network function (PF)

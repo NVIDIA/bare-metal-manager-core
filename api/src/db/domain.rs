@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::RpcDataConversionError;
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};

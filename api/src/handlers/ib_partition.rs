@@ -19,8 +19,8 @@ use crate::db::ib_partition::{
     NewIBPartition,
 };
 use crate::db::DatabaseError;
-use crate::model::RpcDataConversionError;
 use crate::CarbideError;
+use ::rpc::errors::RpcDataConversionError;
 
 pub(crate) async fn create(
     api: &Api,

@@ -22,17 +22,9 @@ use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
 use crate::db::network_segment::NetworkSegmentId;
-use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
-
-// What to use if Cloud UI doesn't send it, which it never does so this is used for all vpcs / instances.
-// Keep in sync with bluefield/agent/src/lib.rs
-//
-// Currently this is only used to populate the database. The value itself is never read, instead
-// we use config file's `nvue_enabled`.
-// Once we do FNN this might be used once more.
-const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
-    VpcVirtualizationType::EthernetVirtualizer;
+use ::rpc::errors::RpcDataConversionError;
+use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 
 /// VpcId is a strongly typed UUID specific to a VPC ID, with
 /// trait implementations allowing it to be passed around as
@@ -131,87 +123,6 @@ pub struct Vpc {
     pub network_virtualization_type: VpcVirtualizationType,
     // Option because we can't allocate it until DB generates an id for us
     pub vni: Option<i32>,
-}
-
-// TODO(chet): VpcVirtualizationType (from the api crate) and
-// NetworkVirtualizationType (from the bluefield crate)
-// should be merged together. I think the reason for having
-// two separate ones is so the bluefield crate doesn't pull
-// in the api crate, so we could just have a common location
-// for this to be. Of course, VpcVirtualizationType returns
-// a CarbideError, that would mean the common/network crate
-// would need to pull in the api crate (to get at CarbideError),
-// so we'd need to change the type error it returns too.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "network_virtualization_type_t")]
-#[allow(clippy::enum_variant_names)]
-pub enum VpcVirtualizationType {
-    #[sqlx(rename = "etv")]
-    EthernetVirtualizer = 0,
-    #[sqlx(rename = "etv_nvue")]
-    EthernetVirtualizerWithNvue = 2,
-    #[sqlx(rename = "fnn_classic")]
-    FnnClassic = 3,
-    #[sqlx(rename = "fnn_l3")]
-    FnnL3 = 4,
-}
-
-impl VpcVirtualizationType {
-    pub fn prefix_length(&self) -> u8 {
-        match self {
-            Self::EthernetVirtualizer => 32,
-            Self::EthernetVirtualizerWithNvue => 32,
-            Self::FnnClassic => 32,
-            Self::FnnL3 => 30,
-        }
-    }
-}
-
-impl fmt::Display for VpcVirtualizationType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EthernetVirtualizer => write!(f, "etv"),
-            Self::EthernetVirtualizerWithNvue => write!(f, "etv_nvue"),
-            Self::FnnClassic => write!(f, "fnn_classic"),
-            Self::FnnL3 => write!(f, "fnn_l3"),
-        }
-    }
-}
-
-impl TryFrom<i32> for VpcVirtualizationType {
-    type Error = RpcDataConversionError;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(match value {
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
-                Self::EthernetVirtualizer
-            }
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
-                Self::EthernetVirtualizerWithNvue
-            }
-            x if x == rpc::VpcVirtualizationType::FnnClassic as i32 => Self::FnnClassic,
-            x if x == rpc::VpcVirtualizationType::FnnL3 as i32 => Self::FnnL3,
-            _ => {
-                return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
-            }
-        })
-    }
-}
-
-impl FromStr for VpcVirtualizationType {
-    type Err = CarbideError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "etv" => Ok(Self::EthernetVirtualizer),
-            "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
-            "fnn_classic" => Ok(Self::FnnClassic),
-            "fnn_l3" => Ok(Self::FnnL3),
-            x => Err(CarbideError::GenericError(format!(
-                "Unknown virt type {}",
-                x
-            ))),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

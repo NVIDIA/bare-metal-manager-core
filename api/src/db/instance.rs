@@ -46,10 +46,10 @@ use crate::{
         os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
         storage::StorageVolume,
         tenant::TenantOrganizationId,
-        RpcDataConversionError,
     },
     CarbideError, CarbideResult,
 };
+use ::rpc::errors::RpcDataConversionError;
 
 /// InstanceId is a strongly typed UUID specific to an instance ID,
 /// with trait implementations allowing it to be passed around as

@@ -12,7 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{ConfigValidationError, RpcDataConversionError};
+use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpxeOperatingSystem {
