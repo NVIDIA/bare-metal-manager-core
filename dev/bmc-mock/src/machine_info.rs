@@ -42,7 +42,7 @@ impl DpuMachineInfo {
             bmc_mac_address,
             host_mac_address,
             oob_mac_address,
-            serial: oob_mac_address.to_string().replace(':', ""),
+            serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
         }
     }
 }
