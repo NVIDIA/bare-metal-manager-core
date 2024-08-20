@@ -252,6 +252,9 @@ pub async fn start_api(
         ib::IBFabricManagerConfig {
             manager_type: fabric_manager_type,
             max_partition_per_tenant: ib_config.max_partition_per_tenant,
+            mtu: ib_config.mtu,
+            rate_limit: ib_config.rate_limit,
+            service_level: ib_config.service_level,
         },
     );
 

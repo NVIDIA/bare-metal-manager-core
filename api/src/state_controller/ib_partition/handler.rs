@@ -11,8 +11,8 @@
  */
 
 use crate::{
-    db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionId, IBPartitionStatus},
-    ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
+    db::ib_partition::{IBPartition, IBPartitionId, IBPartitionStatus},
+    ib::{types::IBNetwork, IBFabricManagerConfig, DEFAULT_IB_FABRIC_NAME},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,
@@ -48,6 +48,8 @@ impl StateHandler for IBPartitionStateHandler {
             .connect(DEFAULT_IB_FABRIC_NAME)
             .await
             .map_err(|e| StateHandlerError::IBFabricError(format!("can not get IB fabric: {e}")))?;
+
+        let ib_config = ctx.services.ib_fabric_manager.get_config();
 
         match controller_state {
             IBPartitionControllerState::Provisioning => {
@@ -123,7 +125,7 @@ impl StateHandler for IBPartitionStateHandler {
                                 state.status = Some(IBPartitionStatus::from(&ibnetwork));
                                 state.update(txn).await?;
 
-                                if !is_valid_status(&state.config, &ibnetwork) {
+                                if !is_valid_status(&ib_config, &ibnetwork) {
                                     // Update the QoS of IBNetwork in UFM.
                                     //
                                     // TODO(k82cn): Currently, the IBNeetwork is created only after
@@ -131,9 +133,9 @@ impl StateHandler for IBPartitionStateHandler {
                                     // In latest version, the UFM will support create partition without
                                     // port.
                                     let mut ibnetwork = ibnetwork;
-                                    ibnetwork.mtu = state.config.mtu as u16;
-                                    ibnetwork.rate_limit = state.config.rate_limit.into();
-                                    ibnetwork.service_level = state.config.service_level as u8;
+                                    ibnetwork.mtu = ib_config.mtu.clone();
+                                    ibnetwork.rate_limit = ib_config.rate_limit.clone();
+                                    ibnetwork.service_level = ib_config.service_level.clone();
 
                                     if let Err(e) = ib_fabric.update_ib_network(&ibnetwork).await {
                                         return Ok(StateHandlerOutcome::Transition(
@@ -178,21 +180,21 @@ impl StateHandler for IBPartitionStateHandler {
     }
 }
 
-fn is_valid_status(c: &IBPartitionConfig, r: &IBNetwork) -> bool {
-    c.mtu == r.mtu as i32
+fn is_valid_status(c: &IBFabricManagerConfig, r: &IBNetwork) -> bool {
+    c.mtu == r.mtu
         // NOTE: The rate_limit is defined as 'f64' for lagency device, e.g. 2.5G; so it's ok to
         // convert to i32 for new devices.
-        && c.rate_limit == r.rate_limit as i32
-        && c.service_level == r.service_level as i32
+        && c.rate_limit == r.rate_limit
+        && c.service_level == r.service_level
 }
 
 impl From<&IBNetwork> for IBPartitionStatus {
     fn from(ib: &IBNetwork) -> IBPartitionStatus {
         Self {
             partition: ib.name.clone(),
-            mtu: ib.mtu as i32,
-            rate_limit: ib.rate_limit as i32,
-            service_level: ib.service_level as i32,
+            mtu: ib.mtu.clone(),
+            rate_limit: ib.rate_limit.clone(),
+            service_level: ib.service_level.clone(),
         }
     }
 }

@@ -16,7 +16,7 @@ use carbide::{
     cfg::IBFabricConfig,
     db::ib_partition::{IBPartitionConfig, IBPartitionId, IBPartitionStatus, NewIBPartition},
     ib::{
-        types::{IBNetwork, IBPortMembership},
+        types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
     },
     state_controller::ib_partition::handler::IBPartitionStateHandler,
@@ -258,9 +258,9 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             name: "partition1".to_string(),
             pkey: Some(42),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
-            mtu: 2000,
-            rate_limit: 300,
-            service_level: 0,
+            mtu: Some(IBMtu::default()),
+            rate_limit: Some(IBRateLimit::default()),
+            service_level: Some(IBServiceLevel::default()),
         },
     };
     let mut txn = pool.begin().await?;
@@ -270,6 +270,9 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             &IBFabricManagerConfig {
                 manager_type: IBFabricManagerType::Disable,
                 max_partition_per_tenant: 10,
+                mtu: IBMtu::default(),
+                rate_limit: IBRateLimit::default(),
+                service_level: IBServiceLevel::default(),
             },
         )
         .await?;
@@ -279,12 +282,12 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         pkey: 42,
         name: "x".to_string(),
         enable_sharp: false,
-        mtu: 2000,
+        mtu: IBMtu::default(),
         ipoib: false,
-        service_level: 0,
+        service_level: IBServiceLevel::default(),
         membership: IBPortMembership::Full,
         index0: false,
-        rate_limit: 300.0,
+        rate_limit: IBRateLimit::default(),
     };
     partition.status = Some(IBPartitionStatus::from(&ibnetwork));
 

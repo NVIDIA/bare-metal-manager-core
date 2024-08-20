@@ -12,16 +12,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::ib_partition::IBPartition;
-use crate::ib::types::{IBNetwork, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
-
-pub const IB_DEFAULT_MTU: i32 = 2048;
-pub const IB_MTU_ENV: &str = "IB_DEFAULT_MTU";
-pub const IB_DEFAULT_RATE_LIMIT: i32 = 100;
-pub const IB_RATE_LIMIT_ENV: &str = "IB_DEFAULT_RATE_LIMIT";
-pub const IB_DEFAULT_SERVICE_LEVEL: i32 = 0;
-pub const IB_SERVICE_LEVEL_ENV: &str = "IB_DEFAULT_SERVICE_LEVEL";
-
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -34,22 +24,6 @@ pub enum IBPartitionControllerState {
     Error { cause: String },
     /// The IB subnet is in the process of deleting.
     Deleting,
-}
-
-impl From<&IBPartition> for IBNetwork {
-    fn from(ib: &IBPartition) -> IBNetwork {
-        Self {
-            name: ib.config.name.clone(),
-            pkey: ib.config.pkey.unwrap_or(0),
-            enable_sharp: false,
-            mtu: ib.config.mtu as u16,
-            ipoib: true,
-            service_level: ib.config.service_level as u8,
-            membership: IBNETWORK_DEFAULT_MEMBERSHIP,
-            index0: IBNETWORK_DEFAULT_INDEX0,
-            rate_limit: ib.config.rate_limit as f64,
-        }
-    }
 }
 
 #[cfg(test)]

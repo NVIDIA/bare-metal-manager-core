@@ -20,6 +20,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
 use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
@@ -420,6 +421,15 @@ pub struct IBFabricConfig {
     #[serde(default = "IBFabricConfig::enable_ib_fabric")]
     /// Enable IB fabric
     pub enabled: bool,
+
+    #[serde(deserialize_with = "IBFabricConfig::deserialize_mtu")]
+    pub mtu: IBMtu,
+
+    #[serde(deserialize_with = "IBFabricConfig::deserialize_rate_limit")]
+    pub rate_limit: IBRateLimit,
+
+    #[serde(deserialize_with = "IBFabricConfig::deserialize_service_level")]
+    pub service_level: IBServiceLevel,
 }
 
 impl IBFabricConfig {
@@ -441,6 +451,33 @@ impl IBFabricConfig {
             1..=31 => Ok(max_pkey),
             _ => Err(serde::de::Error::custom("invalid max partition per tenant")),
         }
+    }
+
+    pub fn deserialize_mtu<'de, D>(deserializer: D) -> Result<IBMtu, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mtu = i32::deserialize(deserializer)?;
+
+        IBMtu::try_from(mtu).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+
+    pub fn deserialize_rate_limit<'de, D>(deserializer: D) -> Result<IBRateLimit, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let rate_limit = i32::deserialize(deserializer)?;
+
+        IBRateLimit::try_from(rate_limit).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+
+    pub fn deserialize_service_level<'de, D>(deserializer: D) -> Result<IBServiceLevel, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let service_level = i32::deserialize(deserializer)?;
+
+        IBServiceLevel::try_from(service_level).map_err(|e| serde::de::Error::custom(e.to_string()))
     }
 }
 

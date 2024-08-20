@@ -38,9 +38,16 @@ pub(crate) async fn create(
     })?;
 
     let mut resp = NewIBPartition::try_from(request.into_inner())?;
+    let fabric_config = api.ib_fabric_manager.get_config();
+
+    // IB Configurations.
+    resp.config.mtu = Some(fabric_config.mtu.clone());
+    resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
+    resp.config.service_level = Some(fabric_config.service_level.clone());
+
     resp.config.pkey = api.allocate_pkey(&mut txn, &resp.config.name).await?;
     let resp = resp
-        .create(&mut txn, &api.ib_fabric_manager.get_config())
+        .create(&mut txn, &fabric_config)
         .await
         .map_err(|e| match e.source {
             // During IB paritiont creation, it will check the existing partition by a 'select' query.

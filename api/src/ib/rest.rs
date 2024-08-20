@@ -15,7 +15,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use super::iface::Filter;
-use super::types::{IBNetwork, IBPort, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
+use super::types::{
+    IBMtu, IBNetwork, IBPort, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
+    IBNETWORK_DEFAULT_MEMBERSHIP,
+};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
     UFMConfig, UFMError, Ufm,
@@ -63,20 +66,28 @@ impl IBFabric for RestIBFabric {
 
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, pkey: &str) -> Result<IBNetwork, CarbideError> {
-        self.ufm
+        let partition = self
+            .ufm
             .get_partition(pkey)
             .await
-            .map(IBNetwork::from)
-            .map_err(CarbideError::from)
+            .map_err(CarbideError::from)?;
+
+        IBNetwork::try_from(partition)
     }
 
     /// Find IBSubnet
     async fn find_ib_network(&self) -> Result<Vec<IBNetwork>, CarbideError> {
-        self.ufm
+        let partitions = self
+            .ufm
             .list_partition()
             .await
-            .map(|p| p.iter().map(IBNetwork::from).collect())
-            .map_err(CarbideError::from)
+            .map_err(CarbideError::from)?;
+
+        let mut ibs = vec![];
+        for p in partitions {
+            ibs.push(IBNetwork::try_from(p)?);
+        }
+        Ok(ibs)
     }
 
     /// Create IBPort
@@ -153,25 +164,27 @@ impl From<SmConfig> for IBFabricConfig {
     }
 }
 
-impl From<Partition> for IBNetwork {
-    fn from(p: Partition) -> Self {
-        IBNetwork::from(&p)
+impl TryFrom<Partition> for IBNetwork {
+    type Error = CarbideError;
+    fn try_from(p: Partition) -> Result<Self, Self::Error> {
+        IBNetwork::try_from(&p)
     }
 }
 
-impl From<&Partition> for IBNetwork {
-    fn from(p: &Partition) -> Self {
-        IBNetwork {
+impl TryFrom<&Partition> for IBNetwork {
+    type Error = CarbideError;
+    fn try_from(p: &Partition) -> Result<Self, Self::Error> {
+        Ok(IBNetwork {
             name: p.name.clone(),
             pkey: p.pkey.clone().into(),
             enable_sharp: false,
-            mtu: p.qos.mtu_limit,
+            mtu: IBMtu::try_from(p.qos.mtu_limit as i32)?,
             ipoib: p.ipoib,
-            service_level: p.qos.service_level,
-            rate_limit: p.qos.rate_limit,
+            service_level: IBServiceLevel::try_from(p.qos.service_level as i32)?,
+            rate_limit: IBRateLimit::try_from(p.qos.rate_limit as i32)?,
             membership: IBNETWORK_DEFAULT_MEMBERSHIP,
             index0: IBNETWORK_DEFAULT_INDEX0,
-        }
+        })
     }
 }
 
@@ -204,9 +217,9 @@ impl TryFrom<&IBNetwork> for Partition {
                 .map_err(|_| CarbideError::IBFabricError("invalid pkey".to_string()))?,
             ipoib: p.ipoib,
             qos: PartitionQoS {
-                mtu_limit: p.mtu,
-                service_level: p.service_level,
-                rate_limit: p.rate_limit,
+                mtu_limit: Into::<i32>::into(p.mtu.clone()) as u16,
+                service_level: Into::<i32>::into(p.service_level.clone()) as u8,
+                rate_limit: Into::<i32>::into(p.rate_limit.clone()) as f64,
             },
         })
     }

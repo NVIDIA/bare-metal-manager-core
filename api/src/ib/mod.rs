@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 
 pub use self::iface::{Filter, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions};
+pub use self::types::{IBMtu, IBRateLimit, IBServiceLevel};
 
 use crate::cfg;
 use crate::CarbideError;
@@ -50,6 +51,9 @@ pub struct IBFabricManagerImpl {
 pub struct IBFabricManagerConfig {
     pub manager_type: IBFabricManagerType,
     pub max_partition_per_tenant: i32,
+    pub mtu: IBMtu,
+    pub rate_limit: IBRateLimit,
+    pub service_level: IBServiceLevel,
 }
 
 impl Default for IBFabricManagerConfig {
@@ -57,6 +61,9 @@ impl Default for IBFabricManagerConfig {
         IBFabricManagerConfig {
             manager_type: IBFabricManagerType::default(),
             max_partition_per_tenant: cfg::IBFabricConfig::default_max_partition_per_tenant(),
+            mtu: IBMtu::default(),
+            rate_limit: IBRateLimit::default(),
+            service_level: IBServiceLevel::default(),
         }
     }
 }

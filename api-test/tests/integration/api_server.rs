@@ -19,6 +19,7 @@ use carbide::cfg::{
     MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
     SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
+use carbide::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
@@ -194,8 +195,11 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         nvue_enabled: true,
         attestation_enabled: false,
         ib_config: Some(IBFabricConfig {
-            max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             enabled: false,
+            max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
+            mtu: IBMtu::default(),
+            service_level: IBServiceLevel::default(),
+            rate_limit: IBRateLimit::default(),
         }),
         machine_state_controller: MachineStateControllerConfig {
             controller: StateControllerConfig {
