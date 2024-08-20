@@ -8,6 +8,7 @@ use crate::logging::LogSink;
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::tui::HostDetails;
 use crate::{
+    api_client::identify_serial,
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::DhcpRelayClient,
     machine_utils::get_api_state,
@@ -166,6 +167,11 @@ impl DpuMachine {
 
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
+        } else if let Ok(machine) =
+            identify_serial(&self.app_context, self.dpu_info.serial.clone()).await
+        {
+            tracing::info!("dpu's machine id: {}", machine.id);
+            self.observed_machine_id = Some(machine);
         }
 
         result
