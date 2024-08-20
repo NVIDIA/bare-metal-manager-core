@@ -167,32 +167,26 @@ Update the configmap `forge-system/carbide-api-site-config-files` to define the 
 
 Infiniband typically expresses `Pkeys` in hex; the available range is `“0x0 ~ 0x7FFF”`.
 
-```
-…
+```toml
 [pools.pkey]
 type = "integer"
 ranges = [{ start = "200", end = "500" }]
-…
 ```
 
 **NOTES**: The Forge will generate pkey for all partitions that are managed by Forge; please make sure the range does not conflict with existing pkey in UFM if any.
 
 Update the configmap `forge-system/carbide-api-site-config-files` to enable Infiniband features as follows:
 
-```
-…
+```toml
 [ib_config]
 enabled = true
-…
 ```
 
 To enable the monitor of IB, update the the configmap `forge-system/carbide-api-site-config-files`  as follows:
 
-```
-…
+```toml
 [ib_fabric_monitor]
 enabled = true
-…
 ```
 
 #### Restart carbide-api
@@ -203,11 +197,9 @@ Restart carbide-api to enable Infiniband in site-controller.
 
 Update the configmap forge-system/carbide-api-site-config-files to disable Infiniband features as follows:
 
-```
-…
+```toml
 [ib_config]
 enabled = false
-…
 ```
 
 Restart carbide-api to disable Infiniband in site-controller.
