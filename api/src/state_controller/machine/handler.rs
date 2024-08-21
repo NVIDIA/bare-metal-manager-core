@@ -2354,13 +2354,11 @@ impl DpuMachineStateHandler {
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let dpu_machine_id = &dpu_snapshot.machine_id.clone();
-        let (dpu_states, current_dpu_state) = match &state.managed_state {
-            ManagedHostState::DpuDiscoveringState { dpu_states } => (
-                dpu_states.states.values().collect_vec(),
-                dpu_states.states.get(dpu_machine_id).ok_or_else(|| {
-                    StateHandlerError::MissingDpuFromState(dpu_machine_id.clone())
-                })?,
-            ),
+        let current_dpu_state = match &state.managed_state {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
+                .states
+                .get(dpu_machine_id)
+                .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?,
             _ => {
                 return Err(StateHandlerError::InvalidState(
                     "Unexpected state.".to_string(),
@@ -2372,62 +2370,6 @@ impl DpuMachineStateHandler {
             DpuDiscoveringState::Initializing => {
                 let next_state = DpuDiscoveringState::Configuring
                     .next_state(&state.managed_state, dpu_machine_id)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
-            }
-            DpuDiscoveringState::BmcFirmwareUpdate {
-                substate:
-                    BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion { firmware_type: _ },
-            } => {
-                // Wait until all DPU reaches into WaitingForAllUpdateCompletion state.
-                if !state.managed_state.all_dpu_states_in_sync()? {
-                    return Ok(StateHandlerOutcome::Wait(
-                        "All dpus are not in WaitingForAllUpdateCompletion state.".to_string(),
-                    ));
-                }
-
-                let mut cec_updated = false;
-                for dpu_state in dpu_states {
-                    if let DpuDiscoveringState::BmcFirmwareUpdate {
-                        substate:
-                            BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion { firmware_type },
-                    } = dpu_state
-                    {
-                        if *firmware_type == FirmwareComponentType::Cec {
-                            cec_updated = true;
-                            break;
-                        }
-                    }
-                }
-
-                for dpu_snapshot in &state.dpu_snapshots {
-                    let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-                        dpu_snapshot.bmc_addr(),
-                        &ctx.services.redfish_client_pool,
-                        txn,
-                    )
-                    .await?;
-
-                    if cec_updated {
-                        dpu_redfish_client
-                            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
-                            .await
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "chassis_reset",
-                                error: e,
-                            })?;
-                    }
-
-                    dpu_redfish_client.bmc_reset().await.map_err(|e| {
-                        StateHandlerError::RedfishError {
-                            operation: "bmc_reset",
-                            error: e,
-                        }
-                    })?;
-                }
-                let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                    substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
-                }
-                .next_state_with_all_dpus_updated(&state.managed_state)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuDiscoveringState::BmcFirmwareUpdate {
@@ -2455,10 +2397,26 @@ impl DpuMachineStateHandler {
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
+                        if *firmware_type == FirmwareComponentType::Cec {
+                            dpu_redfish_client
+                                .chassis_reset(
+                                    "Bluefield_ERoT",
+                                    SystemPowerControl::GracefulRestart,
+                                )
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "chassis_reset",
+                                    error: e,
+                                })?;
+                        }
+                        dpu_redfish_client.bmc_reset().await.map_err(|e| {
+                            StateHandlerError::RedfishError {
+                                operation: "bmc_reset",
+                                error: e,
+                            }
+                        })?;
                         let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                            substate: BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion {
-                                firmware_type: *firmware_type,
-                            },
+                            substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
                         }
                         .next_state(&state.managed_state, dpu_machine_id)?;
                         Ok(StateHandlerOutcome::Transition(next_state))

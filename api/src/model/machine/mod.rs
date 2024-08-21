@@ -821,9 +821,6 @@ pub enum BmcFirmwareUpdateSubstate {
         firmware_type: FirmwareComponentType,
         task_id: String,
     },
-    WaitingForAllUpdateCompletion {
-        firmware_type: FirmwareComponentType,
-    },
     Reboot {
         count: u32,
     },
