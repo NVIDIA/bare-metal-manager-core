@@ -269,14 +269,13 @@ impl TenantKeyset {
         let query =
             "DELETE FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2 RETURNING *";
 
-        let _ = sqlx::query_as::<_, TenantKeyset>(query)
+        sqlx::query_as::<_, TenantKeyset>(query)
             .bind(keyset_identifier.organization_id.to_string())
             .bind(&keyset_identifier.keyset_id)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

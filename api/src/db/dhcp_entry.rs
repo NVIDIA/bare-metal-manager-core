@@ -82,12 +82,11 @@ ON CONFLICT DO NOTHING";
     ) -> Result<(), DatabaseError> {
         let query = "
 DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
-        let _result = sqlx::query(query)
+        sqlx::query(query)
             .bind(machine_interface_id)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

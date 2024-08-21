@@ -185,15 +185,14 @@ FROM expected_machines em
             .bind(self.bmc_mac_address)
             .execute(txn.deref_mut())
             .await
+            .map(|_| ())
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => CarbideError::NotFoundError {
                     kind: "expected_machine",
                     id: self.bmc_mac_address.to_string(),
                 },
                 _ => DatabaseError::new(file!(), line!(), query, err).into(),
-            })?;
-
-        Ok(())
+            })
     }
 
     pub async fn clear(txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
@@ -202,10 +201,10 @@ FROM expected_machines em
         sqlx::query(query)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
     pub async fn update(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,

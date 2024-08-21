@@ -422,8 +422,8 @@ WHERE address = $3 AND version=$4";
             .bind(address)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// Search the exploration report for a string anywhere in the JSON.

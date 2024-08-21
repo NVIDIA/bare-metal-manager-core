@@ -118,8 +118,8 @@ impl MachineInterfaceAddress {
             .bind(interface_id)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
