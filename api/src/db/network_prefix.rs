@@ -236,13 +236,12 @@ impl NetworkPrefix {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id";
-        let _deleted_prefixes: Vec<NetworkPrefixId> = sqlx::query_as(query)
+        sqlx::query_as::<_, NetworkPrefixId>(query)
             .bind(segment_id)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 

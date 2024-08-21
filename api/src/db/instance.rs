@@ -922,12 +922,12 @@ impl DeleteInstance {
         InstanceAddress::delete(&mut *txn, self.instance_id).await?;
 
         let query = "DELETE FROM instances where id=$1::uuid RETURNING id";
-        let _id = sqlx::query_as::<_, InstanceId>(query)
+        sqlx::query_as::<_, InstanceId>(query)
             .bind(self.instance_id)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     pub async fn mark_as_deleted(

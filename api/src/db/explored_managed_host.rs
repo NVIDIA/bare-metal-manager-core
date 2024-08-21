@@ -99,17 +99,17 @@ impl DbExploredManagedHost {
         explored_hosts: &[ExploredManagedHost],
     ) -> Result<(), DatabaseError> {
         let query = r#"DELETE FROM explored_managed_hosts;"#;
-        let _query_result = sqlx::query(query)
+        sqlx::query(query)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         // TODO: Optimize me into a single query
         for host in explored_hosts {
             let query = "
             INSERT INTO explored_managed_hosts (host_bmc_ip, explored_dpus)
             VALUES ($1, $2)";
-            let _result = sqlx::query(query)
+            sqlx::query(query)
                 .bind(host.host_bmc_ip)
                 .bind(sqlx::types::Json(&host.dpus))
                 .execute(txn.deref_mut())
@@ -125,12 +125,11 @@ impl DbExploredManagedHost {
         addr: IpAddr,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1;";
-        let _result = sqlx::query(query)
+        sqlx::query(query)
             .bind(addr)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }

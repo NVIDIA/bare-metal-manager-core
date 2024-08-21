@@ -141,13 +141,12 @@ impl MachineBootOverride {
     ) -> CarbideResult<()> {
         let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
 
-        sqlx::query(query)
+        Ok(sqlx::query(query)
             .bind(machine_interface_id)
             .execute(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
 
     pub async fn find_optional(

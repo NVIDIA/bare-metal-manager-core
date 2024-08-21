@@ -92,12 +92,12 @@ impl StorageCluster {
     /// delete only removes from the db if there's no storage pools, there's no impact to the actual storage cluster
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_clusters WHERE id = $1";
-        let _ = sqlx::query(query)
+        sqlx::query(query)
             .bind(self.id.to_string())
             .execute(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// allow updating hostname/ip/port/auth for the storage cluster
@@ -238,12 +238,12 @@ impl StoragePool {
 
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_pools WHERE id = $1";
-        let _ = sqlx::query(query)
+        sqlx::query(query)
             .bind(self.attributes.id.to_string())
             .execute(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// only name and description can be updated
@@ -415,12 +415,12 @@ impl StorageVolume {
     /// ensure its detached from any dpu clients prior to deleting
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_volumes WHERE id = $1";
-        let _ = sqlx::query(query)
+        sqlx::query(query)
             .bind(self.attributes.id.to_string())
             .execute(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// the actual volume attach on the nvmesh cluster will happen later
@@ -579,12 +579,12 @@ impl OsImage {
 
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
         let query = "DELETE FROM os_images WHERE id = $1";
-        let _ = sqlx::query(query)
+        sqlx::query(query)
             .bind(self.attributes.id.to_string())
             .execute(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn update(
