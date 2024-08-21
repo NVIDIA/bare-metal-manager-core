@@ -8,6 +8,12 @@ networks:
     ipam:
       config:
         - subnet: "172.20.0.0/24"
+  underlay:
+    driver_opts:
+      com.docker.network.bridge.name: underlay0
+    ipam:
+      config:
+        - subnet: "172.21.0.0/24"
 services:
   dhcp-relay:
     depends_on:
@@ -61,14 +67,32 @@ services:
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
 
+  carbide-db-migrations:
+    depends_on:
+      - postgresql
+    build: api
+    networks:
+      carbide:
+        ipv4_address: 172.20.0.13
+    volumes:
+      - $HOME/docker_cargo_home:/docker_cargo_home
+      - .:/app/code
+      - ca-certificate:/identity
+    environment:
+      - CARGO_HOME=/docker_cargo_home
+    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
+
   carbide-api:
     depends_on:
+      - carbide-db-migrations
       - postgresql
       - loki
     build: api
     networks:
       carbide:
         ipv4_address: 172.20.0.14
+      underlay:
+        ipv4_address: 172.21.0.14
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - ./dev/certs:/opt/forge
@@ -86,14 +110,13 @@ services:
     #  scp that dev.sql file back to your local
     #  compress with `xz -9`
     #  name it correctly, commit it, and edit the xzcat line below
+    #  xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
     #
     command:
       - sh
       - -c
       - >
-        sleep 20 # Let PostgreSQL start
-
-        xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
+        cargo build -p admin --target-dir /opt/forge-admin-cli/
 
         cargo watch -C api -x "run --target-dir /tmp/carbide-api --
         run --config-path=/app/code/dev/docker-env/carbide-api-config.toml"

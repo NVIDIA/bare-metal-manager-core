@@ -9,21 +9,21 @@ set -eo pipefail
 
 MAX_RETRY=20
 if [ $# -ne 4 ]; then
-	echo
-	echo "Must provide api_server_host, api_server_port, data directory and discovery mode as positional arguments"
-	echo
-	echo "    $0" '<api_server_host> <api_server_port> <data_dir> [full|dhcp-only]'
-	echo
-	exit 1
+  echo
+  echo "Must provide api_server_host, api_server_port, data directory and discovery mode as positional arguments"
+  echo
+  echo "    $0" '<api_server_host> <api_server_port> <data_dir> [full|dhcp-only]'
+  echo
+  exit 1
 fi
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-	export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
-	export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
+  export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
+  export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 else
-	export DISABLE_TLS_ENFORCEMENT=true
-	export NO_DPU_CONTAINERS=true
-	export GRPCURL="grpcurl -insecure"
+  export DISABLE_TLS_ENFORCEMENT=true
+  export NO_DPU_CONTAINERS=true
+  export GRPCURL="grpcurl -insecure"
 fi
 
 API_SERVER_HOST=$1
@@ -57,7 +57,7 @@ RESULT=$(echo "$HOST_DHCP_REQUEST" | ${GRPCURL} -d @ $API_SERVER_HOST:$API_SERVE
 MACHINE_INTERFACE_ID=$(echo "$RESULT" | jq ".machineInterfaceId.value" | tr -d '"')
 echo "Using Machine Interface with ID $MACHINE_INTERFACE_ID"
 if [ "${DISCOVERY_MODE}" == "dhcp-only" ]; then
-	exit 0
+  exit 0
 fi
 
 # Simulate the Machine discovery request of a x86 host
@@ -87,18 +87,18 @@ RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" $API_S
 # Wait past the enforced delay until we look for DPU to have rebooted
 i=0
 while [[ $i -lt $MAX_RETRY ]]; do
-	sleep 4
+  sleep 4
 
-	MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-	if [[ "$MACHINE_STATE" == *WaitForDPUUp* ]]; then
-		break
-	fi
-	echo "Checking machine state. Waiting for it to be in WaitForDPUUp state. Current: $MACHINE_STATE"
-	i=$((i + 1))
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  if [[ "$MACHINE_STATE" == *WaitForDPUUp* ]]; then
+    break
+  fi
+  echo "Checking machine state. Waiting for it to be in WaitForDPUUp state. Current: $MACHINE_STATE"
+  i=$((i + 1))
 done
 if [[ $i -ge "$MAX_RETRY" ]]; then
-	echo "Even after $MAX_RETRY retries, Host did not come in WaitForDPUUp state."
-	exit 1
+  echo "Even after $MAX_RETRY retries, Host did not come in WaitForDPUUp state."
+  exit 1
 fi
 
 MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
@@ -115,18 +115,18 @@ cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --
 i=0
 MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 while [[ $MACHINE_STATE != "HostInitializing/Discovered" && $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
-	sleep 4
+  sleep 4
 
-	MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-	echo "Checking machine state. Waiting for it to be in Host/Discovered or Ready state. Current: $MACHINE_STATE"
-	i=$((i + 1))
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Host/Discovered or Ready state. Current: $MACHINE_STATE"
+  i=$((i + 1))
 done
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
-	echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
-	kill $(pidof forge-dpu-agent)
-	export PATH=${PREV_PATH}
-	exit 1
+  echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
+  kill $(pidof forge-dpu-agent)
+  export PATH=${PREV_PATH}
+  exit 1
 fi
 
 ${GRPCURL} -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" "$API_SERVER_HOST:$API_SERVER_PORT" forge.Forge/ForgeAgentControl
@@ -135,19 +135,19 @@ ${GRPCURL} -d "{\"machine_id\": {\"id\": \"$HOST_MACHINE_ID\"}}" "$API_SERVER_HO
 # Wait until host reaches ready state.
 i=0
 while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
-	sleep 2
+  sleep 2
 
-	MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
-	echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
-	i=$((i + 1))
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
+  i=$((i + 1))
 done
 
 kill $(pidof forge-dpu-agent)
 export PATH=${PREV_PATH}
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
-	echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
-	exit 1
+  echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
+  exit 1
 fi
 
 echo "ManagedHost is up in Ready state."

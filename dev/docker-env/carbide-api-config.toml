@@ -11,6 +11,14 @@ dpu_dhcp_server_enabled = true
 nvue_enabled = true
 attestation_enabled = false
 
+[site_explorer]
+enabled = true
+explorations_per_run = 200
+run_interval = "10s"
+create_machines = true
+#override_target_ip = "172.20.0.5"
+override_target_port = 2000
+
 [tls]
 identity_pemfile_path = "/app/code/dev/certs/server_identity.pem"
 identity_keyfile_path = "/app/code/dev/certs/server_identity.key"
@@ -45,14 +53,15 @@ type = "admin"
 prefix = "172.20.0.0/24"
 gateway = "172.20.0.1"
 mtu = 9000
-reserve_first = 5
+reserve_first = 20
 
 [networks.DEV1-C09-IPMI-01]
 type = "underlay"
-prefix = "127.0.0.0/8"
-gateway = "127.0.0.10"
+prefix = "172.21.0.0/24"
+gateway = "172.21.0.1"
 mtu = 1490
-reserve_first = 0
+reserve_first = 20
+
 
 [machine_state_controller]
 dpu_wait_time = "1s"

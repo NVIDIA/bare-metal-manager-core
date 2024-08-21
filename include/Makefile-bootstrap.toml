@@ -14,8 +14,7 @@ workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
 run_task = { name = [
   "build-bootstrap-forge-base",
-  "build-bootstrap-forge-dpu-discovery",
-  "build-bootstrap-forge-host-discovery",
+  "build-bootstrap-forge-mat",
 ] }
 
 [tasks.build-bootstrap-forge-base-kube]
@@ -77,6 +76,20 @@ CONTAINER_DATA_PATH=${CONTAINER_REPO_ROOT:-${REPO_ROOT}}/dev/${FORGE_BOOTSTRAP_K
 echo using container data path ${CONTAINER_DATA_PATH}
 
 '''
+
+[tasks.build-bootstrap-forge-mat]
+category = "Bootstrap"
+workspace = false
+script = '''
+#!/usr/bin/env bash
+set -e
+
+DATA_PATH=${REPO_ROOT}/dev/${FORGE_BOOTSTRAP_KIND}-env
+echo using data path ${DATA_PATH}
+
+./run_docker_compose_test.sh
+'''
+cwd = "${REPO_ROOT}/dev/bin"
 
 [tasks.build-bootstrap-forge-dpu-discovery]
 category = "Bootstrap"
