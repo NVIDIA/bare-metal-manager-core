@@ -3,12 +3,15 @@
 
 use std::{
     fmt::Write,
+    fs::File,
+    io::{BufRead, BufReader},
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
     time::Duration,
 };
 
 use diff::Result as DiffResult;
+use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use hickory_resolver::{config::ResolverConfig, Name};
 use resolv_conf::Config;
@@ -197,4 +200,45 @@ pub async fn phone_home(
         .into_inner()
         .timestamp
         .ok_or_else(|| eyre::eyre!("timestamp is empty in response"))
+}
+
+pub fn get_host_boot_timestamp() -> Result<u64, eyre::Error> {
+    let proc_stat = File::open("/proc/stat")
+        .map(BufReader::new)
+        .wrap_err("Couldn't open /proc/stat")?;
+    let btime_value = proc_stat
+        .lines()
+        .find_map(|line| match line {
+            // We're looking for a line like this:
+            // `btime 123456789`
+            Ok(line) => match line.split_once(' ') {
+                Some(("btime", value)) => {
+                    let value = String::from(value);
+                    Some(Ok(value))
+                }
+                _ => None,
+            },
+            err => Some(err),
+        })
+        .transpose()
+        .wrap_err("Couldn't read /proc/stat")?
+        .ok_or_eyre("Couldn't find btime line in /proc/stat")?;
+    btime_value
+        .parse()
+        .wrap_err("Couldn't parse btime value as u64")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_get_host_boot_timestamp() {
+        let boot_timestamp = get_host_boot_timestamp().expect("Couldn't get boot timestamp");
+        dbg!(&boot_timestamp);
+        // This was around July 14, 2017 -- hopefully your machine hasn't been
+        // running without a reboot that long. :)
+        assert!(boot_timestamp >= 1500000000);
+    }
 }
