@@ -307,6 +307,9 @@ impl FromStr for HealthProbeId {
     type Err = HealthReportConversionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err(HealthReportConversionError::MissingId);
+        }
         Ok(HealthProbeId(s.to_string()))
     }
 }
@@ -338,6 +341,9 @@ impl FromStr for HealthAlertClassification {
     type Err = HealthReportConversionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err(HealthReportConversionError::MissingClassification);
+        }
         Ok(HealthAlertClassification(s.to_string()))
     }
 }
@@ -362,7 +368,16 @@ impl HealthAlertClassification {
 /// A health report could not be converted from an external format
 #[derive(thiserror::Error, Debug, Clone)]
 #[error("Can not convert Health Report")]
-pub struct HealthReportConversionError {}
+pub enum HealthReportConversionError {
+    #[error("Could not parse timestamp")]
+    TimestampParseError,
+    #[error("Missing source field")]
+    MissingSource,
+    #[error("Missing alert or success id field")]
+    MissingId,
+    #[error("Empty classification")]
+    MissingClassification,
+}
 
 #[cfg(test)]
 mod tests {

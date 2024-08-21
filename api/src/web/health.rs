@@ -14,11 +14,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use health_report::HealthReport;
 use http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{MachinesByIdsRequest, OverrideMode};
+use rpc::forge::{
+    HealthReportOverride, InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
+    RemoveHealthReportOverrideRequest,
+};
 
 use crate::api::Api;
 use crate::model::machine::machine_id::MachineId;
@@ -35,10 +39,10 @@ struct MachineHealth {
 
 struct LabeledHealthReport {
     label: String,
-    report: Option<HealthReport>,
+    report: Option<DisplayedHealthReport>,
 }
 
-struct HealthReport {
+struct DisplayedHealthReport {
     successes: Vec<HealthProbeSuccess>,
     alerts: Vec<HealthProbeAlert>,
 }
@@ -55,7 +59,7 @@ struct HealthProbeSuccess {
     target: String,
 }
 
-impl From<rpc::health::HealthReport> for HealthReport {
+impl From<rpc::health::HealthReport> for DisplayedHealthReport {
     fn from(value: rpc::health::HealthReport) -> Self {
         Self {
             successes: value.successes.into_iter().map(|s| s.into()).collect(),
@@ -174,7 +178,7 @@ pub async fn health(
     };
     reports.push(LabeledHealthReport {
         label: "Aggregate Health".to_string(),
-        report: machine.health.map(HealthReport::from),
+        report: machine.health.map(DisplayedHealthReport::from),
     });
 
     let request = tonic::Request::new(rpc_machine_id.clone());
@@ -194,7 +198,7 @@ pub async fn health(
     };
     reports.push(LabeledHealthReport {
         label: "Hardware Health".to_string(),
-        report: hw_report.report.map(HealthReport::from),
+        report: hw_report.report.map(DisplayedHealthReport::from),
     });
 
     let request = tonic::Request::new(MachinesByIdsRequest {
@@ -223,7 +227,7 @@ pub async fn health(
                 "DPU Health {}",
                 dpu.id.map(|id| id.to_string()).unwrap_or_default()
             ),
-            report: dpu.health.map(HealthReport::from),
+            report: dpu.health.map(DisplayedHealthReport::from),
         })
     }
 
@@ -236,4 +240,105 @@ pub async fn health(
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub struct AddOverride {
+    mode: String,
+    health_report: HealthReport,
+}
+
+impl TryFrom<AddOverride> for HealthReportOverride {
+    type Error = String;
+
+    fn try_from(value: AddOverride) -> Result<Self, Self::Error> {
+        let mode = match value.mode.as_str() {
+            "Override" => OverrideMode::Override,
+            "Merge" => OverrideMode::Merge,
+            _ => return Err("Invalid or missing mode".to_string()),
+        };
+        let hr = value.health_report;
+
+        Ok(HealthReportOverride {
+            mode: mode as i32,
+            report: Some(rpc::protos::health::HealthReport {
+                source: hr.source,
+                observed_at: hr.observed_at.map(|t| t.into()),
+                successes: hr
+                    .successes
+                    .into_iter()
+                    .map(rpc::protos::health::HealthProbeSuccess::from)
+                    .collect::<Vec<_>>(),
+                alerts: hr
+                    .alerts
+                    .into_iter()
+                    .map(rpc::protos::health::HealthProbeAlert::from)
+                    .collect::<Vec<_>>(),
+            }),
+        })
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct RemoveOverride {
+    source: String,
+}
+
+pub async fn add_override(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    extract::Json(payload): extract::Json<AddOverride>,
+) -> impl IntoResponse {
+    let report_override = match HealthReportOverride::try_from(payload) {
+        Ok(report_override) => report_override,
+        Err(e) => return (StatusCode::BAD_REQUEST, e),
+    };
+
+    let request = tonic::Request::new(InsertHealthReportOverrideRequest {
+        machine_id: Some(rpc::common::MachineId {
+            id: machine_id.clone(),
+        }),
+        r#override: Some(report_override),
+    });
+    match state
+        .insert_health_report_override(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            (StatusCode::NOT_FOUND, format!("Not found: {machine_id}"))
+        }
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "insert_health_report_overrides");
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+        }
+        Ok(_) => (StatusCode::OK, String::new()),
+    }
+}
+
+pub async fn remove_override(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    extract::Json(payload): extract::Json<RemoveOverride>,
+) -> impl IntoResponse {
+    let request = tonic::Request::new(RemoveHealthReportOverrideRequest {
+        machine_id: Some(rpc::common::MachineId {
+            id: machine_id.clone(),
+        }),
+        source: payload.source,
+    });
+    match state
+        .remove_health_report_override(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            (StatusCode::NOT_FOUND, format!("Not found: {machine_id}"))
+        }
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "remove_health_report_overrides");
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+        }
+        Ok(_) => (StatusCode::OK, String::new()),
+    }
 }

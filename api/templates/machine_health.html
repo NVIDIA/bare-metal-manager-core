@@ -5,58 +5,114 @@
 {% block content %}
 <h1>{{ machine_type }} Health {{ id }}</h1>
 
+<details>
+	<summary>
+		<h2 style="display: inline-block;">Overrides</h2>
+	</summary>
+	<textarea id="override" rows="10" cols="30">
+	</textarea>
+	<br>
+	<p><button type="submit" id="submit_add">Submit Override</button></p>
+	<br>
+	<label>Source: <input type="text" id="remove_source"></label>
+	<br><br>
+	<button type="button" id="submit_remove">Submit Removal</button>
+</details>
+
 {% for report in reports %}
 <h2>{{ report.label }}</h2>
 {% match report.report %}
 {% when Some with (health) %}
-  <h3>Alerts</h3>
-  <table class="sortable">
-  	<thead>
-  		<tr>
-      	<th>ID</th>
-      	<th>Target</th>
-      	<th>In Alert Since</th>
-      	<th>Message</th>
-      	<th>Tenant Message</th>
-      	<th>Classifications</th>
-  		</tr>
-  	</thead>
-    <tbody>
-      {% for alert in health.alerts %}
-    		<tr>
-        	<td>{{ alert.id }}</td>
-        	<td>{{ alert.target }}</td>
-        	<td>{{ alert.in_alert_since }}</td>
-        	<td>{{ alert.message }}</td>
-        	<td>{{ alert.tenant_message }}</td>
-        	<td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td>
-    		</tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<h3>Alerts</h3>
+<table class="sortable">
+	<thead>
+		<tr>
+			<th>ID</th>
+			<th>Target</th>
+			<th>In Alert Since</th>
+			<th>Message</th>
+			<th>Tenant Message</th>
+			<th>Classifications</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for alert in health.alerts %}
+		<tr>
+			<td>{{ alert.id }}</td>
+			<td>{{ alert.target }}</td>
+			<td>{{ alert.in_alert_since }}</td>
+			<td>{{ alert.message }}</td>
+			<td>{{ alert.tenant_message }}</td>
+			<td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
 
-  <details>
-    <summary><h3 style="display: inline-block;">Successes</h3></summary>
-    <table class="sortable">
-    	<thead>
-    		<tr>
-        	<th>ID</th>
-        	<th>Target</th>
-    		</tr>
-    	</thead>
-      <tbody>
-      {% for success in health.successes %}
-    		<tr>
-        	<td>{{ success.id }}</td>
-        	<td>{{ success.target }}</td>
-    		</tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </details>
-  {% else %}
-  <h3>Missing report</h3>
-  {% endmatch %}
+<details>
+	<summary>
+		<h3 style="display: inline-block;">Successes</h3>
+	</summary>
+	<table class="sortable">
+		<thead>
+			<tr>
+				<th>ID</th>
+				<th>Target</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for success in health.successes %}
+			<tr>
+				<td>{{ success.id }}</td>
+				<td>{{ success.target }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</details>
+{% else %}
+<h3>Missing report</h3>
+{% endmatch %}
 {%endfor%}
+
 {% endblock %}
 
+{% block script %}
+function create_el(type, attributes) {
+	const el = document.createElement(type);
+	Object.assign(el, attributes);
+	return el;
+}
+
+function add_click_listener([id, path, body]) {
+	document.getElementById(id).addEventListener("click", async e => {
+		e.preventDefault();
+		let base = window.location.href;
+		if (base.at(base.length - 1) == '/') {
+			base = base.substring(0, base.length - 1);
+		}
+		const response = await fetch(base + path, {
+			method: "POST",
+			headers: {"Content-Type": "application/json"},
+			body: body(),
+		});
+		const text = await response.text();
+		e.target.after(
+			create_el("p", {
+				innerText: response.ok ? `Request successful.` : `Failed to execute POST, status: ${response.status}, text: ${text}.`
+			})
+		);
+	});
+}
+
+document.addEventListener("DOMContentLoaded", function (event) {
+	let report = {mode: "Merge", health_report: {source: "carbide-web", successes: [{id: ""}], alerts: [{id: "", message: "", classifications: [""]}]}};
+	document.getElementById("override").value = JSON.stringify(report, null, 2);
+	for (const item of [
+		["submit_add", "/override/add", () => document.getElementById("override").value],
+		["submit_remove", "/override/remove", () => JSON.stringify({source: document.getElementById("remove_source").value})],
+	]) {
+		add_click_listener(item);
+	}
+});
+{% endblock %}
