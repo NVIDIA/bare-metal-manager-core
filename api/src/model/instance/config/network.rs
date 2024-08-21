@@ -18,6 +18,7 @@ use std::{
 use crate::db::network_segment::NetworkSegmentId;
 use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
+use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 
 // Specifies whether a network interface is physical network function (PF)
@@ -124,6 +125,7 @@ impl InstanceNetworkConfig {
                 function_id: InterfaceFunctionId::Physical {},
                 network_segment_id,
                 ip_addrs: HashMap::default(),
+                interface_prefixes: HashMap::default(),
             }],
         }
     }
@@ -137,6 +139,7 @@ impl InstanceNetworkConfig {
         // We validate that the ID is not duplicated, but not whether it actually exists
         // or belongs to the tenant. This validation is currently happening in the
         // cloud API, and when we try to allocate IPs.
+        //
         // Multiple interfaces currently can't reference the same segment ID due to
         // how DHCP works. It would be ambiguous during a DHCP request which
         // interface it references, since the interface is resolved by the CircuitId
@@ -149,6 +152,22 @@ impl InstanceNetworkConfig {
                     iface.network_segment_id
                 )));
             }
+
+            // Verify the list of network prefix IDs between the interface
+            // IP addresses and interface prefix allocations match. There
+            // should be a 1:1 correlation, as in, for network prefix ID XYZ,
+            // there should be an entry in `ip_addrs` and `instance_prefixes`.
+            if iface
+                .ip_addrs
+                .keys()
+                .collect::<std::collections::HashSet<_>>()
+                != iface
+                    .interface_prefixes
+                    .keys()
+                    .collect::<std::collections::HashSet<_>>()
+            {
+                return Err(ConfigValidationError::NetworkPrefixAllocationMismatch);
+            }
         }
 
         Ok(())
@@ -159,6 +178,7 @@ impl InstanceNetworkConfig {
         let mut current = self.clone();
         for iface in &mut current.interfaces {
             iface.ip_addrs.clear();
+            iface.interface_prefixes.clear();
         }
 
         if current != *new_config {
@@ -210,6 +230,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 function_id,
                 network_segment_id,
                 ip_addrs: HashMap::default(),
+                interface_prefixes: HashMap::default(),
             });
         }
 
@@ -304,7 +325,19 @@ pub struct InstanceInterfaceConfig {
     pub network_segment_id: NetworkSegmentId,
     /// The IP address we allocated for each network prefix for this interface
     /// This is not populated if we have not allocated IP addresses yet.
+    //
+    // TODO(chet): The Uuid-based key here is the NetworkPrefixId, and should
+    // be updated to be a NetworkPrefixId.
     pub ip_addrs: HashMap<uuid::Uuid, IpAddr>,
+    /// The interface-specific prefix allocation we carved out from each
+    /// network prefix for this interface (e.g. in FNN we might carve out
+    /// a /30 for an interface, whereas in ETV we just allocate a /32).
+    ///
+    /// There should be a 1:1 correlation between this and the `ip_addrs`,
+    /// as in, for each network prefix ID entry in the `ip_addrs` map, there
+    /// should be a corresponding `inteface_prefixes` entry here (even if it's
+    /// just a /32 for derived from the ip_addr).
+    pub interface_prefixes: HashMap<uuid::Uuid, IpNetwork>,
     // TODO: Security group
 }
 
@@ -359,16 +392,19 @@ mod tests {
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let network_prefix_1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
         let mut ip_addrs = HashMap::new();
+        let mut interface_prefixes = HashMap::new();
         ip_addrs.insert(network_prefix_1, "192.168.1.2".parse().unwrap());
+        interface_prefixes.insert(network_prefix_1, "192.168.1.2/32".parse().unwrap());
 
         // Test plain serialization without inserting ip addresses. The
         let interface = InstanceInterfaceConfig {
             function_id,
             network_segment_id,
             ip_addrs,
+            interface_prefixes,
         };
         let serialized = serde_json::to_string(&interface).unwrap();
-        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"}}");
+        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"}}");
 
         assert_eq!(
             serde_json::from_str::<InstanceInterfaceConfig>(&serialized).unwrap(),
@@ -392,6 +428,7 @@ mod tests {
                     function_id,
                     network_segment_id,
                     ip_addrs: HashMap::default(),
+                    interface_prefixes: HashMap::default(),
                 }
             })
             .collect();
@@ -415,6 +452,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Physical {},
                 network_segment_id: BASE_SEGMENT_ID.into(),
                 ip_addrs: HashMap::new(),
+                interface_prefixes: HashMap::new(),
             }]
         );
     }
@@ -439,6 +477,7 @@ mod tests {
             function_id: InterfaceFunctionId::Physical {},
             network_segment_id: BASE_SEGMENT_ID.into(),
             ip_addrs: HashMap::new(),
+            interface_prefixes: HashMap::new(),
         }];
 
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
@@ -446,6 +485,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Virtual { id: vfid as u8 },
                 network_segment_id: offset_segment_id(vfid + 1),
                 ip_addrs: HashMap::new(),
+                interface_prefixes: HashMap::new(),
             });
         }
         assert_eq!(netconfig.interfaces, &expected_interfaces[..]);

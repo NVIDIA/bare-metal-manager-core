@@ -170,7 +170,9 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     let mut network_config_no_addresses = network_config.clone();
     for iface in network_config_no_addresses.interfaces.iter_mut() {
         assert_eq!(iface.ip_addrs.len(), 1);
+        assert_eq!(iface.interface_prefixes.len(), 1);
         iface.ip_addrs.clear();
+        iface.interface_prefixes.clear();
     }
     assert_eq!(
         network_config_no_addresses,
@@ -217,6 +219,17 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
             .next()
             .unwrap()
             .1
+    );
+
+    assert_eq!(
+        format!("{}/32", &record.address()),
+        network_config.interfaces[0]
+            .interface_prefixes
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .to_string()
     );
 
     assert!(matches!(
@@ -1039,6 +1052,11 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .next()
         .unwrap();
 
+    let pf_instance_prefix = snapshot.config.network.interfaces[0]
+        .interface_prefixes
+        .get(pf_segment)
+        .expect("Could not find matching interface_prefixes entry for pf_segment from ip_addrs.");
+
     let pf_gw = NetworkPrefix::find(&mut txn, *pf_segment)
         .await
         .ok()
@@ -1052,6 +1070,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             function_id: InterfaceFunctionId::Physical {},
             mac_address: None,
             addresses: vec![*pf_addr],
+            prefixes: vec![*pf_instance_prefix],
             gateways: vec![IpNetwork::try_from(pf_gw.as_str()).expect("Invalid gateway")],
         }],
         observed_at: Utc::now(),
@@ -1097,6 +1116,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![pf_addr.to_string()],
+            prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
         }]
     );
@@ -1143,6 +1163,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
+            prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
         }]
     );
@@ -1195,6 +1216,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![],
+            prefixes: vec![],
             gateways: vec![],
         }]
     );
@@ -1209,6 +1231,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             function_id: InterfaceFunctionId::Virtual { id: 0 },
             mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
             addresses: vec!["127.1.2.3".parse().unwrap()],
+            prefixes: vec!["127.1.2.3/32".parse().unwrap()],
             gateways: vec!["127.1.2.1".parse().unwrap()],
         });
 
@@ -1250,21 +1273,31 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
+            prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
         }]
     );
 
-    // Drop the gateways field from the JSONB and ensure the rest of the object is OK (to emulate older
-    // agents not sending gateways in the status observations)
+    // Drop the gateways and prefixes fields from the JSONB and ensure the rest of the
+    // object is OK (to emulate older agents not sending gateways and prefixes in the status
+    // observations).
     let mut txn = env.pool.begin().await.unwrap();
-    let query =
+    let gateways_query =
         "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,gateways}', 'null', false)) where id = $1::uuid returning id";
+    let prefixes_query =
+        "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,prefixes}', 'null', false)) where id = $1::uuid returning id";
 
-    let (_,): (InstanceId,) = sqlx::query_as(query)
+    let (_,): (InstanceId,) = sqlx::query_as(gateways_query)
         .bind(instance_id)
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
+    let (_,): (InstanceId,) = sqlx::query_as(prefixes_query)
+        .bind(instance_id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .expect("Database error rewriting JSON");
+
     txn.commit().await.unwrap();
 
     let instance = env
@@ -1279,7 +1312,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
-            // gateways should have been turned into an empty array.
+            // prefixes and gateways should have been turned into empty arrays.
+            prefixes: vec![],
             gateways: vec![],
         }]
     );

@@ -122,6 +122,7 @@ impl InstanceNetworkStatus {
                         function_id: config.function_id.clone(),
                         mac_address: observation.mac_address.map(Into::into),
                         addresses: observation.addresses.clone(),
+                        prefixes: observation.prefixes.clone(),
                         gateways: observation.gateways.clone(),
                     },
                     None => {
@@ -137,6 +138,7 @@ impl InstanceNetworkStatus {
                             function_id: config.function_id.clone(),
                             mac_address: None,
                             addresses: Vec::new(),
+                            prefixes: Vec::new(),
                             gateways: Vec::new(),
                         }
                     }
@@ -164,6 +166,7 @@ impl InstanceNetworkStatus {
                     function_id: iface.function_id.clone(),
                     mac_address: None,
                     addresses: Vec::new(),
+                    prefixes: Vec::new(),
                     gateways: Vec::new(),
                 })
                 .collect(),
@@ -188,6 +191,16 @@ pub struct InstanceInterfaceStatus {
     /// The list will be empty if interface configuration hasn't been completed
     pub addresses: Vec<IpAddr>,
 
+    // The list of IP prefixes that have been assigned to this interface
+    // out of the requested subnet (where the prefix allocated to the interface
+    // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
+    //
+    // This is similar to `gateways`, in that there is one `prefix` for each
+    // address in `addresses`.
+    ///
+    /// The list will be empty if interface configuration hasn't been completed
+    pub prefixes: Vec<IpNetwork>,
+
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     pub gateways: Vec<IpNetwork>,
 }
@@ -206,6 +219,11 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
                 .addresses
                 .into_iter()
                 .map(|ip| ip.to_string())
+                .collect(),
+            prefixes: status
+                .prefixes
+                .into_iter()
+                .map(|ip_network| ip_network.to_string())
                 .collect(),
             gateways: status
                 .gateways
@@ -296,6 +314,17 @@ pub struct InstanceInterfaceStatusObservation {
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
 
+    // The list of IP prefixes that have been assigned to this interface
+    // out of the requested subnet (where the prefix allocated to the interface
+    // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
+    //
+    // This is similar to `gateways`, in that there is one `prefix` for each
+    // address in `addresses`.
+    ///
+    /// The list will be empty if interface configuration hasn't been completed
+    #[serde(default)]
+    pub prefixes: Vec<IpNetwork>,
+
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     #[serde(default)]
     pub gateways: Vec<IpNetwork>,
@@ -329,6 +358,14 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
         Ok(Self {
             function_id,
             addresses,
+            prefixes: observation
+                .prefixes
+                .iter()
+                .map(|ip_network| {
+                    IpNetwork::try_from(ip_network.as_str())
+                        .map_err(|_| Self::Error::InvalidCidr(ip_network.to_string()))
+                })
+                .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
             gateways: observation
                 .gateways
                 .iter()
@@ -417,6 +454,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Physical {},
                 mac_address: None,
                 addresses: Vec::new(),
+                prefixes: Vec::new(),
                 gateways: Vec::new(),
             });
         observation
@@ -425,6 +463,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Virtual { id: 1 },
                 mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                 addresses: vec!["127.1.2.3".parse().unwrap()],
+                prefixes: vec!["127.1.2.3/32".parse().unwrap()],
                 gateways: vec!["127.1.2.1".parse().unwrap()],
             });
         let serialized = serde_json::to_string(&observation).unwrap();
@@ -435,10 +474,10 @@ mod tests {
         );
         write!(
             &mut expected,
-            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"gateways\":[]}},"
+            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"prefixes\":[],\"gateways\":[]}},"
         )
         .unwrap();
-        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"gateways\":[\"127.1.2.1/32\"]}}").unwrap();
+        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"prefixes\":[\"127.1.2.3/32\"],\"gateways\":[\"127.1.2.1/32\"]}}").unwrap();
         write!(
             &mut expected,
             "],\"observed_at\":\"{}\"}}",
@@ -463,6 +502,10 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     network_segment_id: base_uuid,
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
+                    interface_prefixes: HashMap::from([(
+                        prefix_uuid,
+                        "127.0.0.1/32".parse().unwrap(),
+                    )]),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -471,6 +514,10 @@ mod tests {
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
                         "127.0.0.2".parse().unwrap(),
                     )]),
+                    interface_prefixes: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
+                        "127.0.0.2/32".parse().unwrap(),
+                    )]),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -478,6 +525,10 @@ mod tests {
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
                         "127.0.0.3".parse().unwrap(),
+                    )]),
+                    interface_prefixes: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
+                        "127.0.0.3/32".parse().unwrap(),
                     )]),
                 },
             ],
@@ -496,18 +547,21 @@ mod tests {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26]).into()),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
+                    prefixes: vec!["127.0.0.3/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
+                    prefixes: vec!["127.0.0.1/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16]).into()),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
+                    prefixes: vec!["127.0.0.2/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
             ],
@@ -521,18 +575,21 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: None,
                     addresses: Vec::new(),
+                    prefixes: Vec::new(),
                     gateways: Vec::new(),
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: None,
                     addresses: Vec::new(),
+                    prefixes: Vec::new(),
                     gateways: Vec::new(),
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: None,
                     addresses: Vec::new(),
+                    prefixes: Vec::new(),
                     gateways: Vec::new(),
                 },
             ],
@@ -547,18 +604,21 @@ mod tests {
                     function_id: InterfaceFunctionId::Physical {},
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
                     addresses: vec!["127.0.0.1".parse().unwrap()],
+                    prefixes: vec!["127.0.0.1/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
                     addresses: vec!["127.0.0.2".parse().unwrap()],
+                    prefixes: vec!["127.0.0.2/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                     addresses: vec!["127.0.0.3".parse().unwrap()],
+                    prefixes: vec!["127.0.0.3/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
                 },
             ],

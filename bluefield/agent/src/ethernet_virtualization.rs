@@ -125,7 +125,7 @@ pub async fn update_nvue(
             .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
         vec![nvue::VlanConfig {
             vlan_id: admin_interface.vlan_id,
-            network: admin_interface.ip.clone() + "/32",
+            network: admin_interface.interface_prefix.clone(),
             ip: admin_interface.ip.clone(),
         }]
     } else {
@@ -133,7 +133,7 @@ pub async fn update_nvue(
         for net in &nc.tenant_interfaces {
             access_vlans.push(nvue::VlanConfig {
                 vlan_id: net.vlan_id,
-                network: net.ip.clone() + "/32",
+                network: net.interface_prefix.clone(),
                 ip: net.ip.clone(),
             });
         }
@@ -523,6 +523,7 @@ pub async fn interfaces(
             virtual_function_id: None,
             mac_address: Some(factory_mac_address.to_string()),
             addresses: vec![iface.ip.clone()],
+            prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
         });
     } else {
@@ -569,6 +570,7 @@ pub async fn interfaces(
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: mac,
                 addresses: vec![iface.ip.clone()],
+                prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
             });
         }
@@ -895,7 +897,7 @@ fn write_frr(path: &FPath, nc: &rpc::ManagedHostNetworkConfigResponse) -> eyre::
             .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
         vec![frr::FrrVlanConfig {
             vlan_id: admin_interface.vlan_id,
-            network: admin_interface.ip.clone() + "/32",
+            network: admin_interface.interface_prefix.clone(),
             ip: admin_interface.ip.clone(),
         }]
     } else {
@@ -903,7 +905,7 @@ fn write_frr(path: &FPath, nc: &rpc::ManagedHostNetworkConfigResponse) -> eyre::
         for net in &nc.tenant_interfaces {
             access_vlans.push(frr::FrrVlanConfig {
                 vlan_id: net.vlan_id,
-                network: net.ip.clone() + "/32",
+                network: net.interface_prefix.clone(),
                 ip: net.ip.clone(),
             });
         }
@@ -1302,7 +1304,7 @@ mod tests {
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf();
+        let network_config = netconf(32);
 
         let f = tempfile::NamedTempFile::new()?;
         let fp = FPath(f.path().to_owned());
@@ -1373,7 +1375,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf();
+        let network_config = netconf(32);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1397,7 +1399,33 @@ mod tests {
         Ok(())
     }
 
-    fn netconf() -> rpc::ManagedHostNetworkConfigResponse {
+    #[tokio::test]
+    async fn test_with_tenant_nvue_fnn() -> Result<(), Box<dyn std::error::Error>> {
+        let network_config = netconf(31);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(hbn_root, &network_config, true).await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup_fnn.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    fn netconf(interface_prefix_length: u8) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
         let admin_interface = rpc::FlatInterfaceConfig {
@@ -1407,6 +1435,7 @@ mod tests {
             vni: 1001,
             gateway: "10.217.5.123/28".to_string(),
             ip: "10.217.5.123".to_string(),
+            interface_prefix: "10.217.5.123/32".to_string(),
             vpc_prefixes: vec![],
             prefix: "10.217.5.123/28".to_string(),
             fqdn: "myhost.forge".to_string(),
@@ -1420,6 +1449,7 @@ mod tests {
                 vni: 1025196,
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170".to_string(),
+                interface_prefix: format!("10.217.5.170/{}", interface_prefix_length),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
@@ -1432,6 +1462,7 @@ mod tests {
                 vni: 1025185,
                 gateway: "10.217.5.161/30".to_string(),
                 ip: "10.217.5.162".to_string(),
+                interface_prefix: format!("10.217.5.162/{}", interface_prefix_length),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
@@ -1683,6 +1714,7 @@ mod tests {
             vni: 1001,
             gateway: "10.217.5.123".to_string(),
             ip: "10.217.5.123".to_string(),
+            interface_prefix: "10.217.5.123/32".to_string(),
             vpc_prefixes: vec![],
             prefix: "10.217.5.123".to_string(),
             fqdn: "myhost.forge".to_string(),
@@ -1696,6 +1728,7 @@ mod tests {
                 vni: 1025196,
                 gateway: "10.217.5.169".to_string(),
                 ip: "10.217.5.170".to_string(),
+                interface_prefix: "10.217.5.170/32".to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
@@ -1708,6 +1741,7 @@ mod tests {
                 vni: 1025185,
                 gateway: "10.217.5.161".to_string(),
                 ip: "10.217.5.162".to_string(),
+                interface_prefix: "10.217.5.162/32".to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),

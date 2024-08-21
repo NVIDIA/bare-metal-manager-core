@@ -460,6 +460,7 @@ impl MachineStateMachine {
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses: vec![iface.ip.clone()],
+                prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
             }]
         } else {
@@ -473,6 +474,7 @@ impl MachineStateMachine {
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses: vec![iface.ip.clone()],
+                    prefixes: vec![iface.interface_prefix.clone()],
                     gateways: vec![iface.gateway.clone()],
                 });
             }

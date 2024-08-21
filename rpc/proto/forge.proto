@@ -1369,6 +1369,14 @@ message InstanceInterfaceStatus {
 
   // The list of gateways, in CIDR notation, one for each address in `addresses`.
   repeated string gateways = 4;
+
+  // The list of IP prefixes that have been assigned to this interface
+  // out of the requested subnet (where the prefix allocated to the interface
+  // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
+  //
+  // This is similar to `gateways`, in that there is one `prefix` for each
+  // address in `addresses`.
+  repeated string prefixes = 5;
 }
 
 // The actual status of a single IB interface of an instance
@@ -1814,6 +1822,12 @@ message FlatInterfaceConfig {
     string gateway = 4;
     // host admin ip for admin network, host ip for tenant
     string ip = 5;
+    // The interface-specific prefix allocation (which may be a /32 for
+    // just the host IP, or a larger allocation, like a /30, for FNN). The
+    // `ip` as configured above will be contained within the `interface_prefix`
+    // provided here, and the `interface_prefix` will be contained within
+    // the `prefix` below (field 8).
+    string interface_prefix = 11;
     // If the interface is defined as a virtual function (associated
     // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
     // then this value is set and specifies the virtual function ID that is configured
@@ -1823,7 +1837,17 @@ message FlatInterfaceConfig {
     // the prefix from the network segment this interface is attached to (which
     // could be independently derived from the `gateway` field).
     repeated string vpc_prefixes = 7;
-    // Prefix for ip
+    // Prefix for the network segment this interface lives in,
+    // which is what is referred to as a subnet in the UI. This
+    // is not to be confused with the instance_prefix, which is
+    // an allocation out of THIS prefix, which is being assingned
+    // to a given interface.
+    //
+    // TODO(chet): This is going to eventually be refactored as part
+    // of changes related to Carbide IP Prefix Management, where we
+    // ultimately do want a DPU-specific prefix allocation to be its
+    // own prefix entry in the `network_prefixes` table (or something
+    // similar).
     string prefix = 8;
     // FQDN
     string fqdn = 9;
@@ -2310,6 +2334,14 @@ message InstanceInterfaceStatusObservation {
 
   // The list of gateways, in CIDR notation, one for each address in `addresses`.
   repeated string gateways = 5;
+
+  // The list of IP prefixes that have been assigned to this interface
+  // out of the requested subnet (where the prefix allocated to the interface
+  // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
+  //
+  // This is similar to `gateways`, in that there is one `prefix` for each
+  // address in `addresses`.
+  repeated string prefixes = 6;
 }
 
 // Describes observational data for a network interface associated with a
