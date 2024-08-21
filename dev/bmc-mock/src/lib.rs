@@ -125,8 +125,18 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
         }
     };
 
-    let cert_file = cert_path.join("tls.crt");
-    let key_file = cert_path.join("tls.key");
+    let mut cert_file = cert_path.join("tls.crt");
+    let mut key_file = cert_path.join("tls.key");
+    if !cert_file.exists() {
+        // let's try once more. This can be docker-compose case.
+        let root_var = std::env::var("REPO_ROOT")
+            .expect("Could not find the crt file for bmc-mock.")
+            .to_string();
+        let root_dir = Path::new(&root_var);
+        let cert_path = root_dir.join("dev/bmc-mock");
+        cert_file = cert_path.join("tls.crt");
+        key_file = cert_path.join("tls.key");
+    }
     info!("Loading {:?} and {:?}", cert_file, key_file);
     let config = RustlsConfig::from_pem_file(cert_file.clone(), key_file)
         .await
