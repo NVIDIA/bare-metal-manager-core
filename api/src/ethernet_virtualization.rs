@@ -142,6 +142,16 @@ pub async fn admin_network(
         .await
         .map_err(CarbideError::from)?;
 
+    // On the admin network, the interface_prefix is always
+    // just going to be a /32 derived from the machine interface
+    // address.
+    let address_prefix = IpNetwork::new(address.address, 32).map_err(|e| {
+        Status::internal(format!(
+            "failed to build default admin address prefix for {}/32: {}",
+            address.address, e
+        ))
+    })?;
+
     // admin isn't an overlay network, so:
     //  - vni: 0 (because there's no VNI)
     //  - network: ip/32 (because there won't be an instance network allocation)
@@ -152,7 +162,7 @@ pub async fn admin_network(
         vni: 0,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
-        interface_prefix: format!("{}/32", address.address),
+        interface_prefix: address_prefix.to_string(),
         vpc_prefixes: vec![],
         prefix: prefix.prefix.to_string(),
         fqdn: format!("{}.{}", interface.hostname, domain),
@@ -199,16 +209,24 @@ pub async fn tenant_network(
         ))
     })?;
 
-    // XXX! If `address` was assigned above (and didn't return a Status::internal error),
-    // but THIS fails, it means something didn't call iface.validate() when it should
-    // have -- validate() makes sure there is a 1:1 mapping for address:interface_prefix
-    // per network prefix ID.
-    let interface_prefix = iface.interface_prefixes.get(&v4_prefix.id).ok_or_else(|| {
+    // Assuming an `address` was found above, look to see if a prefix
+    // is explicitly configured here. If not, default to a /32, which
+    // is our default fallback for cases of instances which were configured
+    // before interface_prefixes were introduced.
+    //
+    // TODO(chet): This can eventually be phased out once all of the
+    // InstanceInterfaceConfigs stored contain the prefix.
+    let default_prefix = IpNetwork::new(*address, 32).map_err(|e| {
         Status::internal(format!(
-            "No IPv4 interface prefix allocation found for instance {} on segment {} and prefix {}",
-            instance_id, segment.id, v4_prefix.id
+            "failed to build default interface_prefix for {}/32: {}",
+            address, e
         ))
     })?;
+
+    let interface_prefix = iface
+        .interface_prefixes
+        .get(&v4_prefix.id)
+        .unwrap_or(&default_prefix);
 
     // FIXME: Ideally, we would like the containing prefix that is assigned to
     // the tenant/VPC, but only the cloud tracks that information. Instead, we
