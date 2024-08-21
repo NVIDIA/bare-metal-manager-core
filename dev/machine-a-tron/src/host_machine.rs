@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Interval;
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::dpu_machine::DpuMachineActor;
-use crate::logging::{LogCollector, LogSink};
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::{
     api_client,
@@ -19,8 +20,6 @@ use crate::{
 use bmc_mock::{BmcCommand, HostMachineInfo, MachineInfo};
 use rpc::MachineId;
 
-const MAX_LOG_LINES: usize = 40;
-
 #[derive(Debug)]
 pub struct HostMachine {
     mat_id: Uuid,
@@ -28,21 +27,20 @@ pub struct HostMachine {
     app_context: MachineATronContext,
     state_machine: MachineStateMachine,
     api_state: String,
-    logs: Vec<String>,
     tui_event_tx: Option<mpsc::Sender<UiEvent>>,
 
     dpus: Vec<DpuMachineActor>,
 
     dpus_previously_ready: bool,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
-    log_collector: LogCollector,
-    logger: LogSink,
     // This will go from None to Some when we enter a state where we have a MachineId allocated. It
     // may change for instance if we go from a predicted host to a regular host.
     observed_machine_id: Option<MachineId>,
     // This will be populated with callers waiting for the host to be MachineUp/Ready
     state_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
     paused: bool,
+    api_refresh_interval: Interval,
+    sleep_until: Instant,
 }
 
 impl HostMachine {
@@ -52,15 +50,16 @@ impl HostMachine {
         dhcp_client: DhcpRelayClient,
         bmc_listen_mode: BmcRegistrationMode,
     ) -> Self {
-        let log_collector = LogCollector::new();
+        let mat_id = Uuid::new_v4();
 
-        let dpu_machines = (1..=config.dpu_per_host_count)
+        let dpu_machines = (1..=config.dpu_per_host_count as u8)
             .map(|index| {
                 DpuMachine::new(
+                    mat_id,
+                    index,
                     app_context.clone(),
                     config.clone(),
                     dhcp_client.clone(),
-                    log_collector.log_sink(Some(format!("D{index}:"))),
                     bmc_listen_mode.clone(),
                 )
             })
@@ -76,31 +75,30 @@ impl HostMachine {
             config.clone(),
             app_context.clone(),
             dhcp_client.clone(),
-            log_collector.log_sink(Some("H:".to_string())),
             bmc_control_tx.clone(),
             bmc_listen_mode,
         );
 
         HostMachine {
-            mat_id: Uuid::new_v4(),
+            mat_id,
             host_info,
             state_machine,
             app_context,
             dpus,
             api_state: "Unknown".to_owned(),
 
-            logs: Vec::default(),
             dpus_previously_ready: false,
             bmc_control_rx,
-            logger: log_collector.log_sink(Some("H:".to_string())),
-            log_collector,
             observed_machine_id: None,
             state_waiters: HashMap::new(),
             tui_event_tx: None,
             paused: true,
+            sleep_until: Instant::now(),
+            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
         }
     }
 
+    #[instrument(skip_all, fields(mat_host_id = %self.mat_id))]
     pub fn start(mut self, paused: bool) -> HostMachineActor {
         self.paused = paused;
         let (actor_message_tx, mut actor_message_rx) = mpsc::unbounded_channel();
@@ -114,67 +112,10 @@ impl HostMachine {
         tokio::task::Builder::new()
             .name(&format!("Host {}", self.mat_id))
             .spawn(async move {
-                self.maybe_update_tui().await;
-
-                let mut api_state_refresh_interval = tokio::time::interval(Duration::from_secs(2));
-                let mut sleep_until = Instant::now();
                 loop {
-                    self.logs.extend_from_slice(
-                        self.log_collector
-                            .get_last_logs()
-                            .into_iter()
-                            .map(|m| m.to_string())
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                    );
-                    let over = self.logs.len().saturating_sub(MAX_LOG_LINES);
-                    if over > 0 {
-                        self.logs.drain(..over);
+                    if !self.run_iteration(&mut actor_message_rx).await {
+                        break;
                     }
-                    self.maybe_update_tui().await;
-
-                    // If the host is up, and if anyone is waiting for the current state to be
-                    // reached, notify them.
-                    if self.state_machine.is_up() {
-                        if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
-                            for waiter in waiters.into_iter() {
-                                _ = waiter.send(());
-                            }
-                        }
-                    }
-
-                    tokio::select! {
-                        _ = tokio::time::sleep_until(sleep_until.into()) => {}
-                        _ = api_state_refresh_interval.tick() => {
-                            // Wake up to refresh the API state and UI
-                            self.api_state = get_api_state(
-                                &self.app_context,
-                                self.observed_machine_id.as_ref(),
-                            )
-                            .await;
-                            continue; // go back to sleeping
-                        }
-                        Some(cmd) = actor_message_rx.recv() => {
-                            match self.handle_actor_message(cmd).await {
-                                HandleMessageResult::ContinuePolling => continue,
-                                HandleMessageResult::ProcessStateNow => {},
-                                HandleMessageResult::Stop => break,
-                            }
-                        }
-                        Some(cmd) = self.bmc_control_rx.recv() => {
-                            match cmd {
-                                BmcCommand::Reboot(time) => {
-                                    self.reboot(time);
-                                }
-                            }
-                            // continue to process_state
-                        }
-                    }
-
-                    let sleep_duration = self.process_state().await;
-
-                    sleep_until =
-                        saturating_add_duration_to_instant(Instant::now(), sleep_duration);
                 }
             })
             .unwrap();
@@ -186,13 +127,58 @@ impl HostMachine {
         }
     }
 
+    #[instrument(skip_all, fields(mat_host_id = %self.mat_id, api_state = %self.api_state, state = %self.state_machine, booted_os = %self.state_machine.booted_os()))]
+    async fn run_iteration(
+        &mut self,
+        actor_message_rx: &mut mpsc::UnboundedReceiver<HostMachineMessage>,
+    ) -> bool {
+        self.maybe_update_tui().await;
+
+        // If the host is up, and if anyone is waiting for the current state to be
+        // reached, notify them.
+        if self.state_machine.is_up() {
+            if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
+                for waiter in waiters.into_iter() {
+                    _ = waiter.send(());
+                }
+            }
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep_until(self.sleep_until.into()) => {}
+            _ = self.api_refresh_interval.tick() => {
+                // Wake up to refresh the API state and UI
+                self.api_state = get_api_state(
+                    &self.app_context,
+                    self.observed_machine_id.as_ref(),
+                )
+                .await;
+                return true; // go back to sleeping
+            }
+            Some(cmd) = actor_message_rx.recv() => {
+                match self.handle_actor_message(cmd).await {
+                    HandleMessageResult::ContinuePolling => return true,
+                    HandleMessageResult::ProcessStateNow => {},
+                    HandleMessageResult::Stop => return false,
+                }
+            }
+            Some(cmd) = self.bmc_control_rx.recv() => {
+                match cmd {
+                    BmcCommand::Reboot(time) => {
+                        self.reboot(time);
+                    }
+                }
+                // continue to process_state
+            }
+        }
+
+        let sleep_duration = self.process_state().await;
+
+        self.sleep_until = saturating_add_duration_to_instant(Instant::now(), sleep_duration);
+        return true;
+    }
+
     async fn process_state(&mut self) -> Duration {
-        self.logger.info(format!(
-            "start: mat state {}, booted os {}, api state {}",
-            self.state_machine,
-            self.state_machine.booted_os(),
-            self.api_state
-        ));
         if self.paused {
             return Duration::MAX;
         }
@@ -204,7 +190,8 @@ impl HostMachine {
                     .await
                     .inspect_err(|e| {
                         tracing::error!(
-                            "Internal error checking if DPU is up (will proceed without it): {e}"
+                            error = %e,
+                            "Internal error checking if DPU is up (will proceed without it)",
                         )
                     })
                     .unwrap_or(true),
@@ -219,12 +206,7 @@ impl HostMachine {
         }
 
         let sleep_duration = self.state_machine.advance(dpus_ready).await;
-        self.logger.info(format!(
-            "end: mat state {}, booted os {}, api state {}",
-            self.state_machine,
-            self.state_machine.booted_os(),
-            self.api_state
-        ));
+        tracing::trace!("state_machine.advance end");
 
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
@@ -280,14 +262,13 @@ impl HostMachine {
     }
 
     fn reboot(&mut self, time: DateTime<Utc>) {
-        self.logger.info(format!(
-            "Host reboot requested at {}: new state: {} api state: {}",
-            time, self.state_machine, self.api_state
-        ));
+        tracing::debug!("Host reboot requested at {time}");
         for (dpu_index, dpu) in self.dpus.iter_mut().enumerate() {
             _ = dpu.reboot(time).inspect_err(|e| {
-                self.logger
-                    .error(format!("Could not reboot DPU {dpu_index}: {e}"))
+                tracing::error!(
+                    error = %e,
+                    "Could not reboot DPU {dpu_index}",
+                )
             });
         }
         self.state_machine.power_down()
@@ -300,7 +281,7 @@ impl HostMachine {
         _ = tui_event_tx
             .send(UiEvent::MachineUpdate(self.host_details().await))
             .await
-            .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
+            .inspect_err(|e| tracing::warn!(error = %e, "Error sending TUI event"));
     }
 
     // Note: We can't implment From<HostMachine> for HostDetails, because we need this to be async
@@ -330,7 +311,6 @@ impl HostMachine {
                 .unwrap_or_default(),
             dpus: dpu_details,
             booted_os: self.state_machine.booted_os().to_string(),
-            logs: self.logs.clone(),
         }
     }
 
@@ -338,11 +318,10 @@ impl HostMachine {
         let was_paused = self.paused;
         self.paused = true;
         if !was_paused {
-            self.logger.info("Pausing state operations".to_string());
+            tracing::info!("Pausing state operations");
             for dpu in &self.dpus {
                 _ = dpu.pause().inspect_err(|e| {
-                    self.logger
-                        .error(format!("Could not pause DPU when pausing Host: {e}"))
+                    tracing::error!(error=%e, "Could not pause DPU when pausing host");
                 });
             }
         }
@@ -352,17 +331,16 @@ impl HostMachine {
         let was_paused = self.paused;
         self.paused = false;
         if was_paused {
-            self.logger.info("Resuming state operations".to_string());
+            tracing::info!("Resuming state operations");
             self.resume_dpus();
         }
     }
 
     fn resume_dpus(&self) {
         for dpu in &self.dpus {
-            _ = dpu.resume().inspect_err(|e| {
-                self.logger
-                    .error(format!("Could not resume DPU when resuming Host: {e}"))
-            });
+            _ = dpu.resume().inspect_err(
+                |e| tracing::error!(error=%e, "Could not resume DPU when resuming Host"),
+            );
         }
     }
 
@@ -384,9 +362,8 @@ impl HostMachine {
                     }
                     None => {
                         tracing::info!(
-                    "Not deleting machine {} as we have not seen a machine ID for it, and it has no known MAC addresses (no DPUs)",
-                    self.mat_id,
-                );
+                            "Not deleting machine as we have not seen a machine ID for it, and it has no known MAC addresses (no DPUs)",
+                        );
                         return Ok(());
                     }
                 }

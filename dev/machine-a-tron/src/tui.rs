@@ -15,7 +15,6 @@ use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
 };
-
 use uuid::Uuid;
 
 use crate::{
@@ -23,6 +22,7 @@ use crate::{
     subnet::Subnet,
     tabs::{MachinesTab, Tab},
     vpc::Vpc,
+    TuiHostLogs,
 };
 
 pub struct VpcDetails {
@@ -83,7 +83,6 @@ pub struct HostDetails {
     pub machine_ip: String,
     pub dpus: Vec<HostDetails>,
     pub booted_os: String,
-    pub logs: Vec<String>,
 }
 
 impl HostDetails {
@@ -124,10 +123,6 @@ impl HostDetails {
         }
         result
     }
-
-    fn logs(&self) -> String {
-        self.logs.join("\n")
-    }
 }
 
 pub enum UiEvent {
@@ -142,6 +137,8 @@ pub struct Tui {
     data: TuiData,
     /// The (transient) state of the ui
     ui: Tab,
+    /// A handle to a TuiHostLogs where logs for hosts are stored
+    host_logs: Option<TuiHostLogs>,
 }
 
 pub struct TuiData {
@@ -162,6 +159,7 @@ impl Tui {
         event_rx: Receiver<UiEvent>,
         app_tx: Sender<AppEvent>,
         host_redfish_routes: EntryMap,
+        host_logs: Option<TuiHostLogs>,
     ) -> Self {
         Self {
             data: TuiData {
@@ -177,6 +175,7 @@ impl Tui {
                 original_routes: HashMap::new(),
             },
             ui: Tab::default(),
+            host_logs,
         }
     }
     fn setup_terminal() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>, std::io::Error> {
@@ -202,7 +201,11 @@ impl Tui {
         terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
         event: Event,
     ) -> bool {
-        let Self { data, ui } = self;
+        let Self {
+            data,
+            ui,
+            host_logs: _,
+        } = self;
         match event {
             Event::Key(key) => {
                 // Handle global triggers.
@@ -280,7 +283,9 @@ impl Tui {
             MachinesTab::Logs => machine_logs,
             MachinesTab::Metrics => "Not Implemented",
         };
-        let p = Paragraph::new(data).block(Block::bordered().title(sub_tab.get_title()));
+        let p = Paragraph::new(data)
+            .block(Block::bordered().title(sub_tab.get_title()))
+            .wrap(Wrap { trim: true });
         f.render_widget(p, layout_right[1]);
     }
 
@@ -295,7 +300,11 @@ impl Tui {
         let mut event_stream = EventStream::new();
         let mut list_updated = true;
         while running {
-            let Self { data, ui } = self;
+            let Self {
+                data,
+                ui,
+                host_logs,
+            } = self;
 
             if list_updated {
                 if let Tab::Machines { list_state, .. } = ui {
@@ -307,16 +316,30 @@ impl Tui {
                     list_updated = false;
 
                     let machine_index = list_state.selected();
-                    (data.machine_details, data.machine_logs) =
-                        if let Some(machine_index) = machine_index {
-                            data.machine_cache
-                                .iter()
-                                .nth(machine_index)
-                                .map(|(_id, m)| (m.details(), m.logs()))
-                                .unwrap_or_default()
-                        } else {
-                            (String::default(), String::default())
-                        };
+                    let (machine_details, logs_fut) = if let Some(machine_index) = machine_index {
+                        data.machine_cache
+                            .iter()
+                            .nth(machine_index)
+                            .map(|(id, m)| {
+                                (m.details(), host_logs.as_ref().map(|h| h.get_logs(*id)))
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        (String::default(), None)
+                    };
+
+                    data.machine_details = machine_details;
+                    data.machine_logs = if let Some(logs_fut) = logs_fut {
+                        logs_fut
+                            .await
+                            .iter()
+                            .cloned()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    } else {
+                        String::default()
+                    };
                 }
             }
 

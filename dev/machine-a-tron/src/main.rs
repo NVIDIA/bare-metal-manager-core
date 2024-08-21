@@ -8,7 +8,7 @@ use forge_tls::client_config::{
 };
 use machine_a_tron::{
     api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui,
-    UiEvent,
+    TuiHostLogs, UiEvent,
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use rpc::forge_tls_client::ForgeClientConfig;
@@ -18,7 +18,10 @@ use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
-fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
+fn init_log(
+    filename: &Option<String>,
+    tui_host_logs: Option<&TuiHostLogs>,
+) -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
@@ -35,13 +38,16 @@ fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
             registry()
                 .with(fmt::Layer::default().compact().with_writer(log_file))
                 .with(env_filter)
+                .with(tui_host_logs.map(|l| l.make_tracing_layer()))
                 .try_init()?;
         }
         None => registry()
             .with(fmt::Layer::default().compact().with_writer(std::io::stdout))
             .with(env_filter)
+            .with(tui_host_logs.map(|l| l.make_tracing_layer()))
             .try_init()?,
     }
+
     Ok(())
 }
 
@@ -51,7 +57,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let fig = Figment::new().merge(Toml::file(args.config_file.as_str()));
     let mut app_config: MachineATronConfig = fig.extract()?;
-    init_log(&app_config.log_file)?;
+    let tui_host_logs = if app_config.tui_enabled {
+        Some(TuiHostLogs::start_new(100))
+    } else {
+        None
+    };
+
+    init_log(&app_config.log_file, tui_host_logs.as_ref())?;
 
     let file_config = get_config_from_file();
     let carbide_api_url =
@@ -85,7 +97,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let use_single_bmc_mock = app_config.use_single_bmc_mock;
-    let tui_enabled = app_config.tui_enabled;
 
     let mut app_context = MachineATronContext {
         app_config: app_config.clone(),
@@ -159,12 +170,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);
-    let (tui_handle, tui_event_tx) = if tui_enabled {
+    let (tui_handle, tui_event_tx) = if app_config.tui_enabled {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
 
         let host_redfish_routes = host_redfish_routes.clone();
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, app_tx, host_redfish_routes);
+            let mut tui = Tui::new(ui_rx, app_tx, host_redfish_routes, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);
