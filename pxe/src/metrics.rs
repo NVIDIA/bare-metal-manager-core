@@ -11,7 +11,7 @@
  */
 
 use prometheus::{
-    opts, Encoder, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder,
+    opts, Encoder, GaugeVec, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder,
 };
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::route::{Handler, Outcome};
@@ -26,6 +26,7 @@ struct RequestStart(Option<Instant>);
 #[derive(Debug, Clone)]
 pub struct RequestMetrics {
     registry: Registry,
+    pub version: Option<GaugeVec>,
     http_requests_total: Option<IntCounterVec>,
     http_request_duration_seconds: Option<HistogramVec>,
     http_response_size_bytes: Option<HistogramVec>,
@@ -49,13 +50,31 @@ impl RequestMetrics {
         let namespace = "carbide_pxe";
 
         // init http_requests_total
+        let version_opts = opts!("version", "Version of this service").namespace(namespace);
+        let version = match GaugeVec::new(
+            version_opts,
+            &[
+                "build_version",
+                "build_date",
+                "rust_version",
+                "build_hostname",
+            ],
+        ) {
+            Ok(counter) => Some(counter),
+            Err(err) => {
+                eprintln!("Failed to initialize metric 'version': {err}");
+                None
+            }
+        };
+
+        // init http_requests_total
         let http_requests_total_opts =
             opts!("http_requests_total", "Total number of HTTP requests").namespace(namespace);
         let http_requests_total =
             match IntCounterVec::new(http_requests_total_opts, &["path", "method", "code"]) {
                 Ok(counter) => Some(counter),
                 Err(err) => {
-                    eprintln!("Failed to initialize http_requests_total: {}", err);
+                    eprintln!("Failed to initialize metric 'http_requests_total': {err}");
                     None
                 }
             };
@@ -72,10 +91,7 @@ impl RequestMetrics {
         ) {
             Ok(histogram) => Some(histogram),
             Err(err) => {
-                eprintln!(
-                    "Failed to initialize http_request_duration_seconds: {}",
-                    err
-                );
+                eprintln!("Failed to initialize metric 'http_request_duration_seconds': {err}");
                 None
             }
         };
@@ -90,32 +106,39 @@ impl RequestMetrics {
             match HistogramVec::new(http_response_size_bytes_opts, &["path", "method"]) {
                 Ok(histogram) => Some(histogram),
                 Err(err) => {
-                    eprintln!("Failed to initialize http_response_size_bytes: {}", err);
+                    eprintln!("Failed to initialize metric 'http_response_size_bytes': {err}");
                     None
                 }
             };
 
         // register
+        if let Some(version) = version.clone() {
+            registry.register(Box::new(version)).unwrap_or_else(|err| {
+                eprintln!("Failed to register metric 'version': {err}");
+            })
+        }
+
         if let Some(total) = http_requests_total.clone() {
             registry.register(Box::new(total)).unwrap_or_else(|err| {
-                eprintln!("Failed to register http_requests_total: {}", err);
+                eprintln!("Failed to register metric 'http_requests_total': {err}");
             })
         }
 
         if let Some(duration) = http_request_duration_seconds.clone() {
             registry.register(Box::new(duration)).unwrap_or_else(|err| {
-                eprintln!("Failed to register http_request_duration_seconds: {}", err);
+                eprintln!("Failed to register metric 'http_request_duration_seconds': {err}");
             });
         }
 
         if let Some(size) = http_response_size_bytes.clone() {
             registry.register(Box::new(size)).unwrap_or_else(|err| {
-                eprintln!("Failed to register http_response_size_bytes: {}", err);
+                eprintln!("Failed to register metric 'http_response_size_bytes': {err}");
             });
         }
 
         Self {
             registry,
+            version,
             http_requests_total,
             http_request_duration_seconds,
             http_response_size_bytes,

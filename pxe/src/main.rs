@@ -273,6 +273,18 @@ async fn main() -> Result<(), rocket::Error> {
 
     let metrics = RequestMetrics::new();
 
+    // set version metric once, since it does not change between restarts
+    if let Some(version) = metrics.version.clone() {
+        version
+            .with_label_values(&[
+                forge_version::v!(build_version),
+                forge_version::v!(build_date),
+                forge_version::v!(rust_version),
+                forge_version::v!(build_hostname),
+            ])
+            .set(1f64);
+    }
+
     println!("Start carbide-pxe version {}", forge_version::version!());
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
