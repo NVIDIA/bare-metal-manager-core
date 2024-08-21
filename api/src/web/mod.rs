@@ -93,6 +93,14 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/:machine_id", get(machine::detail))
             .route("/machine/health/:machine_id", get(health::health))
+            .route(
+                "/machine/health/:machine_id/override/add",
+                post(health::add_override),
+            )
+            .route(
+                "/machine/health/:machine_id/override/remove",
+                post(health::remove_override),
+            )
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_json))
             .route("/managed-host/:machine_id", get(managed_host::detail))

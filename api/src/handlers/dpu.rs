@@ -427,9 +427,8 @@ pub(crate) async fn record_dpu_network_status(
     // In case forge-dpu-agent sends it in the new format - use directly that
     // Otherwise convert the legacy format
     let mut health_report = if let Some(health_report) = &request.dpu_health {
-        health_report::HealthReport::try_from(health_report.clone()).map_err(|e| {
-            CarbideError::GenericError(format!("Can not convert health report: {e}"))
-        })?
+        health_report::HealthReport::try_from(health_report.clone())
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?
     } else {
         // Convert NetworkHealth into Health report
         let mut report = health_report::HealthReport {

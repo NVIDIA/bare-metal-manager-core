@@ -333,7 +333,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             rpc::forge::InsertHealthReportOverrideRequest {
                 machine_id: Some(host_machine_id.to_string().into()),
                 r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(health_report::HealthReport::empty("".to_string()).into()),
+                    report: Some(health_report::HealthReport::empty("over".to_string()).into()),
                     mode: health_report::OverrideMode::Override as i32,
                 }),
             },
@@ -348,7 +348,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         health_report::HealthReport::empty("".to_string()),
     );
 
-    let merge_hr = hr("", vec![], vec![("Fan2", None, "")]);
+    let merge_hr = hr("over", vec![], vec![("Fan2", None, "")]);
     let _ = env
         .api
         .insert_health_report_override(Request::new(

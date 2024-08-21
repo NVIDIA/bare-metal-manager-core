@@ -69,7 +69,7 @@ pub async fn record_hardware_health_report(
     })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::GenericError(format!("Can not convert health report: {e}")))?;
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
     report.observed_at = Some(chrono::Utc::now());
 
     // Fix the in_alert times based on the previously stored report
@@ -282,7 +282,6 @@ pub async fn insert_health_report_override(
         )
         .into());
     }
-
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -293,7 +292,7 @@ pub async fn insert_health_report_override(
     })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::GenericError(format!("Can not convert health report: {e}")))?;
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
     }
@@ -345,7 +344,6 @@ pub async fn remove_health_report_override(
     log_machine_id(&machine_id);
 
     remove_by_source(&mut txn, machine_id, source).await?;
-
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),

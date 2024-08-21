@@ -21,6 +21,8 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
+use chrono::DateTime;
+use chrono::Utc;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
 
@@ -319,7 +321,7 @@ impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
                 .in_alert_since
                 .map(TryInto::try_into)
                 .transpose()
-                .map_err(|_| health_report::HealthReportConversionError {})?,
+                .map_err(|_| health_report::HealthReportConversionError::TimestampParseError)?,
             message: alert.message,
             tenant_message: alert.tenant_message,
             classifications,
@@ -350,6 +352,9 @@ impl From<health_report::HealthReport> for health::HealthReport {
 impl TryFrom<health::HealthReport> for health_report::HealthReport {
     type Error = health_report::HealthReportConversionError;
     fn try_from(report: health::HealthReport) -> Result<Self, Self::Error> {
+        if report.source.is_empty() {
+            return Err(health_report::HealthReportConversionError::MissingSource);
+        }
         let mut successes = Vec::new();
         let mut alerts = Vec::new();
         for success in report.successes {
@@ -363,9 +368,9 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
             source: report.source,
             observed_at: report
                 .observed_at
-                .map(TryInto::try_into)
+                .map(DateTime::<Utc>::try_from)
                 .transpose()
-                .map_err(|_| health_report::HealthReportConversionError {})?,
+                .map_err(|_| health_report::HealthReportConversionError::TimestampParseError)?,
             successes,
             alerts,
         })
