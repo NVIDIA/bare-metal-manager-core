@@ -83,7 +83,7 @@ dependencies = [
  "hickory-resolver",
  "http-body 0.4.6",
  "humantime",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "ipnetwork",
  "lazy_static",
  "libc",
@@ -456,7 +456,7 @@ dependencies = [
  "futures-util",
  "http 0.2.12",
  "http-body 0.4.6",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "itoa",
  "matchit",
  "memchr",
@@ -558,7 +558,7 @@ dependencies = [
  "futures-util",
  "http 0.2.12",
  "http-body 0.4.6",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "pin-project-lite",
  "rustls 0.20.9",
  "rustls-pemfile 1.0.4",
@@ -829,7 +829,7 @@ dependencies = [
  "health-report",
  "hex",
  "http 0.2.12",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-rustls",
  "hyper-timeout",
  "ipnetwork",
@@ -1777,7 +1777,7 @@ dependencies = [
  "dhcproto 0.9.0",
  "eyre",
  "forge-tls",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "ipnetwork",
  "lazy_static",
  "libc",
@@ -1809,7 +1809,7 @@ dependencies = [
  "dhcproto 0.11.0",
  "eyre",
  "forge-tls",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-rustls",
  "ipnetwork",
  "lazy_static",
@@ -1820,7 +1820,7 @@ dependencies = [
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_yaml",
- "socket2 0.5.7",
+ "socket2",
  "thiserror",
  "tokio",
  "tokio-rustls 0.24.1",
@@ -1961,7 +1961,7 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 name = "dsocket"
 version = "0.1.0"
 dependencies = [
- "socket2 0.5.7",
+ "socket2",
  "tokio",
  "tracing",
 ]
@@ -2286,11 +2286,11 @@ dependencies = [
  "futures-util",
  "hickory-resolver",
  "http 0.2.12",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-rustls",
  "log",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2",
  "tokio",
  "tokio-socks",
  "tower-service",
@@ -2711,7 +2711,7 @@ dependencies = [
  "forge-version",
  "health-report",
  "http 0.2.12",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "libredfish",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2966,9 +2966,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
-version = "0.14.28"
+version = "0.14.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf96e135eb83a2a8ddf766e426a841d8ddd7449d5f00d34ea02b41d2f19eef80"
+checksum = "a152ddd61dfaec7273fe8419ab357f33aee0d914c5f4efbf0d96fa749eea5ec9"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2981,7 +2981,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2",
  "tokio",
  "tower-service",
  "tracing",
@@ -3016,7 +3016,7 @@ checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
  "futures-util",
  "http 0.2.12",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "log",
  "rustls 0.21.12",
  "rustls-native-certs",
@@ -3030,7 +3030,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbb958482e8c7be4bc3cf272a766a2b0bf1a6755e7a6ae777f017a31d11b13b1"
 dependencies = [
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "pin-project-lite",
  "tokio",
  "tokio-io-timeout",
@@ -3227,7 +3227,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b58db92f96b720de98181bbbe63c831e87005ab460c1bf306eb2622b4707997f"
 dependencies = [
- "socket2 0.5.7",
+ "socket2",
  "widestring",
  "windows-sys 0.48.0",
  "winreg",
@@ -3573,7 +3573,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "socket2 0.5.7",
+ "socket2",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3693,7 +3693,7 @@ name = "metrics-endpoint"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
@@ -5106,7 +5106,7 @@ dependencies = [
  "h2 0.3.26",
  "http 0.2.12",
  "http-body 0.4.6",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-rustls",
  "ipnet",
  "js-sys",
@@ -5294,7 +5294,7 @@ dependencies = [
  "either",
  "futures",
  "http 0.2.12",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "indexmap 2.2.6",
  "log",
  "memchr",
@@ -5333,7 +5333,7 @@ dependencies = [
  "futures-util",
  "health-report",
  "hickory-resolver",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-rustls",
  "lazy_static",
  "libc",
@@ -5348,7 +5348,7 @@ dependencies = [
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
- "socket2 0.4.10",
+ "socket2",
  "thiserror",
  "tokio",
  "tokio-rustls 0.24.1",
@@ -6008,16 +6008,6 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.4.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7916fc008ca5542385b89a3d3ce689953c143e9304a9bf8beec1de48994c0d"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
-name = "socket2"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
@@ -6381,7 +6371,7 @@ dependencies = [
  "parking_lot",
  "pnet_packet",
  "rand 0.8.5",
- "socket2 0.5.7",
+ "socket2",
  "thiserror",
  "tokio",
  "tracing",
@@ -6669,7 +6659,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.5.7",
+ "socket2",
  "tokio-macros",
  "tracing",
  "windows-sys 0.48.0",
@@ -6811,7 +6801,7 @@ dependencies = [
  "h2 0.3.26",
  "http 0.2.12",
  "http-body 0.4.6",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
@@ -6838,7 +6828,7 @@ dependencies = [
  "h2 0.3.26",
  "http 0.2.12",
  "http-body 0.4.6",
- "hyper 0.14.28",
+ "hyper 0.14.30",
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
