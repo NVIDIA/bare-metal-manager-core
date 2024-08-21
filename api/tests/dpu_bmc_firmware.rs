@@ -337,8 +337,6 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
