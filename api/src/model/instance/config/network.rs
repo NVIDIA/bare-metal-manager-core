@@ -157,14 +157,21 @@ impl InstanceNetworkConfig {
             // IP addresses and interface prefix allocations match. There
             // should be a 1:1 correlation, as in, for network prefix ID XYZ,
             // there should be an entry in `ip_addrs` and `instance_prefixes`.
-            if iface
-                .ip_addrs
-                .keys()
-                .collect::<std::collections::HashSet<_>>()
-                != iface
-                    .interface_prefixes
+            //
+            // TODO(chet): Only do this if there are actual prefixes set for
+            // this interface. If there aren't, its because this is an old
+            // instance which existed prior to introducing instance_prefixes.
+            // Once all instances are configured with prefixes, then there's
+            // no need for an empty check.
+            if iface.interface_prefixes.keys().len() > 0
+                && iface
+                    .ip_addrs
                     .keys()
                     .collect::<std::collections::HashSet<_>>()
+                    != iface
+                        .interface_prefixes
+                        .keys()
+                        .collect::<std::collections::HashSet<_>>()
             {
                 return Err(ConfigValidationError::NetworkPrefixAllocationMismatch);
             }
@@ -337,6 +344,11 @@ pub struct InstanceInterfaceConfig {
     /// as in, for each network prefix ID entry in the `ip_addrs` map, there
     /// should be a corresponding `inteface_prefixes` entry here (even if it's
     /// just a /32 for derived from the ip_addr).
+    ///
+    /// TODO(chet): Allow a default value to be set here for backwards
+    /// compatibility, since InstanceInterfaceConfigs for existing instances
+    /// won't have this information stored.
+    #[serde(default)]
     pub interface_prefixes: HashMap<uuid::Uuid, IpNetwork>,
     // TODO: Security group
 }
