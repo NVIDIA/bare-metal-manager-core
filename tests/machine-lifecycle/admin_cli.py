@@ -67,6 +67,7 @@ def wait_for_state(machine_id: str, desired_state: str, timeout: int, allow_miss
 def check_machine_ready(machine_id: str) -> bool:
     """Check once if the specified machine is in ready state."""
     state = get_machine_state(machine_id)
+    print(f"{machine_id} state '{state}'")
     return state == "Ready"
 
 
@@ -107,6 +108,10 @@ def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
 def check_machine_not_in_maintenance(machine_id: str) -> bool:
     """Check once if the specified machine is in ready state."""
     machine = get_machine(machine_id)
+    print(
+        f"{machine_id} maintenance_start_time '{machine['maintenance_start_time']}'"
+        f" maintenance_reference '{machine['maintenance_reference']}'"
+    )
     return machine["maintenance_start_time"] is None
 
 
