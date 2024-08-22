@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::host_machine::HandleMessageResult;
-use crate::logging::LogSink;
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::tui::HostDetails;
 use crate::{
@@ -19,6 +19,10 @@ use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo};
 #[derive(Debug)]
 pub struct DpuMachine {
     mat_id: Uuid,
+    // The mat_id of the host that owns this DPU
+    host_id: Uuid,
+    // Our index within this host
+    dpu_index: u8,
     state_machine: MachineStateMachine,
 
     dpu_info: DpuMachineInfo,
@@ -26,19 +30,21 @@ pub struct DpuMachine {
     api_state: String,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
     reboot_requested: Option<DateTime<Utc>>,
-    logger: LogSink,
     observed_machine_id: Option<rpc::MachineId>,
     paused: bool,
+    sleep_until: Instant,
 }
 
 impl DpuMachine {
     pub fn new(
+        mat_host: Uuid,
+        dpu_index: u8,
         app_context: MachineATronContext,
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
-        logger: LogSink,
         bmc_listen_mode: BmcRegistrationMode,
     ) -> Self {
+        let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
         let dpu_info = DpuMachineInfo::new();
         let state_machine = MachineStateMachine::new(
@@ -46,12 +52,13 @@ impl DpuMachine {
             config,
             app_context.clone(),
             dhcp_client,
-            logger.clone(),
             bmc_control_tx.clone(),
             bmc_listen_mode,
         );
         DpuMachine {
-            mat_id: Uuid::new_v4(),
+            mat_id,
+            dpu_index,
+            host_id: mat_host,
             dpu_info,
             state_machine,
             app_context,
@@ -59,42 +66,25 @@ impl DpuMachine {
             api_state: "Unknown".to_string(),
             bmc_control_rx,
             reboot_requested: None,
-            logger,
             observed_machine_id: None,
             paused: true,
+            sleep_until: Instant::now(),
         }
     }
 
+    #[instrument(skip_all, fields(mat_host_id = %self.host_id, dpu_index = self.dpu_index))]
     pub fn start(mut self, paused: bool) -> DpuMachineActor {
         self.paused = paused;
         let (actor_message_tx, mut actor_message_rx) = mpsc::unbounded_channel();
         tokio::task::Builder::new()
             .name(&format!("DPU {}", self.mat_id))
             .spawn(async move {
-                let mut sleep_until = Instant::now();
                 loop {
-                    tokio::select! {
-                        _ = tokio::time::sleep_until(sleep_until.into()) => {},
-                        Some(cmd) = self.bmc_control_rx.recv() => {
-                            match cmd {
-                                BmcCommand::Reboot(time) => {
-                                    self.request_reboot(time);
-                                }
-                            }
-                        }
-                        Some(cmd) = actor_message_rx.recv() => {
-                            match self.handle_actor_message(cmd).await {
-                                HandleMessageResult::ProcessStateNow => {},
-                                HandleMessageResult::ContinuePolling => continue,
-                                HandleMessageResult::Stop => break,
-                            };
-                        }
+                    // Run the actual iterations in a separate function so that #[instrument] can
+                    // create spans with the current values for all fields.
+                    if !self.run_iteration(&mut actor_message_rx).await {
+                        break;
                     }
-
-                    let sleep_duration = self.process_state().await;
-
-                    sleep_until =
-                        saturating_add_duration_to_instant(Instant::now(), sleep_duration);
                 }
             })
             .unwrap();
@@ -102,6 +92,35 @@ impl DpuMachine {
         DpuMachineActor {
             message_tx: actor_message_tx,
         }
+    }
+
+    #[instrument(skip_all, fields(mat_host_id = %self.host_id, dpu_index = self.dpu_index, api_state = %self.api_state, state = %self.state_machine, booted_os = %self.state_machine.booted_os()))]
+    async fn run_iteration(
+        &mut self,
+        actor_message_rx: &mut mpsc::UnboundedReceiver<DpuMachineMessage>,
+    ) -> bool {
+        tokio::select! {
+            _ = tokio::time::sleep_until(self.sleep_until.into()) => {},
+            Some(cmd) = self.bmc_control_rx.recv() => {
+                match cmd {
+                    BmcCommand::Reboot(time) => {
+                        self.request_reboot(time);
+                    }
+                }
+            }
+            Some(cmd) = actor_message_rx.recv() => {
+                match self.handle_actor_message(cmd).await {
+                    HandleMessageResult::ProcessStateNow => {},
+                    HandleMessageResult::ContinuePolling => return true,
+                    HandleMessageResult::Stop => return false,
+                };
+            }
+        }
+
+        let sleep_duration = self.process_state().await;
+
+        self.sleep_until = saturating_add_duration_to_instant(Instant::now(), sleep_duration);
+        true
     }
 
     async fn handle_actor_message(&mut self, message: DpuMachineMessage) -> HandleMessageResult {
@@ -120,10 +139,10 @@ impl DpuMachine {
             }
             DpuMachineMessage::SetPaused(is_paused) => {
                 if is_paused {
-                    self.logger.info("Pausing state operations".to_string());
+                    tracing::info!("Pausing state operations");
                     self.paused = true;
                 } else {
-                    self.logger.info("Resuming state operations".to_string());
+                    tracing::info!("Resuming state operations");
                     self.paused = false;
                 }
                 HandleMessageResult::ProcessStateNow
@@ -142,35 +161,20 @@ impl DpuMachine {
         }
 
         if let Some(time) = self.reboot_requested.take() {
-            self.logger.info(format!(
-                "Reboot requested at {}: new state: {} api state: {}",
-                time, self.state_machine, self.api_state
-            ));
+            tracing::info!("reboot requested at {time}",);
             self.state_machine.power_down()
         }
 
-        self.logger.info(format!(
-            "start: mat state {}, booted image {}, api state {}",
-            self.state_machine,
-            self.state_machine.booted_os(),
-            self.api_state
-        ));
-
+        tracing::trace!("state_machine.advance start");
         let result = self.state_machine.advance(true).await;
-
-        self.logger.info(format!(
-            "end: mat state {}, booted image {}, api state {}",
-            self.state_machine,
-            self.state_machine.booted_os(),
-            self.api_state
-        ));
+        tracing::trace!("state_machine.advance end");
 
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
         } else if let Ok(machine) =
             identify_serial(&self.app_context, self.dpu_info.serial.clone()).await
         {
-            tracing::info!("dpu's machine id: {}", machine.id);
+            tracing::trace!("dpu's machine id: {}", machine.id);
             self.observed_machine_id = Some(machine);
         }
 
@@ -178,10 +182,7 @@ impl DpuMachine {
     }
 
     fn request_reboot(&mut self, time: DateTime<Utc>) {
-        self.logger.info(format!(
-            "DPU reboot requested at {}: new state: {} api state: {}",
-            time, self.state_machine, self.api_state
-        ));
+        tracing::debug!("DPU reboot requested at {time}",);
         self.reboot_requested = Some(time);
     }
 
@@ -269,7 +270,6 @@ impl From<&DpuMachine> for HostDetails {
                 .unwrap_or_default(),
             dpus: Vec::default(),
             booted_os: val.state_machine.booted_os().to_string(),
-            logs: Vec::default(),
         }
     }
 }

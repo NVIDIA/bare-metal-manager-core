@@ -14,7 +14,6 @@ use crate::api_client::{record_dpu_network_status, ClientApiError, MockDiscovery
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
-use crate::logging::LogSink;
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PxeError,
@@ -40,7 +39,6 @@ pub struct MachineStateMachine {
     config: MachineConfig,
     app_context: MachineATronContext,
     dhcp_client: DhcpRelayClient,
-    logger: LogSink,
     bmc_registration_mode: BmcRegistrationMode,
 }
 
@@ -81,7 +79,6 @@ impl MachineStateMachine {
         config: MachineConfig,
         app_context: MachineATronContext,
         dhcp_client: DhcpRelayClient,
-        logger: LogSink,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         bmc_listen_mode: BmcRegistrationMode,
     ) -> MachineStateMachine {
@@ -94,7 +91,6 @@ impl MachineStateMachine {
             config,
             app_context,
             dhcp_client,
-            logger,
             bmc_registration_mode: bmc_listen_mode,
         }
     }
@@ -114,9 +110,10 @@ impl MachineStateMachine {
                 // should strive to emulate real machinese in these cases: For instance, failing to
                 // get DHCP may mean we just boot to the host OS (ie. PXE boot failure), the correct
                 // state for which depends on whether we've installed forge-agent or not, etc.
-                self.logger.error(format!(
-                    "Error running state machine in state {self}, will retry: {e}",
-                ));
+                tracing::error!(
+                    error = %e,
+                    "Error running state machine, will retry",
+                );
                 let jitter_ms = rand::thread_rng().gen::<u64>() % 10_000;
                 Duration::from_millis(jitter_ms + 5_000)
             }
@@ -126,10 +123,10 @@ impl MachineStateMachine {
     async fn next_state(&self, nic_available: bool) -> Result<NextState, MachineStateError> {
         match &self.state {
             MachineState::BmcInit => {
-                self.logger.debug(format!(
+                tracing::trace!(
                     "Sending BMC DHCP Request for {}",
                     self.machine_info.bmc_mac_address(),
-                ));
+                );
                 let (response_tx, response_rx) = tokio::sync::oneshot::channel();
                 let start = Instant::now();
                 self.dhcp_client
@@ -150,11 +147,11 @@ impl MachineStateMachine {
                     return Err(MachineStateError::DhcpError);
                 };
 
-                self.logger.info(format!(
+                tracing::trace!(
                     "BMC DHCP Request for {} took {}ms",
                     self.machine_info.bmc_mac_address(),
                     start.elapsed().as_millis()
-                ));
+                );
 
                 let maybe_bmc_mock_handle = self.run_bmc_mock(dhcp_info.ip_address).await?;
                 Ok(NextState::Advance(MachineState::Init(InitState {
@@ -180,16 +177,14 @@ impl MachineStateMachine {
             }
             MachineState::Init(inner_state) => {
                 if !nic_available {
-                    self.logger
-                        .info("Machine NIC not available yet, not initializing".to_string());
+                    tracing::info!("Machine NIC not available yet, not initializing");
                     return Ok(NextState::SleepFor(Duration::from_secs(5)));
                 }
                 let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().cloned()
                 else {
                     return Err(MachineStateError::NoMachineMacAddress);
                 };
-                self.logger
-                    .debug(format!("Sending Admin DHCP Request for {}", primary_mac));
+                tracing::trace!("Sending Admin DHCP Request for {}", primary_mac);
                 let (response_tx, response_rx) = tokio::sync::oneshot::channel();
                 let start = Instant::now();
                 self.dhcp_client
@@ -202,11 +197,11 @@ impl MachineStateMachine {
                         response_tx,
                     )
                     .await;
-                self.logger.info(format!(
+                tracing::trace!(
                     "Admin DHCP Request for {} took {}ms",
                     primary_mac,
                     start.elapsed().as_millis()
-                ));
+                );
 
                 let Ok(Some(machine_dhcp_info)) = response_rx.await else {
                     return Err(MachineStateError::DhcpError);
@@ -255,11 +250,10 @@ impl MachineStateMachine {
                 OsImage::NoOs => {
                     match self.machine_info {
                         MachineInfo::Host(_) => {
-                            self.logger.info("Host booted to tenant OS".to_string())
+                            tracing::debug!("Host booted to tenant OS")
                         }
-                        MachineInfo::Dpu(_) => self.logger.info(
+                        MachineInfo::Dpu(_) => tracing::debug!(
                             "DPU booted to empty OS, will wait for carbide to reboot us"
-                                .to_string(),
                         ),
                     }
                     Ok(NextState::SleepFor(Duration::MAX))
@@ -302,20 +296,20 @@ impl MachineStateMachine {
         let start = Instant::now();
         let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
         let action = get_fac_action(&control_response);
-        self.logger.info(format!(
+        tracing::trace!(
             "get action took {}ms; action={:?}",
             start.elapsed().as_millis(),
             action,
-        ));
+        );
 
         match action {
             Action::Discovery => self.send_discovery_complete(machine_id).await?,
             Action::Noop => {}
             _ => {
-                self.logger.warn(format!(
+                tracing::warn!(
                     "Dpu agent got unknown action from forge_agent_control: {:?}",
                     action
-                ));
+                );
             }
         }
         // DPUs send network status periodically
@@ -364,11 +358,11 @@ impl MachineStateMachine {
         let start = Instant::now();
         let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
         let action = get_fac_action(&control_response);
-        self.logger.info(format!(
+        tracing::trace!(
             "get action took {}ms; action={:?}",
             start.elapsed().as_millis(),
             action,
-        ));
+        );
 
         match action {
             Action::Discovery => self.send_discovery_complete(machine_id).await?,
@@ -383,16 +377,15 @@ impl MachineStateMachine {
                 }
             }
             Action::Reset => {
-                self.logger
-                    .info("Got Reset action in scout image, sending cleanup_complete".to_string());
+                tracing::debug!("Got Reset action in scout image, sending cleanup_complete");
                 api_client::cleanup_complete(&self.app_context, machine_id).await?;
             }
             Action::Noop => {}
             _ => {
-                self.logger.warn(format!(
+                tracing::warn!(
                     "Scout image got unknown action from forge_agent_control: {:?}",
                     action
-                ));
+                );
             }
         }
 
@@ -431,10 +424,7 @@ impl MachineStateMachine {
         )
         .await?;
 
-        self.logger.info(format!(
-            "discover_machine took {}ms",
-            start.elapsed().as_millis()
-        ));
+        tracing::trace!("discover_machine took {}ms", start.elapsed().as_millis());
         Ok(machine_discovery_result)
     }
 
@@ -600,10 +590,7 @@ impl MachineStateMachine {
     ) -> Result<(), ClientApiError> {
         let start = Instant::now();
         api_client::discovery_complete(&self.app_context, machine_id.clone()).await?;
-        self.logger.info(format!(
-            "discovery_complete took {}ms",
-            start.elapsed().as_millis()
-        ));
+        tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
         Ok(())
     }
 }

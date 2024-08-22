@@ -398,7 +398,7 @@ impl MachinesTab {
     pub fn get_title(&self) -> &'static str {
         match self {
             Self::Details => "Machine Details",
-            Self::Logs => "Logs",
+            Self::Logs => "Logs (newest on top)",
             Self::Metrics => "Metrics",
         }
     }
