@@ -33,8 +33,13 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
         if i % 2 != 0 {
             tenant_org_id = "tenant_org_2";
         }
-        let (vpc_id, _vpc) =
-            create_vpc(&env, format!("vpc_{}", i), Some(tenant_org_id.to_string())).await;
+        let (vpc_id, _vpc) = create_vpc(
+            &env,
+            format!("vpc_{}", i),
+            Some(tenant_org_id.to_string()),
+            None,
+        )
+        .await;
         create_network_segment(
             &env,
             format!("segment_{}", i).as_str(),
@@ -114,8 +119,13 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
         if i % 2 != 0 {
             tenant_org_id = "tenant_org_2";
         }
-        let (vpc_id, _vpc) =
-            create_vpc(&env, format!("vpc_{}", i), Some(tenant_org_id.to_string())).await;
+        let (vpc_id, _vpc) = create_vpc(
+            &env,
+            format!("vpc_{}", i),
+            Some(tenant_org_id.to_string()),
+            None,
+        )
+        .await;
         create_network_segment(
             &env,
             format!("segment_{}", i).as_str(),

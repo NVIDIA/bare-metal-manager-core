@@ -19,17 +19,27 @@ pub async fn create_vpc(
     env: &TestEnv,
     name: String,
     tenant_org_id: Option<String>,
+    vpc_metadata: Option<rpc::Metadata>,
 ) -> (uuid::Uuid, rpc::Vpc) {
     let tenant_config = default_tenant_config();
 
     let vpc_id = uuid::Uuid::new_v4();
     let config = rpc::VpcCreationRequest {
-        name,
+        name: "".to_string(),
         tenant_organization_id: tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),
         tenant_keyset_id: None,
         network_virtualization_type: None,
         id: Some(::rpc::common::Uuid {
             value: vpc_id.to_string(),
+        }),
+        metadata: Some(rpc::Metadata {
+            name,
+            description: vpc_metadata
+                .as_ref()
+                .map_or("".to_string(), |s| s.description.clone()),
+            labels: vpc_metadata
+                .as_ref()
+                .map_or(Vec::new(), |s| s.labels.clone()),
         }),
     };
 

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use ::rpc::errors::RpcDataConversionError;
 
 /// Metadata that can get associated with Forge managed resources
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Metadata {
     /// user-defined resource name
     pub name: String,

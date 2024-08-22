@@ -1880,7 +1880,9 @@ CREATE TABLE public.vpcs (
     updated timestamp with time zone DEFAULT now() NOT NULL,
     deleted timestamp with time zone,
     network_virtualization_type public.network_virtualization_type_t DEFAULT 'etv'::public.network_virtualization_type_t NOT NULL,
-    vni integer
+    vni integer,
+    labels JSONB NOT NULL DEFAULT ('{}'),
+    description VARCHAR(64) NOT NULL DEFAULT (''),
 );
 
 

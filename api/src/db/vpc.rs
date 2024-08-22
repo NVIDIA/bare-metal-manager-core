@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::DerefMut;
 use std::str::FromStr;
@@ -22,6 +23,7 @@ use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
 use crate::db::network_segment::NetworkSegmentId;
+use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
@@ -113,7 +115,6 @@ pub enum VpcIdKeyedObjectFilter<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
     pub id: VpcId,
-    pub name: String,
     pub tenant_organization_id: String,
     pub version: ConfigVersion,
     pub created: DateTime<Utc>,
@@ -123,14 +124,15 @@ pub struct Vpc {
     pub network_virtualization_type: VpcVirtualizationType,
     // Option because we can't allocate it until DB generates an id for us
     pub vni: Option<i32>,
+    pub metadata: Metadata,
 }
 
 #[derive(Clone, Debug)]
 pub struct NewVpc {
     pub id: VpcId,
-    pub name: String,
     pub tenant_organization_id: String,
     pub network_virtualization_type: VpcVirtualizationType,
+    pub metadata: Metadata,
 }
 
 #[derive(Clone, Debug)]
@@ -149,6 +151,14 @@ pub struct VpcSearchQuery {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let vpc_labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: vpc_labels.0,
+        };
+
         // TODO(chet): Once `tenant_keyset_id` is taken care of,
         // this entire FromRow implementation can go away with a
         // rename of `tenant_organization_id` to match (or just
@@ -156,7 +166,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
         Ok(Vpc {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
-            name: row.try_get("name")?,
             tenant_organization_id: row.try_get("organization_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
@@ -164,6 +173,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
             network_virtualization_type: row.try_get("network_virtualization_type")?,
             vni: row.try_get("vni")?,
+            metadata,
         })
     }
 }
@@ -174,13 +184,17 @@ impl NewVpc {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vpc, DatabaseError> {
         let query =
-            "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type) VALUES ($1, $2, $3, $4, $5) RETURNING *";
+            "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type,
+                description, 
+                labels) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
-            .bind(&self.name)
+            .bind(&self.metadata.name)
             .bind(&self.tenant_organization_id)
             .bind(ConfigVersion::initial())
             .bind(self.network_virtualization_type)
+            .bind(&self.metadata.description)
+            .bind(sqlx::types::Json(&self.metadata.labels))
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -324,7 +338,7 @@ impl From<Vpc> for rpc::Vpc {
         rpc::Vpc {
             id: Some(src.id.into()),
             version: src.version.version_string(),
-            name: src.name,
+            name: src.metadata.name.clone(),
             tenant_organization_id: src.tenant_organization_id,
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
@@ -332,6 +346,25 @@ impl From<Vpc> for rpc::Vpc {
             tenant_keyset_id: src.tenant_keyset_id,
             vni: src.vni.map(|x| x as u32),
             network_virtualization_type: Some(src.network_virtualization_type as i32),
+            metadata: {
+                Some(rpc::Metadata {
+                    name: src.metadata.name,
+                    description: src.metadata.description,
+                    labels: src
+                        .metadata
+                        .labels
+                        .iter()
+                        .map(|(key, value)| rpc::Label {
+                            key: key.clone(),
+                            value: if value.clone().is_empty() {
+                                None
+                            } else {
+                                Some(value.clone())
+                            },
+                        })
+                        .collect(),
+                })
+            },
         }
     }
 }
@@ -348,11 +381,42 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
             Some(v) => VpcId::try_from(v)?,
             None => VpcId::from(uuid::Uuid::new_v4()),
         };
+
+        let vpc_name: String = if let Some(metadata) = &value.metadata {
+            if !metadata.name.is_empty() {
+                metadata.name.clone()
+            } else {
+                value.name.clone()
+            }
+        } else {
+            value.name.clone()
+        };
+
+        let metadata = Metadata {
+            name: vpc_name,
+            description: value
+                .metadata
+                .clone()
+                .map(|m| m.description.clone())
+                .unwrap_or("".to_owned()),
+            labels: value.metadata.clone().map_or(HashMap::new(), |m| {
+                m.labels
+                    .iter()
+                    .map(|label| {
+                        (
+                            label.key.clone(),
+                            label.value.clone().unwrap_or("".to_owned()),
+                        )
+                    })
+                    .collect()
+            }),
+        };
+
         Ok(NewVpc {
             id,
-            name: value.name,
             tenant_organization_id: value.tenant_organization_id,
             network_virtualization_type: virt_type,
+            metadata,
         })
     }
 }
