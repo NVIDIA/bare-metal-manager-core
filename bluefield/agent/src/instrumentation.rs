@@ -29,58 +29,85 @@ pub struct MetricsState {
     network_monitor_error: Counter<u64>,
     network_communication_error: Counter<u64>,
 
-    // Fields used for network_reachable observatioins
+    // Fields used for network_reachable observations
     network_reachable_map: ArcSwapOption<HashMap<String, bool>>,
     machine_id: String,
 }
 
 impl MetricsState {
-    pub fn record_metrics(
+    /// Records network latency between two DPUs as milliseconds.
+    ///
+    /// # Parameters
+    /// - `latency`: Network latency between the two DPUs.
+    /// - `source_dpu_id`: The ID of source DPU.
+    /// - `dest_dpu_id`: The ID of destination DPU.
+    pub fn record_network_latency(
         &self,
-        machine_id: String,
-        dpu_id: String,
-        duration: Option<Duration>,
-        reachable: bool,
-        loss_percent: f64,
+        latency: Duration,
+        source_dpu_id: String,
+        dest_dpu_id: String,
     ) {
         let attributes = [
-            KeyValue::new("source_dpu_id", machine_id),
-            KeyValue::new("dest_dpu_id", dpu_id.clone()),
+            KeyValue::new("source_dpu_id", source_dpu_id),
+            KeyValue::new("dest_dpu_id", dest_dpu_id),
         ];
+        self.network_latency
+            .record(latency.as_secs_f64() * 1000.0, &attributes);
+    }
 
-        // Update the network_reachable_map
-        let new_map = {
-            let current_map = self.network_reachable_map.load();
-            let mut map = match current_map.as_ref() {
-                Some(m) => m.as_ref().clone(),
-                None => HashMap::new(),
-            };
-            map.insert(dpu_id.clone(), reachable);
-            Arc::new(map)
-        };
-        self.network_reachable_map.store(Some(new_map));
-
-        if let Some(latency) = duration {
-            self.network_latency
-                .record(latency.as_secs_f64() * 1000.0, &attributes);
-        }
+    /// Record network loss percent out of total number of pings sent during one network check.
+    ///
+    /// # Parameters
+    /// - `loss_percent`: Percentage of loss out of total pings sent.
+    /// - `source_dpu_id`: The ID of source DPU.
+    /// - `dest_dpu_id`: The ID of destination DPU.
+    pub fn record_network_loss_percent(
+        &self,
+        loss_percent: f64,
+        source_dpu_id: String,
+        dest_dpu_id: String,
+    ) {
+        let attributes = [
+            KeyValue::new("source_dpu_id", source_dpu_id),
+            KeyValue::new("dest_dpu_id", dest_dpu_id),
+        ];
         self.network_loss_percent.record(loss_percent, &attributes);
     }
 
+    /// Overwrites the network reachable map with a new map.
+    ///
+    /// # Parameters
+    /// - `new_reachable_map`: Records reachability between DPUs where the key is ID of destination DPU
+    ///   and value is reachability as bool
+    pub fn update_network_reachable_map(&self, new_reachable_map: Arc<HashMap<String, bool>>) {
+        self.network_reachable_map.store(Some(new_reachable_map));
+    }
+
+    /// Records an error related to network communication with a DPU.
+    ///
+    /// # Parameters
+    /// - `source_dpu_id`: The ID of this DPU, which starts the communication.
+    /// - `dest_dpu_id`: The destination DPU id to which communication error happened.
+    /// - `error_type`: A string describing the type of communication error.
     pub fn record_communication_error(
         &self,
-        machine_id: String,
-        dpu_id: String,
+        source_dpu_id: String,
+        dest_dpu_id: String,
         error_type: String,
     ) {
         let attributes = [
-            KeyValue::new("source_dpu_id", machine_id),
-            KeyValue::new("dest_dpu_id", dpu_id.clone()),
+            KeyValue::new("source_dpu_id", source_dpu_id),
+            KeyValue::new("dest_dpu_id", dest_dpu_id),
             KeyValue::new("error_type", error_type),
         ];
         self.network_communication_error.add(1, &attributes);
     }
 
+    /// Records an error related to network monitoring that is unrelated to connectivity.
+    ///
+    /// # Parameters
+    /// - `machine_id`: The ID of this machine
+    /// - `error_type`: A string describing the type of network monitor error.
     pub fn record_monitor_error(&self, machine_id: String, error_type: String) {
         let attributes = [
             KeyValue::new("dpu_id", machine_id),
@@ -89,6 +116,12 @@ impl MetricsState {
         self.network_monitor_error.add(1, &attributes);
     }
 
+    /// Registers a callback function for emitting network reachability metrics.
+    ///
+    /// # Side Effects
+    /// - Registers a callback with the `meter` to export the current network reachability state
+    ///   for each DPU stored in the `network_reachable_map`.
+    /// - Clears the `network_reachable_map` to prevent stale DPU data from being retained.
     pub fn register_callback(self: &Arc<Self>) {
         let self_clone = self.clone();
         if let Err(e) =
@@ -96,6 +129,7 @@ impl MetricsState {
                 .register_callback(&[self.network_reachable.as_any()], move |observer| {
                     let network_reachable_map = self_clone.network_reachable_map.load();
                     if let Some(map) = network_reachable_map.as_ref() {
+                        // Export reachability metrics from the map
                         for (dpu_id, reachable) in map.iter() {
                             let reachability = if *reachable { 1 } else { 0 };
                             let attributes = [

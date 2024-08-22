@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::net::IpAddr;
@@ -91,6 +92,8 @@ impl NetworkMonitor {
         }
     }
 
+    /// Runs in a loop to check network connection with peer DPUs and
+    /// fetch updated peer dpus from API
     pub async fn run(
         &mut self,
         forge_api: &str,
@@ -102,7 +105,7 @@ impl NetworkMonitor {
         let mut loopback_ip: Option<IpAddr> = None;
 
         match self
-            .find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone())
+            .find_all_dpu_info(&self.machine_id, forge_api, client_config.clone())
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => {
@@ -125,7 +128,7 @@ impl NetworkMonitor {
                     break;
                 }
                 _ = peer_dpus_fetch_interval.tick() => {
-                    match self.find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
+                    match self.find_all_dpu_info(&self.machine_id, forge_api, client_config.clone()).await {
                         Ok((dpu_info, new_peer_dpus)) => {
                             peer_dpus = new_peer_dpus;
                             loopback_ip = Some(dpu_info.ip);
@@ -147,7 +150,8 @@ impl NetworkMonitor {
         }
     }
 
-    /// Handle periodic monitor cycles
+    /// Run network monitor for all peer_dpus, export results as metrics
+    /// Returns total time elapsed to complete
     pub async fn run_monitor(
         &mut self,
         peer_dpus: &Vec<DpuInfo>,
@@ -156,8 +160,30 @@ impl NetworkMonitor {
         let mut elapsed_time = Duration::from_secs(0);
         if let (Some(ip), false) = (loopback_ip, peer_dpus.is_empty()) {
             let start_time = Instant::now();
-            if let Err(e) = self.monitor_concurrent(peer_dpus, ip, false).await {
-                tracing::error!("Failed to run network check: {}", e);
+            match self.monitor_concurrent(peer_dpus, ip).await {
+                Ok(results) => {
+                    // Export metrics for the results
+                    if let Some(metrics) = self.metrics.clone() {
+                        let mut reachable_map = HashMap::new();
+                        for result in results {
+                            reachable_map.insert(result.dpu_info.id.clone(), result.reachable());
+                            if let Some(latency) = result.average_latency {
+                                metrics.record_network_latency(
+                                    latency,
+                                    self.machine_id.clone(),
+                                    result.dpu_info.id.clone(),
+                                );
+                                metrics.record_network_loss_percent(
+                                    result.loss_percent(),
+                                    self.machine_id.clone(),
+                                    result.dpu_info.id.clone(),
+                                );
+                            }
+                        }
+                        metrics.update_network_reachable_map(Arc::new(reachable_map));
+                    }
+                }
+                Err(e) => tracing::error!("Failed to run network check: {}", e),
             }
             elapsed_time = start_time.elapsed();
         }
@@ -167,7 +193,6 @@ impl NetworkMonitor {
 
     /// Adjust loop period based on check duration, cap to next multiple of 30 seconds
     pub fn set_loop_interval(&self, elapsed_time: &Duration) -> Duration {
-        // @TODO: make interval configurable
         Duration::from_secs(max(((elapsed_time.as_secs() + 29) / 30) * 30, 30))
     }
 
@@ -175,7 +200,7 @@ impl NetworkMonitor {
     /// Fetches new list from
     pub async fn run_onetime(&mut self, forge_api: &str, client_config: ForgeClientConfig) {
         let (loopback_ip, peer_dpus) = match self
-            .find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone())
+            .find_all_dpu_info(&self.machine_id, forge_api, client_config.clone())
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
@@ -185,64 +210,46 @@ impl NetworkMonitor {
             }
         };
 
-        match self.monitor_concurrent(&peer_dpus, loopback_ip, true).await {
-            Ok(Some(results)) => self.format_results(&results, loopback_ip.to_string()),
-            Ok(None) => tracing::info!("No results found"),
+        match self.monitor_concurrent(&peer_dpus, loopback_ip).await {
+            Ok(results) => self.format_results(&results, loopback_ip.to_string()),
             Err(e) => tracing::error!("Failed to run network check: {}", e),
         }
     }
 
     /// Concurrently ping and record result for monitoring network status to peer DPUs
-    /// Only log information here
+    /// Use a channel to handle recording ping results from concurrent ping tasks
     pub async fn monitor_concurrent(
         &self,
         peer_dpus: &Vec<DpuInfo>,
         loopback_ip: IpAddr,
-        enable_record_result: bool,
-    ) -> Result<Option<Vec<DpuPingResult>>, eyre::Report> {
+    ) -> Result<Vec<DpuPingResult>, eyre::Report> {
         let concurrent_limit = 20; // Important for not overwhelming hbn container exec
 
         let (tx, mut rx) = mpsc::channel(100);
 
-        let recv_task = enable_record_result.then(|| {
-            task::spawn(async move {
-                let mut results = Vec::new();
-                while let Some(result) = rx.recv().await {
-                    results.push(result);
-                }
-                results
-            })
+        // Use a channel to collect ping results from concurrent tasks
+        let recv_task = task::spawn(async move {
+            let mut results = Vec::new();
+            while let Some(result) = rx.recv().await {
+                results.push(result);
+            }
+            results
         });
 
         // Concurrent jobs to ping DPUs and get results
         stream::iter(peer_dpus)
             .for_each_concurrent(concurrent_limit, |peer_dpu| {
-                let metrics = self.metrics.clone();
-                let machine_id = self.machine_id.clone();
                 let peer_dpu_id = peer_dpu.id.clone();
                 let tx_clone = tx.clone();
                 async move {
                     match self.pinger.ping_dpu(peer_dpu.clone(), loopback_ip).await {
                         Ok(ping_result) => {
-                            // Export metrics if metadata service enabled
-                            if let Some(metrics) = &metrics {
-                                metrics.record_metrics(
-                                    machine_id.clone(),
-                                    ping_result.dpu_info.id.clone(),
-                                    ping_result.average_latency,
-                                    ping_result.reachable(),
-                                    ping_result.loss_percent(),
+                            // Send result to the channel
+                            if (tx_clone.send(ping_result).await).is_err() {
+                                self.record_error_metrics(
+                                    NetworkMonitorError::ResultRecordChannelSendError,
+                                    None,
                                 );
-                            }
-
-                            if enable_record_result {
-                                if let Err(e) = tx_clone.send(ping_result).await {
-                                    tracing::error!(
-                                        "Failed to record result for dpu {}: {}",
-                                        peer_dpu.id,
-                                        e
-                                    );
-                                }
                             }
                         }
                         Err((error_type, _report)) => {
@@ -255,15 +262,21 @@ impl NetworkMonitor {
 
         drop(tx);
 
-        if let Some(task) = recv_task {
-            let results = task.await?;
-            Ok(Some(results))
-        } else {
-            Ok(None)
-        }
+        // Get results from the the channel receiving side task
+        let results = recv_task.await.map_err(|err| {
+            self.record_error_metrics(NetworkMonitorError::TaskJoinError, None);
+            tracing::error!(
+                "Failed to join task spawned for collecting ping result: {}",
+                err
+            );
+            err
+        })?;
+
+        Ok(results)
     }
 
     /// Format check results into JSON format
+    /// Average latency outputed as seconds
     fn format_results(&self, results: &[DpuPingResult], loopback_ip: String) {
         let mut formatted_results: Vec<_> = results
             .iter()
@@ -291,7 +304,7 @@ impl NetworkMonitor {
             "dpu_id": self.machine_id,
             "loopback_ip": if loopback_ip.is_empty() { "Unknown".to_string() } else { loopback_ip} ,
             "results": formatted_results,
-            "timestamp": Utc::now().timestamp(),
+            "timestamp": Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         });
 
         match serde_json::to_string_pretty(&final_result) {
@@ -300,8 +313,8 @@ impl NetworkMonitor {
         }
     }
 
-    /// Finds peer DPUs
-    pub async fn find_peer_dpu_machines(
+    /// Finds id and loopback IP of this DPU and list of peer dpus using gRPC call to API
+    pub async fn find_all_dpu_info(
         &self,
         dpu_machine_id: &str,
         forge_api: &str,
@@ -315,30 +328,30 @@ impl NetworkMonitor {
                 e
             })?;
 
-        // Get this DPU loopback IP
-        let dpu_info: DpuInfo = dpu_info_list
-            .dpu_list
-            .iter()
-            .find(|dpu_info| dpu_info.id == dpu_machine_id)
-            .ok_or_else(|| eyre::eyre!("DPU with id {} not found", dpu_machine_id))?
-            .clone()
-            .try_into()
-            .map_err(|error| {
-                self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
-                error
-            })?;
+        // Get this DPU information and list of peer DPU information
+        let mut dpu_info: Option<DpuInfo> = None;
+        let mut peer_dpus: Vec<DpuInfo> = Vec::new();
+        for dpu in dpu_info_list.dpu_list {
+            if dpu.id == dpu_machine_id {
+                dpu_info = Some(dpu.clone().try_into().map_err(|error| {
+                    self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
+                    error
+                })?);
+            } else if let Ok(peer_dpu) = dpu.try_into() {
+                peer_dpus.push(peer_dpu);
+            }
+        }
 
-        // Remove this DPU from the list
-        let peer_dpus: Vec<DpuInfo> = dpu_info_list
-            .dpu_list
-            .into_iter()
-            .filter(|dpu_info| dpu_info.id != dpu_machine_id)
-            .filter_map(|dpu_info| dpu_info.try_into().ok())
-            .collect();
+        // Must be able to find information about this DPU
+        let dpu_info = dpu_info.ok_or_else(|| {
+            self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
+            eyre::eyre!("DPU with id {} not found", dpu_machine_id)
+        })?;
 
         Ok((dpu_info, peer_dpus))
     }
 
+    /// Helper function for recording different types of error metrics
     fn record_error_metrics(&self, error_type: NetworkMonitorError, dest_dpu_id: Option<String>) {
         if let Some(metrics) = &self.metrics.clone() {
             match dest_dpu_id {
@@ -629,6 +642,8 @@ pub enum NetworkMonitorError {
     PingError,
     PingInterfaceError,
     PingOutputParseError,
+    ResultRecordChannelSendError,
+    TaskJoinError,
     UnknownError,
 }
 
