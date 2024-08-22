@@ -9,7 +9,7 @@ use axum::routing::get;
 use axum::Router;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Request, Response};
-use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge, Unit};
+use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge};
 use opentelemetry::KeyValue;
 use tower::ServiceBuilder;
 use tracing::Span;
@@ -124,7 +124,7 @@ pub fn create_metrics(meter: Meter, machine_id: String) -> Arc<MetricsState> {
     let http_req_latency_histogram: Histogram<f64> = meter
         .f64_histogram("request_latency")
         .with_description("HTTP request latency")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
 
     let network_reachable: ObservableGauge<u64> = meter
@@ -133,7 +133,7 @@ pub fn create_metrics(meter: Meter, machine_id: String) -> Arc<MetricsState> {
         .init();
     let network_latency = meter
         .f64_histogram("forge_dpu_agent_network_latency")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
     let network_loss_percent = meter
         .f64_histogram("forge_dpu_agent_network_loss_percentage")

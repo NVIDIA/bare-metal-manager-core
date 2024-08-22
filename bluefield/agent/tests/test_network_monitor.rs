@@ -189,6 +189,7 @@ fn verify_metrics(test_meter: &TestMeter) {
 
 pub struct TestMeter {
     meter: Meter,
+    _meter_provider: metrics::SdkMeterProvider,
     registry: prometheus::Registry,
 }
 
@@ -262,17 +263,23 @@ impl Default for TestMeter {
         )
         .ok();
         let meter_provider = match view {
-            Some(metric_view) => opentelemetry_sdk::metrics::MeterProvider::builder()
+            Some(metric_view) => metrics::SdkMeterProvider::builder()
                 .with_reader(metrics_exporter)
                 .with_view(metric_view)
                 .build(),
-            None => opentelemetry_sdk::metrics::MeterProvider::builder()
+            None => metrics::SdkMeterProvider::builder()
                 .with_reader(metrics_exporter)
                 .build(),
         };
 
+        let meter = meter_provider.meter("dpu-agent");
+
         TestMeter {
-            meter: meter_provider.meter("dpu-agent"),
+            // For some reason, letting the SdkMeterProvider go out of scope
+            // shuts down the reader associated with the Meter that we created
+            // from it. Make sure it stays around for the lifetime of the Meter.
+            _meter_provider: meter_provider,
+            meter,
             registry: prometheus_registry,
         }
     }
