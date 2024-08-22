@@ -8,32 +8,13 @@ receivers:
   filelog:
     include:
       - /var/log/doca/hbn/frr/frr.log
+      - /var/log/doca/hbn/nl2docad.log
+      - /var/log/doca/hbn/supervisor/supervisord.log
+      - /var/log/doca/hbn/syslog
     include_file_name: false
     include_file_path: true
     start_at: beginning
     storage: file_storage/cursors
-    operators:
-      - type: regex_parser
-        regex: "^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+\
-          (?P<hostname>\\S+)\\s+\
-          (?P<program>\\S+)\\[(?P<pid>\\d+)\\]:\\s+\
-          (?P<identifiers>(\\[[^\\]]+\\])+)\\s*\
-          (?:\
-            (?P<frr_record_type>%\\w+):\
-            |\
-            (?:(?P<device>\\S+)\\s+(?P<severity>\\[(?:Error|Warn|Info|Debug)\\]))\
-          )?\\s*\
-          (?P<message>.*)$"
-        timestamp:
-          parse_from: attributes.timestamp
-          layout: '%b %e %H:%M:%S'
-        severity:
-          parse_from: attributes.severity
-          mapping:
-            error: '[Error]'
-            warn: '[Warn]'
-            info: '[Info]'
-            debug: '[Debug]'
 
   journald:
     directory: /var/log/journal
@@ -179,22 +160,6 @@ processors:
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
           - set(body, body["MESSAGE"])
           - delete_key(attributes, "level")
-  transform/frr:
-    # - Omit optional log fields when the value is empty.
-    # - Always delete the temporary "severity" attribute because it was already
-    #   mapped by the filelog receiver to a standard OpenTelemetry
-    #   severityNumber, and the mapping preserved the original text as
-    #   severityText.
-    # - Always delete the temporary "timestamp" attribute because it was
-    #   translated to timeUnixNano by the filelog receiver.
-    error_mode: ignore
-    log_statements:
-      - context: log
-        statements:
-          - delete_key(attributes, "device") where attributes["device"] == ""
-          - delete_key(attributes, "frr_record_type") where attributes["frr_record_type"] == ""
-          - delete_key(attributes, "timestamp")
-          - delete_key(attributes, "severity")
 
 exporters:
   otlp/site:
@@ -217,13 +182,12 @@ service:
         - transform/journald
         - batch/logs
       exporters: [otlp/site]
-    logs/frr:
+    logs/hbn:
       receivers: [filelog]
       processors:
         - memory_limiter
         - resourcedetection
         - resource/logs-hbn
-        - transform/frr
         - batch/logs
       exporters: [otlp/site]
     metrics:
