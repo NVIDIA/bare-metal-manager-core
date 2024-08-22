@@ -26,14 +26,15 @@ use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
 use ipnetwork::IpNetwork;
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics;
+use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
-use {opentelemetry_sdk as sdk, opentelemetry_semantic_conventions as semcov};
 
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
@@ -773,10 +774,10 @@ fn spawn_metadata_service(
     machine_id: String,
 ) -> Result<Arc<MetricsState>, Box<dyn std::error::Error>> {
     // This defines attributes that are set on the exported logs **and** metrics
-    let service_telemetry_attributes = sdk::Resource::new(vec![
-        semcov::resource::SERVICE_NAME.string("dpu-agent"),
-        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
-    ]);
+    let service_name = KeyValue::new(SERVICE_NAME, "dpu-agent");
+    let service_namespace = KeyValue::new(SERVICE_NAMESPACE, "forge-system");
+    let service_telemetry_attributes =
+        opentelemetry_sdk::Resource::new([service_name, service_namespace]);
 
     // Set up OpenTelemetry metrics export via prometheus
 
@@ -790,7 +791,7 @@ fn spawn_metadata_service(
         .without_scope_info()
         .without_target_info()
         .build()?;
-    let meter_provider = metrics::MeterProvider::builder()
+    let meter_provider = metrics::SdkMeterProvider::builder()
         .with_reader(metrics_exporter)
         .with_resource(service_telemetry_attributes)
         .with_view(create_metric_view_for_retry_histograms(
