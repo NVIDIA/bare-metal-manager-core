@@ -447,7 +447,7 @@ impl MachineStateMachine {
                 .await?;
 
         let mut instance_network_config_version: Option<String> = None;
-        let mut instance_config_version: Option<String> = None;
+        let instance_config_version: Option<String> = None;
         let mut interfaces = vec![];
 
         if network_config.use_admin_network {
@@ -466,7 +466,6 @@ impl MachineStateMachine {
         } else {
             instance_network_config_version =
                 Some(network_config.instance_network_config_version.clone());
-            instance_config_version = instance_network_config_version.clone();
 
             for iface in network_config.tenant_interfaces.iter() {
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
