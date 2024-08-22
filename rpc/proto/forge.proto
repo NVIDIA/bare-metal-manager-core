@@ -639,9 +639,11 @@ message Vpc {
   optional string tenantKeysetId = 7;
   optional uint32 vni = 8;
   optional VpcVirtualizationType network_virtualization_type = 9;
+  Metadata metadata = 10;
 }
 
 message VpcCreationRequest {
+  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
   string name = 2;
   string tenantOrganizationId = 3;
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
@@ -652,6 +654,7 @@ message VpcCreationRequest {
   // a random ID.
   // The VPC ID must be unique within the Forge site.
   optional common.UUID id = 6;
+  Metadata metadata = 12;
 }
 
 enum VpcVirtualizationType {

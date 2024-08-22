@@ -27,6 +27,7 @@ fn setup() {
 }
 
 #[sqlx::test]
+#[allow(deprecated)]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -35,10 +36,15 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
             id: None,
-            name: "Forge".to_string(),
+            name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "Forge".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .unwrap()
@@ -55,10 +61,15 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
             id: None,
-            name: "Forge no Org".to_string(),
+            name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_virtualization_type: Some(VpcVirtualizationType::EthernetVirtualizer as i32),
+            metadata: Some(rpc::forge::Metadata {
+                name: "Forge no Org".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .unwrap()
@@ -85,7 +96,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .update(&mut txn)
     .await?;
 
-    assert_eq!(&updated_vpc.name, "new name");
+    assert_eq!(&updated_vpc.metadata.name, "new name");
     assert_eq!(&updated_vpc.tenant_organization_id, "new org");
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
@@ -106,7 +117,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // Check that the data was indeed not touched
     let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
-    assert_eq!(&first.name, "new name");
+    assert_eq!(&first.metadata.name, "new name");
     assert_eq!(&first.tenant_organization_id, "new org");
     assert_eq!(first.version.version_nr(), 2);
 
@@ -119,13 +130,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     }
     .update(&mut txn)
     .await?;
-    assert_eq!(&updated_vpc.name, "yet another new name");
+    assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
     assert_eq!(updated_vpc.version.version_nr(), 3);
 
     let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
-    assert_eq!(&first.name, "yet another new name");
+    assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(&first.tenant_organization_id, "yet another new org");
     assert_eq!(first.version.version_nr(), 3);
 
@@ -158,6 +169,186 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 }
 
 #[sqlx::test]
+async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let forge_vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test_VPC_with_labels".to_string(),
+                description: "this VPC must have labels.".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "key1".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key2".to_string(),
+                        value: None,
+                    },
+                ],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let vpc_id: VpcId = forge_vpc.id.expect("should have id").try_into()?;
+
+    assert_eq!(
+        &forge_vpc.metadata.clone().unwrap().name,
+        "test_VPC_with_labels"
+    );
+    assert_eq!(
+        forge_vpc.metadata.clone().unwrap().description,
+        "this VPC must have labels."
+    );
+    assert!(forge_vpc.metadata.clone().unwrap().labels.len() == 2);
+
+    assert_eq!(
+        forge_vpc
+            .metadata
+            .clone()
+            .unwrap()
+            .labels
+            .iter()
+            .find(|label| label.key == "key1")
+            .and_then(|label| label.value.as_deref()),
+        Some("value1")
+    );
+
+    assert_eq!(
+        forge_vpc
+            .metadata
+            .clone()
+            .unwrap()
+            .labels
+            .iter()
+            .find(|label| label.key == "key2")
+            .and_then(|label| label.value.as_deref()),
+        None
+    );
+
+    let request_vpcs = tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+        vpc_ids: vec![vpc_id.into()],
+    });
+
+    let vpc_list = env
+        .api
+        .find_vpcs_by_ids(request_vpcs)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+
+    assert_eq!(vpc_list.vpcs.len(), 1);
+    let fetched_vpc = vpc_list.vpcs[0].clone();
+
+    assert_eq!(
+        &fetched_vpc.metadata.clone().unwrap().name,
+        "test_VPC_with_labels"
+    );
+    assert_eq!(&fetched_vpc.tenant_organization_id, "Forge_unit_tests");
+    assert_eq!(
+        fetched_vpc.metadata.clone().unwrap().description,
+        "this VPC must have labels."
+    );
+    assert!(fetched_vpc.metadata.clone().unwrap().labels.len() == 2);
+
+    assert_eq!(
+        fetched_vpc
+            .metadata
+            .clone()
+            .unwrap()
+            .labels
+            .iter()
+            .find(|label| label.key == "key1")
+            .and_then(|label| label.value.as_deref()),
+        Some("value1")
+    );
+
+    assert_eq!(
+        fetched_vpc
+            .metadata
+            .clone()
+            .unwrap()
+            .labels
+            .iter()
+            .find(|label| label.key == "key2")
+            .and_then(|label| label.value.as_deref()),
+        None
+    );
+
+    Ok(())
+}
+
+#[sqlx::test]
+async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let forge_vpc1 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "vpc_name".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "vpc_name".to_string(),
+                description: "No description.".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await;
+
+    match forge_vpc1 {
+        Ok(..) => panic!("Expected VPC creation failure when two names are passed."),
+        Err(e) => {
+            assert_eq!(
+                e.message(),
+                "VPC name must be specified under metadata only."
+            );
+        }
+    };
+
+    let forge_vpc2 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "vpc_name".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "".to_string(),
+                description: "No description.".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await;
+
+    match forge_vpc2 {
+        Ok(..) => {
+            panic!("Expected VPC creation failure when metadata exists but vpc.name is not empty.")
+        }
+        Err(e) => {
+            assert_eq!(
+                e.message(),
+                "VPC name must be specified under metadata only."
+            );
+        }
+    };
+
+    Ok(())
+}
+
+#[sqlx::test]
 async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -167,10 +358,15 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
             id: None,
-            name: "prevent_duplicate_vni".to_string(),
+            name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "prevent_duplicate_vni".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .unwrap()
@@ -180,10 +376,15 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
             id: None,
-            name: "prevent_duplicate_vni".to_string(),
+            name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "prevent_duplicate_vni".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .unwrap()
@@ -255,10 +456,15 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
             id: Some(::rpc::Uuid {
                 value: id.to_string(),
             }),
-            name: "Forge".to_string(),
+            name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "Forge".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .unwrap()
@@ -274,10 +480,15 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     let vpc_req = rpc::forge::VpcCreationRequest {
         id: None,
-        name: "test_vpc".to_string(),
+        name: "".to_string(),
         tenant_organization_id: "test".to_string(),
         tenant_keyset_id: None,
         network_virtualization_type: None,
+        metadata: Some(rpc::forge::Metadata {
+            name: "test_vpc".to_string(),
+            description: "".to_string(),
+            labels: Vec::new(),
+        }),
     };
     let resp = env
         .api

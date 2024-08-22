@@ -23,6 +23,21 @@ pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::VpcCreationRequest>,
 ) -> Result<Response<rpc::Vpc>, Status> {
+    let vpc_creation_request = request.get_ref();
+
+    if let Some(metadata) = &vpc_creation_request.metadata {
+        if (!metadata.name.is_empty()
+            || !metadata.description.is_empty()
+            || !metadata.labels.is_empty())
+            && !vpc_creation_request.name.is_empty()
+        {
+            return Err(CarbideError::InvalidArgument(
+                "VPC name must be specified under metadata only.".to_string(),
+            )
+            .into());
+        }
+    }
+
     log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
