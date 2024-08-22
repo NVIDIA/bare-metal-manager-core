@@ -27,6 +27,7 @@ service Forge {
   // VPC
   rpc CreateVpc(VpcCreationRequest) returns (Vpc);
   rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
+  rpc UpdateVpcVirtualization(VpcUpdateVirtualizationRequest) returns (VpcUpdateVirtualizationResult);
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
@@ -686,6 +687,26 @@ message VpcUpdateRequest {
 message VpcUpdateResult {
   // TODO: Should we also return the current state as a field here?
   // Probably won't hurt
+}
+
+message VpcUpdateVirtualizationRequest {
+  // id is the VpcId
+  common.UUID id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // network_virtualization_type is the new VpcVirtualizationType
+  // to set for the VPC. This is intended for dev use only, and
+  // will return an error if any instances are already configured
+  // in the VPC.
+  optional VpcVirtualizationType network_virtualization_type = 3;
+}
+
+message VpcUpdateVirtualizationResult {
 }
 
 message VpcDeletionRequest {

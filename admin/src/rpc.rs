@@ -18,7 +18,7 @@ use std::str::FromStr;
 use ::rpc::forge::redfish_power_control_request::SystemPowerControl;
 use ::rpc::forge::{
     self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSegmentSearchConfig,
+    NetworkDeviceIdList, NetworkSegmentSearchConfig, VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -1819,6 +1819,33 @@ async fn get_vpcs_deprecated(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(details)
+    })
+    .await
+}
+
+/// set_vpc_network_virtualization_type sends out a `VpcUpdateVirtualizationRequest`
+/// to the API, with the purpose of being able to modify the underlying
+/// VpcVirtualizationType (or NetworkVirtualizationType) of the VPC. This will
+/// return an error if there are configured instances in the VPC (you can only
+/// do this with an empty VPC).
+pub async fn set_vpc_network_virtualization_type(
+    api_config: &ApiConfig<'_>,
+    vpc: rpc::Vpc,
+    virtualizer: VpcVirtualizationType,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::VpcUpdateVirtualizationRequest {
+            id: vpc.id,
+            if_version_match: None,
+            network_virtualization_type: Some(virtualizer as i32),
+        });
+        client
+            .update_vpc_virtualization(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
     })
     .await
 }

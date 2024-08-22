@@ -30,6 +30,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "figment",
+ "forge-network",
  "forge-tls",
  "forge-version",
  "forge_secrets",
