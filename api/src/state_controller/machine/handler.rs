@@ -2204,11 +2204,7 @@ impl DpuMachineStateHandler {
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
         };
 
-        let cur_version = inventory
-            .version
-            .unwrap_or("0".to_string())
-            .to_lowercase()
-            .replace("bf-", "");
+        let cur_version = inventory.version.unwrap_or("0".to_string());
         let update_version = &component_value.version;
 
         match version_compare::compare_to(
