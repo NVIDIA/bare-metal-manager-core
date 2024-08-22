@@ -333,12 +333,24 @@ impl ExpectedMachine {
     }
 }
 #[derive(Parser, Debug, Serialize, Deserialize)]
+#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
+"bmc_username",
+"bmc_password",
+"chassis_serial_number",
+"fallback_dpu_serial_numbers",
+])))]
 pub struct UpdateExpectedMachine {
-    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
+    #[clap(
+        short = 'a',
+        required = true,
+        long,
+        help = "BMC MAC Address of the expected machine"
+    )]
     pub bmc_mac_address: String,
     #[clap(
         short = 'u',
         long,
+        group = "group",
         requires("bmc_password"),
         help = "BMC username of the expected machine"
     )]
@@ -346,6 +358,7 @@ pub struct UpdateExpectedMachine {
     #[clap(
         short = 'p',
         long,
+        group = "group",
         requires("bmc_username"),
         help = "BMC password of the expected machine"
     )]
@@ -353,6 +366,7 @@ pub struct UpdateExpectedMachine {
     #[clap(
         short = 's',
         long,
+        group = "group",
         help = "Chassis serial number of the expected machine"
     )]
     pub chassis_serial_number: Option<String>,
@@ -360,7 +374,7 @@ pub struct UpdateExpectedMachine {
         short = 'd',
         long = "fallback-dpu-serial-number",
         value_name = "DPU_SERIAL_NUMBER",
-        group="dpu_serial",
+        group = "group",
         help = "Serial number of the DPU attached to the expected machine. This option should be used only as a last resort for ingesting those servers whose BMC/Redfish do not report serial number of network devices. This option can be repeated.",
         action = clap::ArgAction::Append
     )]
