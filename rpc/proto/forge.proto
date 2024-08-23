@@ -89,8 +89,11 @@ service Forge {
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   rpc RecordHardwareHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
   rpc GetHardwareHealthReport(common.MachineId) returns (OptionalHealthReport);
+  // Lists all overrides that have been placed on a Machine health status
   rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
+  // Adds a new override for a Machines health status
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Removes a health report override
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
@@ -1551,6 +1554,8 @@ message Machine {
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
 
+  // Informs whether any overrides (identified by a specific source name and mode) are applied
+  // to health
   repeated HealthOverrideOrigin health_overrides = 29;
 
   optional bool firmware_autoupdate = 28;
@@ -1571,6 +1576,7 @@ message MachineInventorySoftwareComponent {
   string url = 3;
 }
 
+// A health override that is applied to a Host
 message HealthOverrideOrigin {
   OverrideMode mode = 1;
   string source = 2;
@@ -2298,8 +2304,14 @@ message OptionalHealthReport {
 }
 
 enum OverrideMode {
-  MERGE = 0;
-  OVERRIDE = 1;
+  // Keep the existing health reports, and merge them with this health report.
+  // If 2 reports report the same failures based on `id`s on `target`s
+  // - the classifications of both alerts will be merged
+  // - messages of both alerts will be concatenated
+  // - the `in_alert_since` timestamp of the original alert will be retained
+  Merge = 0;
+  // Replace the health report in the system with this new health report
+  Override = 1;
 }
 
 message HealthReportOverride {
