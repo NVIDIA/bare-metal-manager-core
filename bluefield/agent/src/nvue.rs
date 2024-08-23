@@ -81,7 +81,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         HbnVersion: conf.hbn_version,
         ComputeTENANTs: vec![TmplComputeTenant {
             Name: conf.ct_name,
-            L3VNI: conf.ct_l3_vni,
+            L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             VRFloopback: conf.ct_vrf_loopback,
             PortConfigs: port_configs,
             ExternalAccess: conf.ct_external_access,
@@ -206,7 +206,7 @@ pub struct NvueConfig {
 
     // Currently we have a single tenant. Later this will be Vec<ComputeTenant>
     pub ct_name: String,
-    pub ct_l3_vni: String,
+    pub ct_l3_vni: Option<u32>,
     pub ct_vrf_loopback: String,
     pub ct_port_configs: Vec<PortConfig>,
     pub ct_external_access: Vec<String>,
@@ -230,7 +230,8 @@ pub struct L3Domain {
 pub struct PortConfig {
     pub interface_name: String,
     pub vlan: u16,
-    pub vni: Option<u32>, // admin network doens't haven one
+    pub vni: Option<u32>,    // admin network doesn't have one
+    pub l3_vni: Option<u32>, // admin network doesn't have one
     pub gateway_cidr: String,
     pub vpc_prefixes: Vec<String>,
     pub svi_ip: Option<String>,
@@ -283,8 +284,20 @@ struct TmplComputeTenant {
     /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
     /// Linux is limited to 15 chars for interface names.
     Name: String,
+
+    /// L3VNI VPC-specifc VNI, which is globally unique. GNI allocates us
+    /// a pool of VNIs to assign as we see fit, so we carve out blocks
+    /// per-site, and then manage them via the VPC_VNI (vpc-vni) resource
+    /// pool.
+    ///
+    // TODO(chet): Does this need to be a string?
     L3VNI: String,
+
+    /// VRFloopback is the tenant loopback IP assigned to each DPU,
+    /// which is allocated from the interface-specific /30 (it's the
+    /// first IP in the allocation).
     VRFloopback: String,
+
     PortConfigs: Vec<TmplConfigPort>,
 
     /// Per tenant access to external networks needs to be defined. Based on this route leaking

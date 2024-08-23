@@ -102,8 +102,8 @@ pub struct NvueOptions {
     #[clap(long, help = "Compute Tenant name")]
     pub ct_name: String,
 
-    #[clap(long)]
-    pub ct_l3vni: String,
+    #[clap(long, help = "The VPC-specific L3VNI.")]
+    pub ct_l3vni: Option<u32>,
 
     #[clap(long)]
     pub ct_vrf_loopback: String,

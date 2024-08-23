@@ -150,6 +150,7 @@ pub async fn update_nvue(
             interface_name: physical_name,
             vlan: admin_interface.vlan_id as u16,
             vni: None,
+            l3_vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
             vpc_prefixes: admin_interface.vpc_prefixes.clone(), // probably empty
             svi_ip: None,                                       // FNN only
@@ -175,6 +176,7 @@ pub async fn update_nvue(
                 interface_name: name,
                 vlan: net.vlan_id as u16,
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
+                l3_vni: Some(net.vpc_vni),
                 gateway_cidr: net.gateway.clone(),
                 vpc_prefixes: net.vpc_prefixes.clone(),
                 svi_ip: None, // FNN only
@@ -202,7 +204,7 @@ pub async fn update_nvue(
         deny_prefixes: nc.deny_prefixes.clone(),
 
         // FNN only, not used yet
-        ct_l3_vni: "FNN".to_string(),
+        ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
         ct_external_access: vec![],
         l3_domains: vec![],
@@ -1584,6 +1586,7 @@ mod tests {
             interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
             vlan: 123u16,
             vni: Some(5555),
+            l3_vni: Some(7777),
             gateway_cidr: "10.217.4.65/26".to_string(),
             svi_ip: if is_fnn {
                 Some("10.217.4.66".to_string())
@@ -1615,7 +1618,7 @@ mod tests {
             }],
 
             // FNN only, not used yet
-            ct_l3_vni: "FNN".to_string(),
+            ct_l3_vni: Some(7777),
             ct_vrf_loopback: "FNN".to_string(),
             ct_external_access: vec![],
             l3_domains: vec![],
