@@ -12,6 +12,19 @@
 
 //! State Handler implementation for Machines
 
+use std::{net::IpAddr, sync::Arc};
+
+use chrono::{DateTime, Duration, Utc};
+use config_version::ConfigVersion;
+use eyre::eyre;
+use futures::TryFutureExt;
+use itertools::Itertools;
+use libredfish::{
+    model::task::{Task, TaskState},
+    Boot, Redfish, RedfishError, SystemPowerControl,
+};
+use tokio::{fs::File, sync::Semaphore};
+
 use crate::{
     cfg::{DpuModel, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry},
     db::{
@@ -49,21 +62,12 @@ use crate::{
         },
     },
 };
-use chrono::{DateTime, Duration, Utc};
-use config_version::ConfigVersion;
-use eyre::eyre;
-use futures::TryFutureExt;
-use http::StatusCode;
-use itertools::Itertools;
-use libredfish::{
-    model::task::{Task, TaskState},
-    Boot, Redfish, RedfishError, SystemPowerControl,
-};
-use std::{net::IpAddr, sync::Arc};
-use tokio::{fs::File, sync::Semaphore};
 
 mod ib;
 mod storage;
+
+// We can't use http::StatusCode because libredfish has a newer version
+const NOT_FOUND: u16 = 404;
 
 /// Reachability params to check if DPU is up or not.
 #[derive(Copy, Clone, Debug)]
@@ -1267,7 +1271,7 @@ impl MachineStateHandler {
             }
             Err(e) => match e {
                 RedfishError::HTTPErrorCode { status_code, .. } => {
-                    if status_code == StatusCode::NOT_FOUND {
+                    if status_code == NOT_FOUND {
                         // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
                         let Some(endpoint) =
                             find_explored_refreshed_endpoint(state, machine_id, txn).await?
@@ -2789,7 +2793,8 @@ impl DpuMachineStateHandler {
                 )
                 .await?;
 
-                if let Err(e) = dpu_redfish_client.forge_setup().await {
+                let boot_interface_mac = None; // libredfish will choose the DPU
+                if let Err(e) = dpu_redfish_client.forge_setup(boot_interface_mac).await {
                     tracing::error!(%e, "Failed to run forge_setup call");
                     return Err(StateHandlerError::RedfishError {
                         operation: "forge_setup",
@@ -3382,7 +3387,11 @@ impl StateHandler for HostMachineStateHandler {
                     .await
                     {
                         Ok(redfish_client) => {
-                            let forge_setup_failed = match redfish_client.forge_setup().await {
+                            let boot_interface_mac = None; // libredfish will choose the DPU
+                            let forge_setup_failed = match redfish_client
+                                .forge_setup(boot_interface_mac)
+                                .await
+                            {
                                 Ok(_) => false,
                                 Err(e) => {
                                     tracing::warn!("redfish forge_setup failed, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", e);
@@ -4149,8 +4158,9 @@ async fn lockdown_host(
     // - serial setup (bios, bmc)
     // - tpm clear (bios)
     // - boot once to pxe
+    let boot_interface_mac = None; // libredfish will choose the DPU
     redfish_client
-        .forge_setup()
+        .forge_setup(boot_interface_mac)
         .await
         .map_err(|e| StateHandlerError::RedfishError {
             operation: "forge_setup",

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::body::BoxBody;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response, StatusCode};
-use tonic::codegen::Body;
 use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
@@ -50,7 +49,7 @@ pub struct AuthenticationService<S> {
 
 impl<S, B> Service<Request<B>> for AuthenticationService<S>
 where
-    B: Body,
+    B: tonic::codegen::Body,
     S: Service<Request<B>>,
 {
     type Response = S::Response;
@@ -207,6 +206,8 @@ impl<B> From<&Request<B>> for RequestClass {
 }
 
 fn empty_response_with_status(status: StatusCode) -> Response<BoxBody> {
-    let body = BoxBody::default();
-    Response::builder().status(status).body(body).unwrap()
+    Response::builder()
+        .status(status)
+        .body(BoxBody::default())
+        .unwrap()
 }

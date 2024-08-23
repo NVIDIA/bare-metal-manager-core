@@ -17,7 +17,7 @@ use askama::Template;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use http::StatusCode;
+use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
 use crate::api::Api;

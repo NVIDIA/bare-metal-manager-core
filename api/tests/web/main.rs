@@ -1,7 +1,7 @@
 use axum::Router;
 use carbide::web::routes;
 use common::api_fixtures::TestEnv;
-use http::{request::Builder, Request};
+use hyper::http::{request::Builder, Request};
 
 #[path = "../common/mod.rs"]
 pub mod common;

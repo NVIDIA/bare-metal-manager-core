@@ -12,12 +12,12 @@
 
 mod metrics;
 
-use http::StatusCode;
+use std::net::SocketAddr;
+use std::{default::Default, sync::Arc, time::Duration};
+
 use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::net::SocketAddr;
-use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
     fs::File,
     sync::{oneshot, Semaphore},
@@ -36,6 +36,8 @@ use crate::{
     redfish::{self, RedfishClientCreationError, RedfishClientPool},
     CarbideError,
 };
+
+const NOT_FOUND: u16 = 404;
 
 /// DatabaseResult is a mirror of CarbideResult, but we should only be bubbling up an error if it was a database error and we need to reconnect.
 type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -611,7 +613,7 @@ impl PreingestionManagerStatic {
             }
             Err(e) => match e {
                 RedfishError::HTTPErrorCode { status_code, .. } => {
-                    if status_code == StatusCode::NOT_FOUND {
+                    if status_code == NOT_FOUND {
                         // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
                         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
                             if let Some(current_version) =
@@ -873,7 +875,7 @@ async fn initiate_update(
             url,
             status_code,
             response_body,
-        }) if status_code == StatusCode::NOT_FOUND => {
+        }) if status_code == NOT_FOUND => {
             tracing::warn!(
                 "Multipart URI {url} not found: {response_body}. Trying to use HttpPushUri"
             );

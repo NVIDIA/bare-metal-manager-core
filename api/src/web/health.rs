@@ -17,7 +17,7 @@ use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use health_report::HealthReport;
-use http::StatusCode;
+use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     HealthReportOverride, InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,

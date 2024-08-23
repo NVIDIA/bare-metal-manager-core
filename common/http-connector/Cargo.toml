@@ -17,7 +17,6 @@ hyper = { version = "0.14.30", default-features = false, features = ["client", "
 hyper-rustls = { version = "0.24", default-features = false, optional = true}
 pin-project-lite = "0.2.11"
 futures-util = "0.3.28"
-http = { version = "0.2.9", features = [] }
 tower-service = "0.3.2"
 tokio-socks = "0.5.1"
 tryhard = "0.5.1"

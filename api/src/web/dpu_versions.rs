@@ -15,7 +15,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse};
-use http::StatusCode;
+use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 
 use super::filters;

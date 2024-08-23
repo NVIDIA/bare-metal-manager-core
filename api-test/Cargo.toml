@@ -36,7 +36,6 @@ forge_secrets = { path = "../common/secrets" }
 [dependencies]
 async-trait = "0.1.72"
 libredfish.workspace = true
-http = "0.2.12"
 thiserror = "1"
 
 [build-dependencies]

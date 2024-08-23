@@ -18,7 +18,8 @@ use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, Router};
 use base64::prelude::*;
-use http::{Request, StatusCode};
+use hyper::http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
+use hyper::http::{Request, StatusCode};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use tower_http::normalize_path::NormalizePath;
@@ -134,7 +135,7 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
 pub async fn auth_basic<T>(req: Request<T>, next: Next<T>) -> Result<Response, StatusCode> {
     let must_auth = (
         StatusCode::UNAUTHORIZED,
-        [(http::header::WWW_AUTHENTICATE, "Basic realm=Carbide")],
+        [(WWW_AUTHENTICATE, "Basic realm=Carbide")],
     );
     match req.headers().get("Authorization") {
         None => {
@@ -220,16 +221,13 @@ pub async fn static_data(
     match filename.as_str() {
         "sortable.js" => (
             StatusCode::OK,
-            [(http::header::CONTENT_TYPE, "text/javascript")],
+            [(CONTENT_TYPE, "text/javascript")],
             SORTABLE_JS,
         )
             .into_response(),
-        "sortable.css" => (
-            StatusCode::OK,
-            [(http::header::CONTENT_TYPE, "text/css")],
-            SORTABLE_CSS,
-        )
-            .into_response(),
+        "sortable.css" => {
+            (StatusCode::OK, [(CONTENT_TYPE, "text/css")], SORTABLE_CSS).into_response()
+        }
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }
 }

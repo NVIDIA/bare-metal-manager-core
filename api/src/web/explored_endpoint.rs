@@ -17,7 +17,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use http::StatusCode;
+use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};

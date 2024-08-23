@@ -84,17 +84,20 @@ pub struct LogService<S> {
     metrics: Arc<RequestMetrics>,
 }
 
-impl<S, RequestBody, ResponseBody> tower::Service<http::Request<RequestBody>> for LogService<S>
+impl<S, RequestBody, ResponseBody> tower::Service<hyper::http::Request<RequestBody>>
+    for LogService<S>
 where
-    S: tower::Service<http::Request<RequestBody>, Response = http::Response<ResponseBody>>
-        + Clone
+    S: tower::Service<
+            hyper::http::Request<RequestBody>,
+            Response = hyper::http::Response<ResponseBody>,
+        > + Clone
         + Send
         + 'static,
     S::Future: Send + 'static,
     RequestBody: tonic::codegen::Body + Send + 'static,
     ResponseBody: tonic::codegen::Body + Send + 'static,
 {
-    type Response = http::Response<ResponseBody>;
+    type Response = hyper::http::Response<ResponseBody>;
     type Error = S::Error;
     type Future = tonic::codegen::BoxFuture<Self::Response, S::Error>;
 
@@ -102,7 +105,7 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, request: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, request: hyper::http::Request<RequestBody>) -> Self::Future {
         let mut service = self.service.clone();
         let metrics = self.metrics.clone();
         let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
@@ -161,7 +164,7 @@ where
             let mut grpc_method: Option<String> = None;
             let mut grpc_service: Option<String> = None;
             if let Some(path) = request.uri().path_and_query() {
-                if *request.method() == http::Method::POST && path.query().is_none() {
+                if *request.method() == hyper::http::Method::POST && path.query().is_none() {
                     let parts: Vec<&str> = path.path().split('/').collect();
                     if parts.len() == 3 {
                         // the path starts with an empty segment, and the middle
@@ -211,7 +214,7 @@ where
                         result.status().as_u16(),
                     );
 
-                    if result.status() == http::StatusCode::OK {
+                    if result.status() == hyper::http::StatusCode::OK {
                         // In gRPC the actual message status is not in the http status code,
                         // but actually in a header (and sometimes even a trailer - but we ignore this case here since
                         // we don't do streaming).

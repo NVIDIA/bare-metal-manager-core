@@ -26,6 +26,8 @@ use crate::model::site_explorer::{
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
+const NOT_FOUND: u16 = 404;
+
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
@@ -100,9 +102,7 @@ impl RedfishClient {
 
         let service_root = match client.get_service_root().await {
             Ok(sr) => sr,
-            Err(RedfishError::HTTPErrorCode { status_code, .. })
-                if status_code == http::StatusCode::NOT_FOUND =>
-            {
+            Err(RedfishError::HTTPErrorCode { status_code, .. }) if status_code == NOT_FOUND => {
                 return Err(EndpointExplorationError::MissingRedfish);
             }
             Err(e) => {
@@ -375,9 +375,7 @@ async fn fetch_ethernet_interfaces(
         Ok(ids) => ids,
         Err(e) => {
             match e {
-                RedfishError::HTTPErrorCode { status_code, .. }
-                    if status_code == http::StatusCode::NOT_FOUND =>
-                {
+                RedfishError::HTTPErrorCode { status_code, .. } if status_code == NOT_FOUND => {
                     // API to enumerate Ethernet interfaces is not supported
                     // This is the case for Bluefield NICs with some BMCs
                     // For this case we use a workaround to fetch the OOB interface
