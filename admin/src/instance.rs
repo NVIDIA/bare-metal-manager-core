@@ -250,6 +250,7 @@ async fn show_instances(
     json: bool,
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
+    vpc_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
     page_size: usize,
@@ -257,6 +258,7 @@ async fn show_instances(
     let all_instances = match rpc::get_all_instances(
         api_config,
         tenant_org_id.clone(),
+        vpc_id.clone(),
         label_key.clone(),
         label_value.clone(),
         page_size,
@@ -323,6 +325,7 @@ pub async fn handle_show(
             is_json,
             api_config,
             args.tenant_org_id,
+            args.vpc_id,
             args.label_key,
             args.label_value,
             page_size,

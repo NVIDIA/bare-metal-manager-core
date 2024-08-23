@@ -356,6 +356,7 @@ async fn main() -> color_eyre::Result<()> {
                         let instances = rpc::get_all_instances(
                             api_config,
                             None,
+                            None,
                             Some(key),
                             release_request.label_value,
                             config.internal_page_size,
@@ -1027,6 +1028,7 @@ async fn main() -> color_eyre::Result<()> {
                                     ))?,
                                     extrainfo: true,
                                     tenant_org_id: None,
+                                    vpc_id: None,
                                     label_key: None,
                                     label_value: None,
                                 },
@@ -1120,6 +1122,7 @@ async fn main() -> color_eyre::Result<()> {
                                     id: j.id,
                                     extrainfo: true,
                                     tenant_org_id: None,
+                                    vpc_id: None,
                                     label_key: None,
                                     label_value: None,
                                 },

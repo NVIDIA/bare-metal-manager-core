@@ -17,6 +17,7 @@ use crate::common::api_fixtures::{
         single_interface_network_config,
     },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    FIXTURE_VPC_ID,
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
@@ -72,6 +73,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let request_all = tonic::Request::new(rpc::InstanceSearchFilter {
         label: None,
         tenant_org_id: None,
+        vpc_id: None,
     });
 
     let instance_ids_all = env
@@ -89,6 +91,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: None,
         }),
         tenant_org_id: None,
+        vpc_id: None,
     });
 
     let instance_ids_lbl_key = env
@@ -106,6 +109,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: Some("label_value_1".to_string()),
         }),
         tenant_org_id: None,
+        vpc_id: None,
     });
 
     let instance_ids_lbl_val = env
@@ -123,6 +127,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: Some("label_value_3".to_string()),
         }),
         tenant_org_id: None,
+        vpc_id: None,
     });
 
     let instance_ids_lbl_key_val = env
@@ -137,6 +142,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let request_tenant = tonic::Request::new(rpc::InstanceSearchFilter {
         label: None,
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: None,
     });
 
     let instance_ids_tenant = env
@@ -154,6 +160,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: None,
         }),
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: None,
     });
 
     let instance_ids_tenant_key = env
@@ -171,6 +178,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: Some("label_value_1".to_string()),
         }),
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: None,
     });
 
     let instance_ids_tenant_lbl = env
@@ -188,6 +196,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             value: Some("label_value_1".to_string()),
         }),
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: None,
     });
 
     let instance_ids_tenant_key_lbl = env
@@ -197,6 +206,112 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(instance_ids_tenant_key_lbl.instance_ids.len(), 1);
+
+    // test getting ids based on vpc_id only. in this case,
+    // since there's only one VPC being created (based on FIXTURE_VPC_ID),
+    // we expect all 10 instances to be in the VPC.
+    //
+    // TODO(chet): consider updating fixtures so there's a
+    // NETWORK_SEGMENT_ID_2 to allow for FIXTURE_VPC_ID_1 so
+    // we can test multiple VPCs here (and other places).
+    let request_vpc_id_only = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: None,
+        tenant_org_id: None,
+        vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+    });
+
+    assert_eq!(
+        env.api
+            .find_instance_ids(request_vpc_id_only)
+            .await
+            .map(|response| response.into_inner())
+            .unwrap()
+            .instance_ids
+            .len(),
+        10
+    );
+
+    // test getting ids based on vpc_id and label key
+    let request_vpc_key = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: None,
+        }),
+        tenant_org_id: None,
+        vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+    });
+
+    assert_eq!(
+        env.api
+            .find_instance_ids(request_vpc_key)
+            .await
+            .map(|response| response.into_inner())
+            .unwrap()
+            .instance_ids
+            .len(),
+        5
+    );
+
+    // test getting ids based on vpc_id and label key and value
+    let request_vpc_key_lbl = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: Some("label_value_1".to_string()),
+        }),
+        tenant_org_id: None,
+        vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+    });
+
+    assert_eq!(
+        env.api
+            .find_instance_ids(request_vpc_key_lbl)
+            .await
+            .map(|response| response.into_inner())
+            .unwrap()
+            .instance_ids
+            .len(),
+        1
+    );
+
+    // and now test providing both vpc_id AND tenant_org_id
+    let request_tenant_org_and_vpc_id = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: None,
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+    });
+
+    assert_eq!(
+        env.api
+            .find_instance_ids(request_tenant_org_and_vpc_id)
+            .await
+            .map(|response| response.into_inner())
+            .unwrap()
+            .instance_ids
+            .len(),
+        10
+    );
+
+    // and now test providing label + VPC + tenant org ID filtering,
+    // really going crazy now!
+    let request_label_and_tenant_org_and_vpc_id = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: None,
+        }),
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+    });
+
+    assert_eq!(
+        env.api
+            .find_instance_ids(request_label_and_tenant_org_and_vpc_id)
+            .await
+            .map(|response| response.into_inner())
+            .unwrap()
+            .instance_ids
+            .len(),
+        5
+    );
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -245,6 +360,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
             value: None,
         }),
         tenant_org_id: None,
+        vpc_id: None,
     });
 
     let instance_id_list = env

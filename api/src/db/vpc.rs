@@ -22,7 +22,6 @@ use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
-use crate::db::instance::InstanceId;
 use crate::db::network_segment::NetworkSegmentId;
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult};
@@ -318,30 +317,6 @@ impl Vpc {
         sqlx::query_as(query)
             .bind(segment_id)
             .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    /// list_instance_ids gets a list of all instance IDs
-    /// in the given VPC.
-    ///
-    // TODO(chet): Implement this into the CLI. It'd probably be useful
-    // to be able to list all of the instances in a given VPC (this could
-    // additionally show more instance info as well, but for now I'm
-    // just implementing it as a list operation).
-    pub async fn list_instance_ids(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        vpc_id: VpcId,
-    ) -> Result<Vec<InstanceId>, DatabaseError> {
-        let query = "SELECT instances.id FROM instances
-INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
-INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
-INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
-INNER JOIN vpcs ON network_segments.vpc_id = vpcs.id
-WHERE vpc_id = $1::uuid";
-        sqlx::query_as(query)
-            .bind(vpc_id)
-            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

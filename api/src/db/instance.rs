@@ -27,7 +27,7 @@ use sqlx::{
 use tonic::Status;
 
 use crate::{
-    db::{instance_address::InstanceAddress, DatabaseError},
+    db::{instance_address::InstanceAddress, vpc::VpcId, DatabaseError},
     model::{
         instance::{
             config::{
@@ -282,6 +282,8 @@ impl Instance {
     ) -> Result<Vec<InstanceId>, CarbideError> {
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances ");
         let mut has_filter = false;
+        let mut has_tenant_org_id = false;
+
         if let Some(label) = filter.label {
             if label.key.is_empty() && label.value.is_some() {
                 builder.push(
@@ -310,7 +312,9 @@ impl Instance {
                 has_filter = true;
             }
         }
+
         if let Some(tenant_org_id) = filter.tenant_org_id {
+            has_tenant_org_id = true;
             if has_filter {
                 builder.push(" AND ");
             } else {
@@ -318,6 +322,30 @@ impl Instance {
             }
             builder.push("tenant_org = ");
             builder.push_bind(tenant_org_id);
+        }
+
+        if let Some(vpc_id) = filter.vpc_id {
+            // vpc_id needs to be converted to a UUID type. We could
+            // just do a uuid::Uuid, but it seems more appropriate and
+            // correct to convert it into a VpcId (which is what it
+            // *actually* is, and has the necessary sqlx bindings).
+            let vpc_id = VpcId::from_str(&vpc_id).map_err(CarbideError::from)?;
+            if has_filter || has_tenant_org_id {
+                builder.push(" AND ");
+            } else {
+                builder.push("WHERE ");
+            }
+            builder.push("id IN (");
+            builder.push(
+                "SELECT instances.id FROM instances
+INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
+INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
+INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+INNER JOIN vpcs ON network_segments.vpc_id = vpcs.id
+WHERE vpc_id = ",
+            );
+            builder.push_bind(vpc_id);
+            builder.push(")");
         }
 
         let query = builder.build_query_as();
