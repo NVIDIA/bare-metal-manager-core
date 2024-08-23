@@ -38,7 +38,7 @@ class ForgeVaultClient:
 
     def get_host_bmc_credentials(self):
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
-        host_bmc_creds = read_response["data"]["data"]["idrac_creds"]
+        host_bmc_creds = read_response["data"]["data"]["server_bmc_creds"]
         host_bmc_username, host_bmc_password = host_bmc_creds.split(":", maxsplit=1)
         return host_bmc_username, host_bmc_password
 

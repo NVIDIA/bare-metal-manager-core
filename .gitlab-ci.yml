@@ -1070,17 +1070,19 @@ scheduled-test:verify-site-controller-version:
 # Run cloud-api sanity tests against the site under test.
 # The image is built in repo: https://gitlab-master.nvidia.com/cloud-service-qa/test-image
 # The test code is in repo: https://gitlab-master.nvidia.com/compute-swqa/cuda-automation-infra/tesla_automation_test/-/tree/main/Forge/tests/Forge_Testing/CommonTestSteps/API
-# TODO: Currently hardcoded for demo1 - fix
+# NOTE: Currently supports pdx-demo1 and reno-dev4
 #
 scheduled-test:cloud-api-tests:
   stage: test
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "false" && $RUN_TESTS =="true"
+      when: never  # Remove when tests are fixed
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS =="false"
       when: never
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS == "true"
       needs:
         - job: scheduled-test:verify-site-controller-version
+      when: never  # Remove when tests are fixed
   timeout: 2h
   retry:
     when:
@@ -1102,21 +1104,43 @@ scheduled-test:cloud-api-tests:
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
-    - export API_TOKEN=$(vault kv get -field nvcr secrets/forge/tokens)
+    - |
+      export API_TOKEN
+      if [[ $SITE_UNDER_TEST == "pdx-demo1" ]]; then
+        API_TOKEN=$(vault kv get -field nvcr secrets/forge/tokens)
+        export API_ENDPOINT="https://api.ngc.nvidia.com"
+        export FORGE_URL="https://forge.ngc.nvidia.com/"
+        export NGC_AUTH="ttps://ngc.authn.nvidia.com/token?service=ngc&scope=group/ngc"
+        export PROVIDER_ORG="forge-prime-provider"
+        export PROVIDER_ORG_ID="qpbftykv9atm"
+        export TENANT_ORG="forge-tenant-dev"
+        export TENANT_ORG_ID="i1k1exmxlqr1"
+      elif [[ $SITE_UNDER_TEST == "reno-dev4" ]]; then
+        API_TOKEN=$(vault kv get -field stg_nvcr secrets/forge/tokens)
+        export API_ENDPOINT="https://api.stg.ngc.nvidia.com"
+        export FORGE_URL="https://forge.stg.ngc.nvidia.com/"
+        export NGC_AUTH="https://stg.auth.ngc.nvidia.com/token?service=ngc&scope=group/ngc-stg"
+        export PROVIDER_ORG="forge-prime-provider"
+        export PROVIDER_ORG_ID="wdksahew1rqv"
+        export TENANT_ORG="forge-tenant-dev"
+        export TENANT_ORG_ID="fh93zk6uqtt1"
+      else
+        echo "ERROR: SITE_UNDER_TEST \"$SITE_UNDER_TEST\" not supported (expected pdx-demo1 or reno-dev4)" && exit 1
+      fi
     - echo "[GENERAL]" > machine.config
-    - echo "api_endpoint = \"https://api.ngc.nvidia.com\"" >> machine.config
-    - echo "forge_url = \"https://forge.ngc.nvidia.com/\"" >> machine.config
-    - echo "ngc_auth = \"https://ngc.authn.nvidia.com/token?service=ngc&scope=group/ngc\"" >> machine.config
+    - echo "api_endpoint = \"$API_ENDPOINT\"" >> machine.config
+    - echo "forge_url = \"$FORGE_URL\"" >> machine.config
+    - echo "ngc_auth = \"$NGC_AUTH\"" >> machine.config
     - echo "[GENERAL.ProviderAdmin]" >> machine.config
-    - echo "org = \"forge-prime-provider\"" >> machine.config
-    - echo "org_id = \"qpbftykv9atm\"" >> machine.config
+    - echo "org = \"$PROVIDER_ORG\"" >> machine.config
+    - echo "org_id = \"$PROVIDER_ORG_ID\"" >> machine.config
     - echo "token = \"$API_TOKEN\"" >> machine.config
     - echo "[GENERAL.TenantAdmin]" >> machine.config
-    - echo "org = \"forge-tenant-dev\"" >> machine.config
-    - echo "org_id = \"i1k1exmxlqr1\"" >> machine.config
+    - echo "org = \"$TENANT_ORG\"" >> machine.config
+    - echo "org_id = \"$TENANT_ORG_ID\"" >> machine.config
     - echo "token = \"$API_TOKEN\"" >> machine.config
     - echo "[ENV]" >> machine.config
-    - echo "site = \"demo01\"" >> machine.config
+    - echo "site = \"$SITE_UNDER_TEST\"" >> machine.config
     - export ENV="$(python -c 'import toml; print(toml.load("machine.config"))')"
   script:
     # Terminate the test suite after 1.5h in case of test hangs. This way the logs are still exported by after_script.

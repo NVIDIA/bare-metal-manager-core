@@ -11,22 +11,22 @@ import network
 import ngc
 from vault import ForgeVaultClient
 
-site_under_test = os.environ.get("SITE_UNDER_TEST")  # e.g. "pdx-demo1"
+site_under_test = os.environ.get("SITE_UNDER_TEST")  # e.g. "reno-dev4"
 if site_under_test is None:
-    print("$SITE_UNDER_TEST environment variable must be set", file=sys.stderr)
+    print("ERROR: $SITE_UNDER_TEST environment variable must be set.\nExiting...", file=sys.stderr)
     sys.exit(1)
 short_site_name = site_under_test.split("-")[1]
 
 machine_under_test = os.environ.get("MACHINE_UNDER_TEST")  # i.e. a machine id
 if machine_under_test is None:
-    print("$MACHINE_UNDER_TEST environment variable must be set", file=sys.stderr)
+    print("ERROR: $MACHINE_UNDER_TEST environment variable must be set.\nExiting...", file=sys.stderr)
     sys.exit(1)
 
 # Set environment variable CARBIDE_API_URL instead of using --carbide-api
 os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
 
 sites = [
-    ngc.Site("pdx-demo1", "prod", ngc_name="demo01"),
+    ngc.Site("pdx-demo1", "prod"),
     ngc.Site("pdx-dev3", "stg"),
     ngc.Site("reno-dev4", "stg"),
 ]
@@ -35,7 +35,7 @@ sites = [
 try:
     site = [_site for _site in sites if _site.name == site_under_test][0]
 except IndexError:
-    print(f"Site {site_under_test} unknown", file=sys.stderr)
+    print(f"ERROR: Site {site_under_test} unknown.\nExiting...", file=sys.stderr)
     sys.exit(1)
 
 # Get the appropriate ngc cli API key out of corp vault
@@ -51,11 +51,11 @@ os.environ["NGC_CLI_ORG"] = ngc_environment.tenant_org_name
 # Check the initial state is good before we get started
 print(f"Checking {machine_under_test} is Ready...")
 if not admin_cli.check_machine_ready(machine_under_test):
-    print(f"Machine {machine_under_test} is not Ready!", file=sys.stderr)
+    print(f"ERROR: Machine {machine_under_test} is not Ready!\nExiting...", file=sys.stderr)
     sys.exit(1)
 print(f"Checking {machine_under_test} is not in maintenance mode...")
 if not admin_cli.check_machine_not_in_maintenance(machine_under_test):
-    print(f"Machine {machine_under_test} is in Maintenance!", file=sys.stderr)
+    print(f"ERROR: Machine {machine_under_test} is in Maintenance!\nExiting...", file=sys.stderr)
     sys.exit(1)
 
 # Get DPU BMC credentials out of corp vault
@@ -79,8 +79,6 @@ print(f"DPUs in this machine: {dpus_under_test}")
 # Once we force-delete, we'll have to use a DPU machine ID to look it up until host fully ingested
 machine_under_test_dpu = dpus_under_test[0]
 machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_under_test_dpu[6:]
-# DPU:           fm100dsjdhejja4pme30mnbdc6amjh3lgnpid7kfi1v1gcthj2lea83ssq0
-# PredictedHost: fm100psjdhejja4pme30mnbdc6amjh3lgnpid7kfi1v1gcthj2lea83ssq0
 
 # Capture & log machine information before force-delete
 print(f"Force deleting {machine_under_test}...")
@@ -121,7 +119,7 @@ ngc.wait_for_machine_ready(machine_under_test, site, timeout=60 * 10)
 
 
 # Get required UUIDs from ngc
-site_uuid = ngc.get_site_uuid(site.ngc_name)
+site_uuid = ngc.get_site_uuid(site.name)
 print(f"{site_uuid=}")
 instance_type_uuid = ngc.get_instance_type_uuid("machine-lifecycle-test", site_uuid)
 print(f"{instance_type_uuid=}")
@@ -176,7 +174,7 @@ ngc.delete_instance(instance_uuid)
 # Wait for the instance to be deleted
 print("Wait for the instance to be deleted...")
 # TODO: In future, we may want to check that our instance isn't present in the list any more,
-#  but for now, since the "demo1-machine-lifecycle-test" compute allocation is 1,
+#  but for now, since the "machine-lifecycle-test-compute" compute allocation in dev4 is 1,
 #  checking for an empty list of instances will suffice.
 ngc.wait_for_empty_vpc(site_uuid, vpc_uuid, timeout=60 * 90)
 
