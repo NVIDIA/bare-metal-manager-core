@@ -258,6 +258,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         is_primary_dpu: true,
         multidpu_enabled: false,
         dpu_network_pinger_type: Some("HbnExec".to_string()),
+        internet_l3_vni: Some(1337),
     };
     common::respond(netconf)
 }

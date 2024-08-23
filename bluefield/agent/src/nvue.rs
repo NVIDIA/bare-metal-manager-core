@@ -95,6 +95,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 })
                 .collect(),
         }],
+        InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
     };
     if conf.is_fnn {
         gtmpl::template(TMPL_FNN, params).map_err(|e| e.into())
@@ -210,6 +211,7 @@ pub struct NvueConfig {
     pub ct_port_configs: Vec<PortConfig>,
     pub ct_external_access: Vec<String>,
     pub ct_access_vlans: Vec<VlanConfig>,
+    pub ct_internet_l3_vni: Option<u32>,
 }
 
 pub struct VlanConfig {
@@ -267,6 +269,12 @@ struct TmplNvue {
 
     /// For when we have more than one tenant
     ComputeTENANTs: Vec<TmplComputeTenant>,
+
+    // InternetL3VNI is the side-wide GNI-supplied VNI to use so VPCs
+    // can access the Internet. This is sent down via the internet_l3_vni
+    // field from the ManagedHostNetworkConfigResponse as an optional
+    // value, and defaults to 0 if unset.
+    InternetL3VNI: u32,
 }
 
 #[allow(non_snake_case)]

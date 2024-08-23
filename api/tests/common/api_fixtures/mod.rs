@@ -561,6 +561,7 @@ pub fn get_config() -> CarbideConfig {
         multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
         host_health: HostHealthConfig::default(),
+        internet_l3_vni: Some(1337),
     }
 }
 

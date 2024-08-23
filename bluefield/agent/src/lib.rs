@@ -305,6 +305,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ct_port_configs: port_configs,
                     ct_external_access: opts.ct_external_access,
                     ct_access_vlans: access_vlans,
+                    ct_internet_l3_vni: opts.ct_internet_l3_vni,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
