@@ -1819,8 +1819,19 @@ message FlatInterfaceConfig {
     InterfaceFunctionType function_type = 1;
     // aka circuit_id
     uint32 vlan_id = 2;
-    // vxlan id
+
+    // vni is the vxlan id (aka the L2VNI), which is the unique
+    // VNI assigned per network segment. In an FNN-L3 setup, this
+    // is used as the base of a DPU-specific VNI, where each DPU
+    // gets its own unique L2VNI per segment, which is accomplished
+    // by making <vni><dpi-id>.
+    //
+    // TODO(chet): A VNI is actually a 24 bit integer, which is
+    // fine, because this allows for more than that, but we should
+    // probably be checking somewhere that the VNI we're passing down
+    // isn't going to overflow once it gets to HBN.
     uint32 vni = 3;
+
     // in CIDR notation
     string gateway = 4;
     // host admin ip for admin network, host ip for tenant
@@ -1856,6 +1867,13 @@ message FlatInterfaceConfig {
     string fqdn = 9;
     // boot_url
     optional string booturl = 10;
+
+    // vpc_vni is the L3VNI used for FNN-enabled VPCs. The VNI
+    // itself comes from a pool of VNIs allocated to us by GNI,
+    // is then configured as a resource pool per site (the vpc-vni
+    // pool), and is done in such a way that each VNI is globally
+    // unique per VPC.
+    uint32 vpc_vni = 12;
 }
 
 message ManagedHostNetworkStatusRequest {}

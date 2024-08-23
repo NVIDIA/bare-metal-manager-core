@@ -25,6 +25,7 @@ use crate::{
         network_segment::{
             NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
         },
+        vpc::{Vpc, VpcIdKeyedObjectFilter},
     },
     model::{
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
@@ -160,6 +161,7 @@ pub async fn admin_network(
         virtual_function_id: None,
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
         vni: 0,
+        vpc_vni: 0,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
         interface_prefix: address_prefix.to_string(),
@@ -242,6 +244,22 @@ pub async fn tenant_network(
         None => vec![v4_prefix.prefix.to_string()],
     };
 
+    let vpc_vni = match segment.vpc_id {
+        Some(vpc_id) => {
+            let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(vpc_id))
+                .await
+                .map_err(CarbideError::from)?;
+            if vpcs.is_empty() {
+                return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
+            }
+            match vpcs[0].vni {
+                Some(vpc_vni) => vpc_vni as u32,
+                None => 0,
+            }
+        }
+        None => 0,
+    };
+
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
 
     Ok(rpc::FlatInterfaceConfig {
@@ -252,6 +270,7 @@ pub async fn tenant_network(
         },
         vlan_id: segment.vlan_id.unwrap_or_default() as u32,
         vni: segment.vni.unwrap_or_default() as u32,
+        vpc_vni,
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
         interface_prefix: interface_prefix.to_string(),
