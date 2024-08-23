@@ -1446,5 +1446,48 @@ mod tests {
             "<BMC_PASSWORD>",
         ])
         .is_ok());
+        // update all
+        assert!(test_update_expected_machine(
+            CarbideOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "<BMC_MAC_ADDRESS>",
+                "--bmc-username",
+                "ssss",
+                "--bmc-password",
+                "ssss",
+                "--chassis-serial-number",
+                "sss",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER>",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+        // update - user name only - error
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "expected-machine",
+            "update",
+            "--bmc-mac-address",
+            "<BMC_MAC_ADDRESS>",
+            "--bmc-username",
+            "ssss",
+        ])
+        .is_err());
+        // update - password  only - error
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "expected-machine",
+            "update",
+            "--bmc-mac-address",
+            "<BMC_MAC_ADDRESS>",
+            "--bmc-password",
+            "ssss",
+        ])
+        .is_err());
     }
 }
