@@ -106,7 +106,7 @@ impl ManagedHostStateSnapshot {
                         self.host_snapshot
                             .hardware_health_report
                             .as_ref()
-                            .ok_or("Missing host hardware health")?,
+                            .ok_or("hardware-health")?,
                     )
                 }
             }
@@ -117,7 +117,7 @@ impl ManagedHostStateSnapshot {
                     snapshot
                         .dpu_agent_health_report
                         .as_ref()
-                        .ok_or("Missing DPU health")?,
+                        .ok_or("forge-dpu-agent")?,
                 );
                 for over in snapshot.health_report_overrides.merges.values() {
                     output.merge(over);
@@ -133,9 +133,10 @@ impl ManagedHostStateSnapshot {
 
         let mut aggregate_health = match get_health() {
             Ok(r) => r,
-            Err(m) => health_report::HealthReport::heartbeat_timeout(
+            Err(target) => health_report::HealthReport::heartbeat_timeout(
                 "".to_string(),
-                format!("{m}: not observed"),
+                target.to_string(),
+                format!("Missing health report from subsystem: {target}"),
             ),
         };
 
@@ -389,6 +390,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             true => {
                 let mut health = machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
                     HealthReport::heartbeat_timeout(
+                        "forge-dpu-agent".to_string(),
                         "forge-dpu-agent".to_string(),
                         "No health data was received from DPU".to_string(),
                     )

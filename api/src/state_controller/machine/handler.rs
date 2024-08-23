@@ -315,6 +315,7 @@ impl MachineStateHandler {
 
                         let health_report = health_report::HealthReport::heartbeat_timeout(
                             "forge-dpu-agent".to_string(),
+                            "forge-dpu-agent".to_string(),
                             message,
                         );
                         Machine::update_dpu_agent_health_report(
