@@ -219,6 +219,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
         vlan_id: 10,
         vni: 10100,
+        vpc_vni: 10101,
         gateway: "192.168.0.0/16".to_string(),
         ip: "192.168.0.12".to_string(),
         interface_prefix: "192.168.0.12/32".to_string(),
