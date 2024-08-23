@@ -19,6 +19,7 @@ use health_override::HealthReportOverrides;
 use health_report::HealthReport;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
+use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
 
@@ -392,8 +393,8 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                         "No health data was received from DPU".to_string(),
                     )
                 });
-                match machine.health_report_overrides.r#override {
-                    Some(over) => over,
+                match machine.health_report_overrides.r#override.as_ref() {
+                    Some(over) => over.clone(),
                     None => {
                         for over in machine.health_report_overrides.merges.values() {
                             health.merge(over);
@@ -477,6 +478,14 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             state_reason: machine.current.outcome.map(|r| r.into()),
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
+            health_overrides: machine
+                .health_report_overrides
+                .create_iter()
+                .map(|(hr, m)| HealthOverrideOrigin {
+                    mode: m as i32,
+                    source: hr.source,
+                })
+                .collect(),
         }
     }
 }

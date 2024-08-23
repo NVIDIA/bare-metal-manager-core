@@ -1530,6 +1530,8 @@ message Machine {
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
 
+  repeated HealthOverrideOrigin health_overrides = 29;
+
   optional bool firmware_autoupdate = 28;
 }
 
@@ -1546,6 +1548,11 @@ message MachineInventorySoftwareComponent {
   string name = 1;
   string version = 2;
   string url = 3;
+}
+
+message HealthOverrideOrigin {
+  OverrideMode mode = 1;
+  string source = 2;
 }
 
 // Result of last state controller iteration

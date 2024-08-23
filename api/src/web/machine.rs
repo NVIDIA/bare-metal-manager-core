@@ -18,7 +18,7 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent};
+use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
 
 use super::filters;
 use crate::api::Api;
@@ -46,6 +46,7 @@ struct MachineRowDisplay {
     num_gpus: usize,
     num_ib_ifs: usize,
     health_probe_alerts: usize,
+    override_mode_counts: String,
 }
 
 impl From<forgerpc::Machine> for MachineRowDisplay {
@@ -74,7 +75,16 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             num_gpus = di.gpus.len();
             num_ib_ifs = di.infiniband_interfaces.len();
         }
-
+        let override_count = m
+            .health_overrides
+            .iter()
+            .filter(|o| o.mode() == OverrideMode::Override)
+            .count();
+        let merge_count = m
+            .health_overrides
+            .iter()
+            .filter(|o| o.mode() == OverrideMode::Merge)
+            .count();
         MachineRowDisplay {
             hostname,
             id: m.id.unwrap_or_default().id,
@@ -100,6 +110,14 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
                 .health
                 .map(|health| health.alerts.len())
                 .unwrap_or_default(),
+            override_mode_counts: format!(
+                "{}",
+                if override_count > 0 {
+                    override_count
+                } else {
+                    merge_count
+                }
+            ),
         }
     }
 }
