@@ -1814,6 +1814,12 @@ message ManagedHostNetworkConfigResponse {
 
   // Is multidpu feature enabled.
   bool multidpu_enabled = 105;
+
+  // internet_l3_vni is the GNI-supplied VNI to use to allow
+  // VPCs in a given site to get out to the internet. If unset,
+  // VPCs in the site will not be configured to get out to
+  // the Internet.
+  optional uint32 internet_l3_vni = 106;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge

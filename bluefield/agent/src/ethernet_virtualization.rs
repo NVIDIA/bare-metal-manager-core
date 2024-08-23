@@ -206,6 +206,7 @@ pub async fn update_nvue(
         ct_vrf_loopback: "FNN".to_string(),
         ct_external_access: vec![],
         l3_domains: vec![],
+        ct_internet_l3_vni: nc.internet_l3_vni,
     };
 
     // Cleanup any left over non-NVUE temp files
@@ -1514,6 +1515,7 @@ mod tests {
             is_primary_dpu: true,
             min_dpu_functioning_links: None,
             multidpu_enabled: false,
+            internet_l3_vni: Some(1337),
         }
     }
 
@@ -1617,6 +1619,7 @@ mod tests {
             ct_vrf_loopback: "FNN".to_string(),
             ct_external_access: vec![],
             l3_domains: vec![],
+            ct_internet_l3_vni: Some(1337),
         };
         let startup_yaml = nvue::build(conf)?;
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
@@ -1806,6 +1809,7 @@ mod tests {
             min_dpu_functioning_links: None,
             is_primary_dpu: true,
             multidpu_enabled: false,
+            internet_l3_vni: Some(1337),
         };
 
         let f = tempfile::NamedTempFile::new()?;

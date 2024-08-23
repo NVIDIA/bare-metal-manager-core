@@ -116,6 +116,12 @@ pub struct NvueOptions {
 
     #[clap(long, help = "What version of hbn in format: 1.5.0-doca2.2.0")]
     pub hbn_version: Option<String>,
+
+    #[clap(
+        long,
+        help = "Site-wide GNI-supplied VNI to use for VPCs to access the Internet."
+    )]
+    pub ct_internet_l3_vni: Option<u32>,
 }
 
 #[derive(Parser, Debug)]

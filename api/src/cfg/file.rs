@@ -191,6 +191,18 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub host_health: HostHealthConfig,
+
+    // internet_l3_vni is a GNI-provided L3VNI to use for
+    // FNN VPCs to have Internet connectivity. If it's
+    // not set, VPCs in this site will not have the ability
+    // to get out to the Internet.
+    //
+    // TODO(chet): This might be interesting to be able
+    // to toggle on a per-VPC basis (e.g. if a customer
+    // wants to create a VPC that is guaranteed not to
+    // be able to access the Internet).
+    #[serde(default)]
+    pub internet_l3_vni: Option<u32>,
 }
 
 impl CarbideConfig {
