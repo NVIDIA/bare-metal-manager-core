@@ -34,7 +34,13 @@ use super::machine::get_machine_type;
 struct MachineHealth {
     id: String,
     machine_type: String,
+    overrides: Vec<DisplayedOverrideOrigin>,
     reports: Vec<LabeledHealthReport>,
+}
+
+struct DisplayedOverrideOrigin {
+    source: String,
+    mode: String,
 }
 
 struct LabeledHealthReport {
@@ -237,6 +243,18 @@ pub async fn health(
         id: id.clone(),
         machine_type: get_machine_type(&id),
         reports,
+        overrides: machine
+            .health_overrides
+            .into_iter()
+            .map(|o| DisplayedOverrideOrigin {
+                mode: match o.mode() {
+                    OverrideMode::Merge => "Merge",
+                    OverrideMode::Override => "Override",
+                }
+                .to_string(),
+                source: o.source,
+            })
+            .collect(),
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
