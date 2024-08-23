@@ -14,9 +14,12 @@
 	<br>
 	<p><button type="submit" id="submit_add">Submit Override</button></p>
 	<br>
-	<label>Source: <input type="text" id="remove_source"></label>
-	<br><br>
-	<button type="button" id="submit_remove">Submit Removal</button>
+	<p>Active overrides:</p>
+	<ul>
+		{% for override in overrides %}
+		<li>{{ override.source }} ({{ override.mode }}) <button type="button" id="remove-override-{{ override.source }}">Remove</button></li>
+		{% endfor %}
+	</ul>
 </details>
 
 {% for report in reports %}
@@ -96,10 +99,14 @@ function add_click_listener([id, path, body]) {
 			headers: {"Content-Type": "application/json"},
 			body: body(),
 		});
+		if (response.ok) {
+			location.reload();
+			return;
+		}
 		const text = await response.text();
 		e.target.after(
 			create_el("p", {
-				innerText: response.ok ? `Request successful.` : `Failed to execute POST, status: ${response.status}, text: ${text}.`
+				innerText: `Failed to execute POST, status: ${response.status}, text: ${text}.`
 			})
 		);
 	});
@@ -110,9 +117,12 @@ document.addEventListener("DOMContentLoaded", function (event) {
 	document.getElementById("override").value = JSON.stringify(report, null, 2);
 	for (const item of [
 		["submit_add", "/override/add", () => document.getElementById("override").value],
-		["submit_remove", "/override/remove", () => JSON.stringify({source: document.getElementById("remove_source").value})],
 	]) {
 		add_click_listener(item);
 	}
+	{% for override in overrides %}
+	add_click_listener(["remove-override-{{ override.source }}", "/override/remove", () => JSON.stringify({source: "{{ override.source }}"})]);
+	{% endfor %}
 });
+
 {% endblock %}
