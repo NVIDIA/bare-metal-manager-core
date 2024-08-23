@@ -28,11 +28,6 @@ ENVS: dict[str, Environment] = {
 class Site:
     name: str
     environment: Literal["prod", "stg"]
-    ngc_name: str = None
-
-    def __post_init__(self):
-        if self.ngc_name is None:
-            self.ngc_name = self.name  # Most sites don't have a different name in ngc
 
 
 class ForgeNGCError(Exception):

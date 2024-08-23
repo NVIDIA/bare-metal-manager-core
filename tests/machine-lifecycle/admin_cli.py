@@ -140,7 +140,7 @@ def get_machine(machine_id: str, allow_missing: bool = False) -> dict | None:
     machine = _get_machine_from_json(machine_id, result)
     if machine is None:
         if not allow_missing:
-            raise Exception(f"Machine with id {machine_id} not found.\n{result}")
+            raise Exception(f"Machine with id {machine_id} not found.")
     return machine
 
 
