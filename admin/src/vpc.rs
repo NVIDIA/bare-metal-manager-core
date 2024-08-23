@@ -14,9 +14,9 @@ use std::fmt::Write;
 
 use super::cfg::carbide_options::ShowVpc;
 use super::{rpc, CarbideCliResult};
-use crate::cfg::carbide_options::OutputFormat;
+use crate::cfg::carbide_options::{OutputFormat, SetVpcVirt};
 use crate::CarbideCliError;
-use ::rpc::forge as forgerpc;
+use ::rpc::forge::{self as forgerpc};
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 
@@ -155,4 +155,42 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     }
 
     Ok(lines)
+}
+
+/// set_network_virtualization_type is the CLI handler for wrapping
+/// a `vpc set-virtualizer` command, taking configuration and doing
+/// necessary prep work before handing off to the actual RPC handler
+/// to send out an RPC (rpc::set_vpc_network_virtualization_type).
+///
+/// This is intended for dev use only, and can only be done on a VPC
+/// with 0 instances (an error will be returned otherwise).
+pub async fn set_network_virtualization_type(
+    api_config: &ApiConfig<'_>,
+    args: SetVpcVirt,
+) -> CarbideCliResult<()> {
+    let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.id)
+        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .into();
+
+    // TODO(chet): This should probably just be implied
+    // and handled as part of set_vpc_network_virtualization_type,
+    // and if it's not found, just return that. BUT, since if_version_match
+    // comes into play, an `fetch_one` error might be returned if
+    // the VPC doesn't exist, OR if there's a version mismatch, so
+    // it can be kind of misleading. For now, just do this.
+    let mut vpcs = match rpc::get_one_vpc(api_config, vpc_id).await {
+        Ok(vpcs) => vpcs,
+        Err(e) => return Err(e),
+    };
+
+    if vpcs.vpcs.len() != 1 {
+        return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
+    }
+
+    rpc::set_vpc_network_virtualization_type(
+        api_config,
+        vpcs.vpcs.remove(0),
+        args.virtualizer.into(),
+    )
+    .await
 }

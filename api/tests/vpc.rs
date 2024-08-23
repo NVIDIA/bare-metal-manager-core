@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::db::vpc::{UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter};
+use carbide::db::vpc::{UpdateVpc, UpdateVpcVirtualization, Vpc, VpcId, VpcIdKeyedObjectFilter};
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
@@ -100,6 +100,49 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&updated_vpc.tenant_organization_id, "new org");
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
+    // This only works because `EthernetVirtualizer` is the default
+    // virtualization type right now. Once we change the default type,
+    // this will fail, and we'll need to update the test. BUT, I wanted
+    // to be explicit here.
+    assert_eq!(
+        updated_vpc.network_virtualization_type,
+        VpcVirtualizationType::EthernetVirtualizer
+    );
+
+    // Update virtualization type.
+    let orig_virtualization_type = updated_vpc.network_virtualization_type;
+    let _updated_vpc_virtualization = UpdateVpcVirtualization {
+        id: no_org_vpc_id,
+        if_version_match: None,
+        network_virtualization_type: VpcVirtualizationType::FnnL3,
+    }
+    .update(&mut txn)
+    .await?;
+
+    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let first = vpcs.swap_remove(0);
+    assert_eq!(
+        first.network_virtualization_type,
+        VpcVirtualizationType::FnnL3
+    );
+
+    // And then put the virtualization type back and mark
+    // this as the latest `updated_vpc` for subsequent checks.
+    let updated_vpc = UpdateVpcVirtualization {
+        id: no_org_vpc_id,
+        if_version_match: None,
+        network_virtualization_type: orig_virtualization_type,
+    }
+    .update(&mut txn)
+    .await?;
+
+    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let first = vpcs.swap_remove(0);
+    assert_eq!(
+        first.network_virtualization_type,
+        VpcVirtualizationType::EthernetVirtualizer
+    );
+
     // Update on outdated version
     let update_result = UpdateVpc {
         id: no_org_vpc_id,
@@ -119,7 +162,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "new name");
     assert_eq!(&first.tenant_organization_id, "new org");
-    assert_eq!(first.version.version_nr(), 2);
+    assert_eq!(first.version.version_nr(), 4); // includes 2 changes to VPC virtualization type
 
     // Update on correct version
     let updated_vpc = UpdateVpc {
@@ -132,13 +175,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
-    assert_eq!(updated_vpc.version.version_nr(), 3);
+    assert_eq!(updated_vpc.version.version_nr(), 5);
 
     let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(&first.tenant_organization_id, "yet another new org");
-    assert_eq!(first.version.version_nr(), 3);
+    assert_eq!(first.version.version_nr(), 5);
 
     let vpc = Vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();
 

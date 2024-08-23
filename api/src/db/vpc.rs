@@ -22,6 +22,7 @@ use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
+use crate::db::instance::InstanceId;
 use crate::db::network_segment::NetworkSegmentId;
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult};
@@ -141,6 +142,16 @@ pub struct UpdateVpc {
     pub if_version_match: Option<ConfigVersion>,
     pub name: String,
     pub tenant_organization_id: String,
+}
+
+/// UpdateVpcVirtualization exists as a mechanism to translate
+/// an incoming VpcUpdateVirtualizationRequest and turn it
+/// into something we can `update()` to the database.
+#[derive(Clone, Debug)]
+pub struct UpdateVpcVirtualization {
+    pub id: VpcId,
+    pub if_version_match: Option<ConfigVersion>,
+    pub network_virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Clone, Debug)]
@@ -311,6 +322,30 @@ impl Vpc {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
+    /// list_instance_ids gets a list of all instance IDs
+    /// in the given VPC.
+    ///
+    // TODO(chet): Implement this into the CLI. It'd probably be useful
+    // to be able to list all of the instances in a given VPC (this could
+    // additionally show more instance info as well, but for now I'm
+    // just implementing it as a list operation).
+    pub async fn list_instance_ids(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        vpc_id: VpcId,
+    ) -> Result<Vec<InstanceId>, DatabaseError> {
+        let query = "SELECT instances.id FROM instances
+INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
+INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
+INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+INNER JOIN vpcs ON network_segments.vpc_id = vpcs.id
+WHERE vpc_id = $1::uuid";
+        sqlx::query_as(query)
+            .bind(vpc_id)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
     /// Tries to deletes a VPC
     ///
     /// If the VPC existed at the point of deletion this returns the last known information about the VPC
@@ -442,6 +477,33 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
     }
 }
 
+impl TryFrom<rpc::VpcUpdateVirtualizationRequest> for UpdateVpcVirtualization {
+    type Error = CarbideError;
+
+    fn try_from(value: rpc::VpcUpdateVirtualizationRequest) -> Result<Self, Self::Error> {
+        let if_version_match: Option<ConfigVersion> = match &value.if_version_match {
+            Some(version) => Some(version.parse::<ConfigVersion>()?),
+            None => None,
+        };
+
+        let network_virtualization_type = match value.network_virtualization_type {
+            Some(v) => v.try_into()?,
+            None => {
+                return Err(CarbideError::MissingArgument("network_virtualization_type"));
+            }
+        };
+
+        Ok(UpdateVpcVirtualization {
+            id: value
+                .id
+                .ok_or(CarbideError::MissingArgument("id"))?
+                .try_into()?,
+            if_version_match,
+            network_virtualization_type,
+        })
+    }
+}
+
 impl From<Vpc> for rpc::VpcDeletionResult {
     fn from(_src: Vpc) -> Self {
         rpc::VpcDeletionResult {}
@@ -485,6 +547,56 @@ impl UpdateVpc {
             Err(sqlx::Error::RowNotFound) => {
                 // TODO: This can actually happen on both invalid ID and invalid version
                 // So maybe this should be `ObjectNotFoundOrModifiedError`
+                Err(CarbideError::ConcurrentModificationError(
+                    "vpc",
+                    current_version,
+                ))
+            }
+            Err(e) => Err(CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                query,
+                e,
+            ))),
+        }
+    }
+}
+
+impl UpdateVpcVirtualization {
+    pub async fn update(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+        let query = "UPDATE vpcs
+            SET version=$1, network_virtualization_type=$2, updated=NOW()
+            WHERE id=$3 AND version=$4 AND deleted is null
+            RETURNING *";
+
+        let current_version = match self.if_version_match {
+            Some(version) => version,
+            None => {
+                let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(self.id)).await?;
+                if vpcs.len() != 1 {
+                    return Err(CarbideError::FindOneReturnedManyResultsError(
+                        self.id.into(),
+                    ));
+                }
+                vpcs[0].version
+            }
+        };
+        let next_version = current_version.increment();
+
+        let query_result = sqlx::query_as(query)
+            .bind(next_version)
+            .bind(self.network_virtualization_type)
+            .bind(self.id)
+            .bind(current_version)
+            .fetch_one(txn.deref_mut())
+            .await;
+
+        match query_result {
+            Ok(r) => Ok(r),
+            Err(sqlx::Error::RowNotFound) => {
+                // TODO(chet): This can actually happen on both invalid ID and invalid
+                // version, so maybe this should be `ObjectNotFoundOrModifiedError`
+                // or similar.
                 Err(CarbideError::ConcurrentModificationError(
                     "vpc",
                     current_version,

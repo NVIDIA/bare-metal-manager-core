@@ -13,6 +13,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, ValueEnum};
+use forge_network::virtualization::VpcVirtualizationType;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::measurement;
@@ -1512,6 +1513,7 @@ pub struct CreateMachinesOptions {
 pub enum VpcOptions {
     #[clap(about = "Display VPC information")]
     Show(ShowVpc),
+    SetVirtualizer(SetVpcVirt),
 }
 
 #[derive(Parser, Debug)]
@@ -1527,6 +1529,14 @@ pub struct ShowVpc {
 
     #[clap(short, long, help = "The VPC name to query")]
     pub name: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct SetVpcVirt {
+    #[clap(help = "The VPC ID for the VPC to update")]
+    pub id: String,
+    #[clap(help = "The virtualizer to use for this VPC")]
+    pub virtualizer: VpcVirtualizationType,
 }
 
 #[derive(Parser, Debug)]

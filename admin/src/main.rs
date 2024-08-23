@@ -952,6 +952,9 @@ async fn main() -> color_eyre::Result<()> {
             VpcOptions::Show(vpc) => {
                 vpc::handle_show(vpc, config.format, api_config, config.internal_page_size).await?
             }
+            VpcOptions::SetVirtualizer(set_vpc_virt) => {
+                vpc::set_network_virtualization_type(api_config, set_vpc_virt).await?
+            }
         },
         CarbideCommand::IbPartition(ibp) => match ibp {
             IbPartitionOptions::Show(ibp) => {

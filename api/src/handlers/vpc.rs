@@ -14,7 +14,9 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
-use crate::db::vpc::{NewVpc, UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter};
+use crate::db::vpc::{
+    NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcId, VpcIdKeyedObjectFilter,
+};
 use crate::db::DatabaseError;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
@@ -81,6 +83,38 @@ pub(crate) async fn update(
     })?;
 
     Ok(Response::new(rpc::VpcUpdateResult {}))
+}
+
+pub(crate) async fn update_virtualization(
+    api: &Api,
+    request: Request<rpc::VpcUpdateVirtualizationRequest>,
+) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
+    })?;
+
+    let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
+
+    let instances = Vpc::list_instance_ids(&mut txn, updater.id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    if !instances.is_empty() {
+        return Err(CarbideError::GenericError(format!(
+            "cannot modify VPC virtualization type in VPC with existing instances (found: {})",
+            instances.len()
+        ))
+        .into());
+    }
+    updater.update(&mut txn).await?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(file!(), line!(), "commit update_vpc", e))
+    })?;
+
+    Ok(Response::new(rpc::VpcUpdateVirtualizationResult {}))
 }
 
 pub(crate) async fn delete(

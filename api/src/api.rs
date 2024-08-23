@@ -172,6 +172,13 @@ impl Forge for Api {
         crate::handlers::vpc::update(self, request).await
     }
 
+    async fn update_vpc_virtualization(
+        &self,
+        request: Request<rpc::VpcUpdateVirtualizationRequest>,
+    ) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
+        crate::handlers::vpc::update_virtualization(self, request).await
+    }
+
     async fn delete_vpc(
         &self,
         request: Request<rpc::VpcDeletionRequest>,
