@@ -16,7 +16,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::Uuid;
@@ -43,7 +43,7 @@ use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterS
 use crate::instrumentation::{create_metrics, get_metrics_router, MetricsState, WithTracingLayer};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
-use crate::util::UrlResolver;
+use crate::util::{get_host_boot_timestamp, UrlResolver};
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
@@ -60,6 +60,8 @@ pub async fn run(
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
+
+    let process_start_time = SystemTime::now();
 
     let mut term_signal = signal(SignalKind::terminate())?;
     let mut hup_signal = signal(SignalKind::hangup())?;
@@ -98,6 +100,29 @@ pub async fn run(
             .ok()
         })
         .flatten();
+
+    // Some of these metrics only need to be set once, let's take care of them
+    // now.
+    if let Some(ref metrics) = metrics {
+        match process_start_time.duration_since(UNIX_EPOCH) {
+            Ok(time_since_epoch) => {
+                let timestamp = time_since_epoch.as_secs();
+                metrics.record_agent_start_time(timestamp);
+            }
+            Err(e) => {
+                tracing::warn!("Error calculating process start timestamp: {e:#}");
+            }
+        }
+
+        match get_host_boot_timestamp() {
+            Ok(timestamp) => {
+                metrics.record_machine_boot_time(timestamp);
+            }
+            Err(e) => {
+                tracing::warn!("Error getting host boot timestamp: {e:#}");
+            }
+        }
+    }
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
         "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"

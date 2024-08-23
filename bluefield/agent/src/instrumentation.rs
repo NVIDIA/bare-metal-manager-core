@@ -9,7 +9,7 @@ use axum::routing::get;
 use axum::Router;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Request, Response};
-use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge};
+use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter, ObservableGauge};
 use opentelemetry::KeyValue;
 use tower::ServiceBuilder;
 use tracing::Span;
@@ -18,6 +18,9 @@ use prometheus::{Encoder, TextEncoder};
 
 pub struct MetricsState {
     meter: Meter,
+
+    agent_start_time: Gauge<u64>,
+    machine_boot_time: Gauge<u64>,
 
     http_counter: Counter<u64>,
     http_req_latency_histogram: Histogram<f64>,
@@ -35,6 +38,16 @@ pub struct MetricsState {
 }
 
 impl MetricsState {
+    // Record the boot time of the machine we're running on as a Unix timestamp.
+    pub fn record_machine_boot_time(&self, timestamp: u64) {
+        self.machine_boot_time.record(timestamp, &[]);
+    }
+
+    // Record the agent process's start time as a Unix timestamp.
+    pub fn record_agent_start_time(&self, timestamp: u64) {
+        self.agent_start_time.record(timestamp, &[]);
+    }
+
     /// Records network latency between two DPUs as milliseconds.
     ///
     /// # Parameters
@@ -151,6 +164,15 @@ impl MetricsState {
 }
 
 pub fn create_metrics(meter: Meter, machine_id: String) -> Arc<MetricsState> {
+    let machine_boot_time = meter
+        .u64_gauge("machine_boot_time_seconds")
+        .with_description("Timestamp of this machine's last boot")
+        .init();
+    let agent_start_time = meter
+        .u64_gauge("agent_start_time_seconds")
+        .with_description("Timestamp of the agent process's last start")
+        .init();
+
     let http_counter = meter
         .u64_counter("http_requests")
         .with_description("Total number of HTTP requests made.")
@@ -185,6 +207,8 @@ pub fn create_metrics(meter: Meter, machine_id: String) -> Arc<MetricsState> {
 
     Arc::new(MetricsState {
         meter: meter.clone(),
+        machine_boot_time,
+        agent_start_time,
         network_reachable_map: ArcSwapOption::const_empty(),
         http_counter,
         http_req_latency_histogram,
