@@ -599,7 +599,6 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?
             }
-            DpuAction::Reset(options) => dpu::trigger_reset(options.id, api_config).await?,
         },
         CarbideCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {

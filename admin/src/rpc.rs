@@ -17,8 +17,8 @@ use std::str::FromStr;
 
 use ::rpc::forge::redfish_power_control_request::SystemPowerControl;
 use ::rpc::forge::{
-    self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSegmentSearchConfig, VpcVirtualizationType,
+    self as rpc, MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
+    NetworkSegmentSearchConfig, VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -1515,23 +1515,6 @@ pub async fn set_dynamic_config(
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())
-    })
-    .await
-}
-
-pub async fn trigger_dpu_reset(
-    id: String,
-    api_config: &ApiConfig<'_>,
-) -> Result<DpuResetResponse, CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DpuResetRequest {
-            dpu_id: Some(::rpc::common::MachineId { id }),
-        });
-        client
-            .trigger_dpu_reset(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
     })
     .await
 }
