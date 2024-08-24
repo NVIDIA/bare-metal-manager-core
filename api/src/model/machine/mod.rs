@@ -1367,7 +1367,7 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             attached_dpu_machine_id: machine_interface
                 .attached_dpu_machine_id
                 .map(|id| id.to_string().into()),
-            machine_id: machine_interface.machine_id.map(|id| id.to_string().into()),
+            machine_id: machine_interface.machine_id.map(|id| id.into()),
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname,
             domain_id: machine_interface.domain_id.map(|d| d.into()),

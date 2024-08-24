@@ -18,6 +18,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 use super::machine_interface::MachineInterfaceId;
 use super::DatabaseError;
+use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use crate::CarbideResult;
 
@@ -38,7 +39,7 @@ pub struct LinkedExpectedMachine {
     pub bmc_mac_address: MacAddress, // from expected_machines table
     pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
     pub address: Option<String>,     // The explored endpoint
-    pub machine_id: Option<String>,  // The machine
+    pub machine_id: Option<MachineId>, // The machine
 }
 
 impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
@@ -48,9 +49,7 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
             bmc_mac_address: m.bmc_mac_address.to_string(),
             interface_id: m.interface_id.map(|u| u.to_string()),
             explored_endpoint_address: m.address,
-            machine_id: m
-                .machine_id
-                .map(|id| rpc::common::MachineId { id: id.to_string() }),
+            machine_id: m.machine_id.map(|id| id.into()),
         }
     }
 }

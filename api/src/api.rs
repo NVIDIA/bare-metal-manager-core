@@ -1019,10 +1019,7 @@ impl Forge for Api {
             .map_err(CarbideError::from)?;
 
         Ok(tonic::Response::new(::rpc::common::MachineIdList {
-            machine_ids: machine_ids
-                .into_iter()
-                .map(|id| ::rpc::common::MachineId { id: id.to_string() })
-                .collect(),
+            machine_ids: machine_ids.into_iter().map(|id| id.into()).collect(),
         }))
     }
 
@@ -1239,9 +1236,7 @@ impl Forge for Api {
                 };
                 match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
                     Ok(Some(machine_id)) => {
-                        let rpc_machine_id = Some(::rpc::common::MachineId {
-                            id: machine_id.to_string(),
-                        });
+                        let rpc_machine_id = Some(machine_id.clone().into());
                         interface.is_bmc = Some(true);
                         match machine_id.machine_type() {
                             MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
@@ -3072,9 +3067,7 @@ impl Forge for Api {
             pairs: pairs
                 .into_iter()
                 .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
-                    machine_id: Some(::rpc::common::MachineId {
-                        id: machine_id.to_string(),
-                    }),
+                    machine_id: Some(machine_id.clone().into()),
                     bmc_ip,
                 })
                 .collect(),
