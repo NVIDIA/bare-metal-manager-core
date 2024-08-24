@@ -37,7 +37,7 @@
 					<a href="/admin/machine/health/{{ m.id }}">{{ m.health_probe_alerts }}</a>
 				</div>
 			</td>
-			<td>{{ m.override_mode_counts }}</td>
+			<td><a href="/admin/machine/health/{{ m.id }}">{{ m.override_mode_counts }}</a></td>
 			<td>{% if m.is_host %}
 				{% for dpu_id in m.associated_dpu_ids %}
 				{{ dpu_id|machine_id_link|safe }}
