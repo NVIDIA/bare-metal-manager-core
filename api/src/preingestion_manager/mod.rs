@@ -58,7 +58,7 @@ struct PreingestionManagerStatic {
 
 impl PreingestionManager {
     const DB_LOCK_QUERY: &'static str =
-         "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer);";
+         "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer)";
 
     pub fn new(
         database_connection: sqlx::PgPool,

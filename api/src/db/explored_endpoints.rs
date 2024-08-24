@@ -146,7 +146,7 @@ impl DbExploredEndpoint {
         let query = "SELECT * FROM explored_endpoints
                         WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
                             AND waiting_for_explorer_refresh = false
-                            AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null');"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
+                            AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null')"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(txn.deref_mut())
@@ -166,7 +166,7 @@ impl DbExploredEndpoint {
     pub async fn find_preingest_installing(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"';";
+        let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(txn.deref_mut())
@@ -187,7 +187,7 @@ impl DbExploredEndpoint {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
         let query =
-            "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"complete\"';";
+            "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"complete\"'";
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(txn.deref_mut())
@@ -208,7 +208,7 @@ impl DbExploredEndpoint {
         address: IpAddr,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE address = $1;";
+        let query = "SELECT * FROM explored_endpoints WHERE address = $1";
 
         sqlx::query_as::<_, Self>(query)
             .bind(address)
@@ -275,7 +275,7 @@ WHERE address = $3 AND version=$4";
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<bool, DatabaseError> {
         let query =
-            "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address;";
+            "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address";
         let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
             .bind(address)
             .bind(version)
@@ -297,7 +297,7 @@ WHERE address = $3 AND version=$4";
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1;";
+            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1";
         sqlx::query(query)
             .bind(address)
             .execute(txn.deref_mut())
@@ -312,7 +312,7 @@ WHERE address = $3 AND version=$4";
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = false WHERE address = $1;";
+            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = false WHERE address = $1";
         sqlx::query(query)
             .bind(address)
             .execute(txn.deref_mut())
@@ -326,7 +326,7 @@ WHERE address = $3 AND version=$4";
         state: PreingestionState,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE explored_endpoints SET preingestion_state = $1 WHERE address = $2;";
+        let query = "UPDATE explored_endpoints SET preingestion_state = $1 WHERE address = $2";
         sqlx::query(query)
             .bind(sqlx::types::Json(&state))
             .bind(address)

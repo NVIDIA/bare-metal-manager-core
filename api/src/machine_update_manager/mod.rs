@@ -63,7 +63,7 @@ pub struct MachineUpdateManager {
 impl MachineUpdateManager {
     const DB_LOCK_NAME: &'static str = "machine_update_lock";
     const DB_LOCK_QUERY: &'static str =
-        "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer);";
+        "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer)";
     const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 0;
 
     /// create a MachineUpdateManager with provided modules, overriding the default.
