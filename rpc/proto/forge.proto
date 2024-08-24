@@ -1559,6 +1559,8 @@ message Machine {
   repeated HealthOverrideOrigin health_overrides = 29;
 
   optional bool firmware_autoupdate = 28;
+
+  optional string failure_details = 30;
 }
 
 message DpuAgentInventoryReport {

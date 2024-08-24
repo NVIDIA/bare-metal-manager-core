@@ -33,6 +33,13 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
         ("STATE", machine.state.clone().to_uppercase()),
         ("STATE_VERSION", machine.state_version.clone()),
         ("MACHINE TYPE", get_machine_type(&machine_id)),
+        (
+            "FAILURE",
+            machine
+                .failure_details
+                .clone()
+                .unwrap_or("None".to_string()),
+        ),
     ];
     if let Some(di) = machine.discovery_info.as_ref() {
         if let Some(dmi) = di.dmi_data.as_ref() {
