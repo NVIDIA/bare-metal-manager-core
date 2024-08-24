@@ -167,13 +167,16 @@ impl BmcMetaDataUpdateRequest {
         // A entry with same machine id is already created by discover_machine call.
         // Just update json by adding a ipmi_ip entry.
         let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
-        let _: Option<(MachineId,)> = sqlx::query_as(query)
+        sqlx::query_as::<_, MachineId>(query)
             .bind(json!(bmc_info))
             .bind(self.machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine_topologies.machine_id",
+                id: self.machine_id.to_string(),
+            })?;
         Ok(())
     }
 
