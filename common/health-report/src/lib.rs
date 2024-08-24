@@ -64,12 +64,12 @@ impl HealthReport {
 
     /// Returns a health report that indicates that no fresh data health data
     /// has been received from a certain subsystem
-    pub fn heartbeat_timeout(source: String, message: String) -> Self {
+    pub fn heartbeat_timeout(source: String, target: String, message: String) -> Self {
         Self {
             source,
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
-            alerts: vec![HealthProbeAlert::heartbeat_timeout(message)],
+            alerts: vec![HealthProbeAlert::heartbeat_timeout(target, message)],
         }
     }
 
@@ -216,10 +216,10 @@ pub struct HealthProbeAlert {
 
 impl HealthProbeAlert {
     /// Creates a HeartbeatTimeout alert
-    pub fn heartbeat_timeout(message: String) -> Self {
+    pub fn heartbeat_timeout(target: String, message: String) -> Self {
         Self {
             id: HealthProbeId::heartbeat_timeout(),
-            target: None,
+            target: Some(target),
             in_alert_since: Some(chrono::Utc::now()),
             message,
             tenant_message: None,
