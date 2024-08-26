@@ -28,7 +28,7 @@ if_state --> DpuDiscoveringState: True
     DPU_Init --> DPU_WaitingForNetworkInstall: Rebooted and discovered
     DPU_WaitingForNetworkInstall --> DPU_WaitingForNetworkConfig: Rebooted
   }
-  DPU_WaitingForNetworkConfig --> HostNotReady: DPU acknowledged newest network configuration is fetched \nand applied and DPU healthy status is good
+  DPU_WaitingForNetworkConfig --> HostNotReady: DPU acknowledged newest network configuration is fetched \nand applied and aggregate health status is good
   state HostNotReady {
     [*] --> Host_WaitingForDiscovery
     Host_WaitingForDiscovery --> WaitingForLockdown: Discovery is Successful.
@@ -66,7 +66,7 @@ if_state --> DpuDiscoveringState: True
     Reprov_BufferTime --> Reprov_WaitingForNetworkConfig: Wait time over
   }
 
-  Reprov_WaitingForNetworkConfig --> Host_Discovered: DPU acknowledged newest network configuration is fetched \nand applied and DPU healthy status is good
+  Reprov_WaitingForNetworkConfig --> Host_Discovered: DPU acknowledged newest network configuration is fetched \nand applied and aggregate health status is good
 
 %% Anystate can move to Failed State based on failure cause.
   DPUNotReady       --> Failed         : On Failure
