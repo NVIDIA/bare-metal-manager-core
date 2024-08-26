@@ -1529,6 +1529,12 @@ pub struct ShowVpc {
 
     #[clap(short, long, help = "The VPC name to query")]
     pub name: Option<String>,
+
+    #[clap(long, help = "The key of VPC label to query")]
+    pub label_key: Option<String>,
+
+    #[clap(long, help = "The value of VPC label to query")]
+    pub label_value: Option<String>,
 }
 
 #[derive(Parser, Debug)]

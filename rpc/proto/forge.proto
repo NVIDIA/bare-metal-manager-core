@@ -614,6 +614,7 @@ message VpcSearchQuery {
 message VpcSearchFilter {
   optional string name = 1;
   optional string tenant_org_id = 2;
+  optional Label label = 3;
 }
 
 message VpcIdList {

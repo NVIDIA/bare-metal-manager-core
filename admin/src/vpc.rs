@@ -34,6 +34,8 @@ pub async fn handle_show(
             page_size,
             args.tenant_org_id,
             args.name,
+            args.label_key,
+            args.label_value,
         )
         .await?;
         return Ok(());
@@ -48,12 +50,22 @@ async fn show_vpcs(
     page_size: usize,
     tenant_org_id: Option<String>,
     name: Option<String>,
+    label_key: Option<String>,
+    label_value: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_vpcs =
-        match rpc::get_all_vpcs(api_config, tenant_org_id.clone(), name.clone(), page_size).await {
-            Ok(all_vpcs) => all_vpcs,
-            Err(e) => return Err(e),
-        };
+    let all_vpcs = match rpc::get_all_vpcs(
+        api_config,
+        tenant_org_id.clone(),
+        name.clone(),
+        page_size,
+        label_key,
+        label_value,
+    )
+    .await
+    {
+        Ok(all_vpcs) => all_vpcs,
+        Err(e) => return Err(e),
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&all_vpcs).unwrap());
     } else {
@@ -95,15 +107,34 @@ async fn show_vpc_details(
 fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["Id", "Name", "TenantOrg", "Version", "Created",]);
+    table.set_titles(row![
+        "Id",
+        "Name",
+        "TenantOrg",
+        "Version",
+        "Created",
+        "Labels",
+    ]);
+    let default_metadata = Default::default();
 
     for vpc in vpcs.vpcs {
+        let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
         table.add_row(row![
             vpc.id.unwrap_or_default(),
             vpc.name,
             vpc.tenant_organization_id,
             vpc.version,
             vpc.created.unwrap_or_default(),
+            metadata
+                .labels
+                .iter()
+                .map(|label| {
+                    let key = &label.key;
+                    let value = label.value.clone().unwrap_or_default();
+                    format!("{}:{}", key, value)
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
         ]);
     }
 
