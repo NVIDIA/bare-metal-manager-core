@@ -181,7 +181,7 @@ impl GroupingKey {
     fn header(&self) -> &'static str {
         match self {
             GroupingKey::HostMemory => "Host Memory (GiB)",
-            GroupingKey::Health => "DPU Health",
+            GroupingKey::Health => "Health",
             GroupingKey::NumGPUs => "GPU #",
             GroupingKey::NumIBIFs => "IB IFs #",
             GroupingKey::State => "State",
