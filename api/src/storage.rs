@@ -10,6 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::cmp::Ordering;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use libnvmesh::{Nvmesh, NvmeshApiError};
+use sqlx::{Postgres, Transaction};
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
 use crate::api::Api;
 use crate::db::DatabaseError;
 use crate::model::machine::machine_id::MachineId;
@@ -20,14 +30,6 @@ use crate::model::storage::{
 };
 use crate::model::tenant::TenantOrganizationId;
 use crate::CarbideError;
-use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use libnvmesh::{Nvmesh, NvmeshApiError};
-use sqlx::{Postgres, Transaction};
-use std::cmp::Ordering;
-use std::sync::Arc;
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {
@@ -1391,7 +1393,7 @@ impl Nvmesh for NvmeshSimClient {
         &self,
         _response: Option<libnvmesh::nvmesh_model::ApiReply>,
         _url: &str,
-        _status: http::status::StatusCode,
+        _status: hyper::http::status::StatusCode,
     ) -> Result<(), NvmeshApiError> {
         todo!()
     }
@@ -1400,7 +1402,7 @@ impl Nvmesh for NvmeshSimClient {
         &self,
         _response: Option<libnvmesh::nvmesh_model::ApiReply>,
         _url: &str,
-        _status: http::status::StatusCode,
+        _status: hyper::http::status::StatusCode,
     ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
         todo!()
     }

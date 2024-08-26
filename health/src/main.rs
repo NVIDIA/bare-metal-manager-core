@@ -9,29 +9,22 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use cfg::Options;
-use chrono::{DateTime, Utc};
-use eyre::Result;
-use prometheus::{Encoder, TextEncoder};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
+use cfg::Options;
+use chrono::{DateTime, Utc};
+use eyre::Result;
 use forge_tls::client_config::ClientCert;
-
-use http::header::CONTENT_LENGTH;
 use hyper::{
-    header::CONTENT_TYPE,
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server,
 };
@@ -41,8 +34,12 @@ use opentelemetry::metrics::ObservableGauge;
 use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::MeterProvider;
-
+use prometheus::{Encoder, TextEncoder};
 use tracing::error;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 mod cfg;
 mod metrics;

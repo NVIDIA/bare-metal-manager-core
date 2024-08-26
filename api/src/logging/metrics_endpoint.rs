@@ -13,9 +13,8 @@
 use std::sync::Arc;
 use std::{convert::Infallible, net::SocketAddr};
 
-use http::header::CONTENT_LENGTH;
 use hyper::{
-    header::CONTENT_TYPE,
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server,
 };

@@ -14,7 +14,7 @@ use std::{fmt, io};
 use futures_util::future::Either;
 use futures_util::ready;
 use hickory_resolver::Name;
-use http::uri::Scheme;
+use hyper::http::uri::Scheme;
 use hyper::http::Uri;
 use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};

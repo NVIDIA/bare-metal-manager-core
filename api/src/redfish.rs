@@ -24,7 +24,6 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
     TestCredentialProvider,
 };
-use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
     model::{
         secure_boot::SecureBootMode,
@@ -62,8 +61,8 @@ pub enum RedfishClientCreationError {
     NotImplemented,
     #[error(transparent)]
     IdentifyError(#[from] crate::site_explorer::IdentifyError),
-    #[error("Invalid Header")]
-    InvalidHeader(#[from] InvalidHeaderName),
+    #[error("Invalid Header {0}")]
+    InvalidHeader(String),
     #[error("Failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: eyre::Report },
     #[error("Missing Arguments: {0}")]
@@ -460,8 +459,8 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             // originally going to use, using the HTTP "Forwarded" header:
             // https://datatracker.ietf.org/doc/html/rfc7239
             vec![(
-                HeaderName::from_str("forwarded")
-                    .map_err(RedfishClientCreationError::InvalidHeader)?,
+                http::HeaderName::from_str("forwarded")
+                    .map_err(|err| RedfishClientCreationError::InvalidHeader(err.to_string()))?,
                 format!("host={original_host}"),
             )]
         } else {
@@ -549,7 +548,7 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    async fn forge_setup(&self) -> Result<(), RedfishError> {
+    async fn forge_setup(&self, _boot_interface_mac: Option<&str>) -> Result<(), RedfishError> {
         Ok(())
     }
 
@@ -872,7 +871,7 @@ impl Redfish for RedfishSimClient {
         if state.users.contains_key(username) {
             return Err(RedfishError::HTTPErrorCode {
                 url: "AccountService/Accounts".to_string(),
-                status_code: StatusCode::BAD_REQUEST,
+                status_code: http::StatusCode::BAD_REQUEST,
                 response_body: format!(
                     r##"{{
                 "UserName@Message.ExtendedInfo": [
@@ -1081,7 +1080,7 @@ impl Redfish for RedfishSimClient {
 
     async fn set_boot_order_dpu_first(
         &self,
-        _mac_address: Option<String>,
+        _mac_address: Option<&str>,
     ) -> Result<(), RedfishError> {
         Ok(())
     }
@@ -1129,6 +1128,14 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_gpu_sensors(&self) -> Result<Vec<GPUSensors>, RedfishError> {
+        todo!();
+    }
+
+    async fn is_ipmi_over_lan_enabled(&self) -> Result<bool, RedfishError> {
+        todo!();
+    }
+
+    async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
         todo!();
     }
 }

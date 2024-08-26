@@ -1,6 +1,6 @@
 use axum::body::Body;
-use http::StatusCode;
 use hyper::body::HttpBody;
+use hyper::http::StatusCode;
 use tower::ServiceExt;
 use utils::ManagedHostOutput;
 
