@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -179,6 +179,7 @@ pub async fn listen_and_serve(
     };
 
     let router = axum::Router::new()
+        .route("/", axum::routing::get(root_url))
         .route_service(
             "/forge.Forge/*rpc",
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
@@ -306,4 +307,14 @@ pub async fn listen_and_serve(
             }
         })?;
     }
+}
+
+/// Handle the root URL. Health check services often expect a 200 here.
+async fn root_url() -> &'static str {
+    const ROOT_CONTENTS: &str = if forge_version::literal!(build_version).is_empty() {
+        "Forge development build\n"
+    } else {
+        concat!("Forge ", forge_version::literal!(build_version), "\n")
+    };
+    ROOT_CONTENTS
 }
