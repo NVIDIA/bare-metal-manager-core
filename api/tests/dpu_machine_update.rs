@@ -321,12 +321,13 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     let dpu_machine_id = all_dpus[0].id().clone();
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
-        &DpuMachineUpdate {
+        &host_machine_id,
+        &[DpuMachineUpdate {
             host_machine_id: host_machine_id.clone(),
             dpu_machine_id: all_dpus[0].id().clone(),
             firmware_version: "test_version".to_string(),
             product_name: "BlueField SoC".to_string(),
-        },
+        }],
         expected_dpu_firmware_versions.clone(),
     )
     .await
@@ -381,24 +382,21 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
-        &DpuMachineUpdate {
-            host_machine_id: host_machine_id.clone(),
-            dpu_machine_id: all_dpus[1].id().clone(),
-            firmware_version: "test_version".to_string(),
-            product_name: "BlueField SoC".to_string(),
-        },
-        expected_dpu_firmware_versions.clone(),
-    )
-    .await
-    .unwrap();
-    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
-        &mut txn,
-        &DpuMachineUpdate {
-            host_machine_id: host_machine_id.clone(),
-            dpu_machine_id: all_dpus[0].id().clone(),
-            firmware_version: "test_version".to_string(),
-            product_name: "BlueField SoC".to_string(),
-        },
+        &host_machine_id,
+        &[
+            DpuMachineUpdate {
+                host_machine_id: host_machine_id.clone(),
+                dpu_machine_id: all_dpus[1].id().clone(),
+                firmware_version: "test_version".to_string(),
+                product_name: "BlueField SoC".to_string(),
+            },
+            DpuMachineUpdate {
+                host_machine_id: host_machine_id.clone(),
+                dpu_machine_id: all_dpus[0].id().clone(),
+                firmware_version: "test_version".to_string(),
+                product_name: "BlueField SoC".to_string(),
+            },
+        ],
         expected_dpu_firmware_versions.clone(),
     )
     .await
