@@ -160,7 +160,8 @@ pub struct ManagedHostOutput {
     pub maintenance_start_time: Option<String>,
     pub host_last_reboot_time: Option<String>,
     pub host_last_reboot_requested_time_and_mode: Option<String>,
-    pub is_network_healthy: bool,
+    pub health: health_report::HealthReport,
+    pub health_overrides: Vec<String>,
     pub dpus: Vec<ManagedHostAttachedDpu>,
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
@@ -436,8 +437,6 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 .unwrap_or(vec![])
         };
 
-        let mut is_network_healthy = true;
-
         for dpu_machine_id in dpu_machine_ids {
             let Some(dpu_machine) = dpu_map.get(&dpu_machine_id.id) else {
                 tracing::warn!(
@@ -458,13 +457,6 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                     None
                 }
             });
-
-            // Network health is in observation, on DPU, but it relates to
-            // the managed host as a whole.
-            is_network_healthy &= match &dpu_machine.network_health {
-                Some(h) => h.is_healthy,
-                None => false,
-            };
 
             if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
                 managed_host_output.exploration_report =
@@ -501,7 +493,29 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
             }
         }
 
-        managed_host_output.is_network_healthy = is_network_healthy;
+        managed_host_output.health = machine
+            .health
+            .as_ref()
+            .map(|h| {
+                health_report::HealthReport::try_from(h.clone()).unwrap_or_else(|e| {
+                    let mut h = health_report::HealthReport::empty("Parsing Error".to_string());
+                    h.alerts.push(health_report::HealthProbeAlert {
+                        id: "ParsingError".parse().unwrap(),
+                        target: None,
+                        in_alert_since: None,
+                        message: format!("Could not parse RPC health report: {e}"),
+                        tenant_message: None,
+                        classifications: vec![],
+                    });
+                    h
+                })
+            })
+            .unwrap_or_default();
+        managed_host_output.health_overrides = machine
+            .health_overrides
+            .iter()
+            .map(|o| o.source.clone())
+            .collect();
 
         managed_host_output.dpus = dpus;
         result.push(managed_host_output);

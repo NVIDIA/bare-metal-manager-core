@@ -16,11 +16,11 @@
 
 <form id="filter-container" action="" method="get">
 	<div>
-		<label for="health-filter">DPU health</label>
-		<select id="health-filter" name="health-filter">
+		<label for="health-alerts-filter">DPU health</label>
+		<select id="health-alerts-filter" name="health-alerts-filter">
 			<option value="all">All</option>
-			<option value="healthy" {% if active_health_filter == "healthy" %}selected{% endif %}>Healthy</option>
-			<option value="unhealthy" {% if active_health_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
+			<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
+			<option value="unhealthy" {% if active_health_alerts_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
 		</select>
 	</div>
 	<div>

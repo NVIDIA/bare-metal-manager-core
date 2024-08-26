@@ -15,6 +15,8 @@
  * Askama makes all these functions accessible as template filters.
  */
 
+use std::collections::BTreeSet;
+
 use askama_escape::Escaper;
 
 /// Generates HTML links for Machine IDs
@@ -69,6 +71,50 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> 
             askama_escape::Html.write_escaped(&mut result, value)?;
         }
     }
+    Ok(result)
+}
+
+/// Formats a list of Health Probe Alerts
+/// If there is no alert, the generated String will be "None"
+pub fn health_alerts_fmt(alerts: &[health_report::HealthProbeAlert]) -> ::askama::Result<String> {
+    if alerts.is_empty() {
+        return Ok("None".to_string());
+    }
+
+    let mut result = String::new();
+    for alert in alerts.iter() {
+        if !result.is_empty() {
+            result += "<br>";
+        }
+        askama_escape::Html.write_escaped(&mut result, &alert.id.to_string())?;
+        if let Some(target) = alert.target.as_ref() {
+            result += "[Target: ";
+            askama_escape::Html.write_escaped(&mut result, target)?;
+            result.push(']');
+        }
+    }
+    Ok(result)
+}
+
+/// Formats a list of Health Alert Classifications
+/// If there is no alert, the generated String will be empty
+pub fn health_alert_classifications_fmt(
+    alerts: &[health_report::HealthProbeAlert],
+) -> ::askama::Result<String> {
+    let mut result = String::new();
+    let mut classifications = BTreeSet::new();
+
+    for alert in alerts.iter() {
+        classifications.extend(alert.classifications.iter());
+    }
+
+    for classification in classifications.iter() {
+        if !result.is_empty() {
+            result += "<br>";
+        }
+        askama_escape::Html.write_escaped(&mut result, &classification.to_string())?;
+    }
+
     Ok(result)
 }
 

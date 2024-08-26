@@ -8,7 +8,8 @@
 				<th>Maintenance Start</th>
 			{% endif %}
 			<th>State</th>
-			<th>DPU Health</th>
+			<th>Health Alerts</th>
+			<th>Health Overrides #</th>
 			<th>IPs</th>
 			<th>MACs</th>
 			{% if active_maintenance_filter != "maintenance" %}
@@ -28,7 +29,14 @@
 				<td>{{ host.maintenance_start_time }}</td>
 			{% endif %}
 			<td title="{{ host.state_reason }}">{{ host.state }}</td>
-			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
+			<td>
+				{% if host.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
+					<a href="/admin/machine/health/{{ host.machine_id }}">
+						{{ host.health_probe_alerts|health_alerts_fmt|safe }}
+					</a>
+				</div>
+			</td>
+			<td><a href="/admin/machine/health/{{ host.machine_id }}">{{ host.health_overrides.len() }}</a></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
 					<tr><th>Host BMC</th><td><a href="/admin/explored-endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>

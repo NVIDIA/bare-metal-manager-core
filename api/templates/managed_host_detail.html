@@ -35,6 +35,34 @@
 	</tr>
 </table>
 
+<h2>Health</h2>
+<table>
+	<tr><th>Report Source</th><td>{{ health.source }}</td></tr>
+	<tr><th>Report Observed At</th><td>{% match health.observed_at %}{% when Some with (observed_at) %} {{ observed_at }} {% else %}{% endmatch %}</td></tr>
+	<tr>
+		<th>Health Probe Alerts</th>
+		<td>
+			{% if health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
+			<a href="/admin/machine/health/{{ machine_id }}">
+				{{ health.alerts|health_alerts_fmt|safe }}
+			</a>
+			</div>
+		</td>
+	</tr>
+	<tr>
+		<th>Health Alert Classifications</th>
+		<td>{{ health.alerts|health_alert_classifications_fmt|safe }}</td>
+	</tr>
+	<tr>
+		<th>Health Overrides</th>
+		<td>
+			<a href="/admin/machine/health/{{ machine_id }}">
+				{{ health_overrides|join("\n")|linebreaksbr|safe }}
+			</a>
+		</td>
+	</tr>
+</table>
+
 <h2>Host</h2>
 
 <table>
@@ -48,7 +76,6 @@
 	<tr><th>Admin IP</th><td>{{ host_admin_ip }}</td></tr>
 	<tr><th>Admin MAC</th><td>{{ host_admin_mac }}</td></tr>
 	<tr><th>Admin Hostname</th><td>{{ hostname }}</td></tr>
-	<tr><th>Network</th><td>{% if is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy"></div>{{ network_err_message }}{% endif %}</div></td></tr>
 	<tr><th>BMC Version</th><td>{{ host_bmc_version }}</td></tr>
 	<tr><th>BMC Firmware Version</th><td>{{ host_bmc_firmware_version }}</td></tr>
 	<tr><th>BMC IP</th><td><a href="/admin/explored-endpoint/{{ host_bmc_ip }}">{{ host_bmc_ip }}</a></td></tr>

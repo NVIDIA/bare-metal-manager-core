@@ -36,7 +36,7 @@ struct ManagedHostShow {
     hosts: Vec<ManagedHostRowDisplay>,
     grouped_hosts: Option<GroupedHosts>,
     active_group_by: String,
-    active_health_filter: String,
+    active_health_alerts_filter: String,
     active_maintenance_filter: String,
     active_vendor_filter: String,
     vendors: Vec<String>,
@@ -63,13 +63,14 @@ struct HostGroup {
     filter: String,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq)]
 struct ManagedHostRowDisplay {
     machine_id: String,
     state: String,
     time_in_state: String,
     state_reason: String,
-    is_network_healthy: bool,
+    health_probe_alerts: Vec<health_report::HealthProbeAlert>,
+    health_overrides: Vec<String>,
     host_admin_ip: String,
     host_admin_mac: String,
     host_bmc_ip: String,
@@ -83,6 +84,19 @@ struct ManagedHostRowDisplay {
     maintenance_start_time: String,
     network_err_message: String,
     dpus: Vec<AttachedDpuRowDisplay>,
+}
+
+impl PartialOrd for ManagedHostRowDisplay {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ManagedHostRowDisplay {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Since Machine IDs are unique, we don't have to compare by anything else
+        self.machine_id.cmp(&other.machine_id)
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -155,7 +169,7 @@ impl GroupingKey {
     fn filter_name(&self) -> &'static str {
         use GroupingKey::*;
         match self {
-            Health => "health-filter",
+            Health => "health-alerts-filter",
             HostMemory => "mem-filter",
             NumGPUs => "gpu-filter",
             NumIBIFs => "ib-filter",
@@ -186,21 +200,16 @@ impl ManagedHostRowDisplay {
                     filters::machine_id_link(d.machine_id.clone()).unwrap_or("UNKNOWN".to_string())
                 })
                 .collect(),
-            DpuProperty::BmcIp => {
-                if self.is_network_healthy {
-                    self.dpus
-                        .iter()
-                        .map(|d| {
-                            format!(
-                                "<a href=\"/admin/explored_endpoint/{}\">{}</a>",
-                                d.bmc_ip, d.bmc_ip
-                            )
-                        })
-                        .collect()
-                } else {
-                    self.dpus.iter().map(|d| d.bmc_ip.clone()).collect()
-                }
-            }
+            DpuProperty::BmcIp => self
+                .dpus
+                .iter()
+                .map(|d| {
+                    format!(
+                        "<a href=\"/admin/explored_endpoint/{}\">{}</a>",
+                        d.bmc_ip, d.bmc_ip
+                    )
+                })
+                .collect(),
             DpuProperty::BmcMac => self.dpus.iter().map(|d| d.bmc_mac.clone()).collect(),
             DpuProperty::OobIp => self.dpus.iter().map(|d| d.oob_ip.clone()).collect(),
             DpuProperty::OobMac => self.dpus.iter().map(|d| d.oob_mac.clone()).collect(),
@@ -215,7 +224,7 @@ impl ManagedHostRowDisplay {
             match col {
                 HostMemory => k.push(mem_to_size(&self.host_memory).to_string()),
                 Health => {
-                    if self.is_network_healthy {
+                    if self.health_probe_alerts.is_empty() {
                         k.push("Healthy".to_string())
                     } else {
                         k.push("Unhealthy".to_string())
@@ -239,7 +248,8 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             state: o.state,
             time_in_state: o.time_in_state,
             state_reason: o.state_reason,
-            is_network_healthy: o.is_network_healthy,
+            health_probe_alerts: o.health.alerts.clone(),
+            health_overrides: o.health_overrides,
             host_bmc_ip: o.host_bmc_ip.unwrap_or_default(),
             host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
             host_admin_ip: o.host_admin_ip.unwrap_or_default(),
@@ -295,7 +305,9 @@ pub async fn show_html(
         }
     };
 
-    let active_health_filter = params.remove("health-filter").unwrap_or("all".to_string());
+    let active_health_alerts_filter = params
+        .remove("health-alerts-filter")
+        .unwrap_or("all".to_string());
     let active_maintenance_filter = params
         .remove("maintenance-filter")
         .unwrap_or("all".to_string());
@@ -357,11 +369,11 @@ pub async fn show_html(
         if active_mem_filter != -1 && active_mem_filter != barry {
             continue;
         }
-        if active_health_filter != "all" {
-            if active_health_filter == "healthy" && !m.is_network_healthy {
+        if active_health_alerts_filter != "all" {
+            if active_health_alerts_filter == "healthy" && !m.health_probe_alerts.is_empty() {
                 continue;
             }
-            if active_health_filter == "unhealthy" && m.is_network_healthy {
+            if active_health_alerts_filter == "unhealthy" && m.health_probe_alerts.is_empty() {
                 continue;
             }
         }
@@ -393,7 +405,7 @@ pub async fn show_html(
             .partial_cmp(size_b)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let is_filtered = active_health_filter != "all"
+    let is_filtered = active_health_alerts_filter != "all"
         || active_maintenance_filter != "all"
         || active_vendor_filter != "all"
         || active_state_filter != "all"
@@ -404,7 +416,7 @@ pub async fn show_html(
     let tmpl = ManagedHostShow {
         grouped_hosts: group_hosts(&hosts, &group_by),
         active_group_by: GroupingKey::vec_to_params(&group_by),
-        active_health_filter,
+        active_health_alerts_filter,
         active_maintenance_filter,
         hosts,
         active_vendor_filter,
@@ -532,9 +544,8 @@ struct ManagedHostDetail {
     pub maintenance_reference: String,
     pub maintenance_start_time: String,
     pub host_last_reboot_time: String,
-    pub is_network_healthy: bool,
-    pub network_err_message: String,
-
+    pub health: health_report::HealthReport,
+    pub health_overrides: Vec<String>,
     pub dpus: Vec<ManagedHostAttachedDpuDetail>,
 }
 
@@ -597,14 +608,8 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             maintenance_reference: maint_ref,
             maintenance_start_time: m.maintenance_start_time.unwrap_or_default(),
             host_last_reboot_time: m.host_last_reboot_time.unwrap_or(UNKNOWN.to_string()),
-            is_network_healthy: m.is_network_healthy,
-            network_err_message: m
-                .dpus
-                .iter()
-                .filter_map(|x| x.network_error_msg.as_ref().cloned())
-                .collect_vec()
-                .join(", "),
-
+            health: m.health,
+            health_overrides: m.health_overrides,
             dpus: m
                 .dpus
                 .into_iter()
