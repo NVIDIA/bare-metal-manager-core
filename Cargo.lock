@@ -7624,6 +7624,7 @@ dependencies = [
  "config-version",
  "eyre",
  "forge-tls",
+ "health-report",
  "ipnetwork",
  "rpc",
  "serde",

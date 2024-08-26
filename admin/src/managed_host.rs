@@ -291,14 +291,30 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     if m.failure_details.is_some() {
         data.push(("  Failure Details", m.failure_details))
     }
-    if m.is_network_healthy {
-        data.push(("  Network is Healthy", Some("".to_string())));
-    } else {
-        data.push((
-            "  Network Unhealthy. Check DPU for specific details.",
-            Some("".to_string()),
-        ));
-    }
+
+    let mut health_details = vec![
+        ("  Health", Some("".to_string())),
+        (
+            "    Probe Alerts",
+            Some(
+                m.health
+                    .alerts
+                    .iter()
+                    .map(|alert| {
+                        if let Some(target) = &alert.target {
+                            format!("{} [Target: {}]", alert.id, target)
+                        } else {
+                            alert.id.to_string()
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join(","),
+            ),
+        ),
+        ("    Overrides", Some(m.health_overrides.clone().join(","))),
+    ];
+    data.append(&mut health_details);
+
     let mut bmc_details = vec![
         ("  BMC", Some("".to_string())),
         ("    Version", m.host_bmc_version.clone()),

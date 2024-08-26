@@ -260,7 +260,8 @@ struct MachineDetail {
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
-    health: rpc::health::HealthReport,
+    health: health_report::HealthReport,
+    health_overrides: Vec<String>,
 }
 
 struct MachineHistoryDisplay {
@@ -392,12 +393,29 @@ impl From<forgerpc::Machine> for MachineDetail {
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
-            health: m.health.unwrap_or_else(|| rpc::health::HealthReport {
-                source: "missing".to_string(),
-                observed_at: None,
-                successes: vec![],
-                alerts: vec![],
-            }),
+            health: m
+                .health
+                .as_ref()
+                .map(|h| {
+                    health_report::HealthReport::try_from(h.clone()).unwrap_or_else(|e| {
+                        let mut h = health_report::HealthReport::empty("Parsing Error".to_string());
+                        h.alerts.push(health_report::HealthProbeAlert {
+                            id: "ParsingError".parse().unwrap(),
+                            target: None,
+                            in_alert_since: None,
+                            message: format!("Could not parse RPC health report: {e}"),
+                            tenant_message: None,
+                            classifications: vec![],
+                        });
+                        h
+                    })
+                })
+                .unwrap_or_default(),
+            health_overrides: m
+                .health_overrides
+                .iter()
+                .map(|o| o.source.clone())
+                .collect(),
         }
     }
 }

@@ -38,6 +38,12 @@ pub struct HealthReport {
     pub alerts: Vec<HealthProbeAlert>,
 }
 
+impl Default for HealthReport {
+    fn default() -> Self {
+        Self::empty("Default::default".to_string())
+    }
+}
+
 impl HealthReport {
     /// Returns a health report with no successes or errors reported
     pub fn empty(source: String) -> Self {
