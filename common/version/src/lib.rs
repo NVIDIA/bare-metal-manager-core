@@ -41,6 +41,8 @@ pub fn build() {
         .unwrap_or(false);
     if !can_git {
         println!("cargo:warning=No git, version will be blank");
+        // still define it so that we can read it in a build time macro
+        println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG=");
         return;
     }
 
@@ -136,6 +138,7 @@ fn run(cmd: &str, args: &[&str]) -> String {
 }
 
 /// Individual parts of the version. Usage:: forge_version::v!(build_version)
+/// If that part is not present expands to an empty &str
 #[macro_export]
 macro_rules! v {
     (build_version) => {
@@ -155,6 +158,30 @@ macro_rules! v {
     };
     (build_hostname) => {
         option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default()
+    };
+}
+
+/// Same a v! but expands to a literal. That allows using it in `concat!` macro.
+/// Panics if the part is not present. Prefer `v!` above.
+#[macro_export]
+macro_rules! literal {
+    (build_version) => {
+        env!("FORGE_BUILD_GIT_TAG")
+    };
+    (build_date) => {
+        env!("FORGE_BUILD_DATE")
+    };
+    (git_sha) => {
+        env!("FORGE_BUILD_GIT_HASH")
+    };
+    (rust_version) => {
+        env!("FORGE_BUILD_RUSTC_VERSION")
+    };
+    (build_user) => {
+        env!("FORGE_BUILD_USER")
+    };
+    (build_hostname) => {
+        env!("FORGE_BUILD_HOSTNAME")
     };
 }
 
