@@ -99,7 +99,7 @@ dependencies = [
  "prost 0.12.6",
  "rand 0.8.5",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.5",
  "resolv-conf",
  "rpc",
  "rtnetlink",
@@ -865,7 +865,7 @@ dependencies = [
  "prost-types",
  "rand 0.8.5",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.5",
  "rpc",
  "rsa",
  "rustls-pemfile 1.0.4",
@@ -3449,9 +3449,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.23.1"
+version = "0.23.2"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "67d2bbe11626cbf162e3a599494c4a3525f585af26d3bc760a62b9e67974efc1"
+checksum = "255163318e8bda17bd60f6054d62595d05afe7aa8c3440f5d7af196b5e2f355a"
 dependencies = [
  "async-trait",
  "log",
@@ -5858,7 +5858,7 @@ dependencies = [
  "pwhash",
  "rand 0.8.5",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.5",
  "rpc",
  "serde",
  "serde_json",
