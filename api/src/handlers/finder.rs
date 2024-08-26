@@ -85,7 +85,7 @@ pub(crate) async fn identify_uuid(
             id: u.to_string(),
         }
         .into()),
-        Err(err) => Err(CarbideError::from(err).into()),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -395,7 +395,7 @@ async fn search(
     Ok(match_result)
 }
 
-async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, DatabaseError> {
+async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
     let mut txn = api
         .database_connection
         .begin()

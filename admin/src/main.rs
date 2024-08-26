@@ -1147,6 +1147,8 @@ async fn main() -> color_eyre::Result<()> {
                                     id: j.id,
                                     tenant_org_id: None,
                                     name: None,
+                                    label_key: None,
+                                    label_value: None,
                                 },
                                 config.format,
                                 api_config,

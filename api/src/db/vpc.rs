@@ -154,12 +154,6 @@ pub struct UpdateVpcVirtualization {
     pub network_virtualization_type: VpcVirtualizationType,
 }
 
-#[derive(Clone, Debug)]
-pub struct VpcSearchQuery {
-    pub id: Option<VpcId>,
-    pub string: Option<String>,
-}
-
 impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let vpc_labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -233,6 +227,37 @@ impl Vpc {
             builder.push_bind(tenant_org_id);
             has_filter = true;
         }
+        if let Some(label) = filter.label {
+            if has_filter {
+                builder.push(" AND ");
+            }
+            if label.key.is_empty() && label.value.is_some() {
+                builder.push(
+                    " EXISTS (
+                        SELECT 1
+                        FROM jsonb_each_text(labels) AS kv
+                        WHERE kv.value = ",
+                );
+                builder.push_bind(label.value.unwrap());
+                builder.push(")");
+                has_filter = true;
+            } else if label.key.is_empty() && label.value.is_none() {
+                return Err(CarbideError::InvalidArgument(
+                    "finding VPCs based on label needs either key or a value.".to_string(),
+                ));
+            } else if !label.key.is_empty() && label.value.is_none() {
+                builder.push(" labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" IS NOT NULL");
+                has_filter = true;
+            } else if !label.key.is_empty() && label.value.is_some() {
+                builder.push(" labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" = ");
+                builder.push_bind(label.value.unwrap());
+                has_filter = true;
+            }
+        }
         if has_filter {
             builder.push(" AND ");
         }
@@ -262,6 +287,8 @@ impl Vpc {
         Ok(())
     }
 
+    // Note: Following find function should not be used to search based on vpc labels.
+    // Recommended approach to filter by labels is to first find VPC ids.
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: VpcIdKeyedObjectFilter<'_>,

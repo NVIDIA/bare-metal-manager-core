@@ -1719,8 +1719,18 @@ pub async fn get_all_vpcs(
     tenant_org_id: Option<String>,
     name: Option<String>,
     page_size: usize,
+    label_key: Option<String>,
+    label_value: Option<String>,
 ) -> CarbideCliResult<rpc::VpcList> {
-    let all_ids = match get_vpc_ids(api_config, tenant_org_id.clone(), name.clone()).await {
+    let all_ids = match get_vpc_ids(
+        api_config,
+        tenant_org_id.clone(),
+        name.clone(),
+        label_key,
+        label_value,
+    )
+    .await
+    {
         Ok(all_ids) => all_ids,
         Err(CarbideCliError::ApiInvocationError(status))
             if status.code() == tonic::Code::Unimplemented =>
@@ -1769,11 +1779,21 @@ async fn get_vpc_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     name: Option<String>,
+    label_key: Option<String>,
+    label_value: Option<String>,
 ) -> CarbideCliResult<rpc::VpcIdList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::VpcSearchFilter {
             tenant_org_id,
             name,
+            label: if label_key.is_none() && label_value.is_none() {
+                None
+            } else {
+                Some(rpc::Label {
+                    key: label_key.unwrap_or_default().to_string(),
+                    value: label_value,
+                })
+            },
         });
         let ids = client
             .find_vpc_ids(request)

@@ -554,6 +554,7 @@ pub async fn create_network_segment(
             tonic::Request::new(rpc::forge::VpcSearchFilter {
                 tenant_org_id: None,
                 name: Some(vpc_name.clone()),
+                label: None,
             })
         ).await;
 
@@ -632,7 +633,10 @@ pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rp
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{}", vpc_count),
                     description: "".to_string(),
-                    labels: Vec::new(),
+                    labels: vec![rpc::forge::Label {
+                        key: "Forge-simulation-vpc".to_string(),
+                        value: Some("Machine-a-tron".to_string()),
+                    }],
                 }),
             }))
             .await
