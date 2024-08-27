@@ -329,10 +329,7 @@ async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let request = tonic::Request::new(::rpc::common::MachineId {
-        id: dpu_machine_id.to_string(),
-    });
-
+    let request = tonic::Request::new(dpu_machine_id.clone().into());
     let response = env.api.find_instance_by_machine_id(request).await;
     // validate
     assert!(response.is_ok(),);
