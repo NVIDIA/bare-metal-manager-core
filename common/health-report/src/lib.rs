@@ -68,6 +68,26 @@ impl HealthReport {
         self.classifications().any(|c| c == classification)
     }
 
+    /// Returns a health report which indicates that an actually expected health report was absent
+    pub fn missing_report() -> Self {
+        Self {
+            source: "MissingReport".to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::missing_report()],
+        }
+    }
+
+    /// Returns a health report which indicates that a HealthReport could not be parsed
+    pub fn malformed_report(error: impl std::error::Error) -> Self {
+        Self {
+            source: "MalformedReport".to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::malformed_report(error.to_string())],
+        }
+    }
+
     /// Returns a health report that indicates that no fresh data health data
     /// has been received from a certain subsystem
     pub fn heartbeat_timeout(source: String, target: String, message: String) -> Self {
@@ -236,6 +256,30 @@ impl HealthProbeAlert {
         }
     }
 
+    /// Creates a MissingReport alert
+    pub fn missing_report() -> Self {
+        Self {
+            id: HealthProbeId::missing_report(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "A HealthReport is not available".to_string(),
+            tenant_message: None,
+            classifications: vec![],
+        }
+    }
+
+    /// Creates a MalformedReport alert
+    pub fn malformed_report(error: String) -> Self {
+        Self {
+            id: HealthProbeId::malformed_report(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: format!("Health report can not be parsed: {error}"),
+            tenant_message: None,
+            classifications: vec![],
+        }
+    }
+
     /// Merge a HealthProbeAlert with the report from another probe of the same type
     ///
     /// The function does not check whether the Probe ID and target are equivalent.
@@ -294,6 +338,25 @@ impl HealthProbeId {
     /// Returns the ID of the HealthProbe that indicates that no fresh data has been received
     pub fn heartbeat_timeout() -> Self {
         HealthProbeId("HeartbeatTimeout".to_string())
+    }
+
+    /// The alert indicates that no health report was received, where health report
+    /// was expected. It is different from `heartbeat_timeout` in the following sense
+    /// - HeartbeatTimeout alerts can be emitted if data is available, but stale.
+    ///   MissingReport is only emitted if data has never been received.
+    /// - MissingReport is mainly used on the client side. It has no impact on
+    ///   state changes.
+    /// - MissingReport carries no classifications
+    pub fn missing_report() -> Self {
+        HealthProbeId("MissingReport".to_string())
+    }
+
+    /// An alert which can be generated if a HealthReport can not be parsed
+    ///
+    /// This alert should only be used client side if failing to render the health
+    /// report is preferrable to failing the workflow.
+    pub fn malformed_report() -> Self {
+        HealthProbeId("MalformedReport".to_string())
     }
 }
 

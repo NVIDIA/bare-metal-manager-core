@@ -20,7 +20,8 @@
 		<th>Last seen</th>
 		<th>DPU ID</th>
 		{% if active_filter == "unhealthy" %}
-			<th>Check failed</th>
+			<th>Health Probe Alerts</th>
+			<th>Health Alert Classifications/th>
 		{% endif %}
 		<th>Agent version</th>
 		<th>Network config version</th>
@@ -32,7 +33,8 @@
 			<td>{{ st.observed_at }}</td>
 			<td>{{ st.dpu_machine_id|machine_id_link|safe }}</td>
 			{% if active_filter == "unhealthy" %}
-				<td>{{ st.check_failed }}</td>
+				<td>{{ st.health.alerts|health_alerts_fmt|safe }}</td>
+				<td>{{ st.health.alerts|health_alert_classifications_fmt|safe }}</td>
 			{% endif %}
 			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
 			<td>{{ st.network_config_version|config_version|safe }}</td>
@@ -44,6 +46,7 @@
 			<th>{{ dpus.len() }} item{% if dpus.len() != 1 %}s{% endif %}</th>
 			<th></th>
 			{% if active_filter == "unhealthy" %}
+				<th></th>
 				<th></th>
 			{% endif %}
 			<th></th>

@@ -41,24 +41,24 @@ struct NetworkStatusDisplay {
     dpu_machine_id: String,
     network_config_version: String,
     is_healthy: bool,
-    check_failed: String,
+    health: health_report::HealthReport,
     agent_version: String,
     is_agent_updated: bool,
 }
 
 impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
-    fn from(mut st: forgerpc::DpuNetworkStatus) -> Self {
-        let h = st.health.take().unwrap(); // safe, caller filtered
-        let failed_health_check = if !h.failed.is_empty() {
-            format!(
-                "{} ({})",
-                h.failed.first().map(String::as_str).unwrap_or_default(),
-                h.message.unwrap_or_default(),
-            )
-        } else {
-            "".to_string()
-        };
+    fn from(st: forgerpc::DpuNetworkStatus) -> Self {
         let agent_version = st.dpu_agent_version.unwrap_or_default();
+
+        let health = st
+            .dpu_health
+            .as_ref()
+            .map(|h| {
+                health_report::HealthReport::try_from(h.clone())
+                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+            })
+            .unwrap_or_else(health_report::HealthReport::missing_report);
+
         Self {
             observed_at: st
                 .observed_at
@@ -72,8 +72,8 @@ impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
                 .unwrap_or_else(super::invalid_machine_id)
                 .to_string(),
             network_config_version: st.network_config_version.unwrap_or_default(),
-            is_healthy: h.is_healthy,
-            check_failed: failed_health_check,
+            is_healthy: health.alerts.is_empty(),
+            health,
             is_agent_updated: agent_version == forge_version::v!(build_version),
             agent_version,
         }
