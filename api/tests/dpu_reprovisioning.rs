@@ -24,7 +24,7 @@ use common::api_fixtures::managed_host::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DpuResetRequest, MachineArchitecture};
+use rpc::forge::MachineArchitecture;
 
 pub mod common;
 
@@ -2066,73 +2066,6 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     )
     .await;
     txn.commit().await.unwrap();
-
-    env.api
-        .trigger_dpu_reset(tonic::Request::new(DpuResetRequest {
-            dpu_id: Some(rpc::MachineId {
-                id: dpu_machine_id.to_string(),
-            }),
-        }))
-        .await
-        .unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        ManagedHostState::DPUInit {
-            dpu_states: carbide::model::machine::DpuInitStates {
-                states: HashMap::from([(dpu_machine_id.clone(), DpuInitState::Init)]),
-            }
-        }
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
-
-    let arch = rpc::forge::MachineArchitecture::Arm;
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert!(!pxe.pxe_script.contains("exit"));
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
-async fn test_dpu_reset_fail_in_not_dpunotready_state(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-
-    assert!(env
-        .api
-        .trigger_dpu_reset(tonic::Request::new(DpuResetRequest {
-            dpu_id: Some(rpc::MachineId {
-                id: dpu_machine_id.to_string(),
-            }),
-        }))
-        .await
-        .is_err());
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

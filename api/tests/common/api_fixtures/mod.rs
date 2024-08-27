@@ -670,7 +670,6 @@ pub async fn create_test_env_with_config(
         common_pools.clone(),
         ib_fabric_manager.clone(),
         dyn_settings,
-        Arc::new(IPMIToolTestImpl {}),
     ));
 
     let attestation_enabled = false;

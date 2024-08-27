@@ -53,7 +53,6 @@ use crate::handlers::machine_validation::{
     get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
-use crate::ipmitool::IPMITool;
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
@@ -101,7 +100,6 @@ pub struct Api {
     pub(crate) runtime_config: Arc<CarbideConfig>,
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: dynamic_settings::DynamicSettings,
-    ipmi_tool: Arc<dyn IPMITool>,
 }
 
 #[tonic::async_trait]
@@ -2272,120 +2270,6 @@ impl Forge for Api {
         crate::handlers::finder::identify_serial(self, request).await
     }
 
-    /// Trigger DPU reset.
-
-    // This is temporary command added to support MC team. It must be removed once site-explorer
-    // is enabled on all the envs. This command modifies state directly, which can cause conflicts
-    // with state machine.
-    async fn trigger_dpu_reset(
-        &self,
-        request: tonic::Request<rpc::DpuResetRequest>,
-    ) -> Result<tonic::Response<rpc::DpuResetResponse>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let dpu_id = try_parse_machine_id(
-            req.dpu_id
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("DPU ID is missing"))?,
-        )
-        .map_err(CarbideError::from)?;
-
-        log_machine_id(&dpu_id);
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin trigger_dpu_reset ",
-                e,
-            ))
-        })?;
-
-        let dpu = Machine::find_one(
-            &mut txn,
-            &dpu_id,
-            MachineSearchConfig {
-                include_dpus: true,
-                ..MachineSearchConfig::default()
-            },
-        )
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or_else(|| Status::not_found(format!("DPU not found with machine id: {dpu_id}")))?;
-
-        if !dpu.machine_type().is_dpu() {
-            return Err(Status::invalid_argument("Only DPU id is expected."));
-        }
-
-        let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "Host Machine",
-                id: dpu_id.to_string(),
-            })?;
-
-        let state = DpuInitState::Init
-            .next_state(&dpu.current_state(), &dpu_id)
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-
-        let mut message = "Success";
-
-        match dpu.current_state() {
-            ManagedHostState::DPUInit { .. } => {
-                MachineTopology::set_topology_update_needed(&mut txn, &dpu_id, true)
-                    .await
-                    .map_err(CarbideError::from)?;
-
-                Machine::update_state(&mut txn, host.id(), state)
-                    .await
-                    .map_err(CarbideError::from)?;
-
-                if let Some(maybe_bmc_ip) = dpu.bmc_info().ip.as_ref() {
-                    let ip = maybe_bmc_ip.parse().map_err(CarbideError::from)?;
-
-                    let machine_interface_target = db::machine_interface::find_by_ip(&mut txn, ip)
-                        .await
-                        .map_err(CarbideError::from)?
-                        .ok_or_else(|| {
-                            Status::failed_precondition("Found no BMC Mac address for DPU IP")
-                        })?;
-
-                    let credential_key = CredentialKey::BmcCredentials {
-                        credential_type: BmcCredentialType::BmcRoot {
-                            bmc_mac_address: machine_interface_target.mac_address,
-                        },
-                    };
-
-                    self.ipmi_tool
-                        .restart(&dpu_id, ip, true, credential_key)
-                        .await
-                        .map_err(|e: eyre::ErrReport| {
-                            CarbideError::GenericError(format!("Failed to restart DPU: {}", e))
-                        })?;
-                } else {
-                    message = "Can't fetch BMC IP. Reboot DPU manually to continue."
-                }
-            }
-            _ => {
-                return Err(Status::invalid_argument("DPU state is not DPUInit."));
-            }
-        }
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "end trigger_dpu_reset",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::DpuResetResponse {
-            msg: message.to_string(),
-        }))
-    }
-
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
@@ -4154,7 +4038,6 @@ impl Api {
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
         dynamic_settings: dynamic_settings::DynamicSettings,
-        ipmi_tool: Arc<dyn IPMITool>,
     ) -> Self {
         Self {
             database_connection,
@@ -4171,7 +4054,6 @@ impl Api {
                 std::time::Duration::from_secs(60 * 60),
             ),
             dynamic_settings,
-            ipmi_tool,
         }
     }
 

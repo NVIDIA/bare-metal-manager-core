@@ -319,7 +319,6 @@ pub async fn start_api(
         common_pools.clone(),
         ib_fabric_manager.clone(),
         dynamic_settings,
-        ipmi_tool.clone(),
     ));
 
     if let Some(networks) = carbide_config.networks.as_ref() {
