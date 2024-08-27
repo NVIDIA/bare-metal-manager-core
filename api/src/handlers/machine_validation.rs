@@ -273,7 +273,7 @@ pub(crate) async fn add_update_machine_validation_external_config(
         &mut txn,
         &config.name,
         &config.description.unwrap_or_default(),
-        config.config,
+        &config.config,
     )
     .await;
 

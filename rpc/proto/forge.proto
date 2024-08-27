@@ -3172,7 +3172,7 @@ message GetMachineValidationExternalConfigRequest {
 message MachineValidationExternalConfig {
     string name = 1;
     optional string description = 2;
-    google.protobuf.Value config = 3;
+    bytes config = 3;
 }
 
 message  GetMachineValidationExternalConfigResponse {
