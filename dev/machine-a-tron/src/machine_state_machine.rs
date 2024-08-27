@@ -62,6 +62,7 @@ pub enum BmcRegistrationMode {
 #[derive(Debug)]
 enum MachineState {
     BmcInit,
+    BmcOnly(BmcInitializedState),
     MachineDown(MachineDownState),
     Init(InitState),
     DhcpComplete(DhcpCompleteState),
@@ -154,14 +155,26 @@ impl MachineStateMachine {
                 );
 
                 let maybe_bmc_mock_handle = self.run_bmc_mock(dhcp_info.ip_address).await?;
-                Ok(NextState::Advance(MachineState::Init(InitState {
-                    bmc_state: BmcInitializedState {
-                        _bmc_mock_handle: maybe_bmc_mock_handle,
-                        bmc_dhcp_info: dhcp_info,
-                    },
-                    installed_os: OsImage::NoOs,
-                })))
+
+                if self.is_nic_mode_dpu() {
+                    tracing::info!("DPU Running in NicMode, will only run BMC and not PXE boot");
+                    Ok(NextState::Advance(MachineState::BmcOnly(
+                        BmcInitializedState {
+                            _bmc_mock_handle: maybe_bmc_mock_handle,
+                            bmc_dhcp_info: dhcp_info,
+                        },
+                    )))
+                } else {
+                    Ok(NextState::Advance(MachineState::Init(InitState {
+                        bmc_state: BmcInitializedState {
+                            _bmc_mock_handle: maybe_bmc_mock_handle,
+                            bmc_dhcp_info: dhcp_info,
+                        },
+                        installed_os: OsImage::NoOs,
+                    })))
+                }
             }
+            MachineState::BmcOnly(_) => Ok(NextState::SleepFor(Duration::MAX)),
             MachineState::MachineDown(inner_state) => {
                 let reboot_delay_secs = match self.machine_info {
                     MachineInfo::Dpu(_) => self.config.dpu_reboot_delay,
@@ -498,12 +511,13 @@ impl MachineStateMachine {
             since: Instant::now(),
             bmc_state: bmc_state.clone(),
             installed_os: self.installed_os(),
+            bmc_only: self.is_nic_mode_dpu(),
         })
     }
 
     pub fn machine_id(&self) -> Option<&rpc::MachineId> {
         match &self.state {
-            MachineState::BmcInit => None,
+            MachineState::BmcInit | MachineState::BmcOnly(_) => None,
             MachineState::MachineDown(_) => None,
             MachineState::Init(_) => None,
             MachineState::DhcpComplete(_) => None,
@@ -516,7 +530,7 @@ impl MachineStateMachine {
 
     pub fn machine_ip(&self) -> Option<Ipv4Addr> {
         match &self.state {
-            MachineState::BmcInit => None,
+            MachineState::BmcInit | MachineState::BmcOnly(_) => None,
             MachineState::MachineDown(_) => None,
             MachineState::Init(_) => None,
             MachineState::DhcpComplete(s) => Some(s.machine_dhcp_info.ip_address),
@@ -539,6 +553,7 @@ impl MachineStateMachine {
     fn bmc_state(&self) -> Option<&BmcInitializedState> {
         let bmc_state = match &self.state {
             MachineState::BmcInit => return None,
+            MachineState::BmcOnly(ref s) => s,
             MachineState::MachineDown(s) => &s.bmc_state,
             MachineState::Init(s) => &s.bmc_state,
             MachineState::DhcpComplete(s) => &s.bmc_state,
@@ -549,7 +564,7 @@ impl MachineStateMachine {
 
     fn installed_os(&self) -> OsImage {
         match &self.state {
-            MachineState::BmcInit => OsImage::NoOs,
+            MachineState::BmcInit | MachineState::BmcOnly(_) => OsImage::NoOs,
             MachineState::MachineDown(s) => s.installed_os,
             MachineState::Init(s) => s.installed_os,
             MachineState::DhcpComplete(s) => s.installed_os,
@@ -558,7 +573,10 @@ impl MachineStateMachine {
     }
 
     pub fn is_up(&self) -> bool {
-        matches!(self.state, MachineState::MachineUp(_))
+        matches!(
+            &self.state,
+            MachineState::MachineUp(_) | MachineState::BmcOnly(_)
+        )
     }
 
     async fn run_bmc_mock(
@@ -600,6 +618,10 @@ impl MachineStateMachine {
         tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
         Ok(())
     }
+
+    fn is_nic_mode_dpu(&self) -> bool {
+        matches!(self.machine_info, MachineInfo::Dpu(_)) && self.config.dpus_in_nic_mode
+    }
 }
 
 // MARK: - Associated state definitions
@@ -614,14 +636,19 @@ struct MachineDownState {
     since: Instant,
     bmc_state: BmcInitializedState,
     installed_os: OsImage,
+    bmc_only: bool,
 }
 
 impl MachineDownState {
     fn power_on(&self) -> MachineState {
-        MachineState::Init(InitState {
-            bmc_state: self.bmc_state.clone(),
-            installed_os: self.installed_os,
-        })
+        if self.bmc_only {
+            MachineState::BmcOnly(self.bmc_state.clone())
+        } else {
+            MachineState::Init(InitState {
+                bmc_state: self.bmc_state.clone(),
+                installed_os: self.installed_os,
+            })
+        }
     }
 }
 
@@ -689,6 +716,7 @@ impl Display for MachineState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_repr = match self {
             Self::BmcInit => "BmcInit",
+            Self::BmcOnly(_) => "BmcOnly",
             Self::MachineDown(_) => "MachineDown",
             Self::Init(_) => "Init",
             Self::DhcpComplete(_) => "DhcpComplete",
