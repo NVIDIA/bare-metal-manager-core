@@ -692,19 +692,23 @@ pub async fn detail(
         return super::not_found_response(machine_id);
     };
 
-    let dpu_machines = state
-        .find_machines_by_ids(tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
-            machine_ids: host_machine.associated_dpu_machine_ids.clone(),
-            include_history: false,
-        }))
-        .await
-        .map(|r| r.into_inner().machines)
-        .inspect_err(|e| {
-            tracing::error!(
-                            %machine_id, %e, "finding associated DPU machines, skipping"
-            )
-        })
-        .unwrap_or_default();
+    let dpu_machines = if host_machine.associated_dpu_machine_ids.is_empty() {
+        vec![]
+    } else {
+        state
+            .find_machines_by_ids(tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
+                machine_ids: host_machine.associated_dpu_machine_ids.clone(),
+                include_history: false,
+            }))
+            .await
+            .map(|r| r.into_inner().machines)
+            .inspect_err(|e| {
+                tracing::error!(
+                                %machine_id, %e, "finding associated DPU machines, skipping"
+                )
+            })
+            .unwrap_or_default()
+    };
     let machines: Vec<rpc::Machine> = [vec![host_machine.clone()], dpu_machines].concat();
 
     let managed_host_metadata = ManagedHostMetadata::lookup_from_api(machines, state).await;

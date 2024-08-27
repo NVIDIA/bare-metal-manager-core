@@ -63,6 +63,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -181,7 +182,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         versions: HashMap::default(),
         model: None,
     };
-    dpu_report.generate_machine_id();
+    dpu_report.generate_machine_id(false)?;
 
     assert!(dpu_report.machine_id.as_ref().is_some());
 
@@ -227,7 +228,11 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     assert!(
         explorer
-            .create_managed_host(exploration_report, &env.pool)
+            .create_managed_host(
+                exploration_report,
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 

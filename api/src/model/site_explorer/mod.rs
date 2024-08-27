@@ -16,6 +16,8 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use super::{bmc_info::BmcInfo, hardware_info::DpuData};
+use crate::model::hardware_info::HardwareInfoError;
+use crate::model::machine::machine_id::{MachineType, MissingHardwareInfo};
 use crate::{
     cfg::{DpuModel, Firmware, FirmwareComponentType},
     model::{
@@ -97,6 +99,15 @@ impl EndpointExplorationReport {
                 }
             },
         })
+    }
+
+    pub fn all_mac_addresses(&self) -> Vec<MacAddress> {
+        self.systems
+            .iter()
+            .flat_map(|s| s.ethernet_interfaces.as_slice())
+            .filter_map(|e| e.mac_address.as_ref())
+            .filter_map(|s| MacAddress::from_str(s).ok())
+            .collect()
     }
 }
 
@@ -302,10 +313,10 @@ impl From<ExploredDpu> for rpc::site_explorer::ExploredDpu {
 }
 
 impl ExploredDpu {
-    pub fn has_valid_report(&self) -> CarbideResult<()> {
-        if self.report.machine_id.is_none() {
+    pub fn machine_id_if_valid_report(&self) -> CarbideResult<&MachineId> {
+        let Some(machine_id) = self.report.machine_id.as_ref() else {
             return Err(CarbideError::MissingArgument("Missing Machine ID"));
-        }
+        };
 
         if self.report.systems.is_empty() {
             return Err(CarbideError::MissingArgument("Missing Systems Info"));
@@ -319,7 +330,7 @@ impl ExploredDpu {
             return Err(CarbideError::MissingArgument("Missing Service Info"));
         }
 
-        Ok(())
+        Ok(machine_id)
     }
 
     pub fn bmc_firmware_version(&self) -> Option<String> {
@@ -565,29 +576,41 @@ impl EndpointExplorationReport {
 
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
-    pub fn generate_machine_id(&mut self) {
-        if let (true, Some(serial_number)) = (
-            self.is_dpu(),
-            self.systems
-                .first()
-                .and_then(|system| system.serial_number.as_ref()),
-        ) {
-            let dmi_data = self.create_temporary_dmi_data(serial_number.as_str());
+    pub fn generate_machine_id(&mut self, force_predicted_host: bool) -> CarbideResult<&MachineId> {
+        if let Some(serial_number) = self
+            .systems
+            .first()
+            .and_then(|system| system.serial_number.as_ref())
+        {
+            let dmi_data = self.create_temporary_dmi_data(serial_number);
 
+            // Construct a HardwareInfo object specifically so that we can mint a MachineId.
             let hardware_info = HardwareInfo {
                 dmi_data: Some(dmi_data),
-                machine_type: "aarch64".to_string(),
+                // This field should not be read, MachineId::from_hardware_info_with_type should not
+                // need this, only the dmi_data.
+                machine_type: "DO_NOT_USE".to_string(),
                 ..Default::default()
             };
 
-            match MachineId::from_hardware_info(&hardware_info) {
-                Ok(machine_id) => {
-                    self.machine_id = Some(machine_id);
-                }
-                Err(error) => {
-                    tracing::error!(%error, "Can not generate MachineId for explored endpoint");
-                }
-            }
+            let machine_type = if force_predicted_host {
+                MachineType::PredictedHost
+            } else if self.is_dpu() {
+                MachineType::Dpu
+            } else {
+                MachineType::Host
+            };
+
+            let machine_id = MachineId::from_hardware_info_with_type(&hardware_info, machine_type)
+                .map_err(|e| {
+                    CarbideError::HardwareInfoError(HardwareInfoError::MissingHardwareInfo(e))
+                })?;
+
+            Ok(self.machine_id.insert(machine_id))
+        } else {
+            Err(CarbideError::HardwareInfoError(
+                HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
+            ))
         }
     }
 
@@ -1119,7 +1142,9 @@ mod tests {
             versions: HashMap::default(),
             model: None,
         };
-        report.generate_machine_id();
+        report
+            .generate_machine_id(false)
+            .expect("Error generating machine ID");
 
         let machine_id = report.machine_id.clone().unwrap();
 

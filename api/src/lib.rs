@@ -247,6 +247,9 @@ pub enum CarbideError {
 
     #[error("Attestation Bind Key Error: {0}")]
     AttestationBindKeyError(String),
+
+    #[error("Explored machine at {0} has no DPUs")]
+    NoDpusInMachine(IpAddr),
 }
 
 impl From<CarbideError> for tonic::Status {

@@ -245,6 +245,7 @@ dependencies = [
  "forge_secrets",
  "futures",
  "ipnetwork",
+ "itertools 0.13.0",
  "lazy_static",
  "libredfish",
  "machine-a-tron",

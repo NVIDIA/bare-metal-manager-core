@@ -45,6 +45,7 @@ use carbide::{
     resource_pool::ResourcePoolStats,
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandlerBuilder,
+    CarbideError,
 };
 use common::api_fixtures::TestEnv;
 use itertools::Itertools;
@@ -91,24 +92,28 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // by providing no mocked exploration data for this machine, which would lead
     // to a panic if the machine is queried
     let mut machines = vec![
+        // machines[0] is a DPU belonging to machines[1]
         FakeMachine {
             mac: "B8:3F:D2:90:97:A6".to_string(),
             dhcp_vendor: "Vendor1".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
+        // machines[1] has 1 dpu (machines[0])
         FakeMachine {
             mac: "AA:AB:AC:AD:AA:02".to_string(),
             dhcp_vendor: "Vendor2".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
+        // machines[2] has no DPUs
         FakeMachine {
             mac: "AA:AB:AC:AD:AA:03".to_string(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
+        // machines[3] is not on the underlay network and should not be searched.
         FakeMachine {
             mac: "AA:AB:AC:AD:BB:01".to_string(),
             dhcp_vendor: "VendorInvalidSegment".to_string(),
@@ -259,7 +264,10 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 managers: Vec::new(),
-                systems: Vec::new(),
+                systems: vec![ComputerSystem {
+                    serial_number: Some("0123456789".to_string()),
+                    ..Default::default()
+                }],
                 chassis: Vec::new(),
                 service: Vec::new(),
                 versions: HashMap::default(),
@@ -276,6 +284,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: true,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -590,10 +599,23 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     expected_addresses.sort();
     assert_eq!(addresses, expected_addresses);
 
-    assert_eq!(report.managed_hosts.len(), 1);
-    let managed_host = report.managed_hosts.clone().remove(0);
+    // We should now have two managed hosts: One with a single DPU, and one with no DPUs.
+    assert_eq!(report.managed_hosts.len(), 2);
+    let managed_host_1 = report
+        .managed_hosts
+        .iter()
+        .find(|h| h.dpus.len() == 1)
+        .expect("Should have found one managed host with a single DPU")
+        .clone();
+    let managed_host_2 = report
+        .managed_hosts
+        .iter()
+        .find(|h| h.dpus.is_empty())
+        .expect("Should have found one managed host with zero DPUs")
+        .clone();
+
     assert_eq!(
-        managed_host,
+        managed_host_1,
         RpcExploredManagedHost {
             host_bmc_ip: machines[1].ip.clone(),
             dpu_bmc_ip: machines[0].ip.clone(),
@@ -604,14 +626,109 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             }]
         }
     );
+
+    assert_eq!(
+        managed_host_2,
+        RpcExploredManagedHost {
+            host_bmc_ip: machines[2].ip.clone(),
+            dpu_bmc_ip: "".to_string(),
+            host_pf_mac_address: None,
+            dpus: vec![],
+        }
+    );
+
     assert_eq!(
         test_meter
             .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
             .unwrap(),
-        "1"
+        "2"
     );
 
     txn.commit().await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_reject_zero_dpu_hosts(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = common::api_fixtures::get_config();
+    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        override_target_ip: None,
+        override_target_port: None,
+        allow_zero_dpu_hosts: false,
+    };
+
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("SomeVendor".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
+        dpus: vec![],
+    };
+
+    let Err(CarbideError::NoDpusInMachine(_)) = explorer
+        .create_managed_host(
+            exploration_report.clone(),
+            EndpointExplorationReport::default(),
+            &env.pool,
+        )
+        .await
+    else {
+        panic!("explorer.create_managed_host should have failed with a NoDpusInMachine error")
+    };
     Ok(())
 }
 
@@ -768,6 +885,7 @@ async fn test_site_explorer_reexplore(
         create_machines: carbide::dynamic_settings::create_machines(false),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
 
     let test_meter = TestMeter::default();
@@ -899,6 +1017,7 @@ async fn test_site_explorer_creates_managed_host(
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
 
     let explorer = SiteExplorer::new(
@@ -1010,7 +1129,7 @@ async fn test_site_explorer_creates_managed_host(
         versions: HashMap::default(),
         model: None,
     };
-    dpu_report.generate_machine_id();
+    dpu_report.generate_machine_id(false)?;
 
     assert!(dpu_report.machine_id.as_ref().is_some());
     assert_eq!(
@@ -1061,7 +1180,11 @@ async fn test_site_explorer_creates_managed_host(
 
     assert!(
         explorer
-            .create_managed_host(exploration_report.clone(), &env.pool)
+            .create_managed_host(
+                exploration_report.clone(),
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
@@ -1150,7 +1273,11 @@ async fn test_site_explorer_creates_managed_host(
     // 2nd creation does nothing
     assert!(
         !explorer
-            .create_managed_host(exploration_report, &env.pool)
+            .create_managed_host(
+                exploration_report,
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
@@ -1351,6 +1478,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
 
     let explorer = SiteExplorer::new(
@@ -1476,7 +1604,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             versions: HashMap::default(),
             model: None,
         };
-        dpu_report.generate_machine_id();
+        dpu_report.generate_machine_id(false)?;
         explored_dpus.push(ExploredDpu {
             bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
             host_pf_mac_address: Some(MacAddress::from_str(
@@ -1525,14 +1653,22 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
     assert!(
         explorer
-            .create_managed_host(exploration_report.clone(), &env.pool)
+            .create_managed_host(
+                exploration_report.clone(),
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
     // a second create attempt on the same machine should return false.
     assert!(
         !explorer
-            .create_managed_host(exploration_report, &env.pool)
+            .create_managed_host(
+                exploration_report,
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
@@ -1746,7 +1882,7 @@ async fn test_site_explorer_clear_last_known_error(
         versions: HashMap::default(),
         model: None,
     };
-    dpu_report1.generate_machine_id();
+    dpu_report1.generate_machine_id(false)?;
 
     DbExploredEndpoint::insert(bmc_ip, &dpu_report1, &mut txn).await?;
     txn.commit().await.map_err(|e| {
@@ -1789,6 +1925,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
     let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
     let host_sim = env.start_managed_host_sim();
@@ -2105,6 +2242,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -2345,7 +2483,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         versions: HashMap::default(),
         model: None,
     };
-    dpu_report.generate_machine_id();
+    dpu_report.generate_machine_id(false)?;
 
     let explored_dpus = vec![ExploredDpu {
         bmc_ip: IpAddr::from_str("192.168.1.2")?,
@@ -2403,6 +2541,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
 
     let explorer = SiteExplorer::new(
@@ -2424,7 +2563,11 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     assert!(
         explorer
-            .create_managed_host(exploration_report, &env.pool)
+            .create_managed_host(
+                exploration_report,
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
@@ -2533,7 +2676,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         versions: HashMap::default(),
         model: None,
     };
-    dpu_report.generate_machine_id();
+    dpu_report.generate_machine_id(false)?;
     let dpu_machine_id = dpu_report.machine_id.clone().unwrap();
 
     let explored_dpus = vec![ExploredDpu {
@@ -2592,6 +2735,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
+        allow_zero_dpu_hosts: false,
     };
 
     let explorer = SiteExplorer::new(
@@ -2613,7 +2757,11 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     assert!(
         explorer
-            .create_managed_host(exploration_report.clone(), &env.pool)
+            .create_managed_host(
+                exploration_report.clone(),
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 
@@ -2655,7 +2803,11 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // Machine is already created, create_managed_host should return false.
     assert!(
         !explorer
-            .create_managed_host(exploration_report, &env.pool)
+            .create_managed_host(
+                exploration_report,
+                EndpointExplorationReport::default(),
+                &env.pool
+            )
             .await?
     );
 

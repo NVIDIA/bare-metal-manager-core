@@ -20,6 +20,7 @@ use base64::prelude::*;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 
+use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::model::try_convert_vec;
 use ::rpc::errors::RpcDataConversionError;
 
@@ -646,6 +647,9 @@ pub enum HardwareInfoError {
 
     #[error("Mac address conversion error: {0}")]
     MacAddressConversionError(#[from] MacParseError),
+
+    #[error("Missing hardware info: {0}")]
+    MissingHardwareInfo(#[from] MissingHardwareInfo),
 }
 
 impl HardwareInfo {
@@ -685,6 +689,14 @@ impl HardwareInfo {
         self.dmi_data
             .as_ref()
             .map(|dmi_info| dmi_info.product_name.clone())
+    }
+
+    pub fn all_mac_addresses(&self) -> Vec<MacAddress> {
+        self.network_interfaces
+            .iter()
+            .map(|i| i.mac_address.as_str())
+            .filter_map(|s| MacAddress::from_str(s).ok())
+            .collect()
     }
 }
 

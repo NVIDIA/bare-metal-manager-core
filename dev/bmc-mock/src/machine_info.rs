@@ -17,6 +17,7 @@ pub struct HostMachineInfo {
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
+    pub non_dpu_mac_address: Option<MacAddress>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,11 @@ impl HostMachineInfo {
         Self {
             bmc_mac_address,
             serial: bmc_mac_address.to_string().replace(':', ""),
+            non_dpu_mac_address: if dpus.is_empty() {
+                Some(next_mac())
+            } else {
+                None
+            },
             dpus,
         }
     }
@@ -62,7 +68,9 @@ impl HostMachineInfo {
     }
 
     pub fn system_mac_address(&self) -> Option<MacAddress> {
-        self.primary_dpu().map(|d| d.host_mac_address)
+        self.primary_dpu()
+            .map(|d| d.host_mac_address)
+            .or(self.non_dpu_mac_address)
     }
 }
 
@@ -91,7 +99,13 @@ impl MachineInfo {
     /// Returns the mac addresses this system would use to request DHCP on boot
     pub fn dhcp_mac_addresses(&self) -> Vec<MacAddress> {
         match self {
-            Self::Host(h) => h.dpus.iter().map(|d| d.host_mac_address).collect(),
+            Self::Host(h) => {
+                if h.dpus.is_empty() {
+                    h.non_dpu_mac_address.map(|m| vec![m]).unwrap_or_default()
+                } else {
+                    h.dpus.iter().map(|d| d.host_mac_address).collect()
+                }
+            }
             Self::Dpu(d) => vec![d.oob_mac_address],
         }
     }

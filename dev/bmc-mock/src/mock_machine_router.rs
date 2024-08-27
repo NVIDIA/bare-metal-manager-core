@@ -294,13 +294,17 @@ async fn get_chassis_network_adapters(
         },
     ]);
 
-    // Add a network adapter for every DPU
-    for (index, _dpu) in host.dpus.iter().enumerate() {
+    // Add a network adapter for every DPU, or if there are no DPUs, mock a single non-DPU NIC.
+    let count = if host.dpus.is_empty() {
+        1
+    } else {
+        host.dpus.len()
+    };
+    for index in 1..=count {
         members.push(ODataId {
             odata_id: format!(
                 "/redfish/v1/Chassis/{}/NetworkAdapters/NIC.Slot.{}",
-                &chassis_id,
-                index + 1
+                &chassis_id, index
             ),
         })
     }
@@ -320,39 +324,74 @@ async fn get_chassis_network_adapter(
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
     request: Request<Body>,
 ) -> MockWrapperResult {
-    let Some(dpu) = state.find_dpu(&network_adapter_id) else {
+    let MachineInfo::Host(host) = &state.machine_info else {
         return state.call_inner_router(request).await;
     };
 
-    // Build a NetworkAdapter from our mock DPU info (mainly just the serial number)
-    let adapter = NetworkAdapter {
-        id: network_adapter_id.clone(),
-        manufacturer: Some("Mellanox Technologies".to_string()),
-        model: Some("BlueField-2 SmartNIC Main Card".to_string()),
-        part_number: Some("MBF2H5".to_string()),
-        serial_number: Some(dpu.serial.clone()),
-        odata: libredfish::OData {
-            odata_id: format!(
-                "/redfish/v1/Chassis/{}/NetworkAdapters/{}",
-                &chassis_id, network_adapter_id
-            ),
-            odata_type: "#NetworkAdapter.v1_7_0.NetworkAdapter".to_string(),
-            odata_etag: None,
-            odata_context: None,
-        },
-        ports: None,
-        network_device_functions: Some(ODataId {
-            odata_id: format!(
-                "/redfish/v1/Chassis/{}/NetworkAdapters/{}/NetworkDeviceFunctions",
-                &chassis_id, network_adapter_id
-            ),
-        }),
-        name: None,
-        status: None,
-        controllers: None,
-    };
+    if !network_adapter_id.starts_with("NIC.Slot.") {
+        return state.call_inner_router(request).await;
+    }
+    if host.dpus.is_empty() {
+        let Some(mac) = host.non_dpu_mac_address else {
+            tracing::error!("Request for NIC ID {}, but machine has no NICs (zero DPUs and no non_dpu_mac_address set.) This is a bug.", network_adapter_id);
+            return state.call_inner_router(request).await;
+        };
+        let serial = mac.to_string().replace(':', "");
 
-    Ok(Bytes::from(serde_json::to_string(&adapter)?))
+        // Build a non-DPU NetworkAdapter
+        let adapter = NetworkAdapter {
+            id: network_adapter_id,
+            manufacturer: Some("Rooftop Technologies".to_string()),
+            model: Some("Rooftop 10 Kilobit Ethernet Adapter".to_string()),
+            part_number: Some("31337".to_string()),
+            serial_number: Some(serial),
+            odata: libredfish::OData {
+                odata_id: "odata_id".to_string(),
+                odata_type: "odata_type".to_string(),
+                odata_etag: None,
+                odata_context: None,
+            },
+            ports: None,
+            network_device_functions: None,
+            name: None,
+            status: None,
+            controllers: None,
+        };
+        Ok(Bytes::from(serde_json::to_string(&adapter)?))
+    } else {
+        let Some(dpu) = state.find_dpu(&network_adapter_id) else {
+            return state.call_inner_router(request).await;
+        };
+
+        // Build a NetworkAdapter from our mock DPU info (mainly just the serial number)
+        let adapter = NetworkAdapter {
+            id: network_adapter_id.clone(),
+            manufacturer: Some("Mellanox Technologies".to_string()),
+            model: Some("BlueField-2 SmartNIC Main Card".to_string()),
+            part_number: Some("MBF2H5".to_string()),
+            serial_number: Some(dpu.serial.clone()),
+            odata: libredfish::OData {
+                odata_id: format!(
+                    "/redfish/v1/Chassis/{}/NetworkAdapters/{}",
+                    &chassis_id, network_adapter_id
+                ),
+                odata_type: "#NetworkAdapter.v1_7_0.NetworkAdapter".to_string(),
+                odata_etag: None,
+                odata_context: None,
+            },
+            ports: None,
+            network_device_functions: Some(ODataId {
+                odata_id: format!(
+                    "/redfish/v1/Chassis/{}/NetworkAdapters/{}/NetworkDeviceFunctions",
+                    &chassis_id, network_adapter_id
+                ),
+            }),
+            name: None,
+            status: None,
+            controllers: None,
+        };
+        Ok(Bytes::from(serde_json::to_string(&adapter)?))
+    }
 }
 
 async fn get_chassis_network_adapters_network_device_functions_list(

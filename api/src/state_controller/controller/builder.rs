@@ -15,6 +15,7 @@ use std::sync::Arc;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
+use crate::cfg::CarbideConfig;
 use crate::storage::NvmeshClientPool;
 use crate::{
     ib::IBFabricManager,
@@ -68,6 +69,7 @@ pub struct Builder<IO: StateControllerIO> {
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     pool_pkey: Option<Arc<DbResourcePool<u16>>>,
     ipmi_tool: Option<Arc<dyn IPMITool>>,
+    site_config: Option<Arc<CarbideConfig>>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -90,6 +92,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             forge_api: None,
             pool_pkey: None,
             ipmi_tool: None,
+            site_config: None,
         }
     }
 }
@@ -173,6 +176,11 @@ impl<IO: StateControllerIO> Builder<IO> {
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("ipmi_tool"))?;
 
+        let site_config = self
+            .site_config
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("site_config"))?;
+
         let handler_services = Arc::new(StateHandlerServices {
             pool: database,
             ib_fabric_manager,
@@ -182,6 +190,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
             ipmi_tool,
+            site_config,
         });
 
         // This defines the shared storage location for metrics between the state handler
@@ -291,6 +300,11 @@ impl<IO: StateControllerIO> Builder<IO> {
         >,
     ) -> Self {
         self.state_handler = handler;
+        self
+    }
+
+    pub fn site_config(mut self, config: Arc<CarbideConfig>) -> Self {
+        self.site_config = Some(config);
         self
     }
 }
