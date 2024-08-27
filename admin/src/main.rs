@@ -75,6 +75,7 @@ mod instance;
 mod inventory;
 mod machine;
 mod machine_interfaces;
+mod machine_validation;
 mod managed_host;
 mod measurement;
 mod network;
@@ -1234,6 +1235,24 @@ async fn main() -> color_eyre::Result<()> {
             // Do we have no idea what it is?
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
+        CarbideCommand::MachineValidation(command) => match command {
+            cfg::carbide_options::MachineValidationCommand::MachineValidationExternalConfig(
+                config_command,
+            ) => match config_command {
+                cfg::carbide_options::MachineValidationExternalConfigCommand::Show(opts) => {
+                    machine_validation::external_config_show(api_config, opts.name).await?;
+                }
+                cfg::carbide_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
+                    machine_validation::external_config_add_update(
+                        api_config,
+                        opts.name,
+                        opts.file_name,
+                        opts.description,
+                    )
+                    .await?;
+                }
+            },
+        },
     }
 
     Ok(())

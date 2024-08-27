@@ -2206,3 +2206,45 @@ pub async fn allocate_instance(
     })
     .await
 }
+
+pub async fn get_machine_validation_external_config(
+    name: String,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<rpc::GetMachineValidationExternalConfigResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::GetMachineValidationExternalConfigRequest { name });
+        let result = client
+            .get_machine_validation_external_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(result)
+    })
+    .await
+}
+
+pub async fn add_update_machine_validation_external_config(
+    name: String,
+    description: String,
+    config: Vec<u8>,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::AddUpdateMachineValidationExternalConfigRequest {
+            config: Some(rpc::MachineValidationExternalConfig {
+                name,
+                description: Some(description),
+                config,
+            }),
+        });
+        client
+            .add_update_machine_validation_external_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}

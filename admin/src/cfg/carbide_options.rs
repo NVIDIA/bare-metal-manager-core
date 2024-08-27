@@ -180,6 +180,9 @@ pub enum CarbideCommand {
         visible_alias = "j"
     )]
     Jump(JumpOptions),
+
+    #[clap(about = "Machine Vaildation", subcommand, visible_alias = "mv")]
+    MachineValidation(MachineValidationCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -1580,4 +1583,34 @@ pub struct ShowTenantKeySet {
 pub struct JumpOptions {
     #[clap(required(true), help = "The machine ID, IP, UUID, etc, to find")]
     pub id: String,
+}
+#[derive(Parser, Debug)]
+
+pub enum MachineValidationCommand {
+    #[clap(about = "External config", subcommand, visible_alias = "mve")]
+    MachineValidationExternalConfig(MachineValidationExternalConfigCommand),
+}
+#[derive(Parser, Debug)]
+pub enum MachineValidationExternalConfigCommand {
+    #[clap(about = "Show External config")]
+    Show(MachineValidationExternalConfigShowOptions),
+
+    #[clap(about = "Update External config")]
+    AddUpdate(MachineValidationExternalConfigAddOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineValidationExternalConfigShowOptions {
+    #[clap(short, long, help = "Machine validation external config name")]
+    pub name: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineValidationExternalConfigAddOptions {
+    #[clap(required(true), help = "Name of the file to update")]
+    pub file_name: String,
+    #[clap(required(true), help = "Name of the config")]
+    pub name: String,
+    #[clap(required(false), help = "description of the file to update")]
+    pub description: String,
 }

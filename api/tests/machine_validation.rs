@@ -18,7 +18,6 @@ use carbide::{
     },
 };
 use rpc::forge::forge_server::Forge;
-use serde_json::Value as JsonValue;
 use std::time::SystemTime;
 
 mod common;
@@ -261,46 +260,17 @@ async fn test_machine_validation_get_results(
     Ok(())
 }
 
-pub fn to_struct(json: serde_json::Map<String, serde_json::Value>) -> ::prost_types::Struct {
-    ::prost_types::Struct {
-        fields: json
-            .into_iter()
-            .map(|(k, v)| (k, serde_json_to_prost(v)))
-            .collect(),
-    }
-}
-fn serde_json_to_prost(json: serde_json::Value) -> ::prost_types::Value {
-    use ::prost_types::value::Kind::*;
-    use serde_json::Value::*;
-    ::prost_types::Value {
-        kind: Some(match json {
-            Null => NullValue(0 /* wat? */),
-            Bool(v) => BoolValue(v),
-            Number(n) => NumberValue(n.as_f64().expect("Non-f64-representable number")),
-            String(s) => StringValue(s),
-            Array(v) => ListValue(::prost_types::ListValue {
-                values: v.into_iter().map(serde_json_to_prost).collect(),
-            }),
-            Object(v) => StructValue(to_struct(v)),
-        }),
-    }
-}
-
 #[sqlx::test]
 async fn create_update_external_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let json_input = r#"
+    let input = r#"
     {
         "ADDRESS": "shoreline.nvidia.com",
         "SECRET": "somesecret"
     }
     "#;
-
-    let json_value: JsonValue = serde_json::from_str(json_input)?;
-
-    let prost_value = serde_json_to_prost(json_value);
     let name = "shoreline";
     let desc = "shoreline description";
     env.api
@@ -309,7 +279,7 @@ async fn create_update_external_config(
                 config: Some(rpc::forge::MachineValidationExternalConfig {
                     name: name.to_string(),
                     description: Some(desc.to_string()),
-                    config: Some(prost_value.clone()),
+                    config: input.as_bytes().to_vec(),
                 }),
             },
         ))
@@ -322,7 +292,7 @@ async fn create_update_external_config(
                 config: Some(rpc::forge::MachineValidationExternalConfig {
                     name: name.to_string(),
                     description: Some(desc.to_string()),
-                    config: Some(prost_value.clone()),
+                    config: input.as_bytes().to_vec(),
                 }),
             },
         ))
@@ -341,6 +311,6 @@ async fn create_update_external_config(
         .into_inner();
     assert_eq!(res.config.clone().unwrap().name, name);
     assert_eq!(res.config.clone().unwrap().description.unwrap(), desc);
-    assert_eq!(res.config.unwrap().config, Some(prost_value));
+    assert_eq!(res.config.unwrap().config, input.as_bytes().to_vec());
     Ok(())
 }
