@@ -738,6 +738,7 @@ dependencies = [
  "lazy_static",
  "libredfish",
  "mac_address",
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
