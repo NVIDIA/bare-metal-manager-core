@@ -59,6 +59,11 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     }
 }
 
+// TODO: This API is only used by the carbide-web generating the Network Status page
+// It improperly returns the values of a lot of things - since those are not actually
+// persisted.
+// It would be preferable to migrate carbide-web from reading the status to using
+// a better supported API. E.g. the FindMachines one.
 impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
         rpc::DpuNetworkStatus {
@@ -73,7 +78,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             interfaces: vec![],
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,
-            dpu_health: None, // TODO
+            dpu_health: None,
             fabric_interfaces: vec![],
             last_dhcp_requests: vec![],
         }

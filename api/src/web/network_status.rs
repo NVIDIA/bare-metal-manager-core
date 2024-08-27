@@ -35,7 +35,7 @@ struct NetworkStatus {
     outdated_count: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 struct NetworkStatusDisplay {
     observed_at: String,
     dpu_machine_id: String,
@@ -44,40 +44,6 @@ struct NetworkStatusDisplay {
     health: health_report::HealthReport,
     agent_version: String,
     is_agent_updated: bool,
-}
-
-impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
-    fn from(st: forgerpc::DpuNetworkStatus) -> Self {
-        let agent_version = st.dpu_agent_version.unwrap_or_default();
-
-        let health = st
-            .dpu_health
-            .as_ref()
-            .map(|h| {
-                health_report::HealthReport::try_from(h.clone())
-                    .unwrap_or_else(health_report::HealthReport::malformed_report)
-            })
-            .unwrap_or_else(health_report::HealthReport::missing_report);
-
-        Self {
-            observed_at: st
-                .observed_at
-                .map(|o| {
-                    let dt: chrono::DateTime<chrono::Utc> = o.try_into().unwrap_or_default();
-                    dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
-                })
-                .unwrap_or_default(),
-            dpu_machine_id: st
-                .dpu_machine_id
-                .unwrap_or_else(super::invalid_machine_id)
-                .to_string(),
-            network_config_version: st.network_config_version.unwrap_or_default(),
-            is_healthy: health.alerts.is_empty(),
-            health,
-            is_agent_updated: agent_version == forge_version::v!(build_version),
-            agent_version,
-        }
-    }
 }
 
 pub async fn show_html(
@@ -101,7 +67,7 @@ pub async fn show_html(
     let mut dpus = Vec::with_capacity(all_status.len());
     let (mut healthy_count, mut unhealthy_count, mut outdated_count) = (0, 0, 0);
     for st in all_status.into_iter() {
-        let display: NetworkStatusDisplay = st.into();
+        let display: NetworkStatusDisplay = st;
         if display.is_healthy {
             healthy_count += 1;
         } else {
@@ -158,14 +124,85 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(all_status)).into_response()
 }
 
-async fn fetch_network_status(
-    api: Arc<Api>,
-) -> Result<Vec<forgerpc::DpuNetworkStatus>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::ManagedHostNetworkStatusRequest {});
-    let mut all_status = api
+async fn fetch_network_status(api: Arc<Api>) -> Result<Vec<NetworkStatusDisplay>, tonic::Status> {
+    let request: tonic::Request<forgerpc::ManagedHostNetworkStatusRequest> =
+        tonic::Request::new(forgerpc::ManagedHostNetworkStatusRequest {});
+    // The only reason we require the get_all_managed_host_network_status
+    // API here is for retrieving the actually applied network_config_version
+    // and the time of last contact (observed_at).
+    // Everything else is available via the Machine API.
+    let all_status = api
         .get_all_managed_host_network_status(request)
         .await
-        .map(|response| response.into_inner())?;
-    all_status.all.retain(|ns| ns.health.is_some());
-    Ok(all_status.all)
+        .map(|response| response.into_inner())?
+        .all;
+
+    let all_ids: Vec<rpc::MachineId> = all_status
+        .iter()
+        .filter_map(|status| status.dpu_machine_id.clone())
+        .collect();
+
+    let all_dpus = api
+        .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+            machine_ids: all_ids,
+            include_history: false,
+        }))
+        .await
+        .map(|response| response.into_inner())?
+        .machines;
+    let mut dpus_by_id = HashMap::new();
+    for dpu in all_dpus.into_iter() {
+        if let Some(id) = dpu.id.clone() {
+            dpus_by_id.insert(id.id, dpu);
+        }
+    }
+
+    let mut result = Vec::new();
+
+    for status in all_status.into_iter() {
+        let Some(dpu_id) = status.dpu_machine_id.clone() else {
+            continue;
+        };
+        let Some(dpu) = dpus_by_id.get(&dpu_id.id) else {
+            continue;
+        };
+
+        let agent_version = dpu
+            .inventory
+            .as_ref()
+            .and_then(|inventory| {
+                inventory
+                    .components
+                    .iter()
+                    .find(|c| c.name == "forge-dpu-agent")
+                    .map(|c| c.version.clone())
+            })
+            .unwrap_or_default();
+        let health = dpu
+            .health
+            .as_ref()
+            .map(|h| {
+                health_report::HealthReport::try_from(h.clone())
+                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+            })
+            .unwrap_or_else(health_report::HealthReport::missing_report);
+
+        result.push(NetworkStatusDisplay {
+            observed_at: status
+                .observed_at
+                .map(|o| {
+                    let dt: chrono::DateTime<chrono::Utc> = o.try_into().unwrap_or_default();
+                    dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
+                })
+                .unwrap_or_default(),
+            dpu_machine_id: dpu_id.id.clone(),
+            network_config_version: status.network_config_version.unwrap_or_default(),
+            is_healthy: health.alerts.is_empty(),
+            health,
+            is_agent_updated: agent_version == forge_version::v!(build_version),
+            agent_version,
+        });
+    }
+
+    Ok(result)
 }
