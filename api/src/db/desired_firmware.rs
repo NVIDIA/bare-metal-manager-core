@@ -20,7 +20,7 @@ pub async fn snapshot_desired_firmware(
     txn: &mut Transaction<'_, Postgres>,
     cfg: &FirmwareConfig,
 ) -> Result<(), DatabaseError> {
-    let query = "DELETE FROM desired_firmware;";
+    let query = "DELETE FROM desired_firmware";
     sqlx::query(query)
         .execute(txn.deref_mut())
         .await
@@ -36,7 +36,7 @@ async fn snapshot_desired_firmware_for_model(
     txn: &mut Transaction<'_, Postgres>,
     model: &Firmware,
 ) -> Result<(), DatabaseError> {
-    let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING;";
+    let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
 
     let Ok(versions) = build_versions(model) else {
         tracing::error!("Bad serialize {:?}", model.components);

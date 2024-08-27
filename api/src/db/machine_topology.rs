@@ -154,7 +154,7 @@ impl MachineTopology {
         // since there  is a check in create that for existing interfaces
         // But due to race conditions we can likely still have multiple of those interfaces
         let str_ids: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
-        let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1);";
+        let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1)";
         let topologies = sqlx::query_as(query)
             .bind(str_ids)
             .fetch_all(txn.deref_mut())

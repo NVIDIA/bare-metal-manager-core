@@ -120,7 +120,7 @@ pub struct SiteExplorer {
 impl SiteExplorer {
     const DB_LOCK_NAME: &'static str = "site_explorer_lock";
     const DB_LOCK_QUERY: &'static str =
-        "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer);";
+        "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer)";
 
     pub fn new(
         database_connection: sqlx::PgPool,

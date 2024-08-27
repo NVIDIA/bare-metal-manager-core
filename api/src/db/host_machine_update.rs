@@ -62,7 +62,7 @@ impl HostMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
         let query =
-            "SELECT id FROM machines WHERE controller_state->'state' = '\"hostreprovision\"';";
+            "SELECT id FROM machines WHERE controller_state->'state' = '\"hostreprovision\"'";
         sqlx::query_as(query)
             .fetch_all(&mut **txn)
             .await
