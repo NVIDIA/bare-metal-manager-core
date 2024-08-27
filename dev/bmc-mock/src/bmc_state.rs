@@ -1,0 +1,80 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use rand::distributions::Standard;
+use rand::Rng;
+
+/// Dell Specific -- iDRAC job implementation
+/// TODO (spyda): move most of this logic to libredfish
+const BIOS_JOB_TYPE: &str = "BIOSConfiguration";
+
+#[derive(Debug, Clone)]
+pub struct Job {
+    pub job_id: String,
+    pub job_state: libredfish::JobState,
+    pub job_type: String,
+    pub start_time: chrono::DateTime<chrono::Utc>,
+    pub end_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Job {
+    pub fn is_bios_job(&self) -> bool {
+        matches!(self.job_type.as_str(), BIOS_JOB_TYPE)
+    }
+
+    pub fn percent_complete(&self) -> i32 {
+        match &self.job_state {
+            libredfish::JobState::Completed => 100,
+            _ => 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BmcState {
+    pub jobs: Arc<Mutex<HashMap<String, Job>>>,
+}
+
+impl BmcState {
+    pub fn get_job(&self, job_id: &String) -> Option<Job> {
+        self.jobs.lock().unwrap().get(job_id).cloned()
+    }
+
+    pub fn add_job(&mut self, is_bios_job: bool) -> Result<String, Box<dyn std::error::Error>> {
+        let mut jobs = self.jobs.lock().unwrap();
+
+        let job_type = if is_bios_job { BIOS_JOB_TYPE } else { "Reboot" };
+
+        let job_id = rand::thread_rng()
+            .sample_iter::<u64, _>(Standard)
+            .map(|r| format!("JID_{r}"))
+            .find(|id| !jobs.contains_key(id))
+            .unwrap();
+
+        let job = Job {
+            job_id: job_id.clone(),
+            job_state: libredfish::JobState::Scheduled,
+            job_type: job_type.to_string(),
+            start_time: chrono::offset::Utc::now(),
+            end_time: None,
+        };
+
+        jobs.insert(job_id.clone(), job);
+        Ok(job_id)
+    }
+
+    pub fn complete_all_bios_jobs(&mut self) {
+        let mut jobs = self.jobs.lock().unwrap();
+
+        let bios_jobs: Vec<Job> = jobs
+            .values()
+            .filter(|job| job.is_bios_job())
+            .cloned()
+            .collect();
+        for mut job in bios_jobs {
+            job.job_state = libredfish::JobState::Completed;
+            job.end_time = Some(chrono::offset::Utc::now());
+            jobs.insert(job.job_id.clone(), job);
+        }
+    }
+}

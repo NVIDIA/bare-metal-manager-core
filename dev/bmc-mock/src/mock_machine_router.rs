@@ -1,3 +1,4 @@
+use crate::bmc_state::BmcState;
 use crate::{call_router_with_new_request, rf, DpuMachineInfo, MachineInfo};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
@@ -13,6 +14,7 @@ use libredfish::{Chassis, EthernetInterface, NetworkAdapter};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 lazy_static! {
@@ -25,6 +27,7 @@ struct MockWrapperState {
     machine_info: MachineInfo,
     inner_router: Router,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
+    bmc_state: BmcState,
 }
 
 #[derive(Debug, Clone)]
@@ -96,11 +99,19 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("Systems/Bluefield/Settings"),
                patch(patch_dpu_settings).get(fallback_to_inner_router),
         )
+        .route(rf!("Managers/iDRAC.Embedded.1/Jobs"),
+               post(post_dell_create_bios_job),
+        )
+        .route(rf!("Managers/iDRAC.Embedded.1/Jobs/:job_id"),get(get_dell_job),
+        )
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
             command_channel,
             inner_router,
+            bmc_state: BmcState{
+                jobs: Arc::new(Mutex::new(HashMap::new())),
+            },
         })
 }
 
@@ -162,6 +173,8 @@ enum MockWrapperError {
     Infallible(#[from] Infallible),
     #[error("Inner request {0} {1} failed with HTTP error {2}: {3}")]
     InnerRequest(Method, Uri, StatusCode, String),
+    #[error("{0}")]
+    NotFound(String),
 }
 
 impl IntoResponse for MockWrapperError {
@@ -176,6 +189,7 @@ impl IntoResponse for MockWrapperError {
                 // Use the error's status code instead of INTERNAL_SERVER_ERROR
                 (status_code, body_bytes).into_response()
             }
+            MockWrapperError::NotFound(reason) => (StatusCode::NOT_FOUND, reason).into_response(),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
         }
     }
@@ -483,6 +497,71 @@ async fn patch_bios_settings(
         .unwrap()
 }
 
+async fn post_dell_create_bios_job(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> impl IntoResponse {
+    match state.bmc_state.add_job(true) {
+        Ok(job_id) => Response::builder()
+            .status(StatusCode::OK)
+            .header(
+                "location",
+                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{}", job_id),
+            )
+            .body(Body::from(""))
+            .unwrap(),
+        Err(e) => Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(e.to_string()))
+            .unwrap(),
+    }
+}
+
+async fn get_dell_job(
+    State(state): State<MockWrapperState>,
+    Path(job_id): Path<String>,
+    _request: Request<Body>,
+) -> MockWrapperResult {
+    let job = state
+        .bmc_state
+        .get_job(&job_id)
+        .ok_or(MockWrapperError::NotFound(format!(
+            "could not find iDRAC job: {job_id}"
+        )))?;
+
+    // TODO (spyda): move this to libredfish
+    let job_state = match job.job_state {
+        libredfish::JobState::Scheduled => "Scheduled".to_string(),
+        libredfish::JobState::Completed => "Completed".to_string(),
+        _ => "Unknown".to_string(),
+    };
+
+    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
+          {
+    "@odata.context": "/redfish/v1/$metadata#DellJob.DellJob",
+    "@odata.id": format!("/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs/{job_id}"),
+    "@odata.type": "#DellJob.v1_5_0.DellJob",
+    "ActualRunningStartTime": format!("{}", job.start_time),
+    "ActualRunningStopTime": null,
+    "CompletionTime": null,
+    "Description": "Job Instance",
+    "EndTime": "TIME_NA",
+    "Id": job_id,
+    "JobState": job_state,
+    "JobType": job.job_type,
+    "Message": job_state,
+    "MessageArgs": [],
+    "MessageArgs@odata.count": 0,
+    "MessageId": "PR19",
+    "Name": job.job_type,
+    "PercentComplete": job.percent_complete(),
+    "StartTime": format!("{}", job.start_time),
+    "TargetSettingsURI": null
+        }
+      ))?))
+}
+
 async fn patch_dpu_settings(
     State(_state): State<MockWrapperState>,
     _path: Path<()>,
@@ -515,5 +594,8 @@ async fn post_reset_system(
     if let Some(command_channel) = &state.command_channel {
         _ = command_channel.send(BmcCommand::Reboot(Utc::now()))
     }
+
+    // Dell specific call back after a reset -- sets the job status for all scheduled BIOS jobs to "Completed"
+    state.bmc_state.complete_all_bios_jobs();
     state.call_inner_router(request).await
 }

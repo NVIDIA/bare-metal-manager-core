@@ -218,40 +218,40 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client: &dyn Redfish,
         dpu: bool,
     ) -> Result<Option<String>, RedfishClientCreationError> {
-        let bios_attrs = client
-            .bios()
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        //
-        // This should be changed to be an actual failure once we make it this far since we don't
-        // want to leave machines lying around in the datacenter without UEFI credentials.
-        //
-        // But adding logs here so that we know when it happens
-        //
-        match bios_attrs.get("Attributes") {
-            None => {
-                tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
-                return Ok(None);
-            }
-            Some(attrs) => match attrs.as_object() {
-                None => {
-                    tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
-                    return Ok(None);
-                }
-                Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                    tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
-                    return Ok(None);
-                }
-                _ => {
-                    tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
-                }
-            },
-        }
-
         let mut current_password = String::new();
         let new_password: String;
         if dpu {
+            let bios_attrs = client
+                .bios()
+                .await
+                .map_err(RedfishClientCreationError::RedfishError)?;
+
+            //
+            // This should be changed to be an actual failure once we make it this far since we don't
+            // want to leave machines lying around in the datacenter without UEFI credentials.
+            //
+            // But adding logs here so that we know when it happens
+            //
+            match bios_attrs.get("Attributes") {
+                None => {
+                    tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                    return Ok(None);
+                }
+                Some(attrs) => match attrs.as_object() {
+                    None => {
+                        tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                        return Ok(None);
+                    }
+                    Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
+                        tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
+                        return Ok(None);
+                    }
+                    _ => {
+                        tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
+                    }
+                },
+            }
+
             // Replace DPU UEFI default password with site default
             // default password is taken from DpuUefi:factory_default key
             // site password is taken from DpuUefi:site_default key

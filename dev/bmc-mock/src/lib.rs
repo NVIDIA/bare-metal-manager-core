@@ -33,6 +33,7 @@ use tower::{Layer, Service};
 use tower_http::normalize_path::NormalizePathLayer;
 use tracing::{debug, error, info};
 
+mod bmc_state;
 mod machine_info;
 mod mock_machine_router;
 mod redfish_expander;

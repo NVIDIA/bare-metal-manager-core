@@ -296,5 +296,16 @@ pub async fn populate_initial_vault_secrets(
             },
         )
         .await?;
+    vault_client
+        .set_credentials(
+            CredentialKey::HostUefi {
+                credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "password".to_string(),
+            },
+        )
+        .await?;
     Ok(())
 }
