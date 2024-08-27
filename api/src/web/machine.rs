@@ -397,20 +397,10 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .health
                 .as_ref()
                 .map(|h| {
-                    health_report::HealthReport::try_from(h.clone()).unwrap_or_else(|e| {
-                        let mut h = health_report::HealthReport::empty("Parsing Error".to_string());
-                        h.alerts.push(health_report::HealthProbeAlert {
-                            id: "ParsingError".parse().unwrap(),
-                            target: None,
-                            in_alert_since: None,
-                            message: format!("Could not parse RPC health report: {e}"),
-                            tenant_message: None,
-                            classifications: vec![],
-                        });
-                        h
-                    })
+                    health_report::HealthReport::try_from(h.clone())
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
-                .unwrap_or_default(),
+                .unwrap_or_else(health_report::HealthReport::missing_report),
             health_overrides: m
                 .health_overrides
                 .iter()
