@@ -434,13 +434,22 @@ pub struct IBFabricConfig {
     /// Enable IB fabric
     pub enabled: bool,
 
-    #[serde(deserialize_with = "IBFabricConfig::deserialize_mtu")]
+    #[serde(
+        default = "IBMtu::default",
+        deserialize_with = "IBFabricConfig::deserialize_mtu"
+    )]
     pub mtu: IBMtu,
 
-    #[serde(deserialize_with = "IBFabricConfig::deserialize_rate_limit")]
+    #[serde(
+        default = "IBRateLimit::default",
+        deserialize_with = "IBFabricConfig::deserialize_rate_limit"
+    )]
     pub rate_limit: IBRateLimit,
 
-    #[serde(deserialize_with = "IBFabricConfig::deserialize_service_level")]
+    #[serde(
+        default = "IBServiceLevel::default",
+        deserialize_with = "IBFabricConfig::deserialize_service_level"
+    )]
     pub service_level: IBServiceLevel,
 }
 
@@ -1620,5 +1629,33 @@ mod tests {
 
             Ok(())
         })
+    }
+
+    #[test]
+    fn parse_ib_fabric() {
+        let toml = r#"
+rate_limit = 300
+enabled = true
+max_partition_per_tenant = 3
+        "#;
+        let ib_fabric_config: IBFabricConfig =
+            Figment::new().merge(Toml::string(toml)).extract().unwrap();
+
+        println!("{:?}", ib_fabric_config);
+
+        assert_eq!(
+            <IBMtu as std::convert::Into<i32>>::into(ib_fabric_config.mtu),
+            4
+        );
+        assert_eq!(
+            <IBRateLimit as std::convert::Into<i32>>::into(ib_fabric_config.rate_limit),
+            300
+        );
+        assert_eq!(
+            <IBServiceLevel as std::convert::Into<i32>>::into(ib_fabric_config.service_level),
+            0
+        );
+        assert!(ib_fabric_config.enabled);
+        assert_eq!(ib_fabric_config.max_partition_per_tenant, 3);
     }
 }
