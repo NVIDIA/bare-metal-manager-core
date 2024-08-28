@@ -28,7 +28,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut l3_domains = Vec::with_capacity(conf.l3_domains.len());
     for d in conf.l3_domains {
         l3_domains.push(TmplL3Domain {
-            Name: d.name,
+            L3DomainName: d.l3_domain_name,
             Services: d.services.clone(),
         });
     }
@@ -39,7 +39,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
         port_configs.push(TmplConfigPort {
-            Name: network.interface_name.clone(),
+            InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
@@ -80,7 +80,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
         ComputeTENANTs: vec![TmplComputeTenant {
-            Name: conf.ct_name,
+            VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             VRFloopback: conf.ct_vrf_loopback,
             PortConfigs: port_configs,
@@ -205,7 +205,7 @@ pub struct NvueConfig {
     pub deny_prefixes: Vec<String>,
 
     // Currently we have a single tenant. Later this will be Vec<ComputeTenant>
-    pub ct_name: String,
+    pub ct_vrf_name: String,
     pub ct_l3_vni: Option<u32>,
     pub ct_vrf_loopback: String,
     pub ct_port_configs: Vec<PortConfig>,
@@ -222,7 +222,7 @@ pub struct VlanConfig {
 
 #[derive(Deserialize, Debug)]
 pub struct L3Domain {
-    pub name: String,
+    pub l3_domain_name: String,
     pub services: Vec<String>,
 }
 
@@ -283,7 +283,7 @@ struct TmplNvue {
 struct TmplComputeTenant {
     /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
     /// Linux is limited to 15 chars for interface names.
-    Name: String,
+    VrfName: String,
 
     /// L3VNI VPC-specifc VNI, which is globally unique. GNI allocates us
     /// a pool of VNIs to assign as we see fit, so we carve out blocks
@@ -319,7 +319,7 @@ struct TmplConfigVLAN {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplConfigPort {
-    Name: String,
+    InterfaceName: String,
     Index: String,
     VlanID: u16,
 
@@ -353,7 +353,7 @@ struct TmplInfra {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplL3Domain {
-    Name: String,
+    L3DomainName: String,
     Services: Vec<String>,
 }
 
