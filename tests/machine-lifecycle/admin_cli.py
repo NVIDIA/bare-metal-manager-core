@@ -13,12 +13,12 @@ from rich import print_json
 
 def wait_for_machine_ready(machine_id: str, timeout: int) -> None:
     """Check repeatedly until the specified machine is in Ready state, for up to `timeout` seconds."""
-    wait_for_state(machine_id, "Ready", timeout)
+    wait_for_state(machine_id, "Ready", timeout, allow_missing_machine=True)
 
 
 def wait_for_machine_assigned_ready(machine_id: str, timeout: int) -> None:
     """Check repeatedly until the specified machine is in Assigned/Ready state, for up to `timeout` seconds."""
-    wait_for_state(machine_id, "Assigned/Ready", timeout)
+    wait_for_state(machine_id, "Assigned/Ready", timeout, allow_missing_machine=True)
 
 
 def wait_for_machine_waitingforhostdiscovery(machine_id: str, timeout: int) -> None:
