@@ -193,7 +193,7 @@ pub(crate) async fn create_credential(
                 .parse::<MacAddress>()
                 .map_err(CarbideError::from)?;
 
-            set_bmc_root_credentials_by_mac(api, parsed_mac, password)
+            set_bmc_root_credentials_by_mac(api, parsed_mac, password, req.username)
                 .await
                 .map_err(|e| {
                     CarbideError::GenericError(format!(
@@ -412,20 +412,21 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
     api: &Api,
     bmc_mac_address: MacAddress,
 ) -> Result<(), CarbideError> {
-    set_bmc_root_credentials_by_mac(api, bmc_mac_address, "".to_string()).await
+    set_bmc_root_credentials_by_mac(api, bmc_mac_address, "".to_string(), None).await
 }
 
 async fn set_bmc_root_credentials_by_mac(
     api: &Api,
     bmc_mac_address: MacAddress,
     password: String,
+    username: Option<String>,
 ) -> Result<(), CarbideError> {
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
     };
 
     let credentials = Credentials::UsernamePassword {
-        username: FORGE_ROOT_BMC_USERNAME.to_string(),
+        username: username.unwrap_or_else(|| FORGE_ROOT_BMC_USERNAME.to_string()),
         password: password.clone(),
     };
 
