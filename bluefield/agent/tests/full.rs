@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_network::virtualization::get_svi_ip;
+
 use std::fs;
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,6 +25,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
+use ipnetwork::IpNetwork;
 use rpc::forge::DpuInfo;
 use tokio::sync::Mutex;
 
@@ -215,6 +218,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     }
     let is_nvue = state.lock().await.is_nvue;
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
+
+    let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
+
     let admin_interface = rpc::forge::FlatInterfaceConfig {
         function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
         vlan_id: 10,
@@ -222,13 +228,17 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         vpc_vni: 10101,
         gateway: "192.168.0.0/16".to_string(),
         ip: "192.168.0.12".to_string(),
-        interface_prefix: "192.168.0.12/32".to_string(),
+        interface_prefix: admin_interface_prefix.to_string(),
         virtual_function_id: None,
         vpc_prefixes: vec![],
         prefix: "192.168.0.1/32".to_string(),
         fqdn: "host1".to_string(),
         booturl: None,
+        svi_ip: get_svi_ip(&admin_interface_prefix)
+            .unwrap()
+            .map(|ip| ip.to_string()),
     };
+    assert_eq!(admin_interface.svi_ip, None);
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
         asn: 65535,

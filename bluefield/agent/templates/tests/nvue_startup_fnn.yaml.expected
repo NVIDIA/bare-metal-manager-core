@@ -136,12 +136,12 @@
             ipv4:
               resolved-via-default: on
           static:
-            10.217.5.170/31:
+            10.217.5.170/30:
               address-family: ipv4-unicast
               via:
                 vlan196:
                   type: interface
-            10.217.5.162/31:
+            10.217.5.162/30:
               address-family: ipv4-unicast
               via:
                 vlan185:
@@ -151,8 +151,8 @@
               ipv4-unicast:
                 network:
                   10.217.5.39/32: {}
-                  10.217.5.170/31: {}
-                  10.217.5.162/31: {}
+                  10.217.5.170/30: {}
+                  10.217.5.162/30: {}
                 enable: on
                 multipaths:
                   ebgp: 128

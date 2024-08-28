@@ -153,7 +153,7 @@ pub async fn update_nvue(
             l3_vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
             vpc_prefixes: admin_interface.vpc_prefixes.clone(), // probably empty
-            svi_ip: None,                                       // FNN only
+            svi_ip: None, // FNN-specific. not used with admin network.
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -172,6 +172,7 @@ pub async fn update_nvue(
                     }
                 )
             };
+
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 vlan: net.vlan_id as u16,
@@ -179,7 +180,7 @@ pub async fn update_nvue(
                 l3_vni: Some(net.vpc_vni),
                 gateway_cidr: net.gateway.clone(),
                 vpc_prefixes: net.vpc_prefixes.clone(),
-                svi_ip: None, // FNN only
+                svi_ip: net.svi_ip.clone(),
             });
         }
         ifs
@@ -1285,6 +1286,8 @@ mod tests {
     use super::FPath;
     use crate::ethernet_virtualization::get_interface_cmd;
     use crate::nvue;
+    use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
+    use ipnetwork::IpNetwork;
 
     #[ctor::ctor]
     fn setup() {
@@ -1307,7 +1310,7 @@ mod tests {
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(32);
+        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizer, 32);
 
         let f = tempfile::NamedTempFile::new()?;
         let fp = FPath(f.path().to_owned());
@@ -1378,7 +1381,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(32);
+        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizerWithNvue, 32);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1404,7 +1407,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(31);
+        let network_config = netconf(VpcVirtualizationType::FnnL3, 30);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1428,9 +1431,13 @@ mod tests {
         Ok(())
     }
 
-    fn netconf(interface_prefix_length: u8) -> rpc::ManagedHostNetworkConfigResponse {
+    fn netconf(
+        virtualization_type: VpcVirtualizationType,
+        interface_prefix_length: u8,
+    ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
+        let admin_interface_prefix: IpNetwork = "10.217.5.123/32".parse().unwrap();
         let admin_interface = rpc::FlatInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical.into(),
             virtual_function_id: None,
@@ -1439,12 +1446,24 @@ mod tests {
             vpc_vni: 1002,
             gateway: "10.217.5.123/28".to_string(),
             ip: "10.217.5.123".to_string(),
-            interface_prefix: "10.217.5.123/32".to_string(),
+            interface_prefix: admin_interface_prefix.to_string(),
             vpc_prefixes: vec![],
             prefix: "10.217.5.123/28".to_string(),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
+            svi_ip: get_svi_ip(&admin_interface_prefix)
+                .unwrap()
+                .map(|ip| ip.to_string()),
         };
+        assert_eq!(admin_interface.svi_ip, None);
+
+        let interface_prefix_1: IpNetwork = format!("10.217.5.170/{}", interface_prefix_length)
+            .parse()
+            .unwrap();
+        let interface_prefix_2: IpNetwork = format!("10.217.5.162/{}", interface_prefix_length)
+            .parse()
+            .unwrap();
+
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual.into(),
@@ -1454,11 +1473,14 @@ mod tests {
                 vpc_vni: 1025197,
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170".to_string(),
-                interface_prefix: format!("10.217.5.170/{}", interface_prefix_length),
+                interface_prefix: interface_prefix_1.to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
+                svi_ip: get_svi_ip(&interface_prefix_1)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -1468,13 +1490,21 @@ mod tests {
                 vpc_vni: 1025186,
                 gateway: "10.217.5.161/30".to_string(),
                 ip: "10.217.5.162".to_string(),
-                interface_prefix: format!("10.217.5.162/{}", interface_prefix_length),
+                interface_prefix: interface_prefix_2.to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
+                svi_ip: get_svi_ip(&interface_prefix_2)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
         ];
+
+        let svi_is_some = virtualization_type == VpcVirtualizationType::FnnL3;
+        assert_eq!(tenant_interfaces[0].svi_ip.is_some(), svi_is_some);
+        assert_eq!(tenant_interfaces[1].svi_ip.is_some(), svi_is_some);
+
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
         };
@@ -1716,6 +1746,7 @@ mod tests {
     fn test_with_tenant_dhcp_server() -> Result<(), Box<dyn std::error::Error>> {
         // The config we received from API server
         // Admin won't be used
+        let admin_interface_prefix: IpNetwork = "10.217.5.123/32".parse().unwrap();
         let admin_interface = rpc::FlatInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical.into(),
             virtual_function_id: None,
@@ -1724,12 +1755,20 @@ mod tests {
             vpc_vni: 1002,
             gateway: "10.217.5.123".to_string(),
             ip: "10.217.5.123".to_string(),
-            interface_prefix: "10.217.5.123/32".to_string(),
+            interface_prefix: admin_interface_prefix.to_string(),
             vpc_prefixes: vec![],
             prefix: "10.217.5.123".to_string(),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
+            svi_ip: get_svi_ip(&admin_interface_prefix)
+                .unwrap()
+                .map(|ip| ip.to_string()),
         };
+        assert_eq!(admin_interface.svi_ip, None);
+
+        let interface_prefix_1: IpNetwork = "10.217.5.170/32".parse().unwrap();
+        let interface_prefix_2: IpNetwork = "10.217.5.162/32".parse().unwrap();
+
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual.into(),
@@ -1739,11 +1778,14 @@ mod tests {
                 vpc_vni: 1025197,
                 gateway: "10.217.5.169".to_string(),
                 ip: "10.217.5.170".to_string(),
-                interface_prefix: "10.217.5.170/32".to_string(),
+                interface_prefix: interface_prefix_1.to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
+                svi_ip: get_svi_ip(&interface_prefix_1)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -1753,13 +1795,23 @@ mod tests {
                 vpc_vni: 1025186,
                 gateway: "10.217.5.161".to_string(),
                 ip: "10.217.5.162".to_string(),
-                interface_prefix: "10.217.5.162/32".to_string(),
+                interface_prefix: interface_prefix_2.to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
+                svi_ip: get_svi_ip(&interface_prefix_2)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
         ];
+
+        // Ensure both SVI IPs are set to None for the /32
+        // interface prefixes (if they were /30 then we'd
+        // have an IP).
+        assert_eq!(tenant_interfaces[0].svi_ip, None);
+        assert_eq!(tenant_interfaces[1].svi_ip, None);
+
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
         };

@@ -88,6 +88,9 @@ pub mod web;
 ///
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideError {
+    #[error("Generic error from report: {0}")]
+    GenericErrorFromReport(#[from] eyre::ErrReport),
+
     #[error("Unable to parse string into IP Network: {0}")]
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
 

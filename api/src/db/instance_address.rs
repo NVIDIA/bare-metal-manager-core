@@ -33,6 +33,7 @@ use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
+use forge_network::virtualization::get_host_ip;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
@@ -409,29 +410,6 @@ WHERE network_segments.id = $1::uuid";
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(containers.iter().map(|c| c.prefix).collect())
-    }
-}
-
-/// get_host_ip returns the host IP for a tenant instance
-/// for a given IpNetwork. This is being initially introduced
-/// for the purpose of FNN /30 allocations (where the host IP
-/// ends up being the 4th IP -- aka the second IP of the second
-/// /31 allocation in the /30), and will probably change with
-/// a wider refactor + intro of Carbide IP Prefix Management.
-fn get_host_ip(network: &IpNetwork) -> CarbideResult<IpAddr> {
-    match network.prefix() {
-        32 => Ok(network.ip()),
-        30 => match network.iter().nth(3) {
-            Some(ip_addr) => Ok(ip_addr),
-            None => Err(CarbideError::GenericError(format!(
-                "no viable host IP found in network: {}",
-                network
-            ))),
-        },
-        _ => Err(CarbideError::GenericError(format!(
-            "tenant instance network size unsupported: {}",
-            network.prefix()
-        ))),
     }
 }
 
