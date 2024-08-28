@@ -417,7 +417,7 @@ pub async fn update_interface_state(
     if !skip_reload {
         return match hbn::run_in_container_shell(cmd).await {
             Ok(_) => {
-                tracing::info!("{cmd} is executed successfully.");
+                tracing::trace!("{cmd} is executed successfully.");
                 Ok(true)
             }
             Err(err) => {
