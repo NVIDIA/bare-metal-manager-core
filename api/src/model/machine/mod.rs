@@ -77,72 +77,82 @@ impl ManagedHostStateSnapshot {
         hardware_health_reports_config: HardwareHealthReportsConfig,
     ) {
         // TODO: In the future we will also take machine-validation results into consideration
-        let mut get_health = || -> Result<HealthReport, &'static str> {
-            // If there is an [`OverrideMode::Override`] health report override on
-            // the host, then use that.
-            if let Some(over) = &self.host_snapshot.health_report_overrides.r#override {
-                return Ok(over.clone());
-            }
 
-            let mut output = health_report::HealthReport::empty("".to_string());
+        let source = "aggregate-host-health".to_string();
+        let observed_at = Some(chrono::Utc::now());
 
-            // Merge hardware health if configured.
-            use HardwareHealthReportsConfig as HWConf;
-            match hardware_health_reports_config {
-                HWConf::Disabled => {}
-                HWConf::MonitorOnly => {
-                    // If MonitorOnly, don't return early even if there is no hw health report.
-                    // Also clear all alert classifications.
-                    if let Some(h) = &mut self.host_snapshot.hardware_health_report {
-                        for alert in &mut h.alerts {
-                            alert.classifications.clear();
-                        }
-                        output.merge(h)
+        // If there is an [`OverrideMode::Override`] health report override on
+        // the host, then use that.
+        if let Some(mut over) = self
+            .host_snapshot
+            .health_report_overrides
+            .r#override
+            .clone()
+        {
+            over.source = source;
+            over.observed_at = observed_at;
+            self.aggregate_health = over;
+            return;
+        }
+
+        let mut output = health_report::HealthReport::empty("".to_string());
+
+        let merge_or_timeout =
+            |output: &mut HealthReport, input: &Option<HealthReport>, target: String| {
+                if let Some(input) = input {
+                    output.merge(input);
+                } else {
+                    output.merge(&HealthReport::heartbeat_timeout(
+                        "".to_string(),
+                        target,
+                        "".to_string(),
+                    ));
+                }
+            };
+
+        // Merge hardware health if configured.
+        use HardwareHealthReportsConfig as HWConf;
+        match hardware_health_reports_config {
+            HWConf::Disabled => {}
+            HWConf::MonitorOnly => {
+                // If MonitorOnly, clear all alert classifications.
+                if let Some(h) = &mut self.host_snapshot.hardware_health_report {
+                    for alert in &mut h.alerts {
+                        alert.classifications.clear();
                     }
-                }
-                HWConf::Enabled => {
-                    // If hw_health_reports are enabled, then do return early if no hw report.
-                    output.merge(
-                        self.host_snapshot
-                            .hardware_health_report
-                            .as_ref()
-                            .ok_or("hardware-health")?,
-                    )
+                    output.merge(h)
                 }
             }
-
-            // Merge DPU's
-            for snapshot in self.dpu_snapshots.iter() {
-                output.merge(
-                    snapshot
-                        .dpu_agent_health_report
-                        .as_ref()
-                        .ok_or("forge-dpu-agent")?,
+            HWConf::Enabled => {
+                // If hw_health_reports are enabled, then add a heartbeat timeout
+                // if the report is missing.
+                merge_or_timeout(
+                    &mut output,
+                    &self.host_snapshot.hardware_health_report,
+                    "hardware-health".to_string(),
                 );
-                for over in snapshot.health_report_overrides.merges.values() {
-                    output.merge(over);
-                }
             }
+        }
 
-            for over in self.host_snapshot.health_report_overrides.merges.values() {
+        // Merge DPU's
+        for snapshot in self.dpu_snapshots.iter() {
+            merge_or_timeout(
+                &mut output,
+                &snapshot.dpu_agent_health_report,
+                "forge-dpu-agent".to_string(),
+            );
+            for over in snapshot.health_report_overrides.merges.values() {
                 output.merge(over);
             }
+        }
 
-            Ok(output)
-        };
+        for over in self.host_snapshot.health_report_overrides.merges.values() {
+            output.merge(over);
+        }
 
-        let mut aggregate_health = match get_health() {
-            Ok(r) => r,
-            Err(target) => health_report::HealthReport::heartbeat_timeout(
-                "".to_string(),
-                target.to_string(),
-                format!("Missing health report from subsystem: {target}"),
-            ),
-        };
-
-        aggregate_health.source = "aggregate-host-health".to_string();
-        aggregate_health.observed_at = Some(chrono::Utc::now());
-        self.aggregate_health = aggregate_health;
+        output.source = source;
+        output.observed_at = observed_at;
+        self.aggregate_health = output;
     }
 
     /// Creates an RPC Machine representation for either the Host or one of the DPUs
