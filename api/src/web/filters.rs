@@ -91,7 +91,7 @@ pub fn health_alerts_fmt(
         }
         askama_escape::Html.write_escaped(&mut result, &alert.id.to_string())?;
         if let Some(target) = alert.target.as_ref() {
-            result += "[Target: ";
+            result += " [Target: ";
             askama_escape::Html.write_escaped(&mut result, target)?;
             result.push(']');
         }
