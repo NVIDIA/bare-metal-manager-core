@@ -1526,6 +1526,8 @@ message Machine {
   BmcInfo bmc_info = 12;
 
   google.protobuf.Timestamp last_reboot_time = 14;
+  // TODO: This is used by legacy versions of forge-admin-cli as well as by Forge Cloud
+  // It should be removed once those are upgraded and use the new `health`` field
   NetworkHealth network_health = 15;
   google.protobuf.Timestamp last_observation_time = 16;
   optional string maintenance_reference = 17;
