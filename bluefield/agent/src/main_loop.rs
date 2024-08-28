@@ -256,6 +256,7 @@ pub async fn run(
         let mut current_host_network_config_version = None;
         let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
+        let mut current_instance_id = None;
 
         let client_certificate_expiry_unix_epoch_secs =
             forge_client_config.client_cert_expiry().await;
@@ -517,11 +518,18 @@ pub async fn run(
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it
+                // Note: Performing the update here instead of the FMDS mechanism directly
+                // pulling the Metadata is preferred - since the mainloop will make sure
+                // all the information (Instance Metadata and Network Config) is in sync.
+                // It will guarantee that the Instance Config that is acknowledged to
+                // carbide via the status message is actually visible to the tenant via
+                // FMDS
                 instance_metadata_state.update_instance_data(instance_data.clone());
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());
                 current_instance_config_version = status_out.instance_config_version.clone();
+                current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
                 let health_report = health::health_check(
                     &agent.hbn.root_dir,
@@ -635,7 +643,7 @@ pub async fn run(
         };
 
         let cr7 = current_health_report.as_ref();
-        tracing::debug!(
+        tracing::info!(
             is_healthy,
             has_changed_configs,
             seen_blank,
@@ -643,6 +651,7 @@ pub async fn run(
             health_check_first_error = cr7.and_then(|hs| hs.message.as_deref()).unwrap_or_default(),
             write_config_error = current_config_error.unwrap_or_default(),
             managed_host_network_config_version = current_host_network_config_version.unwrap_or_default(),
+            instance_id = current_instance_id.unwrap_or_default(),
             instance_network_config_version = current_instance_network_config_version.unwrap_or_default(),
             instance_config_version = current_instance_config_version.unwrap_or_default(),
             loop_duration = %dt(loop_start.elapsed()),

@@ -18,7 +18,7 @@ use std::{
 use arc_swap::ArcSwapOption;
 use config_version::ConfigVersion;
 use eyre::Context;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::Instance;
@@ -143,12 +143,11 @@ async fn run_instance_metadata_fetcher(
             state.config.machine_id
         );
 
-        match fetch_latest_ip_addresses(forge_client_config.clone(), &state).await {
+        match fetch_latest_metadata(forge_client_config.clone(), &state).await {
             Ok(Some(config)) => {
                 state.current.store(Some(Arc::new(config)));
             }
             Ok(None) => {
-                info!("No instance is found configured on the host.");
                 state.current.store(None);
             }
             Err(err) => {
@@ -163,7 +162,7 @@ async fn run_instance_metadata_fetcher(
     }
 }
 
-async fn fetch_latest_ip_addresses(
+async fn fetch_latest_metadata(
     client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {
