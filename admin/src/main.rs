@@ -716,7 +716,7 @@ async fn main() -> color_eyre::Result<()> {
                 let password = password_validator(c.password.clone()).await?;
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::from(c.kind).into(),
-                    username: None,
+                    username: c.username,
                     password,
                     mac_address: c.mac_address,
                     vendor: None,
@@ -1512,5 +1512,36 @@ mod tests {
             "ssss",
         ])
         .is_err());
+    }
+
+    #[test]
+    fn forge_admin_cli_credential_test() {
+        //  bmc-root credential w.o optional username
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "credential",
+            "add-bmc",
+            "--kind=bmc-root",
+            "--mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--password",
+            "my-pw",
+        ])
+        .is_ok());
+
+        //  bmc-root credential with optional username
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "credential",
+            "add-bmc",
+            "--kind=bmc-root",
+            "--mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--password",
+            "my-pw",
+            "--username",
+            "me"
+        ])
+        .is_ok());
     }
 }

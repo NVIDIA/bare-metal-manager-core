@@ -1278,6 +1278,8 @@ pub struct AddBMCredential {
     pub kind: BmcCredentialType,
     #[clap(long, required(true), help = "The password of BMC")]
     pub password: String,
+    #[clap(long, help = "The username of BMC")]
+    pub username: Option<String>,
     #[clap(long, help = "The MAC address of the BMC")]
     pub mac_address: Option<String>,
 }
