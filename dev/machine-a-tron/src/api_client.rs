@@ -265,10 +265,7 @@ pub async fn discovery_complete(
     with_forge_client(app_context, |mut client| async move {
         let out = client
             .discovery_completed(tonic::Request::new(
-                rpc::forge::MachineDiscoveryCompletedRequest {
-                    machine_id,
-                    discovery_error: None,
-                },
+                rpc::forge::MachineDiscoveryCompletedRequest { machine_id },
             ))
             .await
             .map(|response| response.into_inner())

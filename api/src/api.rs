@@ -825,25 +825,7 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let discovery_result = match req.discovery_error {
-            Some(discovery_error) => {
-                machine
-                    .update_failure_details(
-                        &mut txn,
-                        FailureDetails {
-                            cause: FailureCause::Discovery {
-                                err: discovery_error.clone(),
-                            },
-                            failed_at: chrono::Utc::now(),
-                            source: FailureSource::Scout,
-                        },
-                    )
-                    .await
-                    .map_err(CarbideError::from)?;
-                discovery_error
-            }
-            None => "Success".to_owned(),
-        };
+        let discovery_result = "Success".to_owned();
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

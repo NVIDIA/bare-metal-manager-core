@@ -2123,7 +2123,7 @@ message MachineDiscoveryInfo {
 
 message MachineDiscoveryCompletedRequest {
 	common.MachineId machine_id = 1;
-  optional string DiscoveryError = 2;
+  reserved 2; // Discovery completed no longer returns an error
 }
 
 message MachineCleanupInfo {

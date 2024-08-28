@@ -14,19 +14,13 @@ use ::rpc::forge as rpc;
 
 use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
 
-pub(crate) async fn run(_config: &Options, _machine_id: &str) -> Result<(), CarbideClientError> {
-    Ok(())
-}
-
 pub(crate) async fn completed(
     config: &Options,
     machine_id: &str,
-    discovery_error: Option<String>,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
         machine_id: Some(machine_id.to_string().into()),
-        discovery_error,
     });
     client.discovery_completed(request).await?;
     Ok(())

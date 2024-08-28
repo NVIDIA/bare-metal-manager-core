@@ -395,7 +395,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Discovery as i32);
 
-    discovery_completed(&env, host_rpc_machine_id.clone(), None).await;
+    discovery_completed(&env, host_rpc_machine_id.clone()).await;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;

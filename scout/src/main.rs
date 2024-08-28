@@ -191,9 +191,7 @@ async fn handle_action(
         Action::Discovery => {
             // This is temporary. All cleanup must be done when API call Reset.
             deprovision::run_no_api();
-
-            let result = discovery::run(config, machine_id).await;
-            discovery::completed(config, machine_id, result.err().map(|e| e.to_string())).await?;
+            discovery::completed(config, machine_id).await?;
         }
         Action::Reset => {
             deprovision::run(config, machine_id).await?;
