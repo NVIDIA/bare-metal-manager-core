@@ -132,9 +132,9 @@ impl IBFabric for MockIBFabric {
         match ibsubnets.get_mut(&ibnetwork.pkey.to_string()) {
             Some(ib) => {
                 // Update QoS accordingly
-                ib.mtu = ibnetwork.mtu;
-                ib.rate_limit = ibnetwork.rate_limit;
-                ib.service_level = ibnetwork.service_level;
+                ib.mtu = ibnetwork.mtu.clone();
+                ib.rate_limit = ibnetwork.rate_limit.clone();
+                ib.service_level = ibnetwork.service_level.clone();
                 Ok(())
             }
             None => Err(CarbideError::IBFabricError(

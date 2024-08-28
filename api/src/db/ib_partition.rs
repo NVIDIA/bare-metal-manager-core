@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::env;
 use std::fmt;
 use std::ops::DerefMut;
 use std::str::FromStr;
@@ -25,6 +24,10 @@ use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 use tonic::Status;
 
+use crate::ib::types::{
+    IBMtu, IBNetwork, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
+    IBNETWORK_DEFAULT_MEMBERSHIP,
+};
 use crate::ib::IBFabricManagerConfig;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
@@ -33,14 +36,8 @@ use crate::model::instance::config::{
 };
 use crate::model::machine::MachineSnapshot;
 use crate::{
-    db::instance::InstanceId,
-    db::DatabaseError,
-    model::ib_partition::{
-        IBPartitionControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT,
-        IB_DEFAULT_SERVICE_LEVEL, IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
-    },
-    model::tenant::TenantOrganizationId,
-    CarbideError, CarbideResult,
+    db::instance::InstanceId, db::DatabaseError, model::ib_partition::IBPartitionControllerState,
+    model::tenant::TenantOrganizationId, CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -199,17 +196,17 @@ pub struct IBPartitionConfig {
     pub name: String,
     pub pkey: Option<u16>,
     pub tenant_organization_id: TenantOrganizationId,
-    pub mtu: i32,
-    pub rate_limit: i32,
-    pub service_level: i32,
+    pub mtu: Option<IBMtu>,
+    pub rate_limit: Option<IBRateLimit>,
+    pub service_level: Option<IBServiceLevel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IBPartitionStatus {
     pub partition: String,
-    pub mtu: i32,
-    pub rate_limit: i32,
-    pub service_level: i32,
+    pub mtu: IBMtu,
+    pub rate_limit: IBRateLimit,
+    pub service_level: IBServiceLevel,
 }
 
 #[derive(Debug, Clone)]
@@ -230,6 +227,22 @@ pub struct IBPartition {
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 }
 
+impl From<&IBPartition> for IBNetwork {
+    fn from(ib: &IBPartition) -> IBNetwork {
+        Self {
+            name: ib.config.name.clone(),
+            pkey: ib.config.pkey.unwrap_or(0),
+            enable_sharp: false,
+            mtu: ib.config.mtu.clone().unwrap_or_default(),
+            ipoib: true,
+            service_level: ib.config.service_level.clone().unwrap_or_default(),
+            membership: IBNETWORK_DEFAULT_MEMBERSHIP,
+            index0: IBNETWORK_DEFAULT_INDEX0,
+            rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
+        }
+    }
+}
+
 // We need to implement FromRow because we can't associate dependent tables with the default derive
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for IBPartition {
@@ -248,6 +261,9 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
         let pkey: i32 = row.try_get("pkey")?;
+        let mtu: i32 = row.try_get("mtu")?;
+        let rate_limit: i32 = row.try_get("rate_limit")?;
+        let service_level: i32 = row.try_get("service_level")?;
 
         Ok(IBPartition {
             id: row.try_get("id")?,
@@ -256,9 +272,9 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
                 name: row.try_get("name")?,
                 pkey: Some(pkey as u16),
                 tenant_organization_id,
-                mtu: row.try_get("mtu")?,
-                rate_limit: row.try_get("rate_limit")?,
-                service_level: row.try_get("service_level")?,
+                mtu: IBMtu::try_from(mtu).ok(),
+                rate_limit: IBRateLimit::try_from(rate_limit).ok(),
+                service_level: IBServiceLevel::try_from(service_level).ok(),
             },
             status,
 
@@ -298,17 +314,10 @@ impl TryFrom<rpc::IbPartitionConfig> for IBPartitionConfig {
             name: conf.name,
             pkey: None,
             tenant_organization_id,
-            mtu: get_env(IB_MTU_ENV, IB_DEFAULT_MTU),
-            rate_limit: get_env(IB_RATE_LIMIT_ENV, IB_DEFAULT_RATE_LIMIT),
-            service_level: get_env(IB_SERVICE_LEVEL_ENV, IB_DEFAULT_SERVICE_LEVEL),
+            mtu: None,
+            rate_limit: None,
+            service_level: None,
         })
-    }
-}
-
-fn get_env<T: std::str::FromStr>(name: &str, default: T) -> T {
-    match env::var(name) {
-        Ok(v) => v.parse::<T>().unwrap_or(default),
-        Err(_) => default,
     }
 }
 
@@ -339,9 +348,9 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
         let (partition, rate_limit, mtu, service_level) = match src.status {
             Some(s) => (
                 Some(s.partition),
-                Some(s.rate_limit),
-                Some(s.mtu),
-                Some(s.service_level),
+                Some(s.rate_limit.into()),
+                Some(s.mtu.into()),
+                Some(s.service_level.into()),
             ),
             None => (None, None, None, None),
         };
@@ -395,9 +404,9 @@ impl NewIBPartition {
             .bind(&conf.name)
             .bind(conf.pkey.map(|k| k as i32))
             .bind(conf.tenant_organization_id.to_string())
-            .bind(conf.mtu)
-            .bind(conf.rate_limit)
-            .bind(conf.service_level)
+            .bind::<i32>(conf.mtu.clone().unwrap_or_default().into())
+            .bind::<i32>(conf.rate_limit.clone().unwrap_or_default().into())
+            .bind::<i32>(conf.service_level.clone().unwrap_or_default().into())
             .bind(version)
             .bind(version)
             .bind(sqlx::types::Json(state))
