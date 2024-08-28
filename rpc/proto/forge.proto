@@ -980,6 +980,7 @@ message InstanceSearchFilter {
   // supports filtering on key, value, or key and value
   optional Label label = 1;
   optional string tenant_org_id = 2;
+  optional string vpc_id = 3;
 }
 
 message InstanceIdList {

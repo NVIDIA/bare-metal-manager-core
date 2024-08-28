@@ -1053,6 +1053,12 @@ pub enum Instance {
     Allocate(AllocateInstance),
 }
 
+/// ShowInstance is used for `cli instance show` configuration,
+/// with the ability to filter by a combination of labels, tenant
+/// org ID, and VPC ID.
+//
+// TODO: Possibly add the ability to filter by a list of tenant
+// org IDs and/or VPC IDs.
 #[derive(Parser, Debug)]
 pub struct ShowInstance {
     #[clap(
@@ -1066,6 +1072,9 @@ pub struct ShowInstance {
 
     #[clap(short, long, help = "The Tenant Org ID to query")]
     pub tenant_org_id: Option<String>,
+
+    #[clap(short, long, help = "The VPC ID to query.")]
+    pub vpc_id: Option<String>,
 
     #[clap(long, help = "The key of label instance to query")]
     pub label_key: Option<String>,

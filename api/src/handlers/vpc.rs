@@ -14,6 +14,7 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
+use crate::db::instance::Instance;
 use crate::db::vpc::{
     NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcId, VpcIdKeyedObjectFilter,
 };
@@ -97,9 +98,16 @@ pub(crate) async fn update_virtualization(
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
-    let instances = Vpc::list_instance_ids(&mut txn, updater.id)
-        .await
-        .map_err(CarbideError::from)?;
+    let instances = Instance::find_ids(
+        &mut txn,
+        rpc::InstanceSearchFilter {
+            label: None,
+            tenant_org_id: None,
+            vpc_id: Some(updater.id.to_string()),
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     if !instances.is_empty() {
         return Err(CarbideError::GenericError(format!(

@@ -364,6 +364,7 @@ pub async fn identify_serial(
 pub async fn get_all_instances(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
+    vpc_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
     page_size: usize,
@@ -371,6 +372,7 @@ pub async fn get_all_instances(
     let all_ids = match get_instance_ids(
         api_config,
         tenant_org_id.clone(),
+        vpc_id.clone(),
         label_key.clone(),
         label_value.clone(),
     )
@@ -382,7 +384,7 @@ pub async fn get_all_instances(
         {
             if tenant_org_id.is_some() {
                 return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID is not supported for this site.\
+                    "Filtering by Tenant Org or VPC ID is not supported for this site.\
                         \nIt does not have a required version of the Carbide API."
                         .to_string(),
                 ));
@@ -423,12 +425,14 @@ pub async fn get_one_instance(
 async fn get_instance_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
+    vpc_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
 ) -> CarbideCliResult<rpc::InstanceIdList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstanceSearchFilter {
             tenant_org_id,
+            vpc_id,
             label: if label_key.is_none() && label_value.is_none() {
                 None
             } else {

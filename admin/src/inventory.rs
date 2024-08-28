@@ -218,7 +218,8 @@ pub async fn print_inventory(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let all_machines = rpc::get_all_machines(api_config, None, false, page_size).await?;
-    let all_instances = rpc::get_all_instances(api_config, None, None, None, page_size).await?;
+    let all_instances =
+        rpc::get_all_instances(api_config, None, None, None, None, page_size).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
 
