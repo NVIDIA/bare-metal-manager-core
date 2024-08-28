@@ -249,8 +249,7 @@ pub struct ManagedHostAttachedDpu {
     pub last_observation_time: Option<String>,
     pub switch_connections: Vec<DpuSwitchConnection>,
     pub is_primary: bool,
-    pub is_network_healthy: bool,
-    pub network_error_msg: Option<String>,
+    pub health: health_report::HealthReport,
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
 }
@@ -297,22 +296,6 @@ impl ManagedHostAttachedDpu {
             return None;
         };
 
-        let (is_network_healthy, network_error_msg) = match &dpu_machine.network_health {
-            Some(h) => (
-                h.is_healthy,
-                Some(if !h.is_healthy {
-                    format!(
-                        "Message: {}, Failed: {}",
-                        h.message.clone().unwrap_or_default(),
-                        h.failed.join(", ")
-                    )
-                } else {
-                    "".to_string()
-                }),
-            ),
-            None => (false, Some("Unknown Status".to_string())),
-        };
-
         let exploration_map = get_bmc_info_from_machine!(dpu_machine, ip)
             .and_then(|bmc_ip| endpoint_exploration_map.get(&bmc_ip));
 
@@ -355,8 +338,14 @@ impl ManagedHostAttachedDpu {
                 })
                 .collect(),
             is_primary,
-            is_network_healthy,
-            network_error_msg,
+            health: dpu_machine
+                .health
+                .as_ref()
+                .map(|h| {
+                    health_report::HealthReport::try_from(h.clone())
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
             failure_details: dpu_machine.failure_details.clone(),
         };
 

@@ -32,7 +32,7 @@
 			<td>
 				{% if host.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
 					<a href="/admin/machine/health/{{ host.machine_id }}">
-						{{ host.health_probe_alerts|health_alerts_fmt|safe }}
+						{{ host.health_probe_alerts|health_alerts_fmt(false)|safe }}
 					</a>
 				</div>
 			</td>

@@ -76,7 +76,10 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> 
 
 /// Formats a list of Health Probe Alerts
 /// If there is no alert, the generated String will be "None"
-pub fn health_alerts_fmt(alerts: &[health_report::HealthProbeAlert]) -> ::askama::Result<String> {
+pub fn health_alerts_fmt(
+    alerts: &[health_report::HealthProbeAlert],
+    include_message: bool,
+) -> ::askama::Result<String> {
     if alerts.is_empty() {
         return Ok("None".to_string());
     }
@@ -91,6 +94,11 @@ pub fn health_alerts_fmt(alerts: &[health_report::HealthProbeAlert]) -> ::askama
             result += "[Target: ";
             askama_escape::Html.write_escaped(&mut result, target)?;
             result.push(']');
+        }
+
+        if include_message {
+            result += ": ";
+            askama_escape::Html.write_escaped(&mut result, &alert.message)?;
         }
     }
     Ok(result)
