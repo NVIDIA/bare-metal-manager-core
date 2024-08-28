@@ -102,7 +102,6 @@ async fn get_all_machines_deprecated(
                 include_history: true,
                 include_predicted_host,
                 only_maintenance,
-                include_associated_machine_id: false,
                 exclude_hosts,
             }),
         });
@@ -1465,7 +1464,6 @@ pub async fn find_machine_ids(
             include_history: false,
             include_predicted_host,
             only_maintenance,
-            include_associated_machine_id: false,
             exclude_hosts,
         });
         let machine_ids = client

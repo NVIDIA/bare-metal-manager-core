@@ -219,10 +219,7 @@ async fn load_host_and_dpu_machine_states(
     let hosts = Machine::find(
         txn,
         super::ObjectFilter::List(host_machine_ids),
-        crate::db::machine::MachineSearchConfig {
-            include_associated_machine_id: true,
-            ..Default::default()
-        },
+        crate::db::machine::MachineSearchConfig::default(),
     )
     .await?;
 

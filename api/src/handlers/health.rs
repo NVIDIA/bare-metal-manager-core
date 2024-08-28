@@ -57,7 +57,6 @@ pub async fn record_hardware_health_report(
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
-            include_associated_machine_id: false,
             exclude_hosts: false,
         },
     )
@@ -114,7 +113,6 @@ pub async fn get_hardware_health_report(
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
-            include_associated_machine_id: false,
             exclude_hosts: false,
         },
     )
@@ -165,7 +163,6 @@ pub async fn list_health_report_overrides(
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
-            include_associated_machine_id: false,
             exclude_hosts: false,
         },
     )
@@ -211,7 +208,6 @@ async fn remove_by_source(
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
-            include_associated_machine_id: false,
             exclude_hosts: false,
         },
     )

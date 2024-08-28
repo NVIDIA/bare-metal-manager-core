@@ -294,7 +294,6 @@ pub async fn get_machine(
                     include_history: false,
                     include_predicted_host: true,
                     only_maintenance: false,
-                    include_associated_machine_id: false,
                     exclude_hosts: false,
                 }),
             }))
@@ -428,7 +427,6 @@ pub async fn find_machine_ids(
                 include_history: true,
                 include_predicted_host: true,
                 only_maintenance: false,
-                include_associated_machine_id: true,
                 exclude_hosts: false,
             }))
             .await

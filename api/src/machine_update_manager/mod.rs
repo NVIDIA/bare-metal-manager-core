@@ -306,7 +306,6 @@ impl MachineUpdateManager {
                 include_history: false,
                 include_predicted_host: true,
                 only_maintenance: true,
-                include_associated_machine_id: false,
                 exclude_hosts: false,
             },
         )
