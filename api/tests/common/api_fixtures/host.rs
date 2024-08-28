@@ -222,7 +222,7 @@ pub async fn create_host_machine(
     )
     .await;
 
-    discovery_completed(env, host_rpc_machine_id.clone(), None).await;
+    discovery_completed(env, host_rpc_machine_id.clone()).await;
 
     host_uefi_setup(
         env,
@@ -420,7 +420,7 @@ pub async fn create_host_with_machine_validation(
     )
     .await;
 
-    discovery_completed(env, host_rpc_machine_id.clone(), None).await;
+    discovery_completed(env, host_rpc_machine_id.clone()).await;
 
     host_uefi_setup(
         env,

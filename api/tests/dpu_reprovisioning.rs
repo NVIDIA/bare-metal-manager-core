@@ -219,7 +219,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -295,7 +295,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
@@ -584,7 +584,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
@@ -826,7 +826,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -909,7 +909,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
@@ -1241,7 +1241,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
@@ -2272,7 +2272,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id_1.clone().into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -2357,7 +2357,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())
@@ -2618,8 +2618,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     let _response = forge_agent_control(&env, dpu_rpc_id_1.clone()).await;
     let _response = forge_agent_control(&env, dpu_rpc_id_2.clone()).await;
-    discovery_completed(&env, dpu_rpc_id_1.clone(), None).await;
-    discovery_completed(&env, dpu_rpc_id_2.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id_1.clone()).await;
+    discovery_completed(&env, dpu_rpc_id_2.clone()).await;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -2704,8 +2704,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id_1.clone(), None).await;
-    discovery_completed(&env, dpu_rpc_id_2.clone(), None).await;
+    discovery_completed(&env, dpu_rpc_id_1.clone()).await;
+    discovery_completed(&env, dpu_rpc_id_2.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration(handler.clone())

@@ -176,7 +176,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     )
     .await;
 
-    discovery_completed(env, dpu_rpc_machine_id.clone(), None).await;
+    discovery_completed(env, dpu_rpc_machine_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
@@ -377,84 +377,4 @@ pub async fn loopback_ip(
         .unwrap()
         .unwrap();
     IpAddr::V4(dpu.loopback_ip().unwrap())
-}
-
-/// Creates a Machine Interface and Machine for a DPU
-///
-/// Returns the ID of the created machine
-pub async fn create_dpu_machine_with_discovery_error(
-    env: &TestEnv,
-    host_config: &ManagedHostConfig,
-    discovery_error: Option<String>,
-) -> rpc::MachineId {
-    let bmc_machine_interface_id =
-        dpu_bmc_discover_dhcp(env, &host_config.dpu_bmc_mac_address.to_string()).await;
-    // Let's find the IP that we assign to the BMC
-    let mut txn = env.pool.begin().await.unwrap();
-    let bmc_interface =
-        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
-            .await
-            .unwrap();
-    let dpu_bmc_ip = bmc_interface.addresses[0];
-    txn.rollback().await.unwrap();
-
-    let machine_interface_id =
-        dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
-    let dpu_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
-
-    let handler = MachineStateHandlerBuilder::builder()
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .hardware_models(env.config.get_firmware_config())
-        .build();
-
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
-
-    // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
-    assert_eq!(
-        agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Discovery as i32
-    );
-
-    update_dpu_machine_credentials(env, dpu_rpc_machine_id.clone()).await;
-
-    // TODO: This it not really happening in the current version of forge-scout.
-    // But it's in the test setup to verify reading back submitted credentials
-    // TODO: This IP is allocated by carbide. We need to use the right one
-    update_bmc_metadata(
-        env,
-        dpu_rpc_machine_id.clone(),
-        &dpu_bmc_ip.to_string(),
-        FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.dpu_bmc_mac_address.to_string(),
-        FIXTURE_DPU_BMC_VERSION.to_owned(),
-        FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
-    )
-    .await;
-
-    discovery_completed(env, dpu_rpc_machine_id.clone(), discovery_error).await;
-    env.run_machine_state_controller_iteration(handler).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    match machine.current_state() {
-        ManagedHostState::Failed { .. } => {}
-        s => {
-            panic!("Incorrect state: {}", s);
-        }
-    }
-
-    txn.commit().await.unwrap();
-
-    dpu_rpc_machine_id
 }
