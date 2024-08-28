@@ -56,7 +56,6 @@ pub struct MachineSearchConfig {
     pub include_predicted_host: bool,
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
-    pub include_associated_machine_id: bool,
     pub exclude_hosts: bool,
 }
 
@@ -67,7 +66,6 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             include_history: value.include_history,
             include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
-            include_associated_machine_id: value.include_associated_machine_id,
             exclude_hosts: value.exclude_hosts,
         }
     }
@@ -433,15 +431,8 @@ impl Machine {
         stable_machine_id: &MachineId,
         interface: &MachineInterfaceSnapshot,
     ) -> CarbideResult<Self> {
-        let existing_machine = Machine::find_one(
-            &mut *txn,
-            stable_machine_id,
-            MachineSearchConfig {
-                include_associated_machine_id: true,
-                ..Default::default()
-            },
-        )
-        .await?;
+        let existing_machine =
+            Machine::find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default()).await?;
         if interface.machine_id.is_some() {
             let machine_id = interface.machine_id.as_ref().unwrap();
             if machine_id != stable_machine_id {
@@ -694,22 +685,18 @@ SELECT m.id FROM
                 }
             }
 
-            if search_config.include_associated_machine_id {
-                if machine.is_dpu() {
-                    machine.associated_host_machine_id =
-                        Machine::find_host_machine_id_by_dpu_machine_id(txn, &machine.id).await?;
-                } else {
-                    machine.associated_dpu_machine_ids = interfaces_for_machine
-                        .get(&machine.id)
-                        .map(|interfaces| {
-                            interfaces
-                                .iter()
-                                .map(|i| i.attached_dpu_machine_id.clone())
-                                .collect::<Option<Vec<MachineId>>>()
-                                .unwrap_or_default()
-                        })
-                        .unwrap_or_default();
-                }
+            // Note: `associated_host_machine_id` is populated from the ManagedHost snapshot
+            if !machine.is_dpu() {
+                machine.associated_dpu_machine_ids = interfaces_for_machine
+                    .get(&machine.id)
+                    .map(|interfaces| {
+                        interfaces
+                            .iter()
+                            .map(|i| i.attached_dpu_machine_id.clone())
+                            .collect::<Option<Vec<MachineId>>>()
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {

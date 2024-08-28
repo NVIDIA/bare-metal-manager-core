@@ -228,7 +228,6 @@ pub async fn fetch_machines(
             include_history: true,
             include_predicted_host: true,
             only_maintenance: false,
-            include_associated_machine_id: true,
             exclude_hosts: false,
         }),
     });

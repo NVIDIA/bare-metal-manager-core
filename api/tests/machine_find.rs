@@ -279,7 +279,6 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: true,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: false,
@@ -306,7 +305,6 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: true,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: true,
@@ -333,7 +331,6 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: true,
@@ -360,7 +357,6 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: false,
@@ -382,7 +378,6 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: false,
@@ -409,7 +404,6 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let config = carbide::db::machine::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
-        include_associated_machine_id: false,
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: false,

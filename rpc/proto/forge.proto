@@ -1449,7 +1449,7 @@ message MachineSearchConfig {
   bool include_history = 2;
   bool include_predicted_host = 3;
   bool only_maintenance = 4;
-  bool include_associated_machine_id = 5;
+  reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
 }
 

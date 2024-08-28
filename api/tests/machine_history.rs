@@ -81,7 +81,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 include_history: true,
                 include_predicted_host: false,
                 only_maintenance: false,
-                include_associated_machine_id: false,
                 exclude_hosts: false,
             }),
         }))
@@ -140,7 +139,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 include_history: true,
                 include_predicted_host: false,
                 only_maintenance: false,
-                include_associated_machine_id: false,
                 exclude_hosts: false,
             }),
         }))
