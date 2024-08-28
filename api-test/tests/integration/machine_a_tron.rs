@@ -12,11 +12,12 @@
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor, MachineATron,
-    MachineATronConfig, MachineATronContext,
+    api_throttler, BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor,
+    MachineATron, MachineATronConfig, MachineATronContext,
 };
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -59,11 +60,16 @@ pub async fn run_local(
     });
 
     let mat = MachineATron::new(app_context.clone());
+    let api_throttler = api_throttler::run(
+        tokio::time::interval(Duration::from_secs(2)),
+        app_context.clone(),
+    );
     let machine_actors = mat
         .make_machines(
             &dhcp_client,
             BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
             false,
+            api_throttler,
         )
         .await?;
 

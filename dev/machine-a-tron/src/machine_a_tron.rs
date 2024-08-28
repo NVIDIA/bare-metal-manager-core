@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::api_throttler::ApiThrottler;
 use crate::host_machine::HostMachineActor;
 use crate::machine_state_machine::BmcRegistrationMode;
 use crate::subnet::Subnet;
@@ -31,6 +32,7 @@ impl MachineATron {
         dhcp_client: &DhcpRelayClient,
         bmc_listen_mode: BmcRegistrationMode,
         paused: bool,
+        api_throttler: ApiThrottler,
     ) -> eyre::Result<Vec<HostMachineActor>> {
         let machines = self
             .app_context
@@ -45,6 +47,7 @@ impl MachineATron {
                         config.clone(),
                         dhcp_client.clone(),
                         bmc_listen_mode.clone(),
+                        api_throttler.clone(),
                     )
                     .start(paused)
                 })

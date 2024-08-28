@@ -6,6 +6,7 @@ use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::api_throttler::ApiThrottler;
 use crate::dpu_machine::DpuMachineActor;
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::{
@@ -13,7 +14,6 @@ use crate::{
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::DhcpRelayClient,
     dpu_machine::DpuMachine,
-    machine_utils::get_api_state,
     saturating_add_duration_to_instant,
     tui::{HostDetails, UiEvent},
 };
@@ -41,6 +41,7 @@ pub struct HostMachine {
     paused: bool,
     api_refresh_interval: Interval,
     sleep_until: Instant,
+    api_throttler: ApiThrottler,
 }
 
 impl HostMachine {
@@ -49,6 +50,7 @@ impl HostMachine {
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
         bmc_listen_mode: BmcRegistrationMode,
+        api_throttler: ApiThrottler,
     ) -> Self {
         let mat_id = Uuid::new_v4();
 
@@ -61,6 +63,7 @@ impl HostMachine {
                     config.clone(),
                     dhcp_client.clone(),
                     bmc_listen_mode.clone(),
+                    api_throttler.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -95,6 +98,7 @@ impl HostMachine {
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_throttler,
         }
     }
 
@@ -111,10 +115,16 @@ impl HostMachine {
 
         tokio::task::Builder::new()
             .name(&format!("Host {}", self.mat_id))
-            .spawn(async move {
-                loop {
-                    if !self.run_iteration(&mut actor_message_rx).await {
-                        break;
+            .spawn({
+                let actor_message_tx = actor_message_tx.clone();
+                async move {
+                    loop {
+                        if !self
+                            .run_iteration(&mut actor_message_rx, &actor_message_tx)
+                            .await
+                        {
+                            break;
+                        }
                     }
                 }
             })
@@ -131,6 +141,7 @@ impl HostMachine {
     async fn run_iteration(
         &mut self,
         actor_message_rx: &mut mpsc::UnboundedReceiver<HostMachineMessage>,
+        actor_message_tx: &mpsc::UnboundedSender<HostMachineMessage>,
     ) -> bool {
         self.maybe_update_tui().await;
 
@@ -148,11 +159,15 @@ impl HostMachine {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {}
             _ = self.api_refresh_interval.tick() => {
                 // Wake up to refresh the API state and UI
-                self.api_state = get_api_state(
-                    &self.app_context,
-                    self.observed_machine_id.as_ref(),
-                )
-                .await;
+                if let Some(machine_id) = self.observed_machine_id.as_ref() {
+                    let actor_message_tx = actor_message_tx.clone();
+                    self.api_throttler.get_machine(machine_id.clone(), move |machine| {
+                        if let Some(machine) = machine {
+                            // Write the API state back using the actor channel, since we can't just write to self
+                            _ = actor_message_tx.send(HostMachineMessage::SetApiState(machine.state));
+                        }
+                    })
+                }
                 return true; // go back to sleeping
             }
             Some(cmd) = actor_message_rx.recv() => {
@@ -256,6 +271,10 @@ impl HostMachine {
             }
             HostMachineMessage::GetApiState(reply) => {
                 _ = reply.send(self.api_state.clone());
+                HandleMessageResult::ContinuePolling
+            }
+            HostMachineMessage::SetApiState(api_state) => {
+                self.api_state = api_state;
                 HandleMessageResult::ContinuePolling
             }
         }
@@ -388,6 +407,7 @@ enum HostMachineMessage {
     WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
     AttachToUI(Option<mpsc::Sender<UiEvent>>),
     SetPaused(bool),
+    SetApiState(String),
     Stop(bool, oneshot::Sender<()>),
 }
 

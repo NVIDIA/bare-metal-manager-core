@@ -1,4 +1,5 @@
 pub mod api_client;
+pub mod api_throttler;
 mod bmc_mock_wrapper;
 mod config;
 mod dhcp_relay;

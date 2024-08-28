@@ -7,14 +7,15 @@ use forge_tls::client_config::{
     get_proxy_info,
 };
 use machine_a_tron::{
-    api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui,
-    TuiHostLogs, UiEvent,
+    api_client, api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig,
+    MachineATronContext, Tui, TuiHostLogs, UiEvent,
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
@@ -131,6 +132,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let info = api_client::version(&app_context).await?;
     tracing::info!("version: {}", info.build_version);
 
+    let api_throttler = api_throttler::run(
+        tokio::time::interval(Duration::from_secs(2)),
+        app_context.clone(),
+    );
+
     let mut mat = MachineATron::new(app_context);
 
     let maybe_bmc_mock_handle: Option<BmcMockHandle>;
@@ -159,13 +165,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
             &dhcp_client,
             BmcRegistrationMode::BackingInstance(instance_registry),
             true,
+            api_throttler,
         )
         .await?
     } else {
         // Configure individual BMC mocks for every machine
         maybe_bmc_mock_handle = None;
-        mat.make_machines(&dhcp_client, BmcRegistrationMode::None(bmc_mock_port), true)
-            .await?
+        mat.make_machines(
+            &dhcp_client,
+            BmcRegistrationMode::None(bmc_mock_port),
+            true,
+            api_throttler,
+        )
+        .await?
     };
 
     // Run TUI
