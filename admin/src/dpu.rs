@@ -288,12 +288,23 @@ impl From<Machine> for DpuStatus {
             dpu_type,
             state,
             healthy: machine
-                .network_health
-                .map(|x| {
-                    if x.is_healthy {
+                .health
+                .map(|health| {
+                    if health.alerts.is_empty() {
                         "Yes".to_string()
                     } else {
-                        x.message.unwrap_or("No message found.".to_string())
+                        let mut alerts = String::new();
+                        for alert in health.alerts.iter() {
+                            if !alerts.is_empty() {
+                                alerts.push('\n');
+                            }
+                            if let Some(target) = &alert.target {
+                                alerts += &format!("{} [Target: {}]", alert.id, target);
+                            } else {
+                                alerts += &alert.id.to_string();
+                            }
+                        }
+                        alerts
                     }
                 })
                 .unwrap_or("Unknown".to_string()),
