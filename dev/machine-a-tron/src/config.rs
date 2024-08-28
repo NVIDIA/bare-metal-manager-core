@@ -73,6 +73,9 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub network_status_run_interval: Duration,
+    /// If true, DPUs will run in "nic mode" and will not PXE boot, and their BMC JSON will reflect as such
+    #[serde(default)]
+    pub dpus_in_nic_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

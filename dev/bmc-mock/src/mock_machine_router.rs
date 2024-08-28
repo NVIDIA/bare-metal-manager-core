@@ -82,6 +82,10 @@ pub fn wrap_router_with_mock_machine(
             get(get_dpu_sys_image),
         )
         .route(
+            rf!("Systems/Bluefield/Bios"),
+            get(get_dpu_bios),
+        )
+        .route(
             rf!("Systems/:system_id/Actions/ComputerSystem.Reset"),
             post(post_reset_system),
         )
@@ -518,6 +522,53 @@ async fn get_dpu_sys_image(
     ));
 
     Ok(Bytes::from(serde_json::to_string(&inventory)?))
+}
+
+async fn get_dpu_bios(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    // We only rewrite this line if it's a DPU we're mocking
+    let MachineInfo::Dpu(dpu) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    // For DPUs in NicMode, rewrite the BIOS attributes to reflect as such
+    if dpu.nic_mode {
+        let serde_json::Value::Object(mut bios) = serde_json::from_slice(inner_response.as_ref())?
+        else {
+            tracing::error!(
+                "Invalid JSON response, expected object, got {:?}",
+                inner_response
+            );
+            return Ok(inner_response);
+        };
+
+        let Some(serde_json::Value::Object(ref mut attributes)) = bios.get_mut("Attributes") else {
+            tracing::error!(
+                "Invalid Attributes, expected object, got {:?}",
+                inner_response
+            );
+            return Ok(inner_response);
+        };
+
+        if attributes.get("NicMode").is_none() {
+            tracing::warn!(
+                "DPU BIOS Attributes.NicMode is not present: {:?}",
+                inner_response
+            )
+        }
+
+        attributes.insert(
+            "NicMode".to_string(),
+            serde_json::Value::String("NicMode".to_string()),
+        );
+        Ok(Bytes::from(serde_json::to_string(&bios)?))
+    } else {
+        Ok(inner_response)
+    }
 }
 
 async fn patch_bios_settings(

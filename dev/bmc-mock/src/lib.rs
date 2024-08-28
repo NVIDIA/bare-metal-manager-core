@@ -276,7 +276,7 @@ pub fn default_host_tar_router(
     };
     wrap_router_with_mock_machine(
         tar_router,
-        MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::new()])),
+        MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
         maybe_command_channel,
     )
 }

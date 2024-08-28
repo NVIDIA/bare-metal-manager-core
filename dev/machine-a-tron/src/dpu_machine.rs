@@ -46,7 +46,7 @@ impl DpuMachine {
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
-        let dpu_info = DpuMachineInfo::new();
+        let dpu_info = DpuMachineInfo::new(config.dpus_in_nic_mode);
         let state_machine = MachineStateMachine::new(
             MachineInfo::Dpu(dpu_info.clone()),
             config,

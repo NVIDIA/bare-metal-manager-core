@@ -269,6 +269,8 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     let all_tests = join_all([
         test_machine_a_tron_multidpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
         test_machine_a_tron_zerodpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
+        test_machine_a_tron_singledpu_nic_mode(&test_env, &bmc_address_registry, &segment_id)
+            .boxed(),
     ]);
 
     tokio::select! {
@@ -289,7 +291,7 @@ async fn test_machine_a_tron_multidpu(
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
 ) -> eyre::Result<()> {
-    run_machine_a_tron_test(10, 2, test_env, bmc_mock_registry, |machine_actor| {
+    run_machine_a_tron_test(1, 2, false, test_env, bmc_mock_registry, |machine_actor| {
         let segment_id = segment_id.to_string();
         let carbide_api_addr = test_env.carbide_api_addr;
         async move {
@@ -361,8 +363,87 @@ async fn test_machine_a_tron_zerodpu(
     segment_id: &str,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
-        10,
+        1,
         0,
+        false,
+        test_env,
+        bmc_mock_registry,
+        |machine_actor| {
+            let segment_id = segment_id.to_string();
+            let carbide_api_addr = test_env.carbide_api_addr;
+            async move {
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                let machine_id = machine_actor
+                    .observed_machine_id()
+                    .await?
+                    .expect("Machine ID should be set if host is ready")
+                    .to_string();
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                let instance_id = instance::create(
+                    carbide_api_addr,
+                    &machine_id,
+                    &segment_id,
+                    None,
+                    false,
+                    false,
+                )?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Assigned/Ready")
+                    .await?;
+
+                let instance_json = instance::get_instance_json_by_machine_id(
+                    carbide_api_addr,
+                    machine_actor
+                        .observed_machine_id()
+                        .await?
+                        .expect("HostMachine should have a Machine ID once it's in ready state")
+                        .to_string()
+                        .as_str(),
+                )?;
+                let serde_json::Value::Object(interface) =
+                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
+                else {
+                    panic!("Allocated instance does not have interface configuration")
+                };
+
+                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
+                    panic!("Interface does not have addresses")
+                };
+                assert_eq!(addrs.len(), 0, "Interface should have no addresses, since we don't get network config from zero-dpu hosts");
+
+                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
+                    panic!("Interface does not have gateways set")
+                };
+                assert_eq!(gateways.len(), 0, "Interface should have no gateways, since we don't get network config from zero-dpu hosts");
+
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+        .await
+}
+
+async fn test_machine_a_tron_singledpu_nic_mode(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    segment_id: &str,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        1,
+        1,
+        true,
         test_env,
         bmc_mock_registry,
         |machine_actor| {
@@ -435,6 +516,7 @@ async fn test_machine_a_tron_zerodpu(
 async fn run_machine_a_tron_test<F, O>(
     host_count: u32,
     dpu_per_host_count: u32,
+    dpus_in_nic_mode: bool,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     run_assertions: F,
@@ -466,6 +548,7 @@ where
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
+                dpus_in_nic_mode,
             },
         )]),
         carbide_api_url: Some(format!(

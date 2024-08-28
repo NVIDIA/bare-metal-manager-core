@@ -26,16 +26,17 @@ pub struct DpuMachineInfo {
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
     pub serial: String,
+    pub nic_mode: bool,
 }
 
 impl Default for DpuMachineInfo {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }
 
 impl DpuMachineInfo {
-    pub fn new() -> Self {
+    pub fn new(nic_mode: bool) -> Self {
         let bmc_mac_address = next_mac();
         let host_mac_address = next_mac();
         let oob_mac_address = next_mac();
@@ -43,6 +44,7 @@ impl DpuMachineInfo {
             bmc_mac_address,
             host_mac_address,
             oob_mac_address,
+            nic_mode,
             serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
         }
     }

@@ -302,7 +302,8 @@ async fn fetch_system(
 
     let nic_mode: Option<NicMode> = if is_dpu {
         bios_attributes
-            .get("NicMode")
+            .get("Attributes")
+            .and_then(|v| v.get("NicMode"))
             .and_then(|v| v.as_str().and_then(|v| NicMode::from_str(v).ok()))
     } else {
         None
