@@ -198,7 +198,7 @@ pub async fn update_nvue(
         dhcp_servers: nc.dhcp_servers.clone(),
         route_servers: nc.route_servers.clone(),
         ct_port_configs: networks,
-        ct_name: UPLINKS[0].to_string(),
+        ct_vrf_name: UPLINKS[0].to_string(),
         ct_access_vlans: access_vlans,
         use_local_dhcp: nc.enable_dhcp,
         deny_prefixes: nc.deny_prefixes.clone(),
@@ -1609,7 +1609,7 @@ mod tests {
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["10.217.4.128/26".to_string()],
             ct_port_configs: networks,
-            ct_name: super::UPLINKS[0].to_string(),
+            ct_vrf_name: super::UPLINKS[0].to_string(),
             use_local_dhcp: false,
             ct_access_vlans: vec![nvue::VlanConfig {
                 vlan_id: 123,

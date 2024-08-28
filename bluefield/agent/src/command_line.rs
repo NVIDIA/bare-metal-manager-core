@@ -99,8 +99,8 @@ pub struct NvueOptions {
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
 
-    #[clap(long, help = "Compute Tenant name")]
-    pub ct_name: String,
+    #[clap(long, help = "Compute Tenant [VRF] name")]
+    pub ct_vrf_name: String,
 
     #[clap(long, help = "The VPC-specific L3VNI.")]
     pub ct_l3vni: Option<u32>,
@@ -108,7 +108,10 @@ pub struct NvueOptions {
     #[clap(long)]
     pub ct_vrf_loopback: String,
 
-    #[clap(long, help = "Format is JSON see Network in nvue.rs. Repeats.")]
+    #[clap(
+        long,
+        help = "Full JSON representation of a PortConfig (see nvue.rs). Repeats with multiple --ct-port-config."
+    )]
     pub ct_port_config: Vec<String>,
 
     #[clap(long, use_value_delimiter = true, help = "Comma separated")]

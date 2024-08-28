@@ -299,7 +299,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
                     use_local_dhcp: false,
-                    ct_name: opts.ct_name,
+                    ct_vrf_name: opts.ct_vrf_name,
                     ct_l3_vni: opts.ct_l3vni,
                     ct_vrf_loopback: opts.ct_vrf_loopback,
                     ct_port_configs: port_configs,
