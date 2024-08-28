@@ -33,6 +33,7 @@ use crate::{
     },
     CarbideError,
 };
+use forge_network::virtualization::get_svi_ip;
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {
@@ -156,6 +157,7 @@ pub async fn admin_network(
     // admin isn't an overlay network, so:
     //  - vni: 0 (because there's no VNI)
     //  - network: ip/32 (because there won't be an instance network allocation)
+    //  - svi_ip: None (because there isn't an instance network allocation)
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
@@ -169,6 +171,7 @@ pub async fn admin_network(
         prefix: prefix.prefix.to_string(),
         fqdn: format!("{}.{}", interface.hostname, domain),
         booturl: None,
+        svi_ip: None,
     };
     Ok((cfg, interface.id))
 }
@@ -280,6 +283,14 @@ pub async fn tenant_network(
         // user's provided fqdn later.
         fqdn,
         booturl: None,
+        svi_ip: get_svi_ip(interface_prefix)
+            .map_err(|e| {
+                Status::internal(format!(
+                    "failed to configure FlatInterfaceConfig.svi_ip: {}",
+                    e
+                ))
+            })?
+            .map(|ip| ip.to_string()),
     })
 }
 

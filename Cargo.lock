@@ -2340,6 +2340,7 @@ name = "forge-network"
 version = "0.0.1"
 dependencies = [
  "eyre",
+ "ipnetwork",
  "rpc",
  "serde",
  "serde_json",

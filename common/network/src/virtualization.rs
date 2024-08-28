@@ -12,7 +12,9 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use ipnetwork::IpNetwork;
 use std::fmt;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
@@ -127,5 +129,51 @@ impl FromStr for VpcVirtualizationType {
             "fnn_l3" => Ok(Self::FnnL3),
             x => Err(eyre::eyre!(format!("Unknown virt type {}", x))),
         }
+    }
+}
+
+/// get_host_ip returns the host IP for a tenant instance
+/// for a given IpNetwork. This is being initially introduced
+/// for the purpose of FNN /30 allocations (where the host IP
+/// ends up being the 4th IP -- aka the second IP of the second
+/// /31 allocation in the /30), and will probably change with
+/// a wider refactor + intro of Carbide IP Prefix Management.
+pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<IpAddr> {
+    match network.prefix() {
+        32 => Ok(network.ip()),
+        30 => match network.iter().nth(3) {
+            Some(ip_addr) => Ok(ip_addr),
+            None => Err(eyre::eyre!(format!(
+                "no viable host IP found in network: {}",
+                network
+            ))),
+        },
+        _ => Err(eyre::eyre!(format!(
+            "tenant instance network size unsupported: {}",
+            network.prefix()
+        ))),
+    }
+}
+
+/// get_svi_ip returns the SVI IP (also known as the gateway IP)
+/// for a tenant instance for a given IpNetwork. This is being
+/// initially introduced for the purpose of FNN /30 allocations
+/// (where the SVI IP ends up being the 3rd IP -- aka the first
+/// IP of the second /31 allocation in the /30), and will probably
+/// change with a wider refactor + intro of Carbide IP Prefix Management.
+pub fn get_svi_ip(network: &IpNetwork) -> eyre::Result<Option<IpAddr>> {
+    match network.prefix() {
+        32 => Ok(None),
+        30 => match network.iter().nth(2) {
+            Some(ip_addr) => Ok(Some(ip_addr)),
+            None => Err(eyre::eyre!(format!(
+                "no viable host IP found in network: {}",
+                network
+            ))),
+        },
+        _ => Err(eyre::eyre!(format!(
+            "tenant instance network size unsupported: {}",
+            network.prefix()
+        ))),
     }
 }
