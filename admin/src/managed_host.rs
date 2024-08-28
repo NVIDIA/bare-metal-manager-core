@@ -302,9 +302,9 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
                     .iter()
                     .map(|alert| {
                         if let Some(target) = &alert.target {
-                            format!("{} [Target: {}]", alert.id, target)
+                            format!("{} [Target: {}]: {}", alert.id, target, alert.message)
                         } else {
-                            alert.id.to_string()
+                            format!("{}: {}", alert.id, alert.message)
                         }
                     })
                     .collect::<Vec<String>>()
@@ -348,14 +348,6 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             ("  State", dpu.state.clone()),
             ("  Primary", Some(dpu.is_primary.to_string())),
             ("  Failure details", dpu.failure_details.clone()),
-            (
-                "  Healthy",
-                Some(format!(
-                    "{}/{}",
-                    dpu.is_network_healthy,
-                    dpu.network_error_msg.clone().unwrap_or("".to_string())
-                )),
-            ),
             ("  Last reboot", dpu.last_reboot_time.clone()),
             (
                 "  Last reboot requested",
@@ -371,6 +363,24 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             ("    Firmware Version", dpu.bmc_firmware_version.clone()),
             ("    IP", dpu.bmc_ip.clone()),
             ("    MAC", dpu.bmc_mac.clone()),
+            ("  Health", Some("".to_string())),
+            (
+                "    Probe Alerts",
+                Some(
+                    dpu.health
+                        .alerts
+                        .iter()
+                        .map(|alert| {
+                            if let Some(target) = &alert.target {
+                                format!("{} [Target: {}]: {}", alert.id, target, alert.message)
+                            } else {
+                                format!("{}: {}", alert.id, alert.message)
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join(","),
+                ),
+            ),
         ];
 
         for (key, value) in data {

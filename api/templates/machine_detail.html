@@ -56,7 +56,7 @@
 		<td>
 			{% if health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
 			<a href="/admin/machine/health/{{ id }}">
-				{{ health.alerts|health_alerts_fmt|safe }}
+				{{ health.alerts|health_alerts_fmt(true)|safe }}
 			</a>
 			</div>
 		</td>

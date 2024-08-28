@@ -82,7 +82,6 @@ struct ManagedHostRowDisplay {
     is_link_ref: bool, // is maintenance_reference a URL?
     maintenance_reference: String,
     maintenance_start_time: String,
-    network_err_message: String,
     dpus: Vec<AttachedDpuRowDisplay>,
 }
 
@@ -265,12 +264,6 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             is_link_ref: maint_ref.starts_with("http"),
             maintenance_reference: maint_ref,
             maintenance_start_time: o.maintenance_start_time.unwrap_or_default(),
-            network_err_message: o
-                .dpus
-                .iter()
-                .filter_map(|x| x.network_error_msg.as_ref().cloned())
-                .collect_vec()
-                .join(", "),
             dpus: o.dpus.into_iter().map_into().collect(),
         }
     }
@@ -563,8 +556,7 @@ struct ManagedHostAttachedDpuDetail {
     pub last_observation_time: String,
     pub switch_connections: Vec<DpuSwitchConnectionDetail>,
     pub is_primary: bool,
-    pub is_network_healthy: bool,
-    pub network_error_msg: Option<String>,
+    pub health: health_report::HealthReport,
 }
 
 impl ManagedHostAttachedDpuDetail {
@@ -639,8 +631,7 @@ impl From<ManagedHostAttachedDpu> for ManagedHostAttachedDpuDetail {
                 .map(DpuSwitchConnectionDetail::from)
                 .collect_vec(),
             is_primary: d.is_primary,
-            is_network_healthy: d.is_network_healthy,
-            network_error_msg: d.network_error_msg,
+            health: d.health,
         }
     }
 }
