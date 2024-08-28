@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
@@ -252,17 +254,36 @@ async fn main() -> color_eyre::Result<()> {
                     if all_status.is_empty() {
                         println!("No reported network status");
                     } else {
+                        let all_ids: Vec<MachineId> = all_status
+                            .iter()
+                            .filter_map(|status| status.dpu_machine_id.clone())
+                            .collect();
+                        let all_dpus = rpc::get_machines_by_ids(api_config, &all_ids)
+                            .await?
+                            .machines;
+                        let mut dpus_by_id = HashMap::new();
+                        for dpu in all_dpus.into_iter() {
+                            if let Some(id) = dpu.id.clone() {
+                                dpus_by_id.insert(id.id, dpu);
+                            }
+                        }
+
                         let mut table = Table::new();
                         table.set_titles(row![
                             "Observed at",
                             "DPU machine ID",
                             "Network config version",
                             "Healthy?",
-                            "Check failed",
+                            "Health Probe Alerts",
                             "Agent version",
                         ]);
-                        for mut st in all_status.into_iter().filter(|st| st.health.is_some()) {
-                            let h = st.health.take().unwrap();
+                        for st in all_status.into_iter() {
+                            let Some(dpu_id) = st.dpu_machine_id.clone() else {
+                                continue;
+                            };
+                            let Some(dpu) = dpus_by_id.get(&dpu_id.id) else {
+                                continue;
+                            };
                             let observed_at = st
                                 .observed_at
                                 .map(|o| {
@@ -270,21 +291,29 @@ async fn main() -> color_eyre::Result<()> {
                                     dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
                                 })
                                 .unwrap_or_default();
-                            let failed_health_check = if !h.failed.is_empty() {
-                                format!(
-                                    "{} ({})",
-                                    h.failed.first().map(String::as_str).unwrap(),
-                                    h.message.unwrap_or_default(),
-                                )
-                            } else {
-                                "".to_string()
-                            };
+                            let mut probe_alerts = String::new();
+                            if let Some(health) = &dpu.health {
+                                for alert in health.alerts.iter() {
+                                    if !probe_alerts.is_empty() {
+                                        probe_alerts.push('\n');
+                                    }
+                                    if let Some(target) = &alert.target {
+                                        probe_alerts +=
+                                            &format!("{} [Target: {}]", alert.id, target)
+                                    } else {
+                                        probe_alerts += &alert.id.to_string();
+                                    }
+                                }
+                            }
                             table.add_row(row![
                                 observed_at,
                                 st.dpu_machine_id.unwrap(),
                                 st.network_config_version.unwrap_or_default(),
-                                h.is_healthy,
-                                failed_health_check,
+                                dpu.health
+                                    .as_ref()
+                                    .map(|health| health.alerts.is_empty().to_string())
+                                    .unwrap_or_else(|| "unknown".to_string()),
+                                probe_alerts,
                                 st.dpu_agent_version.unwrap_or("".to_string())
                             ]);
                         }
