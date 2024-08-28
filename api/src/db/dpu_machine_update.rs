@@ -62,7 +62,7 @@ impl DpuMachineUpdate {
             AND mi.machine_id != mi.attached_dpu_machine_id
             AND m.controller_state = '{"state": "ready"}'
             AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
-            AND (network_status_observation->'health_status'->>'is_healthy')::boolean is true 
+            AND coalesce(jsonb_array_length(m.dpu_agent_health_report->'alerts'), 0) = 0
             "#.to_owned();
 
         let mut bind_index = 1;
@@ -116,7 +116,7 @@ impl DpuMachineUpdate {
             AND mi.machine_id != mi.attached_dpu_machine_id 
             AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
             AND (m.controller_state != '{"state": "ready"}'
-            OR (network_status_observation->'health_status'->>'is_healthy')::boolean is false) 
+            OR coalesce(jsonb_array_length(m.dpu_agent_health_report->'alerts'), 0) != 0)
             AND m.maintenance_start_time IS NULL "#.to_owned();
 
         let mut bind_index = 1;

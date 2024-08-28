@@ -14,7 +14,6 @@ pub struct MachineNetworkStatusObservation {
     pub machine_id: String,
     pub agent_version: Option<String>,
     pub observed_at: DateTime<Utc>,
-    pub health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
     pub client_certificate_expiry: Option<i64>,
 }
@@ -31,7 +30,6 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     type Error = RpcDataConversionError;
 
     fn try_from(obs: rpc::DpuNetworkStatus) -> Result<Self, Self::Error> {
-        let health = obs.health.ok_or(Self::Error::MissingArgument("health"))?;
         let observed_at = match obs.observed_at {
             Some(timestamp) => {
                 let system_time = SystemTime::try_from(timestamp.clone())
@@ -47,12 +45,6 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                 .ok_or(Self::Error::MissingArgument("dpu_machine_id"))?
                 .id,
             agent_version: obs.dpu_agent_version.clone(),
-            health_status: HealthStatus {
-                is_healthy: health.is_healthy,
-                passed: health.passed,
-                failed: health.failed,
-                message: health.message,
-            },
             network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
             client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
         })
@@ -70,7 +62,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             dpu_machine_id: Some(m.machine_id.clone().into()),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
-            health: Some(m.health_status.into()),
+            health: None,
             network_config_version: m.network_config_version.map(|v| v.version_string()),
             instance_id: None,
             instance_config_version: None,

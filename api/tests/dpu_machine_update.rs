@@ -4,10 +4,7 @@ use std::collections::HashMap;
 
 use carbide::{
     db::{dpu_machine_update::DpuMachineUpdate, machine::Machine},
-    model::machine::{
-        machine_id::try_parse_machine_id,
-        network::{HealthStatus, MachineNetworkStatusObservation},
-    },
+    model::machine::{machine_id::try_parse_machine_id, network::MachineNetworkStatusObservation},
 };
 use common::api_fixtures::{
     create_test_env, dpu::create_dpu_machine, host::create_host_machine,
@@ -91,12 +88,6 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         machine_id: dpu_machine_ids.first().unwrap().to_string(),
         agent_version: None,
         observed_at: chrono::Utc::now(),
-        health_status: HealthStatus {
-            is_healthy: false,
-            failed: vec!["test fail status".to_owned()],
-            passed: vec![],
-            message: Some("hello world".to_owned()),
-        },
         network_config_version: None,
         client_certificate_expiry: None,
     };

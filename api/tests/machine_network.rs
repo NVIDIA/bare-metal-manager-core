@@ -124,7 +124,6 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(response.all.len(), 1);
 
     // Tell API about latest network config and machine health
-    let network_config_version = response.all[0].network_config_version.clone().unwrap();
     let hs = NetworkHealth {
         is_healthy: true,
         passed: vec!["ContainerExists".to_string(), "checkTwo".to_string()],
@@ -147,26 +146,6 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         alerts: vec![],
     };
     network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
-
-    // And query again
-    let response = env
-        .api
-        .get_all_managed_host_network_status(tonic::Request::new(
-            ManagedHostNetworkStatusRequest {},
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(response.all.len(), 1);
-
-    let health = response.all[0].health.as_ref().unwrap();
-    assert!(health.is_healthy);
-    assert_eq!(health.passed[0], "ContainerExists");
-
-    assert_eq!(
-        response.all[0].network_config_version,
-        Some(network_config_version),
-    );
 
     // Query the aggregate health.
     let reported_health = env

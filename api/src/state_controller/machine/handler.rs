@@ -39,7 +39,6 @@ use crate::{
     model::machine::{
         all_equal, get_display_ids,
         machine_id::MachineId,
-        network::HealthStatus,
         BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState, FailureCause,
         FailureDetails, FailureSource, HostReprovisionState, InstanceNextStateResolver,
         InstanceState, LockdownInfo,
@@ -249,13 +248,17 @@ impl MachineStateHandler {
                 .as_ref()
                 .map(|health| health.alerts.is_empty())
                 .unwrap_or(false);
+            if let Some(report) = dpu_snapshot.dpu_agent_health_report.as_ref() {
+                for alert in report.alerts.iter() {
+                    ctx.metrics
+                        .failed_dpu_healthchecks
+                        .insert(alert.id.to_string());
+                }
+            }
             if let Some(observation) = dpu_snapshot.network_status_observation.as_ref() {
                 ctx.metrics.agent_version = observation.agent_version.clone();
                 ctx.metrics.dpu_up = Utc::now().signed_duration_since(observation.observed_at)
                     <= self.dpu_up_threshold;
-                for failed in &observation.health_status.failed {
-                    ctx.metrics.failed_dpu_healthchecks.insert(failed.clone());
-                }
 
                 ctx.metrics.machine_id = Some(observation.machine_id.clone());
                 ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
@@ -297,28 +300,12 @@ impl MachineStateHandler {
                 if !dpu_health.alerts.is_empty() {
                     continue;
                 }
-                if let Some(mut observation) =
-                    dpu_snapshot.network_status_observation.clone().take()
-                {
+                if let Some(observation) = &dpu_snapshot.network_status_observation {
                     let observed_at = observation.observed_at;
                     let since_last_seen = Utc::now().signed_duration_since(observed_at);
                     if since_last_seen > self.dpu_up_threshold {
                         let message = format!("Last seen over {} ago", self.dpu_up_threshold);
-                        observation.health_status = HealthStatus {
-                            is_healthy: false,
-                            passed: vec![],
-                            failed: vec!["HeartbeatTimeout".to_string()],
-                            message: Some(message.clone()),
-                        };
-                        observation.observed_at = Utc::now();
                         let dpu_machine_id = &dpu_snapshot.machine_id;
-                        Machine::update_network_status_observation(
-                            txn,
-                            dpu_machine_id,
-                            &observation,
-                        )
-                        .await?;
-
                         let health_report = health_report::HealthReport::heartbeat_timeout(
                             "forge-dpu-agent".to_string(),
                             "forge-dpu-agent".to_string(),
