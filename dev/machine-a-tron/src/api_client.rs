@@ -2,7 +2,7 @@ use crate::config::MachineATronContext;
 use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::PxeInstructions;
+use rpc::forge::{MachinesByIdsRequest, PxeInstructions};
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
@@ -299,6 +299,29 @@ pub async fn get_machine(
             .map_err(ClientApiError::InvocationError)?;
 
         Ok(out.machines.first().cloned())
+    })
+    .await
+}
+
+pub async fn get_machines(
+    app_context: &MachineATronContext,
+    machine_ids: &[&String],
+) -> ClientApiResult<Vec<rpc::Machine>> {
+    let request = MachinesByIdsRequest {
+        machine_ids: machine_ids
+            .iter()
+            .map(|i| rpc::MachineId { id: i.to_string() })
+            .collect(),
+        include_history: false,
+    };
+    with_forge_client(app_context, |mut client| async move {
+        let out = client
+            .find_machines_by_ids(tonic::Request::new(request))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)?;
+
+        Ok(out.machines)
     })
     .await
 }

@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::api_throttler::ApiThrottler;
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::tui::HostDetails;
@@ -11,7 +13,6 @@ use crate::{
     api_client::identify_serial,
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::DhcpRelayClient,
-    machine_utils::get_api_state,
     saturating_add_duration_to_instant,
 };
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo};
@@ -33,6 +34,8 @@ pub struct DpuMachine {
     observed_machine_id: Option<rpc::MachineId>,
     paused: bool,
     sleep_until: Instant,
+    api_throttler: ApiThrottler,
+    api_refresh_interval: Interval,
 }
 
 impl DpuMachine {
@@ -43,6 +46,7 @@ impl DpuMachine {
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
         bmc_listen_mode: BmcRegistrationMode,
+        api_throttler: ApiThrottler,
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
@@ -69,6 +73,8 @@ impl DpuMachine {
             observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
+            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_throttler,
         }
     }
 
@@ -78,12 +84,18 @@ impl DpuMachine {
         let (actor_message_tx, mut actor_message_rx) = mpsc::unbounded_channel();
         tokio::task::Builder::new()
             .name(&format!("DPU {}", self.mat_id))
-            .spawn(async move {
-                loop {
-                    // Run the actual iterations in a separate function so that #[instrument] can
-                    // create spans with the current values for all fields.
-                    if !self.run_iteration(&mut actor_message_rx).await {
-                        break;
+            .spawn({
+                let actor_message_tx = actor_message_tx.clone();
+                async move {
+                    loop {
+                        // Run the actual iterations in a separate function so that #[instrument] can
+                        // create spans with the current values for all fields.
+                        if !self
+                            .run_iteration(&mut actor_message_rx, &actor_message_tx)
+                            .await
+                        {
+                            break;
+                        }
                     }
                 }
             })
@@ -98,9 +110,23 @@ impl DpuMachine {
     async fn run_iteration(
         &mut self,
         actor_message_rx: &mut mpsc::UnboundedReceiver<DpuMachineMessage>,
+        actor_message_tx: &mpsc::UnboundedSender<DpuMachineMessage>,
     ) -> bool {
         tokio::select! {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {},
+            _ = self.api_refresh_interval.tick() => {
+                // Wake up to refresh the API state and UI
+                if let Some(machine_id) = self.observed_machine_id.as_ref() {
+                    let actor_message_tx = actor_message_tx.clone();
+                    self.api_throttler.get_machine(machine_id.clone(), move |machine| {
+                        if let Some(machine) = machine {
+                            // Write the API state back using the actor channel, since we can't just write to self
+                            _ = actor_message_tx.send(DpuMachineMessage::SetApiState(machine.state));
+                        }
+                    })
+                }
+                return true; // go back to sleeping
+            }
             Some(cmd) = self.bmc_control_rx.recv() => {
                 match cmd {
                     BmcCommand::Reboot(time) => {
@@ -151,11 +177,14 @@ impl DpuMachine {
                 _ = reply.send(());
                 HandleMessageResult::Stop
             }
+            DpuMachineMessage::SetApiState(api_state) => {
+                self.api_state = api_state;
+                HandleMessageResult::ContinuePolling
+            }
         }
     }
 
     async fn process_state(&mut self) -> Duration {
-        self.api_state = get_api_state(&self.app_context, self.observed_machine_id.as_ref()).await;
         if self.paused {
             return Duration::MAX;
         }
@@ -171,11 +200,13 @@ impl DpuMachine {
 
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
-        } else if let Ok(machine) =
-            identify_serial(&self.app_context, self.dpu_info.serial.clone()).await
-        {
-            tracing::trace!("dpu's machine id: {}", machine.id);
-            self.observed_machine_id = Some(machine);
+        } else if self.observed_machine_id.is_none() {
+            if let Ok(machine) =
+                identify_serial(&self.app_context, self.dpu_info.serial.clone()).await
+            {
+                tracing::trace!("dpu's machine id: {}", machine.id);
+                self.observed_machine_id = Some(machine);
+            }
         }
 
         result
@@ -201,6 +232,7 @@ enum DpuMachineMessage {
     GetHostDetails(oneshot::Sender<HostDetails>),
     IsUp(oneshot::Sender<bool>),
     SetPaused(bool),
+    SetApiState(String),
 }
 
 /// DpuMachineActor presents a friendly, actor-style interface for various methods a HostMachine

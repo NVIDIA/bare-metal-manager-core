@@ -144,31 +144,6 @@ pub async fn send_pxe_boot_request(
     Ok(response)
 }
 
-pub async fn get_api_state(
-    app_context: &MachineATronContext,
-    machine_id: Option<&rpc::common::MachineId>,
-) -> String {
-    let Some(machine_id) = machine_id else {
-        return "Unknown".to_string();
-    };
-
-    api_client::get_machine(app_context, machine_id.clone())
-        .await
-        .map_or_else(
-            |e| {
-                tracing::warn!("Error getting API state: {e}");
-                "<ERROR>".to_owned()
-            },
-            |machine| {
-                if let Some(m) = machine {
-                    m.state
-                } else {
-                    "<No Machine>".to_owned()
-                }
-            },
-        )
-}
-
 pub async fn get_next_free_machine(
     machine_actors: &Vec<HostMachineActor>,
     assigned_mat_ids: &HashSet<Uuid>,
