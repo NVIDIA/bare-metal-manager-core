@@ -1,38 +1,14 @@
-Cpu:
-  BenchMark:
-    CpuEcho1:
-      Command: "echo"
-      Desc: "Test desc"
-      Args: " 1"
-      Contexts:
-        - Discovery
-        - Cleanup
-  Hardware:
-    HardwareEcho1:
-      Command: "echo"
-      Desc: "Test desc"
-      Args: " 1"
-      Contexts:
-        - Discovery
-        - Cleanup
-Gpu:
-  BenchMark:
-    GpuEcho1:
-      Command: "echo"
-      Desc: "Test desc"
-      Args: " 1"
-      Contexts:
-        - Discovery
-    GpuEcho2:
-      Command: "echo"
-      Desc: "Test desc"
-      Args: " 2"
-      Contexts:
-        - Cleanup
-  Hardware:
-    HardwareSleep1:
-      Command: "sleep"
-      Desc: "Test desc"
-      Args: " 5"
-      Contexts:
-        - Discovery
+ExternalConfigs: 
+  - "shoreline"
+Tests: 
+  Cpu:
+    BenchMark:
+      CpuEcho1:
+        ContainerImageName: "nvcr.io/nvidian/nvforge/machine-validation-runner:latest"
+        ExecuteInHost: true
+        Command: "echo "
+        Desc: "Test desc"
+        Args: " test"
+        Contexts:
+          - Discovery
+          - Cleanup

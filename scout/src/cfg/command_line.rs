@@ -112,6 +112,8 @@ pub(crate) enum Command {
     Discovery(Discovery),
     #[clap(about = "Run reset")]
     Reset(Reset),
+    #[clap(about = "Machine Validation")]
+    MachineValidation(MachineValidation),
 }
 
 #[derive(Parser, Clone)]
@@ -131,6 +133,12 @@ pub struct Logerror {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,
+}
+#[derive(Parser, Clone)]
+pub struct MachineValidation {
+    #[clap(short, long, require_equals(true))]
+    pub validataion_id: uuid::Uuid,
+    pub context: String,
 }
 
 impl Options {

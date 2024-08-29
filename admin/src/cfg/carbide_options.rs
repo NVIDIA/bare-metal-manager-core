@@ -1618,10 +1618,10 @@ pub struct MachineValidationExternalConfigShowOptions {
 
 #[derive(Parser, Debug)]
 pub struct MachineValidationExternalConfigAddOptions {
-    #[clap(required(true), help = "Name of the file to update")]
+    #[clap(short, long, help = "Name of the file to update")]
     pub file_name: String,
-    #[clap(required(true), help = "Name of the config")]
+    #[clap(short, long, help = "Name of the config")]
     pub name: String,
-    #[clap(required(false), help = "description of the file to update")]
+    #[clap(short, long, help = "description of the file to update")]
     pub description: String,
 }

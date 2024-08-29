@@ -22,3 +22,15 @@ cat "/opt/forge/forge-scout.env.template" > "/opt/forge/forge-scout.env"
 echo server_uri=$server_uri >> "/opt/forge/forge-scout.env"
 echo machine_id=$machine_id >> "/opt/forge/forge-scout.env"
 echo cli_cmd=$cli_cmd >> "/opt/forge/forge-scout.env"
+
+mkdir ~/.ssh
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/privatekey.pem -q -N ""
+ssh-keyscan -p "22" 127.0.0.1 > ~/.ssh/known_hosts
+cat ~/.ssh/privatekey.pem.pub >> ~/.ssh/authorized_keys
+
+mkdir -p /tmp/machine_validation/external_config
+mkdir -p /opt/shorelineagent/shoreline
+mkdir -p /opt/shorelineagent/databases
+mkdir -p /opt/shorelineagent/onprem
+mkdir -p /opt/shorelineagent/secrets
+touch /opt/shorelineagent/scraper.yml

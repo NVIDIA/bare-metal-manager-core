@@ -34,6 +34,7 @@ uname = "0.1"
 uuid = "1.0"
 reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream" ] }
 futures-util = "0.3"
+prost-types = "0.12.6"
 
 # [local-dependencies]
 rpc = { path = "../rpc" }

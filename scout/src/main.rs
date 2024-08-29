@@ -14,6 +14,8 @@ use clap::CommandFactory;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge::ForgeAgentControlResponse;
+use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use std::fs::File;
@@ -172,6 +174,22 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
         Command::Logerror(_) => ForgeAgentControlResponse {
             action: Action::Logerror as i32,
             data: None,
+        },
+        Command::MachineValidation(data) => ForgeAgentControlResponse {
+            action: Action::MachineValidation as i32,
+            data: Some(ForgeAgentControlExtraInfo {
+                pair: [
+                    KeyValuePair {
+                        key: "Context".to_string(),
+                        value: data.context.clone(),
+                    },
+                    KeyValuePair {
+                        key: "ValidationId".to_string(),
+                        value: data.validataion_id.to_string(),
+                    },
+                ]
+                .to_vec(),
+            }),
         },
     };
 
