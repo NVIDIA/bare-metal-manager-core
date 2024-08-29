@@ -86,3 +86,12 @@ admin_dhcp_relay_address = "192.164.0.1"
 # for mocking certain data. There is no reason to change this from the default.
 #
 # template_dir = "dev/machine-a-tron/templates"
+
+# Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host through the
+# dynamic configuration API. (this will be combined with bmc_mock_port to form a host:port pair.) This is useful if you
+# want to attach machine-a-tron to a carbide instance that isn't already preconfigured to speak to it.
+#
+# If the carbide API server is not configured to allow overriding this config, it will not work and machine-a-tron will
+# emit a warning.
+#
+# configure_carbide_bmc_proxy_host = <some IP or hostname>

@@ -109,6 +109,8 @@ pub struct MachineATronConfig {
     pub pxe_server_host: Option<String>,
     pub pxe_server_port: Option<String>,
     pub sudo_command: Option<String>,
+    /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host (this will be combined with bmc_mock_port.)
+    pub configure_carbide_bmc_proxy_host: Option<String>,
 }
 
 fn default_bmc_mock_port() -> u16 {

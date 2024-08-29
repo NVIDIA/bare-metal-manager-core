@@ -64,8 +64,6 @@ use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, Networ
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
 use crate::storage::NvmeshClientPool;
-use ::rpc::errors::RpcDataConversionError;
-
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
@@ -87,6 +85,8 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
+use ::rpc::errors::RpcDataConversionError;
+use utils::HostPortPair;
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -2582,10 +2582,6 @@ impl Forge for Api {
         log_request_data(&request);
 
         let req = request.into_inner();
-        if req.value.is_empty() {
-            return Err(Status::invalid_argument("'value' cannot be empty"));
-        }
-
         let exp_str = req.expiry.as_deref().unwrap_or("1h");
         let expiry = duration_str::parse(exp_str).map_err(|err| {
             Status::invalid_argument(format!("Invalid expiry string '{exp_str}'. {err}"))
@@ -2604,6 +2600,11 @@ impl Forge for Api {
                 req.setting
             )));
         };
+
+        if req.value.is_empty() && !matches!(requested_setting, rpc::ConfigSetting::BmcProxy) {
+            return Err(Status::invalid_argument("'value' cannot be empty"));
+        }
+
         match requested_setting {
             rpc::ConfigSetting::LogFilter => {
                 let current_level = self.dynamic_settings.log_filter.load();
@@ -2628,6 +2629,29 @@ impl Forge for Api {
                 self.dynamic_settings
                     .create_machines
                     .store(Arc::new(is_enabled));
+                tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+            }
+            rpc::ConfigSetting::BmcProxy => {
+                let Some(true) = self.runtime_config.site_explorer.allow_changing_bmc_proxy else {
+                    return Err(Status::permission_denied(
+                        "site-explorer.bmc_proxy is not allowed to be changed on this server",
+                    ));
+                };
+
+                if req.value.is_empty() {
+                    self.dynamic_settings.bmc_proxy.store(Arc::new(None))
+                } else {
+                    let host_port_pair = req.value.parse::<HostPortPair>().map_err(|err| {
+                        Status::invalid_argument(format!(
+                            "Invalid bmc_proxy string '{}': {err}",
+                            req.value
+                        ))
+                    })?;
+
+                    self.dynamic_settings
+                        .bmc_proxy
+                        .store(Arc::new(Some(host_port_pair)));
+                }
                 tracing::info!("site-explorer create_machines updated to '{}'", req.value);
             }
         }

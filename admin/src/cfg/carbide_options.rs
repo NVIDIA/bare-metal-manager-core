@@ -191,6 +191,8 @@ pub enum SetAction {
     LogFilter(LogFilterOptions),
     #[clap(about = "Set create_machines")]
     CreateMachines(CreateMachinesOptions),
+    #[clap(about = "Set bmc_proxy")]
+    BmcProxy(BmcProxyOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1513,6 +1515,14 @@ pub struct LogFilterOptions {
 pub struct CreateMachinesOptions {
     #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer create_machines?")]
     pub enabled: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct BmcProxyOptions {
+    #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer bmc_proxy")]
+    pub enabled: bool,
+    #[clap(long, action = clap::ArgAction::Set, help = "host:port string use as a proxy for talking to BMC's")]
+    pub proxy: Option<String>,
 }
 
 #[derive(Parser, Debug)]

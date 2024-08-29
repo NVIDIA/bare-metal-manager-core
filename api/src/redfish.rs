@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::Path,
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
+use crate::{
+    db::{self, machine::Machine},
+    ipmitool::IPMITool,
+    model::machine::MachineSnapshot,
+    CarbideError, CarbideResult,
 };
-
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -37,14 +35,16 @@ use libredfish::{
     RedfishError, Resource, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
-use tokio::time;
-
-use crate::{
-    db::{self, machine::Machine},
-    ipmitool::IPMITool,
-    model::machine::MachineSnapshot,
-    CarbideError, CarbideResult,
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::Path,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+use tokio::time;
+use utils::HostPortPair;
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 const AMI_USERNAME: &str = "admin";
@@ -315,22 +315,19 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_provider: Arc<dyn CredentialProvider>,
-    override_port: Option<u16>,
-    override_host: Option<String>,
+    proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
 }
 
 impl RedfishClientPoolImpl {
     pub fn new(
         credential_provider: Arc<dyn CredentialProvider>,
         pool: libredfish::RedfishClientPool,
-        override_port: Option<u16>,
-        override_host: Option<String>,
+        proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
-            override_port,
-            override_host,
+            proxy_address,
         }
     }
 
@@ -397,10 +394,21 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         auth: RedfishAuth,
         initialize: bool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        // Allow globally overriding the bmc port via site-config.
-        let port = self.override_port.or(port);
         let original_host = host;
-        let host = self.override_host.as_deref().unwrap_or(host);
+
+        // Allow globally overriding the bmc port via site-config. We read this on every call to
+        // create_client, because self.proxy_address is a dynamic setting.
+        let proxy_address = self.proxy_address.load();
+        let (host, port) = match proxy_address.as_ref() {
+            // No override
+            None => (host, port),
+            // Override the host and port
+            Some(HostPortPair::HostAndPort(h, p)) => (h.as_str(), Some(*p)),
+            // Only override the host
+            Some(HostPortPair::HostOnly(h)) => (h.as_str(), port),
+            // Only override the port
+            Some(HostPortPair::PortOnly(p)) => (host, Some(*p)),
+        };
 
         let (username, password) = match auth {
             RedfishAuth::Anonymous => (None, None), // anonymous login, usually to get service root Vendor info
@@ -454,7 +462,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             password,
         };
 
-        let custom_headers = if self.override_host.is_some() {
+        let custom_headers = if proxy_address.is_some() {
             // If we're overriding the host, inject a header indicating the IP address we were
             // originally going to use, using the HTTP "Forwarded" header:
             // https://datatracker.ietf.org/doc/html/rfc7239

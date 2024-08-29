@@ -33,6 +33,7 @@ rpc = { path = "../rpc" }
 machine-a-tron = { path = "../dev/machine-a-tron" }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
+utils = { path = "../common/utils" }
 
 [dependencies]
 async-trait = "0.1.72"

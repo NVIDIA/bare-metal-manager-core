@@ -2644,6 +2644,7 @@ message SetDynamicConfigRequest {
 enum ConfigSetting {
   LOG_FILTER = 0;
   CREATE_MACHINES = 1;
+  BMC_PROXY = 2;
 }
 
 message FindIpAddressRequest {

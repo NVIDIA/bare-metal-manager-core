@@ -260,6 +260,7 @@ dependencies = [
  "toml 0.8.13",
  "tracing",
  "tracing-subscriber",
+ "utils",
 ]
 
 [[package]]

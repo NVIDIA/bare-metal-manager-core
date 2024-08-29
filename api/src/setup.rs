@@ -72,7 +72,7 @@ pub fn parse_carbide_config(
         figment = figment.merge(Toml::string(site_config_str.as_str()));
     }
 
-    let config: CarbideConfig = figment
+    let mut config: CarbideConfig = figment
         .merge(Env::prefixed("CARBIDE_API_"))
         .extract()
         .wrap_err("Failed to load configuration files")?;
@@ -83,6 +83,22 @@ pub fn parse_carbide_config(
         .filter(|(_, host)| host.vendor == bmc_vendor::BMCVendor::Unknown)
     {
         tracing::error!("Host firmware configuration has invalid vendor for {label}")
+    }
+
+    // If the carbide config does not say whether to allow dynamically changing the bmc_proxy or
+    // not, the API handler for changing the bmc_proxy setting will reject changes to it for safety
+    // reasons (it can be dangerous in production environments.) But if the config already sets
+    // bmc_proxy, default to allow_changing_bmc_proxy=true, as we only should be setting bmc_proxy
+    // in dev environments in the first place.
+    if config.site_explorer.allow_changing_bmc_proxy.is_none()
+        && (config.site_explorer.bmc_proxy.load().is_some()
+            || config.site_explorer.override_target_port.is_some()
+            || config.site_explorer.override_target_ip.is_some())
+    {
+        tracing::debug!(
+                "Carbide config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
+            );
+        config.site_explorer.allow_changing_bmc_proxy = Some(true);
     }
     Ok(Arc::new(config))
 }

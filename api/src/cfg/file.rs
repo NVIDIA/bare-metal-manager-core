@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt, fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
-
+use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
+use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use crate::state_controller::config::IterationConfig;
+use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 use arc_swap::ArcSwap;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -19,11 +21,9 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
-use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
-use crate::state_controller::config::IterationConfig;
-use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
+use std::ops::Deref;
+use std::{collections::HashMap, fmt, fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+use utils::HostPortPair;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
@@ -134,7 +134,7 @@ pub struct CarbideConfig {
     pub machine_update_run_interval: Option<u64>,
 
     /// SiteExplorer related configuration
-    #[serde(default = "default_site_explorer_config")]
+    #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
 
     /// Enable DHCP server on DPU to serve host.
@@ -539,10 +539,12 @@ pub struct SiteExplorerConfig {
     /// Whether SiteExplorer should create Managed Host state machine
     pub create_machines: Arc<ArcSwap<bool>>,
 
+    /// DEPRECATED: Use `bmc_proxy` instead.
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
     pub override_target_ip: Option<String>,
 
+    /// DEPRECATED: Use `bmc_proxy` instead.
     /// The port to connect to for redfish requests.
     /// This is a debug override and should not be used in production.
     pub override_target_port: Option<u16>,
@@ -553,6 +555,46 @@ pub struct SiteExplorerConfig {
     /// encounter a host with no DPUs, site-explorer will throw an error for that host (because it
     /// should be assumed that there's a bug in detecting the DPUs.)
     pub allow_zero_dpu_hosts: bool,
+
+    #[serde(
+        default,
+        deserialize_with = "deserialize_bmc_proxy",
+        serialize_with = "serialize_bmc_proxy"
+    )]
+    /// The host:port to use as a proxy when making BMC calls to all hosts in carbide. This is used
+    /// for integration testing, and for local development with machine-a-tron/bmc-mock. Should not
+    /// be used in production.
+    pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+
+    #[serde(default)]
+    /// If set to `true`, the server will allow changes to the `bmc_proxy` setting at runtime. This
+    /// will be default to true if the server is launched with bmc_proxy set:
+    /// - If the value is not set, but the server is launched with bmc_proxy, override_target_ip, or
+    ///   override_target_port set, it will be assumed true (ie. if bmc_proxy can be reconfigured if
+    ///   it was initially configured)
+    /// - If the value is not set, and the server is launched without bmc_proxy, override_target_ip,
+    ///   or override_target_port set, it will be assumed false (ie. changes to bmc_proxy will not
+    ///   be allowed if the config has not opted in)
+    /// - If the value is set to true or false, it will be respected through the lifetime of the
+    ///   process.
+    pub allow_changing_bmc_proxy: Option<bool>,
+}
+
+impl Default for SiteExplorerConfig {
+    fn default() -> Self {
+        SiteExplorerConfig {
+            enabled: false,
+            run_interval: Self::default_run_interval(),
+            concurrent_explorations: Self::default_concurrent_explorations(),
+            explorations_per_run: Self::default_explorations_per_run(),
+            create_machines: crate::dynamic_settings::create_machines(false),
+            override_target_ip: None,
+            override_target_port: None,
+            allow_zero_dpu_hosts: false,
+            bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+            allow_changing_bmc_proxy: None,
+        }
+    }
 }
 
 impl PartialEq for SiteExplorerConfig {
@@ -594,6 +636,30 @@ where
     S: Serializer,
 {
     s.serialize_bool(**cm.load())
+}
+
+pub fn deserialize_bmc_proxy<'de, D>(
+    deserializer: D,
+) -> Result<Arc<ArcSwap<Option<HostPortPair>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let p = Option::deserialize(deserializer)?;
+    Ok(Arc::new(ArcSwap::new(Arc::new(p))))
+}
+
+pub fn serialize_bmc_proxy<S>(
+    val: &Arc<ArcSwap<Option<HostPortPair>>>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(val) = val.load().deref().deref() {
+        s.serialize_str(val.to_string().as_str())
+    } else {
+        s.serialize_none()
+    }
 }
 
 /// IbFabricMonitorConfig related configuration
@@ -674,20 +740,6 @@ fn default_listen() -> SocketAddr {
 
 fn default_max_database_connections() -> u32 {
     1000
-}
-
-// public so that the integration tests can use it
-pub fn default_site_explorer_config() -> SiteExplorerConfig {
-    SiteExplorerConfig {
-        enabled: false,
-        run_interval: std::time::Duration::from_secs(0),
-        concurrent_explorations: 0,
-        explorations_per_run: 0,
-        create_machines: crate::dynamic_settings::create_machines(false),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -1275,6 +1327,8 @@ mod tests {
                 override_target_ip: None,
                 override_target_port: None,
                 allow_zero_dpu_hosts: false,
+                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                allow_changing_bmc_proxy: None,
             }
         );
         assert_eq!(
@@ -1402,6 +1456,8 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
+                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                allow_changing_bmc_proxy: None,
             }
         );
 
@@ -1538,6 +1594,8 @@ mod tests {
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
+                bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
+                allow_changing_bmc_proxy: None,
             }
         );
 
@@ -1657,5 +1715,13 @@ max_partition_per_tenant = 3
         );
         assert!(ib_fabric_config.enabled);
         assert_eq!(ib_fabric_config.max_partition_per_tenant, 3);
+    }
+
+    #[test]
+    fn site_explorer_serde_defaults_match_core_defaults() -> eyre::Result<()> {
+        // Make sure that if we let serde pick the defaults, it matches Default::default().
+        let deserialized = serde_json::from_str::<SiteExplorerConfig>("{}")?;
+        assert_eq!(deserialized, SiteExplorerConfig::default());
+        Ok(())
     }
 }

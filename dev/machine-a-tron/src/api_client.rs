@@ -2,7 +2,7 @@ use crate::config::MachineATronContext;
 use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::{MachinesByIdsRequest, PxeInstructions};
+use rpc::forge::{ConfigSetting, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest};
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
@@ -782,6 +782,24 @@ pub async fn get_site_exploration_report(
             .get_site_exploration_report(tonic::Request::new(
                 rpc::forge::GetSiteExplorationRequest {},
             ))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|r| r.into_inner())
+}
+
+pub async fn configure_bmc_proxy_host(
+    app_context: &MachineATronContext,
+    host: String,
+) -> ClientApiResult<()> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
+                setting: ConfigSetting::BmcProxy as i32,
+                value: host,
+                expiry: None,
+            }))
             .await
             .map_err(ClientApiError::InvocationError)
     })

@@ -282,9 +282,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
         allow_zero_dpu_hosts: true,
+        ..Default::default()
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -668,9 +667,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let explorer = SiteExplorer::new(
@@ -883,9 +880,7 @@ async fn test_site_explorer_reexplore(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(false),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let test_meter = TestMeter::default();
@@ -1015,9 +1010,7 @@ async fn test_site_explorer_creates_managed_host(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let explorer = SiteExplorer::new(
@@ -1476,9 +1469,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let explorer = SiteExplorer::new(
@@ -1921,9 +1912,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
     let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
     let host_sim = env.start_managed_host_sim();
@@ -2238,9 +2227,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
@@ -2537,9 +2524,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let explorer = SiteExplorer::new(
@@ -2731,9 +2716,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
 
     let explorer = SiteExplorer::new(
