@@ -4,15 +4,16 @@
 
 ### Added
 
-- Added new view for showing the DPU health report on the Admin UI for a managed host
-- *CONFIG UPDATE REQUIRED*: Enabling Infiniband requires setting three varaibles in the `carbide-api-site-config.toml`:
+- Added new view for showing the aggregate and DPU health report on the Admin UI for a managed host
+- Allow to add Host health overrides via Admin UI
+- Allow to update Infiniband default partition settings via three variables in the `carbide-api-site-config.toml`. Examples (and defaults) are:
   - mtu = 4
   - rate_limit = 200
   - service_level = 0
 
 ### Changed
 
-...
+- All admin-web UI pages and forge-admin-cli now show the aggregate Host Health report and the DPU health report, instead of the previous DPU-only health format (`NetworkHealth`). 
 
 ### Fixed
 
@@ -41,7 +42,7 @@
 - HBN logs are not collected from DPUs
 - Added metrics for running versions for Carbide-PXE
 - Numerous updates to the admin web ui (carbide-api/admin) for sorting and usability
-- Expose new health reporitng checks to the Admin UI
+- Expose new health reporting checks to the Admin UI
 - Support for automatic host ingestion to work on DGX H100 (Vikings)
 - Metrics added for when a DPU booted and when the DPU agent started
 - Enabled Full mesh DPU latency monitoring in a site
