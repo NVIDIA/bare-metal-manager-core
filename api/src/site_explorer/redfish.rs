@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use bmc_vendor::BMCVendor;
 use forge_secrets::credentials::Credentials;
+use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError, RoleId};
 use regex::Regex;
 
@@ -94,7 +95,7 @@ impl RedfishClient {
     pub async fn probe_redfish_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
-    ) -> Result<BMCVendor, EndpointExplorationError> {
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
         let client = self
             .create_anon_redfish_client(bmc_ip_address)
             .await
@@ -112,7 +113,7 @@ impl RedfishClient {
             }
         };
 
-        let Some(vendor) = service_root.vendor().map(|v| v.into()) else {
+        let Some(vendor) = service_root.vendor() else {
             return Err(EndpointExplorationError::MissingVendor);
         };
 
@@ -122,7 +123,7 @@ impl RedfishClient {
     pub async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
-        bmc_vendor: BMCVendor,
+        vendor: RedfishVendor,
         current_bmc_root_credentials: Credentials,
         new_bmc_root_credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
@@ -145,8 +146,8 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        match bmc_vendor {
-            BMCVendor::Lenovo => {
+        match vendor {
+            RedfishVendor::Lenovo => {
                 // Change (factory_user, factory_pass) to (factory_user, site_pass)
                 // We must do this first, BMC won't allow any other call until this is done
                 client
@@ -170,7 +171,8 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            BMCVendor::Nvidia => {
+            // Handle DPUs
+            RedfishVendor::Nvidia => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
                 client
@@ -178,7 +180,15 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            BMCVendor::Supermicro => {
+            // Handle Vikings
+            RedfishVendor::AMI => {
+                // new user will always be "admin"
+                client
+                    .change_password(new_user.as_str(), new_pass.as_str())
+                    .await
+                    .map_err(map_redfish_error)?;
+            }
+            RedfishVendor::Supermicro => {
                 // I think Supermicro does not allow renaming it's original superuser ('ADMIN').
                 // Check this.
                 client
@@ -186,22 +196,22 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            BMCVendor::Dell => {
+            RedfishVendor::Dell => {
                 client
                     .change_password(new_user.as_str(), new_pass.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
-            BMCVendor::Hpe => {
+            RedfishVendor::Hpe => {
                 // We don't have an Ansible playbook for HPE. We only run one or two of them
                 // in dev, no prod deploys.
                 return Err(EndpointExplorationError::UnsupportedVendor(
-                    bmc_vendor.to_string(),
+                    vendor.to_string(),
                 ));
             }
-            BMCVendor::Unknown => {
+            RedfishVendor::Unknown => {
                 return Err(EndpointExplorationError::UnsupportedVendor(
-                    bmc_vendor.to_string(),
+                    vendor.to_string(),
                 ));
             }
         };
