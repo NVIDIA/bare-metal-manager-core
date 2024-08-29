@@ -429,7 +429,9 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     {
         let mut guard = endpoint_explorer.reports.lock().unwrap();
         let m0 = guard.get_mut(&machines[0].ip.parse().unwrap()).unwrap();
-        *m0 = Err(EndpointExplorationError::Unreachable);
+        *m0 = Err(EndpointExplorationError::Unreachable {
+            details: Some("test_unreachable_detail".to_string()),
+        });
 
         let m1 = guard.get_mut(&machines[1].ip.parse().unwrap()).unwrap();
         *m1 = Ok(EndpointExplorationReport {
@@ -564,7 +566,9 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
                 assert_eq!(
                     report.report.last_exploration_error.clone().unwrap(),
-                    EndpointExplorationError::Unreachable
+                    EndpointExplorationError::Unreachable {
+                        details: Some("test_unreachable_detail".to_string())
+                    }
                 );
             }
             a if a == machines[1].ip => {
@@ -1800,7 +1804,9 @@ async fn test_site_explorer_clear_last_known_error(
     let mut txn = env.pool.begin().await?;
     let ip_address = "192.168.1.1";
     let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
-    let last_error = Some(EndpointExplorationError::Unreachable);
+    let last_error = Some(EndpointExplorationError::Unreachable {
+        details: Some("test_unreachable_detail".to_string()),
+    });
 
     let mut dpu_report1 = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,

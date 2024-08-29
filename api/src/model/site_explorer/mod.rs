@@ -678,8 +678,9 @@ impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
 #[serde(tag = "Type", rename_all = "PascalCase")]
 pub enum EndpointExplorationError {
     /// It was not possible to establish a connection to the endpoint
-    #[error("The endpoint was not reachable")]
-    Unreachable,
+    #[error("The endpoint was not reachable: {details:?}")]
+    #[serde(rename_all = "PascalCase")]
+    Unreachable { details: Option<String> },
     /// A Redfish variant we don't support, typically a new vendor
     #[error("Redfish vendor '{0}' not supported")]
     UnsupportedVendor(String),
@@ -971,14 +972,32 @@ mod tests {
     );
 
     #[test]
-    fn serialize_endpoint_exloration_error() {
+    fn serialize_endpoint_exploration_error() {
+        // test handling legacy format for the Unreachable error
         let report =
-            EndpointExplorationReport::new_with_error(EndpointExplorationError::Unreachable);
+            EndpointExplorationReport::new_with_error(EndpointExplorationError::Unreachable {
+                details: None,
+            });
 
         let serialized = serde_json::to_string(&report).unwrap();
         assert_eq!(
             serialized,
-            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"Unreachable"}}"#
+            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"Unreachable","Details":null}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
+            report
+        );
+
+        let report =
+            EndpointExplorationReport::new_with_error(EndpointExplorationError::Unreachable {
+                details: Some("test_details".to_string()),
+            });
+
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"Unreachable","Details":"test_details"}}"#
         );
         assert_eq!(
             serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
