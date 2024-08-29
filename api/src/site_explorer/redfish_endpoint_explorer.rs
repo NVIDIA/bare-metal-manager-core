@@ -13,8 +13,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use bmc_vendor::BMCVendor;
 use forge_secrets::credentials::{CredentialProvider, Credentials};
+use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 
 use crate::db::expected_machine::ExpectedMachine;
@@ -49,10 +49,25 @@ impl RedfishEndpointExplorer {
 
     pub async fn get_sitewide_bmc_root_credentials(
         &self,
+        vendor: RedfishVendor,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.credential_client
+        let credentials = self
+            .credential_client
             .get_sitewide_bmc_root_credentials()
-            .await
+            .await?;
+
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => match vendor {
+                // The libredfish::AMI RedfishVendor is specific to Vikings.
+                // DPUs use the NVIDIA RedfishVendor type.
+                RedfishVendor::AMI => ("admin".to_string(), password),
+                // We use the site-wide username from Vault on all other vendors. Vikings do not allow
+                // using "root" as the username of an account with Administrative priviledges.
+                _ => (username, password),
+            },
+        };
+
+        Ok(Credentials::UsernamePassword { username, password })
     }
 
     pub async fn get_default_hardware_dpu_bmc_root_credentials(
@@ -85,7 +100,7 @@ impl RedfishEndpointExplorer {
     pub async fn probe_redfish_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
-    ) -> Result<BMCVendor, EndpointExplorationError> {
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
         self.redfish_client
             .probe_redfish_endpoint(bmc_ip_address)
             .await
@@ -94,14 +109,14 @@ impl RedfishEndpointExplorer {
     pub async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
-        bmc_vendor: BMCVendor,
+        vendor: RedfishVendor,
         current_bmc_credentials: Credentials,
         new_bmc_credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
             .set_bmc_root_password(
                 bmc_ip_address,
-                bmc_vendor,
+                vendor,
                 current_bmc_credentials,
                 new_bmc_credentials,
             )
@@ -134,12 +149,12 @@ impl RedfishEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         bmc_mac_address: MacAddress,
-        bmc_vendor: BMCVendor,
+        vendor: RedfishVendor,
         expected_machine: Option<ExpectedMachine>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
 
-        tracing::info!(%bmc_ip_address, %bmc_mac_address, %bmc_vendor, "attempting to set the administrative credentials to the site password");
+        tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "attempting to set the administrative credentials to the site password");
 
         if let Some(expected_machine_credentials) = expected_machine {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
@@ -148,12 +163,12 @@ impl RedfishEndpointExplorer {
                 password: expected_machine_credentials.bmc_password,
             };
         } else {
-            tracing::info!(%bmc_ip_address, %bmc_mac_address, %bmc_vendor, "No expected machine found, could be a BlueField");
+            tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
             // We dont know if this machine is a DPU at this point
             // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
-            match bmc_vendor {
-                BMCVendor::Nvidia => {
-                    // This machine is either is either a DPU or a Viking host.
+            match vendor {
+                RedfishVendor::Nvidia => {
+                    // This machine is a DPU.
                     // Try the DPU hardware default password to handle the DPU case
                     // This password will not work for a Viking host and we will return an error
                     current_bmc_credentials =
@@ -164,28 +179,28 @@ impl RedfishEndpointExplorer {
                         key: "expected_machine".to_owned(),
                         cause: format!(
                             "The expected machine credentials do not exist for {} machine {}/{} ",
-                            bmc_vendor, bmc_ip_address, bmc_mac_address
+                            vendor, bmc_ip_address, bmc_mac_address
                         ),
                     })
                 }
             }
         }
 
-        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials().await?;
+        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials(vendor).await?;
 
         // use redfish to set the machine's BMC root password to
         // match Forge's sitewide BMC root password (from the factory default).
         // return an error if we cannot log into the machine's BMC using current credentials
         self.set_bmc_root_password(
             bmc_ip_address,
-            bmc_vendor,
+            vendor,
             current_bmc_credentials,
             sitewide_bmc_root_credentials.clone(),
         )
         .await?;
 
         tracing::info!(
-            %bmc_ip_address, %bmc_mac_address, %bmc_vendor,
+            %bmc_ip_address, %bmc_mac_address, %vendor,
             "Site explorer successfully updated the root password for {bmc_mac_address} to the Forge sitewide BMC root password"
         );
 
@@ -205,8 +220,9 @@ impl RedfishEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         bmc_mac_address: MacAddress,
+        vendor: RedfishVendor,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials().await?;
+        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials(vendor).await?;
 
         let report = self
             .generate_exploration_report(bmc_ip_address, sitewide_bmc_root_credentials.clone())
@@ -273,7 +289,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
                 // 1) Add an entry in vault for "bmc/{bmc_mac_address}/root"
                 // 2) Create the redfish client and generate the report.
                 match self
-                    .handle_legacy_bmc_root_auth(bmc_ip_address, bmc_mac_address)
+                    .handle_legacy_bmc_root_auth(bmc_ip_address, bmc_mac_address, vendor)
                     .await
                 {
                     Ok(report) => Ok(report),
