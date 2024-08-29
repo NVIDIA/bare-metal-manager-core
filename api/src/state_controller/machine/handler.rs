@@ -1070,6 +1070,7 @@ impl MachineStateHandler {
             .await?;
 
         match redfish_client.lockdown_status().await {
+            Err(RedfishError::NotSupported(_)) => Ok(Some(ManagedHostState::Ready)),
             Err(e) => {
                 tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
                 Ok(None)

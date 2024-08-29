@@ -126,7 +126,9 @@ impl BMCVendor {
 impl From<RedfishVendor> for BMCVendor {
     fn from(r: RedfishVendor) -> BMCVendor {
         match r {
-            RedfishVendor::AMI | RedfishVendor::Nvidia => BMCVendor::Nvidia,
+            RedfishVendor::AMI | RedfishVendor::NvidiaDpu | RedfishVendor::NvidiaGH200 => {
+                BMCVendor::Nvidia
+            }
             RedfishVendor::Dell => BMCVendor::Dell,
             RedfishVendor::Hpe => BMCVendor::Hpe,
             RedfishVendor::Lenovo => BMCVendor::Lenovo,
