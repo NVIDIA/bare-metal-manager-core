@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
+use health_report::HealthProbeId;
+use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
@@ -36,6 +37,55 @@ const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
 
+fn failed(
+    health_report: &mut health_report::HealthReport,
+    probe_id: impl Into<HealthProbeId>,
+    probe_target: Option<String>,
+    message: String,
+) {
+    health_report.alerts.push(health_report::HealthProbeAlert {
+        id: probe_id.into(),
+        target: probe_target,
+        in_alert_since: None,
+        message,
+        tenant_message: None,
+        classifications: vec![
+            health_report::HealthAlertClassification::prevent_allocations(),
+            health_report::HealthAlertClassification::prevent_host_state_changes(),
+        ],
+    })
+}
+
+fn passed(
+    health_report: &mut health_report::HealthReport,
+    probe_id: impl Into<HealthProbeId>,
+    probe_target: Option<String>,
+) {
+    health_report
+        .successes
+        .push(health_report::HealthProbeSuccess {
+            id: probe_id.into(),
+            target: probe_target,
+        })
+}
+
+/// Is enough of HBN ready so that we can configure it?
+pub fn is_up(health_report: &health_report::HealthReport) -> bool {
+    let has_failed_services = health_report
+        .alerts
+        .iter()
+        .any(|a| a.id == *probe_ids::ServiceRunning);
+    health_report
+        .successes
+        .iter()
+        .any(|s| s.id == *probe_ids::ContainerExists)
+        && health_report
+            .successes
+            .iter()
+            .any(|s| s.id == *probe_ids::SupervisorctlStatus)
+        && !has_failed_services
+}
+
 /// Check the health of HBN
 pub async fn health_check(
     hbn_root: &Path,
@@ -43,25 +93,30 @@ pub async fn health_check(
     _process_started_at: Instant,
     has_changed_configs: bool,
     min_healthy_links: Option<u32>,
-) -> HealthReport {
-    let mut hr = HealthReport::new();
+) -> health_report::HealthReport {
+    let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
     // Check whether HBN is up
     let container_id = match hbn::get_hbn_container_id().await {
         Ok(id) => id,
         Err(err) => {
-            hr.failed(HealthCheck::ContainerExists, err.to_string());
+            failed(
+                &mut hr,
+                probe_ids::ContainerExists.clone(),
+                None,
+                err.to_string(),
+            );
             return hr;
         }
     };
-    hr.passed(HealthCheck::ContainerExists);
+    passed(&mut hr, probe_ids::ContainerExists.clone(), None);
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES).await;
 
     // We want these checks whether HBN is up or not
     check_restricted_mode(&mut hr).await;
 
     // We only want these checks if HBN is up
-    if !hr.is_up() {
+    if !is_up(&hr) {
         return hr;
     }
     check_dhcp_relay_and_server(&mut hr, &container_id).await;
@@ -72,8 +127,10 @@ pub async fn health_check(
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
 
     if has_changed_configs {
-        hr.failed(
-            HealthCheck::PostConfigCheckWait,
+        failed(
+            &mut hr,
+            probe_ids::PostConfigCheckWait.clone(),
+            None,
             "Post-config waiting period".to_string(),
         );
     }
@@ -83,7 +140,7 @@ pub async fn health_check(
 
 // HBN processes should be running
 async fn check_hbn_services_running(
-    hr: &mut HealthReport,
+    hr: &mut health_report::HealthReport,
     container_id: &str,
     expected_services: &[&str],
 ) {
@@ -95,7 +152,12 @@ async fn check_hbn_services_running(
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
-            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            failed(
+                hr,
+                probe_ids::SupervisorctlStatus.clone(),
+                None,
+                err.to_string(),
+            );
             return;
         }
     };
@@ -103,19 +165,26 @@ async fn check_hbn_services_running(
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
-            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            failed(
+                hr,
+                probe_ids::SupervisorctlStatus.clone(),
+                None,
+                err.to_string(),
+            );
             return;
         }
     };
-    hr.passed(HealthCheck::SupervisorctlStatus);
+    passed(hr, probe_ids::SupervisorctlStatus.clone(), None);
 
     for service in expected_services.iter().map(|x| x.to_string()) {
         match st.status_of(&service) {
-            SctlState::Running => hr.passed(HealthCheck::ServiceRunning(service)),
+            SctlState::Running => passed(hr, probe_ids::ServiceRunning.clone(), Some(service)),
             status => {
                 tracing::warn!("check_hbn_services_running {service}: {status}");
-                hr.failed(
-                    HealthCheck::ServiceRunning(service.clone()),
+                failed(
+                    hr,
+                    probe_ids::ServiceRunning.clone(),
+                    Some(service.clone()),
                     format!("{service} is {status}, need {}", SctlState::Running),
                 );
             }
@@ -127,7 +196,7 @@ async fn check_hbn_services_running(
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
 // Out of relay and dhcp server, only and only one should be up.
-async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) {
+async fn check_dhcp_relay_and_server(hr: &mut health_report::HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
@@ -136,7 +205,12 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
-            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            failed(
+                hr,
+                probe_ids::SupervisorctlStatus.clone(),
+                None,
+                err.to_string(),
+            );
             return;
         }
     };
@@ -144,14 +218,19 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
-            hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
+            failed(
+                hr,
+                probe_ids::SupervisorctlStatus.clone(),
+                None,
+                err.to_string(),
+            );
             return;
         }
     };
 
     let relay_status = match st.status_of(DHCP_RELAY_SERVICE) {
         SctlState::Running => {
-            hr.passed(HealthCheck::DhcpRelay);
+            passed(hr, probe_ids::DhcpRelay.clone(), None);
             None
         }
         status => Some(status),
@@ -159,7 +238,7 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
 
     let dhcp_server_status = match st.status_of(DHCP_SERVER_SERVICE) {
         SctlState::Running => {
-            hr.passed(HealthCheck::DhcpServer);
+            passed(hr, probe_ids::DhcpServer.clone(), None);
             None
         }
         status => Some(status),
@@ -168,21 +247,25 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
     match (relay_status, dhcp_server_status) {
         (None, None) => {
             tracing::warn!("check_dhcp_relay_and_server: Both can not be running together.");
-            hr.failed(
-                HealthCheck::DhcpRelay,
+            failed(
+                hr,
+                probe_ids::DhcpRelay.clone(),
+                None,
                 "Dhcp relay and server are running together".to_string(),
             );
-            hr.failed(
-                HealthCheck::DhcpServer,
+            failed(
+                hr,
+                probe_ids::DhcpServer.clone(),
+                None,
                 "Dhcp relay and server are running together".to_string(),
             );
         }
         (Some(a), Some(b)) => {
             tracing::warn!("check_dhcp_relay: {a}");
-            hr.failed(HealthCheck::DhcpRelay, a.to_string());
+            failed(hr, probe_ids::DhcpRelay.clone(), None, a.to_string());
 
             tracing::warn!("check_dhcp_server: {b}");
-            hr.failed(HealthCheck::DhcpRelay, b.to_string());
+            failed(hr, probe_ids::DhcpRelay.clone(), None, b.to_string());
         }
         (Some(_), None) => {
             // Relay is running, not dhcp-server. DPU is configured in relay mode. All good.
@@ -195,7 +278,7 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
 
 // Check HBN BGP stats
 async fn check_network_stats(
-    hr: &mut HealthReport,
+    hr: &mut health_report::HealthReport,
     container_id: &str,
     host_routes: &[&str],
     min_healthy_links: Option<u32>,
@@ -211,50 +294,56 @@ async fn check_network_stats(
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_network_stats show bgp summary: {err}");
-            hr.failed(HealthCheck::BgpStats, err.to_string());
+            failed(hr, probe_ids::BgpStats.clone(), None, err.to_string());
             return;
         }
     };
     match check_bgp(&bgp_stats, host_routes, min_healthy_links) {
-        Ok(_) => hr.passed(HealthCheck::BgpStats),
+        Ok(_) => passed(hr, probe_ids::BgpStats.clone(), None),
         Err(err) => {
             tracing::warn!("check_network_stats bgp: {err}");
-            hr.failed(HealthCheck::BgpStats, err.to_string());
+            failed(hr, probe_ids::BgpStats.clone(), None, err.to_string());
         }
     }
 }
 
 // `ifreload` should exit code 0 and have no output
-async fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
+async fn check_ifreload(hr: &mut health_report::HealthReport, container_id: &str) {
     match hbn::run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true).await
     {
         Ok(stdout) => {
             if stdout.is_empty() {
-                hr.passed(HealthCheck::Ifreload);
+                passed(hr, probe_ids::Ifreload.clone(), None);
             } else {
                 tracing::warn!("check_ifreload: {stdout}");
-                hr.failed(HealthCheck::Ifreload, stdout);
+                failed(hr, probe_ids::Ifreload.clone(), None, stdout);
             }
         }
         Err(err) => {
             tracing::warn!("check_ifreload: {err}");
-            hr.failed(HealthCheck::Ifreload, err.to_string());
+            failed(hr, probe_ids::Ifreload.clone(), None, err.to_string());
         }
     }
 }
 
 // The files VPC creates should exist
-fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) {
+fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_files: &[&str]) {
     const MIN_SIZE: u64 = 100;
     let mut dhcp_relay_size = 0;
     let mut dhcp_server_size = 0;
     for filename in expected_files {
         let path = hbn_root.join(filename);
         if path.exists() {
-            hr.passed(HealthCheck::FileExists(path.display().to_string()));
+            passed(
+                hr,
+                probe_ids::FileExists.clone(),
+                Some(path.display().to_string()),
+            );
         } else {
-            hr.failed(
-                HealthCheck::FileExists(path.display().to_string()),
+            failed(
+                hr,
+                probe_ids::FileExists.clone(),
+                Some(path.display().to_string()),
                 "Not found".to_string(),
             );
             continue;
@@ -263,8 +352,10 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
             Ok(s) => s,
             Err(err) => {
                 tracing::warn!("check_files {filename}: {err}");
-                hr.failed(
-                    HealthCheck::FileIsValid(filename.to_string()),
+                failed(
+                    hr,
+                    probe_ids::FileIsValid.clone(),
+                    Some(filename.to_string()),
                     err.to_string(),
                 );
                 continue;
@@ -279,37 +370,49 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
                 "check_files {filename}: Too small {} < {MIN_SIZE} bytes",
                 stat.len()
             );
-            hr.failed(
-                HealthCheck::FileIsValid(filename.to_string()),
+            failed(
+                hr,
+                probe_ids::FileIsValid.clone(),
+                Some(filename.to_string()),
                 "Too small".to_string(),
             );
         }
-        hr.passed(HealthCheck::FileIsValid(filename.to_string()));
+        passed(
+            hr,
+            probe_ids::FileIsValid.clone(),
+            Some(filename.to_string()),
+        );
     }
 
     if dhcp_relay_size < MIN_SIZE && dhcp_server_size < MIN_SIZE {
         tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Too small");
-        hr.failed(
-            HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
+        failed(
+            hr,
+            probe_ids::FileIsValid.clone(),
+            Some(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
             "Too small".to_string(),
         );
     }
     if dhcp_relay_size > MIN_SIZE && dhcp_server_size > MIN_SIZE {
         tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid.");
-        hr.failed(
-            HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
+        failed(
+            hr,
+            probe_ids::FileIsValid.clone(),
+            Some(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
             "Both can not be valid together.".to_string(),
         );
     }
 }
 
-fn check_bgp_daemon_enabled(hr: &mut HealthReport, hbn_daemons_file: &str) {
+fn check_bgp_daemon_enabled(hr: &mut health_report::HealthReport, hbn_daemons_file: &str) {
     let daemons = match std::fs::read_to_string(hbn_daemons_file) {
         Ok(s) => s,
         Err(err) => {
             tracing::warn!("check_bgp_daemon_enabled: {err}");
-            hr.failed(
-                HealthCheck::BgpDaemonEnabled,
+            failed(
+                hr,
+                probe_ids::BgpDaemonEnabled.clone(),
+                None,
                 format!("Trying to open and read {hbn_daemons_file}: {err}"),
             );
             return;
@@ -317,21 +420,25 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport, hbn_daemons_file: &str) {
     };
 
     if daemons.contains("bgpd=no") {
-        hr.failed(
-            HealthCheck::BgpDaemonEnabled,
+        failed(
+            hr,
+            probe_ids::BgpDaemonEnabled.clone(),
+            None,
             format!("BGP daemon is disabled - {hbn_daemons_file} contains 'bgpd=no'"),
         );
         return;
     }
     if !daemons.contains("bgpd=yes") {
-        hr.failed(
-            HealthCheck::BgpDaemonEnabled,
+        failed(
+            hr,
+            probe_ids::BgpDaemonEnabled.clone(),
+            None,
             format!("BGP daemon is not enabled - {hbn_daemons_file} does not contain 'bgpd=yes'"),
         );
         return;
     }
 
-    hr.passed(HealthCheck::BgpDaemonEnabled);
+    passed(hr, probe_ids::BgpDaemonEnabled.clone(), None);
 }
 
 fn check_bgp(
@@ -399,7 +506,7 @@ fn check_bgp_stats(
 }
 
 // A DPU should be in restricted mode
-async fn check_restricted_mode(hr: &mut HealthReport) {
+async fn check_restricted_mode(hr: &mut health_report::HealthReport) {
     const EXPECTED_PRIV_LEVEL: &str = "RESTRICTED";
     let mut cmd = TokioCommand::new("bash");
     cmd.arg("-c")
@@ -408,8 +515,10 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
 
     let cmd_str = super::pretty_cmd(cmd.as_std());
     let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
-        hr.failed(
-            HealthCheck::RestrictedMode,
+        failed(
+            hr,
+            probe_ids::RestrictedMode.clone(),
+            None,
             format!("Timeout running '{cmd_str}'."),
         );
         return;
@@ -417,8 +526,10 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     let out = match cmd_res {
         Ok(out) => out,
         Err(err) => {
-            hr.failed(
-                HealthCheck::RestrictedMode,
+            failed(
+                hr,
+                probe_ids::RestrictedMode.clone(),
+                None,
                 format!("Error running '{cmd_str}'. {err}"),
             );
             return;
@@ -430,8 +541,10 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
             super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
-        hr.failed(
-            HealthCheck::RestrictedMode,
+        failed(
+            hr,
+            probe_ids::RestrictedMode.clone(),
+            None,
             format!(
                 "{} for cmd '{}'",
                 out.status,
@@ -443,19 +556,23 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     let s = String::from_utf8_lossy(&out.stdout);
     match parse_mlxprivhost(s.as_ref()) {
         Ok(priv_level) if priv_level == EXPECTED_PRIV_LEVEL => {
-            hr.passed(HealthCheck::RestrictedMode);
+            passed(hr, probe_ids::RestrictedMode.clone(), None);
         }
         Ok(priv_level) => {
-            hr.failed(
-                HealthCheck::RestrictedMode,
+            failed(
+                hr,
+                probe_ids::RestrictedMode.clone(),
+                None,
                 format!(
                     "mlxprivhost reports level '{priv_level}', expected '{EXPECTED_PRIV_LEVEL}'"
                 ),
             );
         }
         Err(err) => {
-            hr.failed(
-                HealthCheck::RestrictedMode,
+            failed(
+                hr,
+                probe_ids::RestrictedMode.clone(),
+                None,
                 format!("parse_mlxprivhost: {err}"),
             );
         }
@@ -502,143 +619,22 @@ struct BgpPeer {
     pfx_snt: Option<u32>,
 }
 
-// Health of HBN
-#[derive(Debug, Default, Serialize)]
-pub struct HealthReport {
-    pub checks_passed: Vec<HealthCheck>,
-    pub checks_failed: Vec<(HealthCheck, String)>,
-    pub message: Option<String>,
-}
+pub mod probe_ids {
+    use health_report::HealthProbeId;
 
-impl HealthReport {
-    fn new() -> HealthReport {
-        Default::default()
-    }
-
-    fn passed(&mut self, hc: HealthCheck) {
-        self.checks_passed.push(hc);
-    }
-
-    pub fn failed(&mut self, hc: HealthCheck, msg: String) {
-        self.checks_failed.push((hc, msg.clone()));
-        if self.message.is_none() {
-            self.message = Some(msg);
-        }
-    }
-
-    /// Is enough of HBN ready so that we can configure it?
-    pub fn is_up(&self) -> bool {
-        let has_failed_services = self
-            .checks_failed
-            .iter()
-            .any(|c| matches!(c.0, HealthCheck::ServiceRunning(_)));
-        self.checks_passed.contains(&HealthCheck::ContainerExists)
-            && self
-                .checks_passed
-                .contains(&HealthCheck::SupervisorctlStatus)
-            && !has_failed_services
-    }
-
-    /// Is networking in the expected healthy normal connected state?
-    pub fn is_healthy(&self) -> bool {
-        !self.checks_passed.is_empty() && self.checks_failed.is_empty()
-    }
-}
-
-impl TryFrom<&HealthReport> for health_report::HealthReport {
-    type Error = health_report::HealthReportConversionError;
-
-    /// Transform NetworkHealth into the new Health Report structure
-    /// TODO: Directly use new format after carbide does no longer expect
-    /// the legacy format
-    fn try_from(r: &HealthReport) -> Result<Self, Self::Error> {
-        let mut report = health_report::HealthReport {
-            source: "forge-dpu-agent".to_string(),
-            observed_at: None,
-            successes: Vec::new(),
-            alerts: Vec::new(),
-        };
-        for passed in r.checks_passed.iter() {
-            report.successes.push(health_report::HealthProbeSuccess {
-                id: passed.to_string().parse().unwrap(),
-                target: None,
-            })
-        }
-        for failed in r.checks_failed.iter() {
-            report.alerts.push(health_report::HealthProbeAlert {
-                id: failed.0.to_string().parse().unwrap(),
-                target: None,
-                in_alert_since: None,
-                message: failed.1.clone(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes(),
-                ],
-            })
-        }
-
-        Ok(report)
-    }
-}
-
-// The things we check on an HBN to ensure it's in good health
-#[derive(Debug, Serialize, PartialEq)]
-pub enum HealthCheck {
-    ContainerExists,
-    SupervisorctlStatus,
-    ServiceRunning(String),
-    DhcpRelay,
-    DhcpServer,
-    BgpStats,
-    Ifreload,
-    FileExists(String),
-    FileIsValid(String),
-    BgpDaemonEnabled,
-    RestrictedMode,
-    PostConfigCheckWait,
-}
-
-impl fmt::Display for HealthReport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_healthy() {
-            write!(f, "OK")
-        } else {
-            write!(
-                f,
-                "Checks passed: {}, Checks failed: {}, First failure: {}",
-                self.checks_passed
-                    .iter()
-                    .map(|hc| hc.to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-                self.checks_failed
-                    .iter()
-                    .map(|hc| hc.0.to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-                self.message.as_deref().unwrap_or_default()
-            )
-        }
-    }
-}
-
-impl fmt::Display for HealthCheck {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ContainerExists => write!(f, "ContainerExists"),
-            Self::SupervisorctlStatus => write!(f, "SupervisorctlStatus"),
-            Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({service_name})"),
-            Self::DhcpRelay => write!(f, "DhcpRelay"),
-            Self::DhcpServer => write!(f, "DhcpServer"),
-            Self::BgpStats => write!(f, "BgpStats"),
-            Self::Ifreload => write!(f, "Ifreload"),
-            Self::FileExists(file_name) => write!(f, "FileExists({file_name})"),
-            Self::FileIsValid(file_name) => write!(f, "FileIsValid({file_name})"),
-            Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
-            Self::RestrictedMode => write!(f, "RestrictedMode"),
-            Self::PostConfigCheckWait => write!(f, "PostConfigCheckWait"),
-        }
+    lazy_static::lazy_static! {
+        pub static ref ContainerExists: HealthProbeId = "ContainerExists".parse().unwrap();
+        pub static ref SupervisorctlStatus: HealthProbeId = "SupervisorctlStatus".parse().unwrap();
+        pub static ref ServiceRunning: HealthProbeId = "ServiceRunning".parse().unwrap();
+        pub static ref DhcpRelay: HealthProbeId = "DhcpRelay".parse().unwrap();
+        pub static ref DhcpServer: HealthProbeId = "DhcpServer".parse().unwrap();
+        pub static ref BgpStats: HealthProbeId = "BgpStats".parse().unwrap();
+        pub static ref Ifreload: HealthProbeId = "Ifreload".parse().unwrap();
+        pub static ref FileExists: HealthProbeId = "FileExists".parse().unwrap();
+        pub static ref FileIsValid: HealthProbeId = "FileIsValid".parse().unwrap();
+        pub static ref BgpDaemonEnabled: HealthProbeId = "BgpDaemonEnabled".parse().unwrap();
+        pub static ref RestrictedMode: HealthProbeId = "RestrictedMode".parse().unwrap();
+        pub static ref PostConfigCheckWait: HealthProbeId = "PostConfigCheckWait".parse().unwrap();
     }
 }
 

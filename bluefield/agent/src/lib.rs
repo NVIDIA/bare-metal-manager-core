@@ -146,7 +146,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         Some(AgentCommand::Health) => {
             let health_report =
                 health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, None).await;
-            println!("{health_report}");
+            println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
         // One-off network monitor check.
