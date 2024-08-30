@@ -14,9 +14,9 @@
 	<h1>All Managed Hosts</h1>
 {% endif %}
 
-<form id="filter-container" action="" method="get">
+<form class="filter-container" action="" method="get">
 	<div>
-		<label for="health-alerts-filter">Health</label>
+		<label for="health-alerts-filter" style="padding-right: 25px">Health</label>
 		<select id="health-alerts-filter" name="health-alerts-filter">
 			<option value="all">All</option>
 			<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
@@ -77,11 +77,8 @@
 			{% endfor %}
 		</select>
 	</div>
-  <div>
-      <input type="submit" value="Filter">
-  </div>
 
-  <div style="margin-left: auto">
+  <div>
 	  <label for="group-by">Group by</label>
 	  <select id="group-by" name="group-by">
 		  <option value="none">None</option>
@@ -92,10 +89,10 @@
 	  </select>
   </div>
   <div>
-      <input type="submit" value="Group">
+      <input type="submit" value="Update">
   </div>
-
 </form>
+
 {% if grouped_hosts.is_none() %}
 	{% include "managed_host_individual_table.html" %}
 {% else %}

@@ -182,34 +182,44 @@ div#json a {
 	cursor: pointer;
 }
 
-form#filter-container {
-	margin: 20px 0;
-	display: flex;
-	align-items: center;
-	gap: 20px;
+form.filter-container {
+    display: grid;
+    grid-template-columns: repeat(7, max-content);
+    row-gap: 10px;
+	column-gap: 10px;
+    width: 100%;
+    margin: 0 auto;
+	margin-bottom: 20px;
 }
 
-form#filter-container label {
+form.filter-container label {
 	font-weight: bold;
 	cursor: pointer;
 }
 
-form#filter-container select, form#filter-container input[type="checkbox"] {
+form.filter-container select, form.filter-container input[type="checkbox"] {
 	padding: 5px;
 	border: 1px solid #999;
 	outline: none;
 }
-form#filter-container select {
+form.filter-container select {
 	height: 30px;
 }
-form#filter-container input[type="checkbox"] {
+form.filter-container input[type="checkbox"] {
 	width: 20px;
 	height: 20px;
 }
-form#filter-container input[type="radio"] {
+form.filter-container input[type="radio"] {
 	height: auto;
 	padding: 0 5px 0 0;
 }
+form.filter-container input[type="submit"] {
+	margin-left: 0;
+}
+form.filter-container div:nth-child(8) {
+    grid-column: span 7;
+}
+
 
 {% block css %}{% endblock %}
 </style>
