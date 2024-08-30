@@ -64,14 +64,19 @@
 			<tr>
 				<th>{{ hosts.len() }} item{% if hosts.len() != 1 %}s{% endif %}</th>
 				<th></th>
-				<th></th>
+				{% if active_maintenance_filter == "maintenance" %}
+					<th></th>
+					<th></th>
+				{% endif %}
 				<th></th>
 				<th></th>
 				<th></th>
 				<th></th>
 				<th></th>
 				{% if active_maintenance_filter != "maintenance" %}
-				<th></th>
+					<th></th>
+					<th></th>
+					<th></th>
 				{% endif %}
 			</tr>
 		</tfoot>
