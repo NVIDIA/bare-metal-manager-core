@@ -222,44 +222,63 @@ impl MachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<MachineStateHandlerContextObjects>,
     ) {
-        if let Some(dpu_snapshot) = state.dpu_snapshots.first() {
-            ctx.metrics.dpu_firmware_version = dpu_snapshot
+        for dpu_snapshot in state.dpu_snapshots.iter() {
+            let fw_version = dpu_snapshot
                 .hardware_info
                 .as_ref()
                 .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
-            ctx.metrics.machine_inventory_component_versions.extend(
-                dpu_snapshot
-                    .agent_reported_inventory
-                    .clone()
-                    .components
-                    .into_iter()
-                    .map(|mut component| {
-                        // Remove the URL field for metrics purposes. We don't want to report different metrics
-                        // just because the URL field in components differ. Only name and version are important
-                        component.url = String::new();
-                        component
-                    }),
-            );
+            if let Some(fw_version) = fw_version {
+                *ctx.metrics
+                    .dpu_firmware_versions
+                    .entry(fw_version)
+                    .or_default() += 1;
+            }
+
+            for component in &dpu_snapshot.agent_reported_inventory.components {
+                let mut component = component.clone();
+                // Remove the URL field for metrics purposes. We don't want to report different metrics
+                // just because the URL field in components differ. Only name and version are important
+                component.url = String::new();
+                *ctx.metrics
+                    .machine_inventory_component_versions
+                    .entry(component)
+                    .or_default() += 1;
+            }
 
             // Update DPU network health Prometheus metrics
             // TODO: This needs to be fixed for multi-dpu
-            ctx.metrics.dpu_healthy = dpu_snapshot
+            ctx.metrics.dpus_healthy += if dpu_snapshot
                 .dpu_agent_health_report
                 .as_ref()
                 .map(|health| health.alerts.is_empty())
-                .unwrap_or(false);
+                .unwrap_or(false)
+            {
+                1
+            } else {
+                0
+            };
             if let Some(report) = dpu_snapshot.dpu_agent_health_report.as_ref() {
                 for alert in report.alerts.iter() {
-                    ctx.metrics
-                        .failed_dpu_healthchecks
-                        .insert(alert.id.to_string());
+                    *ctx.metrics
+                        .dpu_health_probe_alerts
+                        .entry((alert.id.clone(), alert.target.clone()))
+                        .or_default() += 1;
                 }
             }
             if let Some(observation) = dpu_snapshot.network_status_observation.as_ref() {
-                ctx.metrics.agent_version = observation.agent_version.clone();
-                ctx.metrics.dpu_up = Utc::now().signed_duration_since(observation.observed_at)
-                    <= self.dpu_up_threshold;
+                if let Some(agent_version) = observation.agent_version.as_ref() {
+                    *ctx.metrics
+                        .agent_versions
+                        .entry(agent_version.clone())
+                        .or_default() += 1;
+                }
+                if Utc::now().signed_duration_since(observation.observed_at)
+                    <= self.dpu_up_threshold
+                {
+                    ctx.metrics.dpus_up += 1;
+                }
 
+                // TODO: The last DPU wins here. We don't take all DPUs into account
                 ctx.metrics.machine_id = Some(observation.machine_id.clone());
                 ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
             }
@@ -277,7 +296,9 @@ impl MachineStateHandler {
             .map(|instance| instance.config.tenant.tenant_organization_id.clone());
 
         for alert in state.aggregate_health.alerts.iter() {
-            ctx.metrics.health_probe_alerts.insert(alert.id.clone());
+            ctx.metrics
+                .health_probe_alerts
+                .insert((alert.id.clone(), alert.target.clone()));
             for c in alert.classifications.iter() {
                 ctx.metrics.health_alert_classifications.insert(c.clone());
             }
