@@ -609,7 +609,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         "Machine should have just transitioned into WaitingForNetworkConfig"
     );
 
-    // Scout does it's thing
+    // Scout does its thing
 
     let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
 

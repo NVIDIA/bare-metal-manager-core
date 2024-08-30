@@ -189,7 +189,7 @@ impl RedfishClient {
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Supermicro => {
-                // I think Supermicro does not allow renaming it's original superuser ('ADMIN').
+                // I think Supermicro does not allow renaming its original superuser ('ADMIN').
                 // Check this.
                 client
                     .create_user(&new_user, &new_pass, RoleId::Administrator)

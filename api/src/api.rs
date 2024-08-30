@@ -1202,7 +1202,7 @@ impl Forge for Api {
             }
         };
 
-        // Link BMC interface to it's machine, for carbide-web and admin-cli.
+        // Link BMC interface to its machine, for carbide-web and admin-cli.
         // Don't link if the search returned multiple, in case perf is an issue.
         if interfaces.len() == 1 {
             let interface = interfaces.get_mut(0).unwrap();

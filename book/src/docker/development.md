@@ -92,7 +92,7 @@ cargo run -p bmc-mock
 ```
 
 If you see errors check you don't have Postgres already running. The unit tests expect a local Postgres instance.
-The docker-compose environment starts it's own Postgres on the same port, so they will conflict.
+The docker-compose environment starts its own Postgres on the same port, so they will conflict.
 
 ## Seeding DB
 

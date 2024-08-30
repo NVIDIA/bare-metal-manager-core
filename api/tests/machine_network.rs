@@ -161,7 +161,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     reported_health.source = "should-get-updated".to_string();
     assert_eq!(reported_health, dpu_health);
 
-    // Now fetch the instance and check that knows it's configs have synced
+    // Now fetch the instance and check that knows its configs have synced
     let response = env
         .api
         .find_instance_by_machine_id(tonic::Request::new(host_machine_id.to_string().into()))

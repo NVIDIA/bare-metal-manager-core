@@ -2041,7 +2041,7 @@ async fn handle_dpu_reprovision(
             handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
                 .await?;
 
-            // We need to wait for the host to reboot and submit it's new Hardware information in
+            // We need to wait for the host to reboot and submit its new Hardware information in
             // case of Ready.
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,

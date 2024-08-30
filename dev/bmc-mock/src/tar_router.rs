@@ -343,7 +343,7 @@ async fn set_any(
         .map_or("", |v| v.to_str().unwrap());
     append_history(shared_state.history.clone(), really_to_mac, &path);
 
-    // This can't be it's own route because of https://github.com/tokio-rs/axum/issues/1986
+    // This can't be its own route because of https://github.com/tokio-rs/axum/issues/1986
     if path.ends_with("Actions/ComputerSystem.Reset") {
         let power_req = SetSystemPowerReq::deserialize(body).unwrap();
         set_system_power(shared_state, power_req);

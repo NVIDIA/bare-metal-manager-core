@@ -446,7 +446,7 @@ impl ForgeTlsClient {
         // Set TCP timeouts. The interactions are non-obvious, but here are the basics:
         // - An established socket with in-flight data will timeout exactly TCP_USER_TIMEOUT
         // after data is first lost.
-        // - An idle socket will send it's first probe when it's been idle for TCP_KEEPIDLE. If
+        // - An idle socket will send its first probe when it's been idle for TCP_KEEPIDLE. If
         // the probe is not ACKed, it will timeout about TCP_USER_TIMEOUT after first data loss.
         // - This formula should be maintained: TCP_USER_TIMEOUT < TCP_KEEPIDLE + TCP_KEEPINTVL * TCP_KEEPCNT
         // where `<` means "just slightly lower than".

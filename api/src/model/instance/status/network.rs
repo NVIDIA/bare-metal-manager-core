@@ -44,7 +44,7 @@ use ::rpc::errors::RpcDataConversionError;
 pub struct InstanceNetworkStatus {
     /// Status for each configured interface
     ///
-    /// Each entry in this status array maps to it's corresponding entry in the
+    /// Each entry in this status array maps to its corresponding entry in the
     /// Config section. E.g. `instance.status.network.interface_status[1]`
     /// would map to `instance.config.network.interface_configs[1]`.
     pub interfaces: Vec<InstanceInterfaceStatus>,

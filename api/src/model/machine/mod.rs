@@ -62,7 +62,7 @@ pub struct ManagedHostStateSnapshot {
     pub host_snapshot: MachineSnapshot,
     pub dpu_snapshots: Vec<MachineSnapshot>,
     /// If there is an instance provisioned on top of the machine, this holds
-    /// it's state
+    /// its state
     pub instance: Option<InstanceSnapshot>,
     pub managed_state: ManagedHostState,
     /// Aggregated health. This is calculated based on the health of Hosts and DPUs
