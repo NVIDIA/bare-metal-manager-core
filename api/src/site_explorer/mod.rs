@@ -10,11 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use config_version::ConfigVersion;
-use itertools::Itertools;
-use mac_address::MacAddress;
-use managed_host::ManagedHost;
-use sqlx::{PgPool, Postgres, Transaction};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -22,6 +17,12 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
+
+use config_version::ConfigVersion;
+use itertools::Itertools;
+use mac_address::MacAddress;
+use managed_host::ManagedHost;
+use sqlx::{PgPool, Postgres, Transaction};
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
@@ -63,8 +64,9 @@ mod redfish;
 mod redfish_endpoint_explorer;
 pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
 mod identify;
-use crate::model::hardware_info::NetworkInterface;
 pub use identify::{identify_bmc, IdentifyError};
+
+use crate::model::hardware_info::NetworkInterface;
 
 mod managed_host;
 

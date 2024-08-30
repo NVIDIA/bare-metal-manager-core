@@ -17,18 +17,16 @@ use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 
+use super::credentials::CredentialClient;
+use super::metrics::SiteExplorationMetrics;
+use super::redfish::RedfishClient;
 use crate::db::expected_machine::ExpectedMachine;
-
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     redfish::RedfishClientPool,
     site_explorer::EndpointExplorer,
 };
-
-use super::credentials::CredentialClient;
-use super::metrics::SiteExplorationMetrics;
-use super::redfish::RedfishClient;
 
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct RedfishEndpointExplorer {
@@ -167,7 +165,7 @@ impl RedfishEndpointExplorer {
             // We dont know if this machine is a DPU at this point
             // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
             match vendor {
-                RedfishVendor::Nvidia => {
+                RedfishVendor::NvidiaDpu => {
                     // This machine is a DPU.
                     // Try the DPU hardware default password to handle the DPU case
                     // This password will not work for a Viking host and we will return an error

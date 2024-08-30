@@ -3452,9 +3452,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.23.2"
+version = "0.24.0"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "255163318e8bda17bd60f6054d62595d05afe7aa8c3440f5d7af196b5e2f355a"
+checksum = "ac1f66cf25c8cfb06e79fea346163fa9e16126b8a18600cee36a4a81430bbc0f"
 dependencies = [
  "async-trait",
  "log",
@@ -3672,7 +3672,7 @@ dependencies = [
  "prost-types",
  "rayon",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.5",
  "rpc",
  "serde",
  "serde_json",

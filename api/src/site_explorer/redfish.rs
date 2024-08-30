@@ -171,10 +171,12 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            // Handle DPUs
-            RedfishVendor::Nvidia => {
+            RedfishVendor::NvidiaDpu | RedfishVendor::NvidiaGH200 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
+                //
+                // GH200 doesn't require change-on-first-use, but it's good practice. GB200
+                // probably will.
                 client
                     .change_password_by_id("root", new_pass.as_str())
                     .await
@@ -274,7 +276,12 @@ impl RedfishClient {
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     let manager = client.get_manager().await?;
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false).await?;
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false)
+        .await
+        .or_else(|err| match err {
+            RedfishError::NotSupported(_) => Ok(vec![]),
+            _ => Err(err),
+        })?;
 
     Ok(Manager {
         ethernet_interfaces,
@@ -288,7 +295,12 @@ async fn fetch_system(
 ) -> Result<ComputerSystem, RedfishError> {
     let mut system = client.get_system().await?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu).await?;
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu)
+        .await
+        .or_else(|err| match err {
+            RedfishError::NotSupported(_) => Ok(vec![]),
+            _ => Err(err),
+        })?;
 
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
@@ -308,7 +320,10 @@ async fn fetch_system(
         }
     };
 
-    let pcie_devices = fetch_pcie_devices(client).await?;
+    let pcie_devices = fetch_pcie_devices(client).await.or_else(|err| match err {
+        RedfishError::NotSupported(_) => Ok(vec![]),
+        _ => Err(err),
+    })?;
 
     let nic_mode: Option<NicMode> = if is_dpu {
         bios_attributes
@@ -488,7 +503,14 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             continue;
         };
 
-        let Ok(net_adapter_list) = client.get_chassis_network_adapters(chassis_id).await else {
+        let Ok(net_adapter_list) = client
+            .get_chassis_network_adapters(chassis_id)
+            .await
+            .or_else(|err| match err {
+                RedfishError::NotSupported(_) => Ok(vec![]),
+                _ => Err(err),
+            })
+        else {
             continue;
         };
 
