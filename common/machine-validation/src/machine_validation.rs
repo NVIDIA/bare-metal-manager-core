@@ -68,6 +68,8 @@ pub struct ExecCommand {
     extra_output_file: Option<String>,
     #[serde(rename = "ExtraErrFile")]
     extra_err_file: Option<String>,
+    #[serde(rename = "RequiredExternalConfigFile")]
+    required_external_config_file: Option<String>,
     #[serde(rename = "Desc")]
     description: String,
     #[serde(rename = "Contexts")]
@@ -242,7 +244,32 @@ impl MachineValidation {
         uuid: rpc::common::Uuid,
     ) -> Option<rpc::forge::MachineValidationResult> {
         let mut command_string = format!("{} {}", cmd.command, cmd.args);
+        if cmd.required_external_config_file.is_some() {
+            let file_name = format!(
+                "/tmp/machine_validation/external_config/{}",
+                cmd.required_external_config_file.unwrap_or_default()
+            );
+            //TODO in future, the test case editing per site will change this logic,
+            // This is stop gap solution
+            if std::fs::metadata(file_name.clone()).is_err() {
+                let start_time = Utc::now();
+                let end_time = Utc::now();
 
+                return Some(rpc::forge::MachineValidationResult {
+                    name,
+                    description: cmd.description.clone(),
+                    command: cmd.command.clone(),
+                    args: cmd.args.clone(),
+                    std_out: format!("{} doesnt exist", file_name.clone()),
+                    std_err: format!("{} doesnt exist", file_name),
+                    context: in_context,
+                    exit_code: 0,
+                    start_time: Some(start_time.into()),
+                    end_time: Some(end_time.into()),
+                    validation_id: Some(uuid),
+                });
+            }
+        }
         if cmd.img_name.is_some() {
             if cmd.execute_in_host.unwrap_or(false) {
                 command_string = format!("chroot /host /bin/bash -c \"{}\"", command_string);
@@ -296,8 +323,6 @@ impl MachineValidation {
                     stderr_str = stderr_str + &message;
                 }
                 info!("exit code {}", exit_code);
-                info!("std out {}", stdout_str);
-                info!("std err {}", stderr_str);
                 Some(rpc::forge::MachineValidationResult {
                     name,
                     description: cmd.description.clone(),
