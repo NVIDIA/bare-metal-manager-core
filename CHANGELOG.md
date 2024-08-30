@@ -10,6 +10,7 @@
   - mtu = 4
   - rate_limit = 200
   - service_level = 0
+- Added GPU voltage, temperature, power metrics under `hw.gpu.[voltage|temperature|power|energy]`
 
 ### Changed
 

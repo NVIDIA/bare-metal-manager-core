@@ -17,10 +17,11 @@ use health_report::{
 };
 use libredfish::model::power::{PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
+use libredfish::model::sensor::{GPUSensors, ReadingType};
 use libredfish::model::thermal::{Fan, Temperature};
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::model::{ResourceHealth, ResourceState};
-use libredfish::{PowerState, Redfish, RedfishClientPool};
+use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
 use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
 use opentelemetry::metrics::{MeterProvider as _, Unit};
@@ -40,6 +41,7 @@ pub struct HardwareHealth {
     thermal: Thermal,
     power: Power,
     power_state: PowerState,
+    gpu_sensors: Option<Vec<GPUSensors>>,
     logs: Vec<LogEntry>,
     firmware: Vec<SoftwareInventory>,
 }
@@ -77,10 +79,15 @@ pub async fn get_metrics(
     redfish: Box<dyn Redfish>,
     last_polled_ts: i64,
 ) -> Result<HardwareHealth, HealthError> {
-    // get the temperature, fans, voltages, power supplies data from the bmc
+    // get the temperature, fans, voltages, power supplies, gpu sensors data from the bmc
     let thermal = redfish.get_thermal_metrics().await?;
     let power = redfish.get_power_metrics().await?;
     let power_state = redfish.get_power_state().await?;
+    let gpu_sensors = match redfish.get_gpu_sensors().await {
+        Ok(v) => Some(v),
+        Err(RedfishError::NotSupported(_)) => None,
+        Err(e) => return Err(e.into()),
+    };
 
     // get the system/hardware event log
     let mut logs: Vec<LogEntry> = Vec::new();
@@ -100,6 +107,7 @@ pub async fn get_metrics(
         thermal,
         power,
         power_state,
+        gpu_sensors,
         logs,
         firmware,
     };
@@ -274,6 +282,55 @@ fn export_power_supplies(
     Ok(())
 }
 
+fn export_gpu_sensors(
+    meter: Meter,
+    gpu_sensors: Vec<GPUSensors>,
+    machine_id: &str,
+) -> Result<(), HealthError> {
+    let [mut voltage, mut temp, mut power, mut energy] = [
+        ("voltage", "V"),
+        ("temperature", "Celsius"),
+        ("power", "Watts"),
+        ("energy", "Joules"),
+    ]
+    .map(|(name, unit)| {
+        meter
+            .f64_observable_gauge(format!("hw.gpu.{name}"))
+            .with_description(format!("GPU {name} readings"))
+            .with_unit(Unit::new(unit))
+            .init()
+    });
+    for gpu in gpu_sensors.iter() {
+        for sensor in &gpu.sensors {
+            let (Some(reading), Some(reading_type), Some(name)) = (
+                sensor.reading,
+                sensor.reading_type,
+                sensor.name.as_ref().or(sensor.id.as_ref()),
+            ) else {
+                continue;
+            };
+            let name = name.as_str().replace(' ', "_");
+            match reading_type {
+                ReadingType::Temperature => &mut temp,
+                ReadingType::Power => &mut power,
+                ReadingType::EnergyJoules => &mut energy,
+                ReadingType::Voltage => &mut voltage,
+                _ => continue,
+            }
+            .observe(
+                reading,
+                &[
+                    KeyValue::new("hw.id", name),
+                    KeyValue::new("hw.gpu.id", gpu.gpu_id.clone()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn export_otel_logs(
     logger: Arc<Box<dyn Logger + Send + Sync>>,
     firmwares: Vec<SoftwareInventory>,
@@ -391,14 +448,13 @@ pub async fn export_metrics(
         machine_id,
     )?;
 
-    if dpu_health.thermal.is_some() {
-        export_temperatures(
-            meter.clone(),
-            dpu_health.thermal.unwrap().temperatures,
-            machine_id,
-            true,
-        )?;
+    if let Some(thermal) = dpu_health.thermal {
+        export_temperatures(meter.clone(), thermal.temperatures, machine_id, true)?;
     }
+    if let Some(gpu_sensors) = health.gpu_sensors {
+        export_gpu_sensors(meter.clone(), gpu_sensors, machine_id)?;
+    }
+
     let mut firmware_digest = String::new();
     let mut sel_count = health.logs.len();
     if !health.firmware.is_empty() {
