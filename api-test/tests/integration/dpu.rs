@@ -84,7 +84,7 @@ pub async fn bootstrap(
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
     // Complete hack until we affirmatively disable the legacy flow
-    // This is the host that gets it's BMC updated
+    // This is the host that gets its BMC updated
     let (_machine_interface_id, address) = crate::host::discover_dhcp(carbide_api_addr)?;
 
     let host_machine_id = crate::host::discover_machine(carbide_api_addr, address.as_str())?;

@@ -657,7 +657,7 @@ pub(crate) async fn get_all_managed_host_network_status(
     }))
 }
 
-/// Should this DPU upgrade it's forge-dpu-agent?
+/// Should this DPU upgrade its forge-dpu-agent?
 /// Once the upgrade is complete record_dpu_network_status will receive the updated
 /// version and write the DB to say our upgrade is complete.
 pub(crate) async fn dpu_agent_upgrade_check(

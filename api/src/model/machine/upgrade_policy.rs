@@ -13,7 +13,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-/// How we decide whether a DPU should upgrade it's forge-dpu-agent
+/// How we decide whether a DPU should upgrade its forge-dpu-agent
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum AgentUpgradePolicy {
     /// Never upgrade it

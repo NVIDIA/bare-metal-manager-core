@@ -44,7 +44,7 @@ args = [
 # mermerd -c postgresql://carbide_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
 # docker pull minlag/mermaid-cli
 # docker run --rm -u `id -u`:`id -g` -v /home/graham/src/carbide/book/src/development:/data minlag/mermaid-cli -i schema.md
-# Copy it's output to `schema.svg`
+# Copy its output to `schema.svg`
 # (I had to edit _sqlx_migrations table, it doesn't like the underscore)
 # Add to top of schema.md:
 #  [View SVG](schema.svg)

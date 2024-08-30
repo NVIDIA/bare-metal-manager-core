@@ -332,7 +332,7 @@ async fn test_network_segment_max_history_length(
     Ok(())
 }
 
-/// Create a network segment, delete it - release it's vlan_id,
+/// Create a network segment, delete it - release its vlan_id,
 /// and then create an new network segment.
 /// The new segment should be able to re-use the vlan_id from
 /// the deleted segment.

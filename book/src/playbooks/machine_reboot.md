@@ -28,7 +28,7 @@ BMC credentials can either be explicitely passed, or the `--machine-id` paramete
 can be used to let the forge site-controller read the last known credentials
 for the machine.
 
-Rebooting a machine will also always reset it's boot order. The machine
+Rebooting a machine will also always reset its boot order. The machine
 will PXE boot, and thereby will be able to retrieve new boot instructions from
 the Forge site controller.
 

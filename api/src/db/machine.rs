@@ -869,7 +869,7 @@ SELECT m.id FROM
     /// Finds a machine by a query
     ///
     /// - If the query looks like a MachineId, it will try to load the information based on the MachineId
-    /// - If the query looks like an IP address, it will try to look up the machine based on it's admin IP address
+    /// - If the query looks like an IP address, it will try to look up the machine based on its admin IP address
     /// - If the query looks like a MAC address, it will look up the machine by MAC address
     /// - Otherwise, it will try to look up the Machine by hostname
     pub async fn find_by_query(

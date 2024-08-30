@@ -43,7 +43,7 @@ Example:
 ### 3. Use the returned BMP IP/port and machine-id to reboot the host
 
 See [Rebooting a machine](machine_reboot.md).
-Supply the BMC IP and port of the manged host, as well as it's `machine_id`
+Supply the BMC IP and port of the managed host, as well as its `machine_id`
 as parameters.
 
 Force-deleting a machine will not delete its last set of credentials from `vault`. Therefore the site controller can still access those.

@@ -82,7 +82,7 @@ async fn test_nvue() -> eyre::Result<()> {
     let startup_yaml = hbn_root.join(agent::nvue::PATH);
     assert!(startup_yaml.exists());
 
-    // Check it's YAML
+    // Check its YAML
     const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
     let startup_yaml = fs::read_to_string(startup_yaml)?;
     let yaml_obj: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)

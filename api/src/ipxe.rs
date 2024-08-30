@@ -233,7 +233,7 @@ exit ||
 
                     if instance.use_custom_pxe_on_boot {
                         // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
-                        // it's note used in this case
+                        // it's not used in this case
                         Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
                             .await
                             .map_err(CarbideError::from)?;

@@ -113,7 +113,7 @@ fn git_mark_safe_directory() {
     );
 }
 
-/// Run a command from a build script returning it's stdout, logging errors with cargo:warning
+/// Run a command from a build script returning its stdout, logging errors with cargo:warning
 fn run(cmd: &str, args: &[&str]) -> String {
     let output = match Command::new(cmd).args(args).output() {
         Ok(output) => {

@@ -1123,7 +1123,7 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
     Ok(s)
 }
 
-// Ask the OS for it's hostname.
+// Ask the OS for its hostname.
 //
 // On a DPU this is correctly set to the DB hostname of the first interface, the hyphenated
 // two-word randomly generated name.

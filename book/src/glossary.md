@@ -40,7 +40,7 @@ of services based on a domain name.
 
 ### DPU
 
-DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has an ARM processor and runs a modified Ubuntu. It has it's own **BMC**. It can act as a network card and as a disk controller.
+DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/products/data-processing-unit/) network interface card. It has an ARM processor and runs a modified Ubuntu. It has its own **BMC**. It can act as a network card and as a disk controller.
 
 An list with available SKUs for the card can be found [here](https://nvidia-my.sharepoint.com/:x:/r/personal/tal_nvidia_com/_layouts/15/doc2.aspx?sourcedoc=%7B456F2AFC-D58F-4FF9-892D-07615C4D39D7%7D&file=BlueField%20OPN%20Scheme.xlsx)
 
@@ -120,4 +120,4 @@ VXLAN Tunnel EndPoint. See [VXLAN](glossary.md#vxlan).
 
 [Virtual Extensible LAN](https://en.wikipedia.org/wiki/Virtual_Extensible_LAN). In a data center we often want to pretend that we have multiple networks, but using a single set of cables. A customer will want all their machines to be on a single network, separate from the other customers, but we don't want to run around plugging cables in every time tenants change. The answer to this is virtual networks. An Ethernet packet is wrapped in a VXLAN packet which identifies which virtual network it is part of.
 
-The VXLAN packet is just an 8-byte header, mostly consisting of a 24-bit identifier, known as the VXLAN ID or VNI. The VXLAN wrapping / unwrapping is done by a VTEP. In our case the DPU is the VTEP. The customers' Ethernet frame goes into a VXLAN packet identified by a VXLAN ID or VNI, that goes in a UDP packet which is routed like any other IP packet to it's receiving VTEP (in our case usually another DPU), where it gets unwrapped and continues as an Ethernet frame. This allows the data center networking to only route IP packets, and allows the x86 host to believe it got an Ethernet frame from a machine on the same local network.
+The VXLAN packet is just an 8-byte header, mostly consisting of a 24-bit identifier, known as the VXLAN ID or VNI. The VXLAN wrapping / unwrapping is done by a VTEP. In our case the DPU is the VTEP. The customers' Ethernet frame goes into a VXLAN packet identified by a VXLAN ID or VNI, that goes in a UDP packet which is routed like any other IP packet to its receiving VTEP (in our case usually another DPU), where it gets unwrapped and continues as an Ethernet frame. This allows the data center networking to only route IP packets, and allows the x86 host to believe it got an Ethernet frame from a machine on the same local network.
