@@ -12,13 +12,13 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use carbide::model::machine::machine_id::MachineId;
 use clap::{ArgGroup, Parser, ValueEnum};
 use forge_network::virtualization::VpcVirtualizationType;
 use serde::{Deserialize, Serialize};
+use utils::has_duplicates;
 
 use crate::cfg::measurement;
-use carbide::model::machine::machine_id::MachineId;
-use utils::has_duplicates;
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -286,7 +286,8 @@ pub enum ExpectedMachineAction {
     ///                "bmc_mac_address": "2a:2b:2c:2d:2e:2f",
     ///                "bmc_username": "user",
     ///                "bmc_username": "pass",
-    ///                "chassis_serial_number": "sample_serial-2"
+    ///                "chassis_serial_number": "sample_serial-2",
+    ///                "fallback_dpu_serial_numbers": ["MT020100000003"]
     ///            }
     ///        ]
     ///    }
