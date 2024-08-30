@@ -164,6 +164,7 @@ impl MachineValidationManager {
         Ok(())
     }
     pub async fn run(
+        machine_id: &str,
         platform_name: String,
         options: MachineValidationOptions,
         context: String,
@@ -185,7 +186,7 @@ impl MachineValidationManager {
         mc.clone()
             .download_external_config(mvc.external_configs)
             .await?;
-        mc.run(mvc.suite, context, uuid, true).await?;
+        mc.run(machine_id, mvc.suite, context, uuid, true).await?;
 
         Ok(())
     }

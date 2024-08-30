@@ -238,6 +238,7 @@ impl MachineValidation {
         }
     }
     async fn execute_machinevalidation_command(
+        machine_id: &str,
         name: String,
         cmd: ExecCommand,
         in_context: String,
@@ -262,7 +263,7 @@ impl MachineValidation {
                     args: cmd.args.clone(),
                     std_out: format!("{} doesnt exist", file_name.clone()),
                     std_err: format!("{} doesnt exist", file_name),
-                    context: in_context,
+                    context: in_context.clone(),
                     exit_code: 0,
                     start_time: Some(start_time.into()),
                     end_time: Some(end_time.into()),
@@ -286,9 +287,30 @@ impl MachineValidation {
             );
         };
         info!("Executing command '{}'", command_string);
+
+        let _ = std::fs::remove_file("/tmp/forge_env_variables");
+        match File::create("/tmp/forge_env_variables") {
+            Ok(mut file) => {
+                let mut data = HashMap::new();
+                data.insert("CONTEXT", in_context.clone());
+                data.insert("MACHINE_VALIDATION_RUN_ID", uuid.to_string());
+                data.insert("MACHINE_ID", machine_id.to_string());
+                let env_vars = data
+                    .iter()
+                    .map(|(key, value)| format!("{}={}", key, value))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                file.write_all(env_vars.as_bytes()).expect("write failed");
+            }
+            Err(_) => error!("Failed to create file"),
+        }
+
         let start_time = Utc::now();
         match Command::new("sh")
             .arg("-c")
+            .env("CONTEXT", in_context.clone())
+            .env("MACHINE_VALIDATION_RUN_ID", uuid.to_string())
+            .env("MACHINE_ID", machine_id)
             .arg(&command_string)
             .output()
             .await
@@ -367,6 +389,7 @@ impl MachineValidation {
 
     pub async fn run(
         self,
+        machine_id: &str,
         s: Suite,
         context: String,
         uuid: String,
@@ -383,6 +406,7 @@ impl MachineValidation {
                             continue;
                         }
                         let result = MachineValidation::execute_machinevalidation_command(
+                            machine_id,
                             test_name.clone(),
                             command,
                             context.to_string(),

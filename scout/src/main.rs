@@ -239,7 +239,7 @@ async fn handle_action(
                     id = item.value;
                 }
             }
-            let ret = match machine_validation::run(config, id.clone(), context).await {
+            let ret = match machine_validation::run(config, machine_id, id.clone(), context).await {
                 Ok(_) => {
                     tracing::info!("Machine validation completed");
                     Ok(())
