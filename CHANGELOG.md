@@ -13,11 +13,13 @@
 
 ### Changed
 
-- All admin-web UI pages and forge-admin-cli now show the aggregate Host Health report and the DPU health report, instead of the previous DPU-only health format (`NetworkHealth`). 
+- All admin-web UI pages and forge-admin-cli now show the aggregate Host Health report and the DPU health report, instead of the previous DPU-only health format (`NetworkHealth`).
+- Health probe alert metrics for aggregate Host and DPU health now carry `probe_id` and `probe_target` attributes
 
 ### Fixed
 
 - Fixed username handling of DGX H100 (Viking), these hosts cannot have the admin username be called 'root'
+- DPU health metrics and component version metrics are correctly emitted for multi-dpu systems
 
 ### Removed
 

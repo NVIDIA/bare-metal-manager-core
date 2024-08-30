@@ -26,19 +26,22 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct MachineMetrics {
-    pub agent_version: Option<String>,
-    pub dpu_up: bool,
-    pub dpu_healthy: bool,
-    pub failed_dpu_healthchecks: HashSet<String>,
-    pub dpu_firmware_version: Option<String>,
-    pub machine_inventory_component_versions: Vec<MachineInventorySoftwareComponent>,
+    pub agent_versions: HashMap<String, usize>,
+    pub dpus_up: usize,
+    pub dpus_healthy: usize,
+    /// DPU probe alerts by Probe ID and Target
+    /// For Multi-DPU, the same host could experience failures on multiple DPUs
+    pub dpu_health_probe_alerts: HashMap<(health_report::HealthProbeId, Option<String>), usize>,
+    pub dpu_firmware_versions: HashMap<String, usize>,
+    pub machine_inventory_component_versions: HashMap<MachineInventorySoftwareComponent, usize>,
     pub client_certificate_expiry: Option<i64>,
     pub machine_id: Option<String>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
     pub available_gpus: usize,
     pub assigned_to_tenant: Option<TenantOrganizationId>,
-    pub health_probe_alerts: HashSet<health_report::HealthProbeId>,
+    /// Health probe alerts for the aggregate host by Probe ID and Target
+    pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
     pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
 }
 
@@ -47,7 +50,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub agent_versions: HashMap<String, usize>,
     pub dpus_up: usize,
     pub dpus_healthy: usize,
-    pub failed_dpu_healthchecks: HashMap<String, usize>,
+    pub unhealthy_dpus_by_probe_id: HashMap<(String, Option<String>), usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
     /// Map from Machine component (names and version string) to the count of
     /// machines which run that version combination
@@ -60,7 +63,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
     pub hosts_total: usize,
     pub hosts_healthy: usize,
-    pub unhealthy_hosts_by_probe_id: HashMap<String, usize>,
+    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>), usize>,
     pub unhealthy_hosts_by_classification_id: HashMap<String, usize>,
 }
 
@@ -229,12 +232,9 @@ impl MetricsEmitter for MachineMetricsEmitter {
         object_metrics: &Self::ObjectMetrics,
     ) {
         iteration_metrics.hosts_total += 1;
-        if object_metrics.dpu_up {
-            iteration_metrics.dpus_up += 1;
-        }
-        if object_metrics.dpu_healthy {
-            iteration_metrics.dpus_healthy += 1;
-        }
+        iteration_metrics.dpus_up += object_metrics.dpus_up;
+        iteration_metrics.dpus_healthy += object_metrics.dpus_healthy;
+
         if object_metrics.health_probe_alerts.is_empty() {
             iteration_metrics.hosts_healthy += 1;
         }
@@ -266,17 +266,17 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .machine_reboot_attempts_in_failed_during_discovery
                 .push(machine_reboot_attempts_in_failed_during_discovery);
         }
-        for failed_healthcheck in &object_metrics.failed_dpu_healthchecks {
+        for ((probe_id, target), count) in &object_metrics.dpu_health_probe_alerts {
             *iteration_metrics
-                .failed_dpu_healthchecks
-                .entry(failed_healthcheck.clone())
-                .or_default() += 1;
+                .unhealthy_dpus_by_probe_id
+                .entry((probe_id.to_string(), target.clone()))
+                .or_default() += count;
         }
 
-        for alert in &object_metrics.health_probe_alerts {
+        for (probe_id, target) in &object_metrics.health_probe_alerts {
             *iteration_metrics
                 .unhealthy_hosts_by_probe_id
-                .entry(alert.to_string())
+                .entry((probe_id.to_string(), target.clone()))
                 .or_default() += 1;
         }
         for classification in &object_metrics.health_alert_classifications {
@@ -286,25 +286,25 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += 1;
         }
 
-        if let Some(version) = object_metrics.agent_version.as_ref() {
+        for (version, count) in object_metrics.agent_versions.iter() {
             *iteration_metrics
                 .agent_versions
                 .entry(version.clone())
-                .or_default() += 1;
+                .or_default() += count;
         }
 
-        if let Some(version) = object_metrics.dpu_firmware_version.as_ref() {
+        for (version, count) in object_metrics.dpu_firmware_versions.iter() {
             *iteration_metrics
                 .dpu_firmware_versions
                 .entry(version.clone())
-                .or_default() += 1;
+                .or_default() += count;
         }
 
-        for component in object_metrics.machine_inventory_component_versions.iter() {
+        for (component, count) in object_metrics.machine_inventory_component_versions.iter() {
             *iteration_metrics
                 .machine_inventory_component_versions
                 .entry(component.clone())
-                .or_default() += 1;
+                .or_default() += count;
         }
 
         if let Some(time) = object_metrics.client_certificate_expiry {
@@ -388,8 +388,19 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut failed_health_check_attr = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         failed_health_check_attr.push(KeyValue::new("failure", "".to_string()));
-        for (failure, count) in &iteration_metrics.failed_dpu_healthchecks {
-            failed_health_check_attr.last_mut().unwrap().value = failure.clone().into();
+        failed_health_check_attr.push(KeyValue::new("probe_id", "".to_string()));
+        failed_health_check_attr.push(KeyValue::new("probe_target", "".to_string()));
+        let failed_health_check_attr_len = failed_health_check_attr.len();
+        for ((probe, target), count) in &iteration_metrics.unhealthy_dpus_by_probe_id {
+            let failure = match target {
+                None => probe.to_string(),
+                Some(target) => format!("{probe} [Target: {target}]"),
+            };
+            failed_health_check_attr[failed_health_check_attr_len - 3].value =
+                failure.clone().into();
+            failed_health_check_attr[failed_health_check_attr_len - 2].value = probe.clone().into();
+            failed_health_check_attr[failed_health_check_attr_len - 1].value =
+                target.clone().unwrap_or_default().into();
             observer.observe_u64(
                 &self.failed_dpu_healthchecks_gauge,
                 *count as u64,
@@ -399,8 +410,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut probe_id_attr = attributes.to_vec();
         probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
-        for (probe, count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
-            probe_id_attr.last_mut().unwrap().value = probe.clone().into();
+        probe_id_attr.push(KeyValue::new("probe_target", "".to_string()));
+        let probe_id_attr_len = probe_id_attr.len();
+        for ((probe, target), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+            probe_id_attr[probe_id_attr_len - 2].value = probe.clone().into();
+            probe_id_attr[probe_id_attr_len - 1].value = target.clone().unwrap_or_default().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_probe_id_gauge,
                 *count as u64,
@@ -500,14 +514,17 @@ mod tests {
     fn merge_machine_metrics() {
         let object_metrics = vec![
             MachineMetrics {
-                agent_version: None,
+                agent_versions: HashMap::new(),
                 available_gpus: 0,
                 assigned_to_tenant: Some("a".parse().unwrap()),
-                dpu_up: true,
-                dpu_healthy: true,
-                failed_dpu_healthchecks: HashSet::from_iter([]),
-                dpu_firmware_version: None,
-                machine_inventory_component_versions: Vec::new(),
+                dpus_up: 1,
+                dpus_healthy: 1,
+                dpu_health_probe_alerts: HashMap::from_iter([(
+                    ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
+                    1,
+                )]),
+                dpu_firmware_versions: HashMap::new(),
+                machine_inventory_component_versions: HashMap::new(),
                 client_certificate_expiry: Some(1),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
@@ -518,16 +535,22 @@ mod tests {
             MachineMetrics {
                 available_gpus: 2,
                 assigned_to_tenant: Some("a".parse().unwrap()),
-                agent_version: Some("v1".to_string()),
-                dpu_up: true,
-                dpu_healthy: false,
-                failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "ntp".to_string()]),
-                dpu_firmware_version: None,
-                machine_inventory_component_versions: vec![MachineInventorySoftwareComponent {
-                    name: "doca_hbn".to_string(),
-                    version: "2.0.0-doca2.5.0".to_string(),
-                    url: "nvcr.io/nvidia/doca".to_string(),
-                }],
+                agent_versions: HashMap::from_iter([("v1".to_string(), 1)]),
+                dpus_up: 1,
+                dpus_healthy: 0,
+                dpu_health_probe_alerts: HashMap::from_iter([
+                    (("bgp".parse().unwrap(), None), 1),
+                    (("ntp".parse().unwrap(), None), 1),
+                ]),
+                dpu_firmware_versions: HashMap::new(),
+                machine_inventory_component_versions: HashMap::from_iter([(
+                    MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "2.0.0-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    1,
+                )]),
                 client_certificate_expiry: Some(2),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
@@ -538,21 +561,24 @@ mod tests {
             MachineMetrics {
                 available_gpus: 3,
                 assigned_to_tenant: None,
-                agent_version: Some("v3".to_string()),
-                dpu_up: false,
-                dpu_healthy: true,
-                failed_dpu_healthchecks: HashSet::from_iter([]),
-                dpu_firmware_version: Some("v4".to_string()),
-                machine_inventory_component_versions: vec![MachineInventorySoftwareComponent {
-                    name: "doca_telemetry".to_string(),
-                    version: "1.15.5-doca2.5.0".to_string(),
-                    url: "nvcr.io/nvidia/doca".to_string(),
-                }],
+                agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
+                dpus_up: 0,
+                dpus_healthy: 1,
+                dpu_health_probe_alerts: HashMap::from_iter([]),
+                dpu_firmware_versions: HashMap::from_iter([("v4".to_string(), 1)]),
+                machine_inventory_component_versions: HashMap::from_iter([(
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "1.15.5-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    1,
+                )]),
                 client_certificate_expiry: Some(3),
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
-                health_probe_alerts: ["BgpStats".parse().unwrap()].into_iter().collect(),
+                health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
                 health_alert_classifications: [
                     "Class1".parse().unwrap(),
                     "Class3".parse().unwrap(),
@@ -563,23 +589,29 @@ mod tests {
             MachineMetrics {
                 available_gpus: 1,
                 assigned_to_tenant: Some("a".parse().unwrap()),
-                agent_version: Some("v3".to_string()),
-                dpu_up: true,
-                dpu_healthy: true,
-                failed_dpu_healthchecks: HashSet::from_iter([]),
-                dpu_firmware_version: Some("v2".to_string()),
-                machine_inventory_component_versions: vec![
-                    MachineInventorySoftwareComponent {
-                        name: "doca_hbn".to_string(),
-                        version: "2.0.0-doca2.5.0".to_string(),
-                        url: "nvcr.io/nvidia/doca".to_string(),
-                    },
-                    MachineInventorySoftwareComponent {
-                        name: "doca_telemetry".to_string(),
-                        version: "1.15.5-doca2.5.0".to_string(),
-                        url: "nvcr.io/nvidia/doca".to_string(),
-                    },
-                ],
+                agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
+                dpus_up: 1,
+                dpus_healthy: 1,
+                dpu_health_probe_alerts: HashMap::from_iter([]),
+                dpu_firmware_versions: HashMap::from_iter([("v2".to_string(), 1)]),
+                machine_inventory_component_versions: HashMap::from_iter([
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_hbn".to_string(),
+                            version: "2.0.0-doca2.5.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        1,
+                    ),
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_telemetry".to_string(),
+                            version: "1.15.5-doca2.5.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        1,
+                    ),
+                ]),
                 client_certificate_expiry: None,
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
@@ -590,33 +622,89 @@ mod tests {
             MachineMetrics {
                 available_gpus: 2,
                 assigned_to_tenant: None,
-                agent_version: None,
-                dpu_up: true,
-                dpu_healthy: false,
-                failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "dns".to_string()]),
-                dpu_firmware_version: Some("v4".to_string()),
-                machine_inventory_component_versions: vec![
-                    MachineInventorySoftwareComponent {
-                        name: "doca_hbn".to_string(),
-                        version: "3.0.0-doca3.5.0".to_string(),
-                        url: "nvcr.io/nvidia/doca".to_string(),
-                    },
-                    MachineInventorySoftwareComponent {
-                        name: "doca_telemetry".to_string(),
-                        version: "3.15.5-doca3.5.0".to_string(),
-                        url: "nvcr.io/nvidia/doca".to_string(),
-                    },
-                ],
+                agent_versions: HashMap::new(),
+                dpus_up: 1,
+                dpus_healthy: 0,
+                dpu_health_probe_alerts: HashMap::from_iter([
+                    (("bgp".parse().unwrap(), None), 1),
+                    (
+                        ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
+                        1,
+                    ),
+                ]),
+                dpu_firmware_versions: HashMap::from_iter([("v4".to_string(), 1)]),
+                machine_inventory_component_versions: HashMap::from_iter([
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_hbn".to_string(),
+                            version: "3.0.0-doca3.5.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        1,
+                    ),
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_telemetry".to_string(),
+                            version: "3.15.5-doca3.5.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        1,
+                    ),
+                ]),
                 client_certificate_expiry: Some(55),
                 machine_id: None,
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
                 health_probe_alerts: [
-                    "BgpStats".parse().unwrap(),
-                    "HeartbeatTimeout".parse().unwrap(),
+                    ("BgpStats".parse().unwrap(), None),
+                    (
+                        "HeartbeatTimeout".parse().unwrap(),
+                        Some("forge-dpu-agent".to_string()),
+                    ),
                 ]
                 .into_iter()
                 .collect(),
+                health_alert_classifications: [
+                    "Class1".parse().unwrap(),
+                    "Class2".parse().unwrap(),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            MachineMetrics {
+                available_gpus: 3,
+                assigned_to_tenant: None,
+                agent_versions: HashMap::new(),
+                dpus_up: 2,
+                dpus_healthy: 2,
+                dpu_health_probe_alerts: HashMap::from_iter([(("bgp".parse().unwrap(), None), 2)]),
+                dpu_firmware_versions: HashMap::from_iter([
+                    ("v4".to_string(), 1),
+                    ("v5".to_string(), 1),
+                ]),
+                machine_inventory_component_versions: HashMap::from_iter([
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_hbn".to_string(),
+                            version: "3.0.0-doca3.6.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        2,
+                    ),
+                    (
+                        MachineInventorySoftwareComponent {
+                            name: "doca_telemetry".to_string(),
+                            version: "3.15.5-doca3.6.0".to_string(),
+                            url: "nvcr.io/nvidia/doca".to_string(),
+                        },
+                        2,
+                    ),
+                ]),
+                client_certificate_expiry: Some(55),
+                machine_id: None,
+                machine_reboot_attempts_in_booting_with_discovery_image: None,
+                machine_reboot_attempts_in_failed_during_discovery: None,
+                health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
                 health_alert_classifications: [
                     "Class1".parse().unwrap(),
                     "Class2".parse().unwrap(),
@@ -649,9 +737,9 @@ mod tests {
                 .unwrap(),
             3
         );
-        assert_eq!(iteration_metrics.available_gpus, 8);
-        assert_eq!(iteration_metrics.dpus_up, 4);
-        assert_eq!(iteration_metrics.dpus_healthy, 3);
+        assert_eq!(iteration_metrics.available_gpus, 11);
+        assert_eq!(iteration_metrics.dpus_up, 6);
+        assert_eq!(iteration_metrics.dpus_healthy, 5);
         assert_eq!(
             &iteration_metrics.machine_reboot_attempts_in_booting_with_discovery_image,
             &[0, 1, 2]
@@ -661,32 +749,43 @@ mod tests {
             &[0, 1, 2]
         );
         assert_eq!(
-            iteration_metrics.failed_dpu_healthchecks,
+            iteration_metrics.unhealthy_dpus_by_probe_id,
             HashMap::from_iter([
-                ("bgp".to_string(), 2),
-                ("ntp".to_string(), 1),
-                ("dns".to_string(), 1)
+                (("bgp".to_string(), None), 4),
+                (("ntp".to_string(), None), 1),
+                (("FileExists".to_string(), Some("abc.txt".to_string())), 1),
+                (("FileExists".to_string(), Some("def.txt".to_string())), 1)
             ])
         );
         assert_eq!(
             iteration_metrics.dpu_firmware_versions,
-            HashMap::from_iter([("v2".to_string(), 1), ("v4".to_string(), 2)])
+            HashMap::from_iter([
+                ("v2".to_string(), 1),
+                ("v4".to_string(), 3),
+                ("v5".to_string(), 1)
+            ])
         );
 
-        assert_eq!(iteration_metrics.hosts_total, 5);
+        assert_eq!(iteration_metrics.hosts_total, 6);
         assert_eq!(iteration_metrics.hosts_healthy, 3);
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_probe_id,
             HashMap::from_iter([
-                ("BgpStats".parse().unwrap(), 2),
-                ("HeartbeatTimeout".parse().unwrap(), 1),
+                (("BgpStats".parse().unwrap(), None), 3),
+                (
+                    (
+                        "HeartbeatTimeout".parse().unwrap(),
+                        Some("forge-dpu-agent".to_string())
+                    ),
+                    1
+                ),
             ])
         );
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_classification_id,
             HashMap::from_iter([
-                ("Class1".parse().unwrap(), 2),
-                ("Class2".parse().unwrap(), 1),
+                ("Class1".parse().unwrap(), 3),
+                ("Class2".parse().unwrap(), 2),
                 ("Class3".parse().unwrap(), 1),
             ])
         );
@@ -712,6 +811,14 @@ mod tests {
                 ),
                 (
                     MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "3.0.0-doca3.6.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    2
+                ),
+                (
+                    MachineInventorySoftwareComponent {
                         name: "doca_telemetry".to_string(),
                         version: "1.15.5-doca2.5.0".to_string(),
                         url: "nvcr.io/nvidia/doca".to_string(),
@@ -725,6 +832,14 @@ mod tests {
                         url: "nvcr.io/nvidia/doca".to_string(),
                     },
                     1
+                ),
+                (
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "3.15.5-doca3.6.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    2
                 )
             ])
         );
