@@ -539,33 +539,44 @@ pub async fn run(
                     conf.min_dpu_functioning_links,
                 )
                 .await;
-                is_healthy = health_report.is_healthy();
-                is_hbn_up = health_report.is_up();
+                is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
+                is_hbn_up = health::is_up(&health_report);
                 // subset of is_healthy
-                tracing::trace!(%machine_id, %health_report, "HBN health");
+                tracing::trace!(%machine_id, ?health_report, "HBN health");
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
                     is_healthy,
                     passed: health_report
-                        .checks_passed
+                        .successes
                         .iter()
-                        .map(|hc| hc.to_string())
+                        .map(|s| {
+                            if let Some(target) = &s.target {
+                                format!("{}({})", s.id, target)
+                            } else {
+                                s.id.to_string()
+                            }
+                        })
                         .collect(),
                     failed: health_report
-                        .checks_failed
+                        .alerts
                         .iter()
-                        .map(|hc| hc.0.to_string())
+                        .map(|a| {
+                            if let Some(target) = &a.target {
+                                format!("{}({})", a.id, target)
+                            } else {
+                                a.id.to_string()
+                            }
+                        })
                         .collect(),
-                    message: health_report.message.clone(),
+                    message: health_report
+                        .alerts
+                        .first()
+                        .map(|alert| alert.message.clone()),
                 };
-                // TODO: Convert the health-report while we still have the old data format around
-                let dpu_health: health_report::HealthReport = (&health_report)
-                    .try_into()
-                    .expect("Can not convert health report");
 
                 status_out.health = Some(hs);
-                status_out.dpu_health = Some(dpu_health.into());
+                status_out.dpu_health = Some(health_report.clone().into());
                 current_health_report = Some(health_report);
                 current_config_error = status_out.network_config_error.clone();
 
@@ -647,8 +658,21 @@ pub async fn run(
             is_healthy,
             has_changed_configs,
             seen_blank,
-            num_health_check_errors = cr7.map(|hs| hs.checks_failed.len()).unwrap_or_default(),
-            health_check_first_error = cr7.and_then(|hs| hs.message.as_deref()).unwrap_or_default(),
+            num_health_probe_alerts = cr7.map(|hr| hr.alerts.len()).unwrap_or_default(),
+            health_probe_alerts = cr7.map(|hr| {
+                let mut result = String::new();
+                for alert in hr.alerts.iter() {
+                    if !result.is_empty() {
+                        result.push(',');
+                    }
+                    if let Some(target) = &alert.target {
+                        result += &format!("{} [Target: {}]: {}", alert.id, target, alert.message);
+                    } else {
+                        result += &format!("{}: {}", alert.id, alert.message);
+                    }
+                }
+                result
+            }).unwrap_or_default(),
             write_config_error = current_config_error.unwrap_or_default(),
             managed_host_network_config_version = current_host_network_config_version.unwrap_or_default(),
             instance_id = current_instance_id.unwrap_or_default(),

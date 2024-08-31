@@ -16,6 +16,7 @@
 
 - All admin-web UI pages and forge-admin-cli now show the aggregate Host Health report and the DPU health report, instead of the previous DPU-only health format (`NetworkHealth`).
 - Health probe alert metrics for aggregate Host and DPU health now carry `probe_id` and `probe_target` attributes
+- forge-dpu-agent directly uses `health_report` crate while assessing the health status of the DPU
 
 ### Fixed
 
