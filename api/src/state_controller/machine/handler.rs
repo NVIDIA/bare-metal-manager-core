@@ -17,12 +17,14 @@ use std::{net::IpAddr, sync::Arc};
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
     model::task::{Task, TaskState},
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
+use mac_address::MacAddress;
 use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
@@ -1977,7 +1979,6 @@ async fn handle_dpu_reprovision(
             // A NIC FW update from 24.39.2048 to 24.41.1000 can cause the Redfish service to become unavailable on Lenovos.
             // Forge initiates a NIC FW update in ReprovisionState::FirmwareUpgrade
             // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
-            /*
             if state.host_snapshot.bmc_vendor.is_lenovo() {
                 tracing::info!(
                     "Initiating BMC cold reset of lenovo machine {}",
@@ -2030,7 +2031,6 @@ async fn handle_dpu_reprovision(
                     .await
                     .map_err(StateHandlerError::GenericError)?;
             }
-            */
 
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
@@ -2789,7 +2789,6 @@ impl DpuMachineStateHandler {
 
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-
             DpuInitState::WaitingForPlatformConfiguration => {
                 let dpu_redfish_client = build_redfish_client_from_bmc_ip(
                     dpu_snapshot.bmc_addr(),
@@ -2856,7 +2855,7 @@ impl DpuMachineStateHandler {
                 }
 
                 let next_state = ManagedHostState::HostInit {
-                    machine_state: MachineState::WaitingForPlatformConfiguration,
+                    machine_state: MachineState::EnableIpmiOverLan,
                 };
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
@@ -3389,6 +3388,41 @@ impl StateHandler for HostMachineStateHandler {
                     host_machine_id.clone(),
                     state.managed_state.clone(),
                 )),
+                MachineState::EnableIpmiOverLan => {
+                    let host_redfish_client = build_redfish_client_from_bmc_ip(
+                        state.host_snapshot.bmc_addr(),
+                        &ctx.services.redfish_client_pool,
+                        txn,
+                    )
+                    .await?;
+
+                    if !host_redfish_client
+                        .is_ipmi_over_lan_enabled()
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "enable_ipmi_over_lan",
+                            error: e,
+                        })?
+                    {
+                        tracing::info!(
+                            machine_id = %host_machine_id,
+                            "IPMI over LAN is currently disabled on this host--enabling IPMI over LAN");
+
+                        host_redfish_client
+                            .enable_ipmi_over_lan(libredfish::EnabledDisabled::Enabled)
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "enable_ipmi_over_lan",
+                                error: e,
+                            })?;
+                    }
+
+                    let next_state = ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForPlatformConfiguration,
+                    };
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
                 MachineState::WaitingForPlatformConfiguration => {
                     let next_state = ManagedHostState::HostInit {
                         machine_state: MachineState::WaitingForDiscovery,

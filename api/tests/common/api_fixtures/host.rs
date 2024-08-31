@@ -185,12 +185,23 @@ pub async fn create_host_machine(
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 
+    update_bmc_metadata(
+        env,
+        host_rpc_machine_id.clone(),
+        &host_bmc_ip.to_string(),
+        FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
+        host_config.host_bmc_mac_address.to_string(),
+        FIXTURE_HOST_BMC_VERSION.to_owned(),
+        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
+    )
+    .await;
+
     let mut txn = env.pool.begin().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        1,
+        2,
         &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
@@ -210,17 +221,6 @@ pub async fn create_host_machine(
 
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Discovery as i32);
-
-    update_bmc_metadata(
-        env,
-        host_rpc_machine_id.clone(),
-        &host_bmc_ip.to_string(),
-        FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.host_bmc_mac_address.to_string(),
-        FIXTURE_HOST_BMC_VERSION.to_owned(),
-        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
-    )
-    .await;
 
     discovery_completed(env, host_rpc_machine_id.clone()).await;
 
@@ -394,21 +394,6 @@ pub async fn create_host_with_machine_validation(
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
-        handler.clone(),
-        1,
-        &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::WaitingForDiscovery,
-        },
-    )
-    .await;
-    txn.commit().await.unwrap();
-
-    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
-    assert_eq!(response.action, Action::Discovery as i32);
-
     update_bmc_metadata(
         env,
         host_rpc_machine_id.clone(),
@@ -419,6 +404,21 @@ pub async fn create_host_with_machine_validation(
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
     .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForDiscovery,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    assert_eq!(response.action, Action::Discovery as i32);
 
     discovery_completed(env, host_rpc_machine_id.clone()).await;
 

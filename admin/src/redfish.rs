@@ -333,6 +333,20 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .await?;
             println!("Clear UEFI password Job ID: {:?}", job.unwrap_or_default());
         }
+        IsIpmiOverLanEnabled => {
+            let status = redfish.is_ipmi_over_lan_enabled().await?;
+            println!("IPMI enabled over LAN: {status}");
+        }
+        EnableIpmiOverLan => {
+            redfish
+                .enable_ipmi_over_lan(EnabledDisabled::Enabled)
+                .await?;
+        }
+        DisableIpmiOverLan => {
+            redfish
+                .enable_ipmi_over_lan(EnabledDisabled::Disabled)
+                .await?;
+        }
     }
     Ok(())
 }

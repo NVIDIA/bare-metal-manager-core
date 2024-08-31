@@ -142,6 +142,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::Discovered => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
                 MachineState::MachineValidating { .. } => "machinevalidating",
+                MachineState::EnableIpmiOverLan => "enableipmioverlan",
             }
         }
 

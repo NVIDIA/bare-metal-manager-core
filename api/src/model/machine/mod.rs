@@ -947,6 +947,7 @@ pub enum PerformPowerOperation {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
+    EnableIpmiOverLan,
     WaitingForPlatformConfiguration,
     UefiSetup {
         uefi_setup_info: UefiSetupInfo,

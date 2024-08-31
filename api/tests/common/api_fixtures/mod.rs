@@ -205,6 +205,7 @@ impl TestEnv {
                             total,
                         }
                     }
+                    carbide::model::machine::MachineState::EnableIpmiOverLan => machine_state,
                 };
                 ManagedHostState::HostInit { machine_state: mc }
             }
