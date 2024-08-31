@@ -712,11 +712,13 @@ pub(crate) fn map_redfish_client_creation_error(
 
 pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
     match &error {
-        RedfishError::NetworkError { url: _, source }
+        RedfishError::NetworkError { url, source }
             if source.is_connect() || source.is_timeout() =>
         {
             // TODO: It might actually also be TLS related
-            EndpointExplorationError::Unreachable
+            EndpointExplorationError::Unreachable {
+                details: Some(format!("url: {url};\nsource: {source};\nerror: {error}",)),
+            }
         }
         error if error.is_unauthorized() => EndpointExplorationError::Unauthorized {
             details: error.to_string(),
