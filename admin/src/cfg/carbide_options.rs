@@ -621,6 +621,12 @@ pub enum RedfishCommand {
     GetTasks,
     /// Clear UEFI password
     ClearUefiPassword(UefiPassword),
+    // Is IPMI enabled over LAN
+    IsIpmiOverLanEnabled,
+    // Enable IPMI over LAN
+    EnableIpmiOverLan,
+    // Disable IPMI over LAN
+    DisableIpmiOverLan,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

@@ -49,11 +49,12 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"enableipmioverlan\"}}".to_string(),
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}".to_string(),
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}".to_string()];
 
     assert_eq!(
-        text_history(&machine.history()[0..8].to_vec()),
+        text_history(&machine.history()[0..9].to_vec()),
         expected_initial_dpu_states
     );
 
@@ -70,7 +71,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
     let rpc_dpu_machine = env
         .api
         .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
@@ -93,7 +94,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
     let rpc_dpu_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -109,9 +110,11 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
 
     let expected_initial_host_states = vec![
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"setuefipassword\"}}}}",
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"waitforpasswordjobscheduled\"}}}}",
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"powercyclehost\"}}}}",
@@ -128,7 +131,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
+    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
     let rpc_host_machine = env
         .api
         .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
@@ -151,7 +154,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
+    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
     let rpc_host_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -167,7 +170,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_iter()
         .map(|ev| ev.event)
         .collect();
-    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
+    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
 
     let machine = Machine::find_one(
         &mut txn,
@@ -256,8 +259,7 @@ async fn test_old_machine_state_history(
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
-            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
+            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"enableipmioverlan\"}}",
             "{\"state\": \"dpuinit\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
         ],
     );

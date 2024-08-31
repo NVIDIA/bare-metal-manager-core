@@ -1112,7 +1112,7 @@ impl Redfish for RedfishSimClient {
         _chassis_id: &str,
         _reset_type: SystemPowerControl,
     ) -> Result<(), RedfishError> {
-        todo!();
+        Ok(())
     }
 
     async fn get_update_service(&self) -> Result<UpdateService, RedfishError> {
@@ -1124,7 +1124,7 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
-        todo!();
+        Ok(())
     }
 
     async fn get_gpu_sensors(&self) -> Result<Vec<GPUSensors>, RedfishError> {
@@ -1132,11 +1132,11 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn is_ipmi_over_lan_enabled(&self) -> Result<bool, RedfishError> {
-        todo!();
+        Ok(false)
     }
 
     async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
-        todo!();
+        Ok(())
     }
 }
 

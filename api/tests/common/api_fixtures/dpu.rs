@@ -114,7 +114,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         4,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::WaitingForDiscovery,
+            machine_state: MachineState::EnableIpmiOverLan,
         },
     )
     .await;
