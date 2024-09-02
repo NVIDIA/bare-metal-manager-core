@@ -61,6 +61,7 @@ pub async fn get_system_manufacturer_name() -> String {
 
 pub(crate) async fn run(
     cmd_config: &Options,
+    machine_id: &str,
     uuid: String,
     context: String,
 ) -> Result<(), CarbideClientError> {
@@ -71,8 +72,14 @@ pub(crate) async fn run(
         client_cert: cmd_config.client_cert.clone(),
         client_key: cmd_config.client_key.clone(),
     };
-    machine_validation::MachineValidationManager::run(platform_name, options, context, uuid)
-        .await
-        .map_err(|e| CarbideClientError::GenericError(format!("{e}")))?;
+    machine_validation::MachineValidationManager::run(
+        machine_id,
+        platform_name,
+        options,
+        context,
+        uuid,
+    )
+    .await
+    .map_err(|e| CarbideClientError::GenericError(format!("{e}")))?;
     Ok(())
 }
