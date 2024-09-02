@@ -1229,6 +1229,7 @@ scheduled-test:machine-lifecycle-test:
     - set -euo pipefail
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - ngc version upgrade -y
   script:
     - source /tests/venv/bin/activate
     - python3 $CI_PROJECT_DIR/tests/machine-lifecycle/machine_lifecycle_test.py
