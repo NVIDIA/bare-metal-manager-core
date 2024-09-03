@@ -75,7 +75,7 @@ fn shortcodes(q: &str) -> Option<&'static str> {
         "mi" => Some("/admin/interface"),
         "ib" => Some("/admin/ib-partition"),
         "vp" => Some("/admin/vpc"),
-        "ee" => Some("/admin/explored_endpoint"),
+        "ee" => Some("/admin/explored-endpoint"),
         _ => None,
     }
 }

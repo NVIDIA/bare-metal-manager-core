@@ -415,7 +415,7 @@ pub async fn re_explore(
     AxumPath(endpoint_ip): AxumPath<String>,
     Form(form): Form<ReExploreEndpointAction>,
 ) -> impl IntoResponse {
-    let view_url = format!("/admin/explored_endpoint/{endpoint_ip}");
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     if let Err(err) = state
         .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
