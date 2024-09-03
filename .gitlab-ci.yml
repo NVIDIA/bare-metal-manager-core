@@ -92,20 +92,7 @@ prepare-ci:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH =~ /^release\//
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      needs:
-        - job: "lint:commit-merge-request"
-    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
-#    - if: $CI_PIPELINE_SOURCE == "push"
-#      needs:
-#        - job: "lint:commit-push"
-#
-# Reenable this when we want to enforce commit ci post-mr
-#
-lint:commit-push:
-  rules:
-    - when: never
-
+    - if: $CI_PIPELINE_SOURCE
 
 build:
   rules:
