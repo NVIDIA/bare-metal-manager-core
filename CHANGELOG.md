@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc1-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc2-0...trunk)
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [v2024.08.30-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc1-0...v2024.08.30-rc2-0)
 
 ### Added
 
@@ -11,6 +21,9 @@
   - rate_limit = 200
   - service_level = 0
 - Added GPU voltage, temperature, power metrics under `hw.gpu.[voltage|temperature|power|energy]`
+- Added the ability to pre-define an associated DPU serial number to workaround hardware that does not provide Serial Numbers on Network Adapters in their Redfish API (see `forge-admin-cli expected machine --help` for details`
+- Interim support for GH200 BMC - note this is not expected to be used in production hosts and will be replaced by G*B*200 support.
+- Added username to adding credentials for a BMC since not all BMCs can use `root` as the main username, see `forge-admin-cli credentials add-bmc --help` for more details.
 
 ### Changed
 
@@ -23,6 +36,7 @@
 
 - Fixed username handling of DGX H100 (Viking), these hosts cannot have the admin username be called 'root'
 - DPU health metrics and component version metrics are correctly emitted for multi-dpu systems
+- Fixed how DPUs-in-NIC-mode are being detected
 
 ### Removed
 
