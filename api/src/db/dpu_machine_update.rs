@@ -1,3 +1,4 @@
+use sqlx::Acquire;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
@@ -164,57 +165,95 @@ impl DpuMachineUpdate {
 
     pub async fn trigger_reprovisioning_for_managed_host(
         txn: &mut Transaction<'_, Postgres>,
-        machine_update: &DpuMachineUpdate,
+        host_machine_id: &MachineId,
+        machine_updates: &[DpuMachineUpdate],
         expected_versions: HashMap<String, String>,
-    ) -> Result<(), DatabaseError> {
-        let expected_version = expected_versions
-            .get(&machine_update.product_name)
-            .ok_or_else(|| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "",
-                    sqlx::Error::ColumnNotFound("product_name missing".to_owned()),
-                )
-            })?;
+    ) -> Result<(), CarbideError> {
+        let mut inner_txn = txn.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin trigger_reprovisioning_for_managed_host",
+                e,
+            ))
+        })?;
 
-        let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
-            from: machine_update.firmware_version.clone(),
-            to: expected_version.clone(),
-        });
+        let mut host_expected_version = None;
+        for machine_update in machine_updates {
+            let expected_version = expected_versions
+                .get(&machine_update.product_name)
+                .ok_or_else(|| {
+                    DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "",
+                        sqlx::Error::ColumnNotFound("product_name missing".to_owned()),
+                    )
+                })?;
+
+            if host_expected_version.is_none() {
+                host_expected_version = Some(expected_version.clone());
+            }
+
+            let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
+                from: machine_update.firmware_version.clone(),
+                to: expected_version.clone(),
+            });
+
+            let reprovision_time = chrono::Utc::now();
+            let req = ReprovisionRequest {
+                requested_at: reprovision_time,
+                initiator: initiator.to_string(),
+                update_firmware: true,
+                started_at: None,
+                user_approval_received: false,
+                restart_reprovision_requested_at: reprovision_time,
+            };
+
+            let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL RETURNING id"#;
+            sqlx::query(query)
+                .bind(sqlx::types::Json(req))
+                .bind(initiator.to_string())
+                .bind(machine_update.dpu_machine_id.to_string())
+                .fetch_one(inner_txn.deref_mut())
+                .await
+                .map_err(|err: sqlx::Error| match err {
+                    sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                        kind: "trigger_reprovisioning_for_managed_host",
+                        id: machine_update.dpu_machine_id.to_string(),
+                    },
+                    _ => DatabaseError::new(file!(), line!(), query, err).into(),
+                })?;
+        }
+
         let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
             // In case of multidpu, DPUs can have different versions.
-            // Host should show only the target version.
             from: "".to_string(),
-            to: expected_version.clone(),
+            to: host_expected_version.unwrap_or("".to_string()),
         });
 
-        let reprovision_time = chrono::Utc::now();
-        let req = ReprovisionRequest {
-            requested_at: reprovision_time,
-            initiator: initiator.to_string(),
-            update_firmware: true,
-            started_at: None,
-            user_approval_received: false,
-            restart_reprovision_requested_at: reprovision_time,
-        };
-
-        let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL;"#;
-        sqlx::query(query)
-            .bind(sqlx::types::Json(req))
-            .bind(initiator.to_string())
-            .bind(machine_update.dpu_machine_id.to_string())
-            .execute(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        let query = r#"UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$2 AND maintenance_reference IS NULL;"#;
+        let query = r#"UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$2 AND maintenance_reference IS NULL RETURNING id"#;
         sqlx::query(query)
             .bind(initiator_host.to_string())
-            .bind(machine_update.host_machine_id.to_string())
-            .execute(txn.deref_mut())
+            .bind(host_machine_id.to_string())
+            .fetch_one(inner_txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                    kind: "trigger_reprovisioning_for_managed_host",
+                    id: host_machine_id.to_string(),
+                },
+                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+            })?;
+
+        inner_txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit trigger_reprovisioning_for_managed_host",
+                e,
+            ))
+        })?;
 
         Ok(())
     }

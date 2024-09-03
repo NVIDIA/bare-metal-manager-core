@@ -7,7 +7,7 @@ use std::{
 use crate::{
     cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::MachineUpdateManager, model::machine::machine_id::MachineId,
-    CarbideResult,
+    CarbideError, CarbideResult,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
@@ -61,27 +61,51 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             .into_iter()
             .filter(|u| updating_host_machines.get(&u.host_machine_id).is_none())
             .collect();
+
+        // The outcome is vec<DpuMachineUpdate>, let's convert it to HashMap<host_machine_id, vec<DpuMachineUpdate>>
+        // This way we can run our loop based on host_machine id.
+        let mut host_machine_updates: HashMap<MachineId, Vec<DpuMachineUpdate>> = HashMap::new();
+
+        for machine_update in machine_updates {
+            host_machine_updates
+                .entry(machine_update.host_machine_id.clone())
+                .or_default()
+                .push(machine_update);
+        }
+
         let mut updates_started = HashSet::default();
 
-        for machine_update in machine_updates.iter() {
-            tracing::trace!(
-                "dpu_machine_id: {} current_firmware_version: {}",
-                machine_update.dpu_machine_id,
-                machine_update.firmware_version
-            );
-
-            if updating_host_machines.contains(&machine_update.host_machine_id) {
+        for (host_machine_id, machine_updates) in host_machine_updates {
+            if updating_host_machines.contains(&host_machine_id) {
                 continue;
             }
 
-            DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
-                txn,
-                machine_update,
-                self.expected_dpu_firmware_versions.clone(),
-            )
-            .await?;
+            // If the reprovisioning failed to update the database for a
+            // given {dpu,host}_machine_id, log it as a warning and don't
+            // add it to updates_started.
+            if let Err(reprovisioning_err) =
+                DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+                    txn,
+                    &host_machine_id,
+                    &machine_updates,
+                    self.expected_dpu_firmware_versions.clone(),
+                )
+                .await
+            {
+                match reprovisioning_err {
+                    CarbideError::NotFoundError { id, .. } => {
+                        tracing::warn!("failed to trigger reprovisioning for managed host : {} - no update match for id: {}",
+                        host_machine_id,
+                        id);
+                        continue;
+                    }
+                    _ => {
+                        return Err(reprovisioning_err);
+                    }
+                }
+            }
 
-            updates_started.insert(machine_update.host_machine_id.clone());
+            updates_started.insert(host_machine_id);
         }
 
         self.update_metrics(txn).await;
