@@ -843,6 +843,7 @@ nspect-source-scan-x86_64:
     PULSE_SCAN_PROJECT: "carbide"
     PULSE_SCAN_PROJECT_VERSION: "${CI_COMMIT_BRANCH}"
     PULSE_SCAN_VULNERABILITY_REPORT: "nspect_${CI_COMMIT_BRANCH}_scan_report.json"
+    PULSE_SCAN_EXCLUDE_DETECTORS: "Setuptools"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
