@@ -24,12 +24,8 @@ use forge_secrets::credentials::{
 };
 use libredfish::{
     model::{
-        secure_boot::SecureBootMode,
-        sensor::GPUSensors,
-        service_root::{RedfishVendor, ServiceRoot},
-        task::Task,
-        update_service::UpdateService,
-        ODataId, ODataLinks,
+        secure_boot::SecureBootMode, sensor::GPUSensors, service_root::ServiceRoot, task::Task,
+        update_service::UpdateService, ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, RoleId, SystemPowerControl,
@@ -47,7 +43,6 @@ use tokio::time;
 use utils::HostPortPair;
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
-const AMI_USERNAME: &str = "admin";
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
@@ -330,59 +325,6 @@ impl RedfishClientPoolImpl {
             proxy_address,
         }
     }
-
-    /// This method determines the username for AMI vendor. AMI vendor represents Viking host and
-    /// Viking hosts have 'admin' as site_default username. Rest all hardware have root as
-    /// site_default username.
-    async fn get_user_for_ami_vendor(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        password: String,
-    ) -> Result<Option<&str>, RedfishClientCreationError> {
-        // create a client without credentials.
-        let endpoint = Endpoint {
-            host: host.to_string(),
-            port,
-            user: None,
-            password: None,
-        };
-        let standard_client = self
-            .pool
-            .create_standard_client(endpoint.clone())
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        let service_root = standard_client
-            .get_service_root()
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        // AMI seems very generic vendor name. So we should validate if host is reachable with
-        // admin or not. If not, we can try to continue with root.
-        if matches!(service_root.vendor(), Some(RedfishVendor::AMI)) {
-            let endpoint = Endpoint {
-                host: host.to_string(),
-                port,
-                user: Some(AMI_USERNAME.to_string()),
-                password: Some(password),
-            };
-
-            // Creating the client performs a HTTP request to determine the BMC vendor
-            let pool = self.pool.clone();
-            match pool.create_client(endpoint).await {
-                Ok(_) => {
-                    return Ok(Some(AMI_USERNAME));
-                }
-                Err(_) => {
-                    // We couldn't connect with admin user, may be some other hardware has AMI
-                    // as vendor.
-                    return Ok(None);
-                }
-            }
-        }
-
-        Ok(None)
-    }
 }
 
 #[async_trait]
@@ -427,28 +369,6 @@ impl RedfishClientPool for RedfishClientPoolImpl {
                     Credentials::UsernamePassword { username, password } => {
                         (Some(username), Some(password))
                     }
-                };
-
-                // TODO this is annoying and needs fixing
-                //
-                // AMI (Viking) host uses 'admin' as username while all other hardware use 'root' as
-                // username. This method will impact only for site_default HostCredentials.
-                let username = if let CredentialKey::HostRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                } = credential_key
-                {
-                    match self
-                        .get_user_for_ami_vendor(host, port, password.clone().unwrap_or_default())
-                        .await?
-                    {
-                        None => username,
-                        Some(u) => {
-                            tracing::info!("Viking alert. Using {u} user for host: {host}");
-                            Some(u.to_string())
-                        }
-                    }
-                } else {
-                    username
                 };
 
                 (username, password)
