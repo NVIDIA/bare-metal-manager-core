@@ -180,6 +180,7 @@ struct Index {
     log_filter: String,
     create_machines: String,
     carbide_config: CarbideConfig,
+    bmc_proxy: String,
 }
 
 pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
@@ -202,6 +203,14 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     };
 
     let create_machines = state.dynamic_settings.create_machines.load().to_string();
+    let bmc_proxy = state
+        .dynamic_settings
+        .bmc_proxy
+        .load()
+        .as_ref()
+        .clone()
+        .map(|p| p.to_string())
+        .unwrap_or("<None>".to_string());
 
     let index = Index {
         version: forge_version::v!(build_version),
@@ -209,6 +218,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         agent_upgrade_policy,
         create_machines,
         carbide_config: (*state.runtime_config).clone(),
+        bmc_proxy,
     };
 
     (StatusCode::OK, Html(index.render().unwrap()))

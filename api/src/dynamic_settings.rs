@@ -13,16 +13,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arc_swap::ArcSwap;
-
 use super::logging::level_filter::ActiveLevel;
+use arc_swap::ArcSwap;
+use utils::HostPortPair;
 
 pub struct DynamicSettings {
-    // RUST_LOG
+    /// RUST_LOG level
     pub log_filter: Arc<ArcSwap<ActiveLevel>>,
 
-    // Should site-explorer create machines
+    /// Should site-explorer create machines
     pub create_machines: Arc<ArcSwap<bool>>,
+
+    /// Use a proxy for talking to BMC's
+    pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 }
 
 /// How often to check if the log filter (RUST_LOG) needs resetting
@@ -59,4 +62,8 @@ impl DynamicSettings {
 
 pub fn create_machines(b: bool) -> Arc<ArcSwap<bool>> {
     Arc::new(ArcSwap::new(Arc::new(b)))
+}
+
+pub fn bmc_proxy(s: Option<HostPortPair>) -> Arc<ArcSwap<Option<HostPortPair>>> {
+    Arc::new(ArcSwap::new(Arc::new(s)))
 }

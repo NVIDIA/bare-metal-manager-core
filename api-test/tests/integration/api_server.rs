@@ -24,6 +24,7 @@ use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 use tokio::sync::oneshot::{Receiver, Sender};
+use utils::HostPortPair;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
@@ -33,7 +34,7 @@ pub struct StartArgs {
     pub root_dir: String,
     pub db_url: String,
     pub vault_token: String,
-    pub override_bmc_addr: Option<SocketAddr>,
+    pub bmc_proxy: Option<HostPortPair>,
     pub telemetry_setup: TelemetrySetup,
     pub site_explorer_create_machines: bool,
     pub stop_channel: Receiver<()>,
@@ -46,7 +47,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         root_dir,
         db_url,
         vault_token,
-        override_bmc_addr,
+        bmc_proxy,
         telemetry_setup,
         site_explorer_create_machines,
         stop_channel,
@@ -188,9 +189,9 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             create_machines: carbide::dynamic_settings::create_machines(
                 site_explorer_create_machines,
             ),
-            override_target_ip: override_bmc_addr.map(|a| a.ip().to_string()),
-            override_target_port: override_bmc_addr.map(|a| a.port()),
             allow_zero_dpu_hosts: true,
+            bmc_proxy: carbide::dynamic_settings::bmc_proxy(bmc_proxy),
+            ..Default::default()
         },
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,

@@ -892,6 +892,25 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?
             }
+            SetAction::BmcProxy(opts) => {
+                if opts.enabled {
+                    rpc::set_dynamic_config(
+                        api_config,
+                        ConfigSetting::BmcProxy,
+                        opts.proxy.unwrap_or("".to_string()),
+                        None,
+                    )
+                    .await?
+                } else {
+                    rpc::set_dynamic_config(
+                        api_config,
+                        ConfigSetting::BmcProxy,
+                        "".to_string(),
+                        None,
+                    )
+                    .await?
+                }
+            }
         },
         CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {

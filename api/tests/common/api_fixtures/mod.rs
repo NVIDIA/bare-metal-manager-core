@@ -532,9 +532,7 @@ pub fn get_config() -> CarbideConfig {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: Arc::new(ArcSwap::new(Arc::new(false))),
-            override_target_ip: None,
-            override_target_port: None,
-            allow_zero_dpu_hosts: false,
+            ..Default::default()
         },
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
@@ -668,7 +666,8 @@ pub async fn create_test_env_with_config(
                 .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
                 .unwrap(),
         )))),
-        create_machines: carbide::dynamic_settings::create_machines(true),
+        create_machines: config.site_explorer.create_machines.clone(),
+        bmc_proxy: config.site_explorer.bmc_proxy.clone(),
     };
 
     let api = Arc::new(Api::new(

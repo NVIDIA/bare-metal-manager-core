@@ -12,6 +12,7 @@
 
 use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
+use ::utils::HostPortPair;
 use bmc_mock::ListenerOrAddress;
 use futures::future::join_all;
 use futures::FutureExt;
@@ -259,8 +260,15 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
-    let server_handle =
-        utils::start_api_server(test_env.clone(), Some(bmc_mock_handle.address), true).await?;
+    let server_handle = utils::start_api_server(
+        test_env.clone(),
+        Some(HostPortPair::HostAndPort(
+            "127.0.0.1".to_string(),
+            bmc_mock_handle.address.port(),
+        )),
+        true,
+    )
+    .await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     let segment_id = subnet::create(carbide_api_addr, &tenant1_vpc)?;
@@ -575,6 +583,7 @@ where
         sudo_command: None,
         use_dhcp_api: true,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves
+        configure_carbide_bmc_proxy_host: None,
     };
 
     let (machine_actors, mat_handle) = machine_a_tron::run_local(

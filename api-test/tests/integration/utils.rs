@@ -33,6 +33,7 @@ use tracing_subscriber::fmt::TestWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
+use utils::HostPortPair;
 
 lazy_static! {
     // Note: We can only initialize logging once in a process, or else we get an error:
@@ -146,7 +147,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
-    override_bmc_addr: Option<SocketAddr>,
+    bmc_proxy: Option<HostPortPair>,
     site_explorer_create_machines: bool,
 ) -> eyre::Result<ApiServerHandle> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
@@ -202,7 +203,7 @@ pub async fn start_api_server(
             root_dir: root_dir_clone,
             db_url,
             vault_token,
-            override_bmc_addr,
+            bmc_proxy,
             telemetry_setup: telemetry_setup_clone,
             site_explorer_create_machines,
             stop_channel: stop_rx,

@@ -61,9 +61,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
-        override_target_ip: None,
-        override_target_port: None,
-        allow_zero_dpu_hosts: false,
+        ..Default::default()
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(

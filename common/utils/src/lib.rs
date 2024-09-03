@@ -3,9 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 
 pub mod admin_cli;
 pub mod cmd;
+mod host_port_pair;
 pub mod managed_host_display;
-pub use managed_host_display::{get_managed_host_output, ManagedHostMetadata, ManagedHostOutput};
 pub mod models;
+
+pub use host_port_pair::{HostPortPair, HostPortParseError};
+pub use managed_host_display::{get_managed_host_output, ManagedHostMetadata, ManagedHostOutput};
 
 /// A string to display to the user. Either the 'reason' or 'err' field, or None.
 pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {

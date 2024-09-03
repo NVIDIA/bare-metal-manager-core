@@ -77,6 +77,22 @@ impl MachineATron {
         // Represents the mat_id of machines which are Assigned to a forge Instance
         let mut assigned_mat_ids: HashSet<Uuid> = HashSet::new();
 
+        if let Some(host_str) = self
+            .app_context
+            .app_config
+            .configure_carbide_bmc_proxy_host
+            .as_ref()
+        {
+            let host_port_str =
+                format!("{}:{}", host_str, self.app_context.app_config.bmc_mock_port);
+            tracing::info!("Configuring carbide API to use {host_port_str} as bmc_proxy",);
+            _ = api_client::configure_bmc_proxy_host(&self.app_context, host_port_str)
+                .await
+                .inspect_err(
+                    |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),
+                )
+        }
+
         for (_config_name, config) in self.app_context.app_config.machines.iter() {
             for _ in 0..config.vpc_count {
                 let app_context = self.app_context.clone();
@@ -177,6 +193,20 @@ impl MachineATron {
             {
                 tracing::error!("Delete network segment Api call failed with {}", e)
             }
+        }
+
+        if self
+            .app_context
+            .app_config
+            .configure_carbide_bmc_proxy_host
+            .is_some()
+        {
+            tracing::info!("Removing bmc_proxy configuration from carbide API");
+            _ = api_client::configure_bmc_proxy_host(&self.app_context, "".to_string())
+                .await
+                .inspect_err(
+                    |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),
+                )
         }
 
         tracing::info!("machine-a-tron finished");
