@@ -12,7 +12,7 @@
 
 use crate::model::site_explorer::EndpointExplorationError;
 use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use mac_address::MacAddress;
 use std::sync::Arc;
@@ -98,11 +98,38 @@ impl CredentialClient {
         }
     }
 
-    pub async fn is_ready(
+    pub async fn check_preconditions(
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
+        // Site wide BMC credentials
         let credential_key = SITEWIDE_BMC_ROOT_CREDENTIAL_KEY;
+        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+            let credential_key_str = credential_key.to_key_str();
+            metrics.increment_credential_missing(credential_key_str.clone());
+            return Err(EndpointExplorationError::MissingCredentials {
+                key: credential_key.to_key_str(),
+                cause: e.to_string(),
+            });
+        }
+
+        // Site wide DPU UEFI credentials
+        let credential_key = CredentialKey::DpuUefi {
+            credential_type: CredentialType::SiteDefault,
+        };
+        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+            let credential_key_str = credential_key.to_key_str();
+            metrics.increment_credential_missing(credential_key_str.clone());
+            return Err(EndpointExplorationError::MissingCredentials {
+                key: credential_key.to_key_str(),
+                cause: e.to_string(),
+            });
+        }
+
+        // Site wide Host UEFI credentials
+        let credential_key = CredentialKey::HostUefi {
+            credential_type: CredentialType::SiteDefault,
+        };
         if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
             let credential_key_str = credential_key.to_key_str();
             metrics.increment_credential_missing(credential_key_str.clone());
