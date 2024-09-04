@@ -222,21 +222,50 @@ pub enum DpuAction {
 #[derive(Parser, Debug)]
 pub enum DpuReprovision {
     #[clap(about = "Set the DPU in reprovisioning mode.")]
-    Set(DpuReprovisionData),
+    Set(DpuReprovisionSet),
     #[clap(about = "Clear the reprovisioning mode.")]
-    Clear(DpuReprovisionData),
+    Clear(DpuReprovisionClear),
     #[clap(about = "List all DPUs pending reprovisioning.")]
     List,
     #[clap(about = "Restart the DPU reprovision.")]
-    Restart(DpuReprovisionData),
+    Restart(DpuReprovisionRestart),
 }
 
 #[derive(Parser, Debug)]
-pub struct DpuReprovisionData {
+pub struct DpuReprovisionSet {
     #[clap(
         short,
         long,
         help = "DPU Machine ID for which reprovisioning is needed, or host machine id if all DPUs should be reprovisioned."
+    )]
+    pub id: String,
+
+    #[clap(short, long, action)]
+    pub update_firmware: bool,
+
+    #[clap(short, long)]
+    pub maintenance_reference: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DpuReprovisionClear {
+    #[clap(
+        short,
+        long,
+        help = "DPU Machine ID for which reprovisioning should be cleared, or host machine id if all DPUs should be cleared."
+    )]
+    pub id: String,
+
+    #[clap(short, long, action)]
+    pub update_firmware: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DpuReprovisionRestart {
+    #[clap(
+        short,
+        long,
+        help = "Host Machine ID for which reprovisioning should be restarted."
     )]
     pub id: String,
 

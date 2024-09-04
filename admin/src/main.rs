@@ -558,6 +558,7 @@ async fn main() -> color_eyre::Result<()> {
                         Mode::Set,
                         data.update_firmware,
                         api_config,
+                        data.maintenance_reference,
                     )
                     .await?
                 }
@@ -567,6 +568,7 @@ async fn main() -> color_eyre::Result<()> {
                         Mode::Clear,
                         data.update_firmware,
                         api_config,
+                        None,
                     )
                     .await?
                 }
@@ -577,6 +579,7 @@ async fn main() -> color_eyre::Result<()> {
                         Mode::Restart,
                         data.update_firmware,
                         api_config,
+                        None,
                     )
                     .await?
                 }

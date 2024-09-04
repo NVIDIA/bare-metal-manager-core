@@ -26,8 +26,58 @@ pub async fn trigger_reprovisioning(
     mode: Mode,
     update_firmware: bool,
     api_config: &ApiConfig<'_>,
+    maintenance_reference: Option<String>,
 ) -> CarbideCliResult<()> {
-    rpc::trigger_dpu_reprovisioning(id, mode, update_firmware, api_config).await
+    if let (Mode::Set, Some(mr)) = (mode, &maintenance_reference) {
+        // Set the maintenance on host.
+
+        let host_id = if id.starts_with("fm100h") {
+            Some(::rpc::MachineId { id: id.clone() })
+        } else {
+            let machine =
+                rpc::get_machines_by_ids(api_config, &[::rpc::MachineId { id: id.clone() }])
+                    .await?
+                    .machines
+                    .into_iter()
+                    .next();
+
+            if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
+                host_id
+            } else {
+                return Err(crate::CarbideCliError::GenericError(format!(
+                    "Could not find host attached with dpu {id}",
+                )));
+            }
+        };
+
+        // Check host must not be in maintenance mode.
+        if let Some(host_machine_id) = &host_id {
+            let host_machine = rpc::get_machines_by_ids(api_config, &[host_machine_id.clone()])
+                .await?
+                .machines
+                .into_iter()
+                .next();
+
+            if let Some(host_machine) = host_machine {
+                if host_machine.maintenance_reference.is_some() {
+                    return Err(crate::CarbideCliError::GenericError(format!(
+                        "Host machine: {:?} is already in maintenance.",
+                        host_machine.id,
+                    )));
+                }
+            }
+        }
+
+        let req = ::rpc::forge::MaintenanceRequest {
+            operation: ::rpc::forge::MaintenanceOperation::Enable.into(),
+            host_id,
+            reference: Some(mr.clone()),
+        };
+        rpc::set_maintenance(req, api_config).await?;
+    }
+    rpc::trigger_dpu_reprovisioning(id.clone(), mode, update_firmware, api_config).await?;
+
+    Ok(())
 }
 
 pub async fn list_dpus_pending(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
