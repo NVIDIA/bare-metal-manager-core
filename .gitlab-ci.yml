@@ -1216,7 +1216,12 @@ scheduled-test:machine-lifecycle-test:
     - set -euo pipefail
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
-    - ngc version upgrade -y
+#    - wget --no-verbose https://stg.ngc.nvidia.com/downloads/ngccli_linux.zip  # Fails with 403 in CI
+    - export NGC_APPS_URL="https://api.stg.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions"
+    - export NGC_CLI_LATEST="$(wget -qO- ${NGC_APPS_URL} | jq -r .recipe.latestVersionIdStr)"
+    - wget --no-verbose ${NGC_APPS_URL}/${NGC_CLI_LATEST}/files/ngccli_linux.zip
+    - unzip -q ngccli_linux.zip && chmod u+x ngc-cli/ngc
+    - ln -s $(pwd)/ngc-cli/ngc /usr/local/bin/
   script:
     - source /tests/venv/bin/activate
     - python3 $CI_PROJECT_DIR/tests/machine-lifecycle/machine_lifecycle_test.py
