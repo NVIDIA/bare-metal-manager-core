@@ -946,7 +946,8 @@ build-ci-tools-container:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - changes:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      changes:
         - dev/docker/Dockerfile.ci-tools-container-lite
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.ci-tools-container-lite
@@ -963,7 +964,8 @@ build-site-auto-deploy-container:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - changes:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      changes:
         - dev/docker/Dockerfile.site-auto-deploy-container
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.site-auto-deploy-container
@@ -980,9 +982,10 @@ build-machine-lifecycle-test-container:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - changes:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      changes:
         - dev/docker/Dockerfile.machine-lifecycle-test-container
-        - dev/docker/Dockerfile.release-forge-cli  # maybe, since we depend on it?
+        - dev/docker/Dockerfile.release-forge-cli
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-lifecycle-test-container
     BUILD_DOCKER_IMAGE: $CONTAINER_MACHINE_LIFECYCLE_TEST
