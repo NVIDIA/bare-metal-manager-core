@@ -239,7 +239,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
-        self.credential_client.is_ready(metrics).await
+        self.credential_client.check_preconditions(metrics).await
     }
 
     // 1) Authenticate and set the BMC root account credentials
