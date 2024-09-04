@@ -17,4 +17,12 @@ if [ "$1" = "configure" ]; then
 	# and should not hang or cause out of order steps in discovery workflows. The discovery
 	# workflow will reboot shortly after this package is installed, so it is best to rely
 	# on the reboot process to start the services enabled above.
+
+	if [ -n "$2" ]; then
+ 		# The package is being upgraded and not installed for the first time, so
+ 		# this is not the discovery workflow and otelcol-contrib can restart without
+ 		# interfering. Restart is needed to pick up any configuration changes.
+
+		systemctl restart otelcol-contrib.service
+	fi
 fi
