@@ -53,7 +53,7 @@ use crate::{
     model::site_explorer::ExploredEndpoint,
     redfish::{
         build_redfish_client_from_bmc_ip, host_power_control, poll_redfish_job,
-        set_host_uefi_password, RedfishClientCreationError,
+        set_host_uefi_password,
     },
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
@@ -3454,39 +3454,24 @@ impl StateHandler for HostMachineStateHandler {
                         machine_id = %host_machine_id,
                         "Starting UEFI / BMC setup");
 
-                    match build_redfish_client_from_bmc_ip(
+                    let redfish_client = build_redfish_client_from_bmc_ip(
                         state.host_snapshot.bmc_addr(),
                         &ctx.services.redfish_client_pool,
                         txn,
                     )
+                    .await?;
+
+                    let boot_interface_mac = None; // libredfish will choose the DPU
+                    match call_forge_setup_and_handle_no_dpu_error(
+                        redfish_client.as_ref(),
+                        boot_interface_mac,
+                        state.host_snapshot.associated_dpu_machine_ids.len(),
+                        ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
+                    )
                     .await
                     {
-                        Ok(redfish_client) => {
-                            let boot_interface_mac = None; // libredfish will choose the DPU
-                            let forge_setup_failed = match call_forge_setup_and_handle_no_dpu_error(
-                                redfish_client.as_ref(),
-                                boot_interface_mac,
-                                state.host_snapshot.associated_dpu_machine_ids.len(),
-                                ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
-                            )
-                            .await
-                            {
-                                Ok(_) => false,
-                                Err(e) => {
-                                    tracing::warn!("redfish forge_setup failed, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", e);
-                                    true
-                                }
-                            };
-
-                            // Host needs to be rebooted to pick up the changes, or, if
-                            // forge_setup failed, rebooted to potentially work around
-                            // a known race between the DPU UEFI and the BMC, where if
-                            // the BMC is not up when DPU UEFI runs, then Attributes might
-                            // not come through. The fix is to force-restart the DPU to
-                            // re-POST.
-                            //
-                            // As of July 2024, Josh Price said there's an NBU FR to fix
-                            // this, but it wasn't target to a release yet.
+                        Ok(_) => {
+                            // Host needs to be rebooted to pick up the changes after calling forge_setup
                             handler_host_power_control(
                                 state,
                                 ctx.services,
@@ -3495,32 +3480,32 @@ impl StateHandler for HostMachineStateHandler {
                             )
                             .await?;
 
-                            // If there's an error during forge_setup, don't progress to the
-                            // next state, and just let the ForceRestart fire off in an attempt
-                            // to get around the race condition; keep hanging out here.
-                            //
-                            // See larger comment above for more details.
-                            if forge_setup_failed {
-                                return Ok(StateHandlerOutcome::Wait(
-                                    "restarting due to UEFI POST/BMC attributes race".to_string(),
-                                ));
-                            }
-
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        }
-                        Err(RedfishClientCreationError::MissingBmcEndpoint(_)) => {
-                            tracing::warn!(
-                                machine_id = %host_machine_id,
-                                "Machine does not have BMC information, skipping UEFI / BMC setup");
-
                             Ok(StateHandlerOutcome::Transition(next_state))
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                machine_id = %host_machine_id,
-                                "Unable to connect to Redfish API for UEFI / BMC setup: {:?}", e);
+                            tracing::warn!("redfish forge_setup failed for {host_machine_id}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}", e);
 
-                            Err(e.into())
+                            // if forge_setup failed, rebooted to potentially work around
+                            // a known race between the DPU UEFI and the BMC, where if
+                            // the BMC is not up when DPU UEFI runs, then Attributes might
+                            // not come through. The fix is to force-restart the DPU to
+                            // re-POST.
+                            //
+                            // As of July 2024, Josh Price said there's an NBU FR to fix
+                            // this, but it wasn't target to a release yet.
+                            let status = trigger_reboot_if_needed(
+                                &state.host_snapshot,
+                                state,
+                                None,
+                                &self.host_handler_params.reachability_params,
+                                ctx.services,
+                                txn,
+                            )
+                            .await?;
+
+                            Ok(StateHandlerOutcome::Wait(
+                                        format!("redfish forge_setup failed: {e}; triggered host reboot?: {status:#?}"),
+                                    ))
                         }
                     }
                 }

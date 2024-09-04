@@ -197,11 +197,10 @@ pub async fn create_host_machine(
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        2,
+        4,
         &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
@@ -392,8 +391,6 @@ pub async fn create_host_with_machine_validation(
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 
-    let mut txn = env.pool.begin().await.unwrap();
-
     update_bmc_metadata(
         env,
         host_rpc_machine_id.clone(),
@@ -405,10 +402,12 @@ pub async fn create_host_with_machine_validation(
     )
     .await;
 
+    let mut txn = env.pool.begin().await.unwrap();
+
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        3,
+        4,
         &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
