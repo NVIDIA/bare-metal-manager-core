@@ -341,15 +341,15 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         // Allow globally overriding the bmc port via site-config. We read this on every call to
         // create_client, because self.proxy_address is a dynamic setting.
         let proxy_address = self.proxy_address.load();
-        let (host, port) = match proxy_address.as_ref() {
+        let (host, port, add_custom_header) = match proxy_address.as_ref() {
             // No override
-            None => (host, port),
+            None => (host, port, false),
             // Override the host and port
-            Some(HostPortPair::HostAndPort(h, p)) => (h.as_str(), Some(*p)),
+            Some(HostPortPair::HostAndPort(h, p)) => (h.as_str(), Some(*p), true),
             // Only override the host
-            Some(HostPortPair::HostOnly(h)) => (h.as_str(), port),
+            Some(HostPortPair::HostOnly(h)) => (h.as_str(), port, true),
             // Only override the port
-            Some(HostPortPair::PortOnly(p)) => (host, Some(*p)),
+            Some(HostPortPair::PortOnly(p)) => (host, Some(*p), false),
         };
 
         let (username, password) = match auth {
@@ -382,10 +382,12 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             password,
         };
 
-        let custom_headers = if proxy_address.is_some() {
+        let custom_headers = if add_custom_header {
             // If we're overriding the host, inject a header indicating the IP address we were
             // originally going to use, using the HTTP "Forwarded" header:
             // https://datatracker.ietf.org/doc/html/rfc7239
+
+            // Override host only if host value is provided in config.
             vec![(
                 http::HeaderName::from_str("forwarded")
                     .map_err(|err| RedfishClientCreationError::InvalidHeader(err.to_string()))?,
