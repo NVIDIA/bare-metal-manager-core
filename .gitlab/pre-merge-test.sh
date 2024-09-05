@@ -11,6 +11,14 @@
 set -xeuo pipefail
 echo "Current working directory is: $(pwd)"
 
+# Merge trunk into branch to improve test reliability
+echo "Merging 'trunk' into current branch to ensure it's up-to-date..."
+git fetch origin trunk
+if ! git merge origin/trunk; then
+  echo "Merge conflict detected. This must be resolved before the pre-merge test can run. Exiting..."
+  exit 1
+fi
+
 # Configure PATH and other environment variables
 source /root/.bashrc
 doas chown -R $USER $CARGO_HOME $RUSTUP_HOME
