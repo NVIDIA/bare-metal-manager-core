@@ -19,7 +19,7 @@ use crate::{
     cfg::HardwareHealthReportsConfig,
     db::{
         self,
-        instance::{FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter},
+        instance::{FindInstanceTypeFilter, Instance, InstanceIdKeyedObjectFilter},
         machine::Machine,
         DatabaseError,
     },
@@ -28,6 +28,7 @@ use crate::{
         machine::{machine_id::MachineId, MachineSnapshot, ManagedHostStateSnapshot},
     },
 };
+use forge_uuid::instance::InstanceId;
 
 /// Loads a ManagedHost snapshot from the database
 pub async fn load_snapshot(

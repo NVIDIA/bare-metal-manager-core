@@ -14,7 +14,7 @@ use carbide::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
     cfg::IBFabricConfig,
-    db::ib_partition::{IBPartitionConfig, IBPartitionId, IBPartitionStatus, NewIBPartition},
+    db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
         types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
@@ -24,6 +24,7 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::create_test_env;
+use forge_uuid::infiniband::IBPartitionId;
 use rpc::forge::{forge_server::Forge, TenantState};
 use tonic::Request;
 

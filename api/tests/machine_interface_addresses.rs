@@ -14,11 +14,11 @@ use std::str::FromStr;
 
 use carbide::db;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
-use carbide::db::domain::DomainId;
 use carbide::db::machine_interface_address::MachineInterfaceAddress;
 use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegmentType, NewNetworkSegment};
 use carbide::model::network_segment::NetworkSegmentControllerState;
+use forge_uuid::domain::DomainId;
 use ipnetwork::IpNetwork;
 use std::net::IpAddr;
 

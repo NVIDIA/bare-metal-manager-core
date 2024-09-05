@@ -11,18 +11,15 @@
  */
 
 use std::collections::HashMap;
-use std::fmt;
 use std::ops::DerefMut;
-use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
-use sqlx::{FromRow, Postgres, Row, Transaction, Type};
-use tonic::Status;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use crate::ib::types::{
     IBMtu, IBNetwork, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
@@ -36,101 +33,11 @@ use crate::model::instance::config::{
 };
 use crate::model::machine::MachineSnapshot;
 use crate::{
-    db::instance::InstanceId, db::DatabaseError, model::ib_partition::IBPartitionControllerState,
+    db::DatabaseError, model::ib_partition::IBPartitionControllerState,
     model::tenant::TenantOrganizationId, CarbideError, CarbideResult,
 };
-use ::rpc::errors::RpcDataConversionError;
 
-/// IBPartitionId is a strongly typed UUID specific to an Infiniband
-/// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId,
-/// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
-pub struct IBPartitionId(pub uuid::Uuid);
-
-impl From<IBPartitionId> for uuid::Uuid {
-    fn from(id: IBPartitionId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for IBPartitionId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for IBPartitionId {
-    type Err = RpcDataConversionError;
-    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("IBPartitionId", input.to_string())
-        })?))
-    }
-}
-
-impl fmt::Display for IBPartitionId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<IBPartitionId> for ::rpc::common::Uuid {
-    fn from(val: IBPartitionId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<::rpc::common::Uuid> for IBPartitionId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<&::rpc::common::Uuid> for IBPartitionId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<::rpc::common::Uuid>> for IBPartitionId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            // TODO(chet): Maybe this isn't the right place for this, since
-            // depending on the proto message, the field name can differ (which
-            // should actually probably be standardized anyway), or we can just
-            // take a similar approach to ::InvalidUuid can say "field of type"?
-            return Err(CarbideError::MissingArgument("ib_partition_id").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl IBPartitionId {
-    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc IB partition ID: {}", e)))
-    }
-}
-
-impl PgHasArrayType for IBPartitionId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
+use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
 ///
 /// A parameter to find() to filter resources by IBPartitionId;

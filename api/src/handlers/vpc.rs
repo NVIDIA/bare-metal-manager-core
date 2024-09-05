@@ -15,12 +15,11 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 use crate::db::instance::Instance;
-use crate::db::vpc::{
-    NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcId, VpcIdKeyedObjectFilter,
-};
+use crate::db::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcIdKeyedObjectFilter};
 use crate::db::DatabaseError;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::vpc::VpcId;
 
 pub(crate) async fn create(
     api: &Api,

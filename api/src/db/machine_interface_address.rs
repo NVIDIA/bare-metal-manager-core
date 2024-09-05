@@ -17,11 +17,11 @@ use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use super::{
-    machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter},
-    network_segment::NetworkSegmentType,
+    machine_interface::MachineInterfaceIdKeyedObjectFilter, network_segment::NetworkSegmentType,
     DatabaseError,
 };
 use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {

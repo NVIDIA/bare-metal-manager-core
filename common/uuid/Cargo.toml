@@ -1,0 +1,28 @@
+[package]
+name = "forge-uuid"
+version = "0.0.1"
+edition.workspace = true
+description = "Common UUID types Forge components."
+license-file.workspace = true
+authors.workspace = true
+
+[dependencies]
+eyre = "*"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "*"
+sqlx = { version = "0.7.1", features = [
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
+] }
+tonic = { workspace = true }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+
+rpc = { path = "../../rpc" }

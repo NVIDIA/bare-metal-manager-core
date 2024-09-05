@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::fmt;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
@@ -20,118 +19,24 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction, Type};
-use tonic::Status;
+use sqlx::postgres::PgRow;
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
 use super::dhcp_entry::DhcpEntry;
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::domain::DomainId;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
-use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
+use crate::db::network_segment::NetworkSegment;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::{HardwareInfo, NetworkInterface};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
-
-/// MachineInterfaceId is a strongly typed UUID specific to an Infiniband
-/// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId,
-/// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
-pub struct MachineInterfaceId(pub uuid::Uuid);
-
-impl From<MachineInterfaceId> for uuid::Uuid {
-    fn from(id: MachineInterfaceId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for MachineInterfaceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for MachineInterfaceId {
-    type Err = RpcDataConversionError;
-    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MachineInterfaceId", input.to_string())
-        })?))
-    }
-}
-
-impl fmt::Display for MachineInterfaceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<MachineInterfaceId> for ::rpc::common::Uuid {
-    fn from(val: MachineInterfaceId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<::rpc::common::Uuid> for MachineInterfaceId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<&::rpc::common::Uuid> for MachineInterfaceId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<::rpc::common::Uuid>> for MachineInterfaceId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            // TODO(chet): Maybe this isn't the right place for this, since
-            // depending on the proto message, the field name can differ (which
-            // should actually probably be standardized anyway), or we can just
-            // take a similar approach to ::InvalidUuid can say "field of type"?
-            return Err(CarbideError::MissingArgument("interface_id").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl MachineInterfaceId {
-    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {}", e)))
-    }
-}
-
-impl PgHasArrayType for MachineInterfaceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
 
 ///
 /// A parameter to find() to filter resources by MachineInterfaceId;

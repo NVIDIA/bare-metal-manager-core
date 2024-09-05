@@ -18,7 +18,7 @@ use crate::{
     db::{
         self,
         instance_address::InstanceAddress,
-        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentType},
+        network_segment::{NetworkSegment, NetworkSegmentType},
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     resource_pool::DbResourcePool,
@@ -29,6 +29,7 @@ use crate::{
         },
     },
 };
+use forge_uuid::network::NetworkSegmentId;
 
 /// The actual Network Segment State handler
 #[derive(Debug, Clone)]

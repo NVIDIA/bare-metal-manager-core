@@ -14,9 +14,10 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
-use crate::db::domain::{Domain, DomainId, DomainIdKeyedObjectFilter, NewDomain};
+use crate::db::domain::{Domain, DomainIdKeyedObjectFilter, NewDomain};
 use crate::db::DatabaseError;
 use crate::CarbideError;
+use forge_uuid::domain::DomainId;
 
 pub(crate) async fn create(
     api: &Api,

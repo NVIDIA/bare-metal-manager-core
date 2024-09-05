@@ -13,7 +13,7 @@
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
 use crate::db::instance::{
-    DeleteInstance, FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter,
+    DeleteInstance, FindInstanceTypeFilter, Instance, InstanceIdKeyedObjectFilter,
 };
 use crate::db::machine::Machine;
 use crate::db::managed_host::LoadSnapshotOptions;
@@ -30,6 +30,7 @@ use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use forge_uuid::instance::InstanceId;
 use mac_address::MacAddress;
 use std::str::FromStr;
 use tonic::{Request, Response, Status};

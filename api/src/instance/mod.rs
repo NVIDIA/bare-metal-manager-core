@@ -20,7 +20,7 @@ use crate::{
         ib_partition::{
             self, IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
         },
-        instance::{Instance, InstanceId, NewInstance},
+        instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         managed_host::LoadSnapshotOptions,
         network_segment::NetworkSegment,
@@ -44,6 +44,7 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::instance::InstanceId;
 
 /// User parameters for creating an instance
 #[derive(Debug)]

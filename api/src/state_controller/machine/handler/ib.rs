@@ -17,10 +17,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 
 use crate::{
-    db::{
-        ib_partition,
-        instance::{Instance, InstanceId},
-    },
+    db::{ib_partition, instance::Instance},
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::instance::{
         config::infiniband::InstanceIbInterfaceConfig,
@@ -31,6 +28,7 @@ use crate::{
     },
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
 };
+use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
 pub(crate) async fn record_infiniband_status_observation(
     services: &StateHandlerServices,
@@ -38,7 +36,7 @@ pub(crate) async fn record_infiniband_status_observation(
     instance: &InstanceSnapshot,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
+    let mut ibconf = HashMap::<IBPartitionId, Vec<String>>::new();
 
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
@@ -130,7 +128,7 @@ pub(crate) async fn bind_ib_ports(
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
+    let mut ibconf = HashMap::<IBPartitionId, Vec<String>>::new();
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
             object_id: instance_id.to_string(),
@@ -182,7 +180,7 @@ pub(crate) async fn unbind_ib_ports(
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
+    let mut ibconf = HashMap::<IBPartitionId, Vec<String>>::new();
 
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {

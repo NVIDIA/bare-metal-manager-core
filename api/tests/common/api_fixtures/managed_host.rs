@@ -11,12 +11,13 @@
  */
 
 use carbide::{
-    db::{self, machine::Machine, machine_interface::MachineInterfaceId},
+    db::{self, machine::Machine},
     model::{
         hardware_info::TpmEkCertificate,
         machine::machine_id::{try_parse_machine_id, MachineId},
     },
 };
+use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
 
 use super::{dpu::create_dpu_machine, host::create_host_machine, TestEnv};

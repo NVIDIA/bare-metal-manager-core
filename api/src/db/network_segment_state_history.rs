@@ -18,8 +18,8 @@ use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::network_segment::NetworkSegmentId;
 use crate::model::network_segment::NetworkSegmentControllerState;
+use forge_uuid::network::NetworkSegmentId;
 
 /// A record of a past state of a NetworkSegment
 ///

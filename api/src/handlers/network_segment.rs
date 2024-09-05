@@ -16,14 +16,15 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 use crate::db::network_segment::NetworkSegment;
+use crate::db::network_segment::NetworkSegmentIdKeyedObjectFilter;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::network_segment::NetworkSegmentType;
 use crate::db::network_segment::NewNetworkSegment;
-use crate::db::network_segment::{NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter};
 use crate::db::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::network::NetworkSegmentId;
 
 pub(crate) async fn find_ids(
     api: &Api,

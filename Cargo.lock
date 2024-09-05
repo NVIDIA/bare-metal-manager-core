@@ -833,6 +833,7 @@ dependencies = [
  "figment",
  "forge-network",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -2356,6 +2357,19 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tonic 0.10.2",
+]
+
+[[package]]
+name = "forge-uuid"
+version = "0.0.1"
+dependencies = [
+ "eyre",
+ "rpc",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tonic 0.10.2",
+ "uuid 1.8.0",
 ]
 
 [[package]]

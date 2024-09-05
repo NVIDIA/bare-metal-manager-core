@@ -9,8 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::domain::{Domain, DomainId, DomainIdKeyedObjectFilter, NewDomain};
+use carbide::db::domain::{Domain, DomainIdKeyedObjectFilter, NewDomain};
 use carbide::{CarbideError, CarbideResult};
+use forge_uuid::domain::DomainId;
 
 #[sqlx::test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {

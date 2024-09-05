@@ -17,8 +17,8 @@ use config_version::ConfigVersion;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::db::instance::InstanceId;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::instance::InstanceId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {

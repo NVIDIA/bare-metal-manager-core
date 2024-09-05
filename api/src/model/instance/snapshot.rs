@@ -12,7 +12,6 @@
 
 use config_version::{ConfigVersion, Versioned};
 
-use crate::db::instance::InstanceId;
 use crate::model::{
     instance::{
         config::InstanceConfig,
@@ -22,6 +21,7 @@ use crate::model::{
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::instance::InstanceId;
 
 /// Represents a snapshot view of an `Instance`
 ///

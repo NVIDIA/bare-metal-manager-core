@@ -11,7 +11,7 @@
  */
 
 use crate::{
-    db::ib_partition::{IBPartition, IBPartitionId, IBPartitionStatus},
+    db::ib_partition::{IBPartition, IBPartitionStatus},
     ib::{types::IBNetwork, IBFabricManagerConfig, DEFAULT_IB_FABRIC_NAME},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
@@ -22,6 +22,7 @@ use crate::{
     },
     CarbideError,
 };
+use forge_uuid::infiniband::IBPartitionId;
 
 /// The actual IBPartition State handler
 #[derive(Debug, Default, Clone)]

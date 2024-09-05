@@ -16,7 +16,8 @@ use crate::common::api_fixtures::instance::default_tenant_config;
 use crate::common::api_fixtures::FIXTURE_VPC_ID;
 use crate::common::api_fixtures::{create_test_env, vpc::create_vpc, TestEnv};
 use ::rpc::forge as rpc;
-use carbide::db::vpc::{Vpc, VpcId};
+use carbide::db::vpc::Vpc;
+use forge_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
 #[ctor::ctor]

@@ -28,7 +28,6 @@ use carbide::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
-        network_segment::NetworkSegmentId,
         DatabaseError,
     },
     model::{
@@ -48,6 +47,7 @@ use carbide::{
     CarbideError,
 };
 use common::api_fixtures::TestEnv;
+use forge_uuid::network::NetworkSegmentId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{

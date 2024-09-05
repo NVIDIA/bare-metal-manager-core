@@ -12,16 +12,14 @@
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
+use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
 
 use crate::{
-    db::{
-        domain::DomainId, machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId,
-        DatabaseError,
-    },
+    db::DatabaseError,
     dhcp::allocation::DhcpError,
     model::{
         instance::{config::network::InterfaceFunctionId, snapshot::InstanceSnapshot},

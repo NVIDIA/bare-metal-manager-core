@@ -15,9 +15,9 @@ use std::{
     net::IpAddr,
 };
 
-use crate::db::network_segment::NetworkSegmentId;
 use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 

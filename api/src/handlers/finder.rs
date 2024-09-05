@@ -17,19 +17,15 @@ use ::rpc::protos::forge as rpc;
 
 use crate::db;
 use crate::db::domain::Domain;
-use crate::db::domain::DomainId;
 use crate::db::domain::DomainIdKeyedObjectFilter;
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::instance::FindInstanceTypeFilter;
 use crate::db::instance::Instance;
-use crate::db::instance::InstanceId;
 use crate::db::instance::InstanceIdKeyedObjectFilter;
-use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_segment::{
-    NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
+    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
 };
 use crate::db::vpc::Vpc;
-use crate::db::vpc::VpcId;
 use crate::db::vpc::VpcIdKeyedObjectFilter;
 use crate::{
     api::Api,
@@ -40,6 +36,10 @@ use crate::{
     },
     model::resource_pool::ResourcePoolEntryState,
     CarbideError,
+};
+use forge_uuid::{
+    domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
+    vpc::VpcId,
 };
 
 pub(crate) async fn find_ip_address(

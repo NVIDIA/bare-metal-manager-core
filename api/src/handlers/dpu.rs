@@ -21,9 +21,8 @@ use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
 use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::instance::{Instance, InstanceId};
+use crate::db::instance::Instance;
 use crate::db::machine::{Machine, MachineSearchConfig};
-use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
@@ -39,6 +38,7 @@ use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::{ethernet_virtualization, CarbideError};
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::{instance::InstanceId, machine::MachineInterfaceId};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.

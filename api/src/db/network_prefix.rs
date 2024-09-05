@@ -18,9 +18,9 @@ use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::network_segment::{NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter};
-use crate::db::vpc::VpcId;
+use crate::db::network_segment::NetworkSegmentIdKeyedObjectFilter;
 use crate::CarbideError;
+use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
 #[derive(Debug, Clone)]
 pub struct NetworkPrefix {

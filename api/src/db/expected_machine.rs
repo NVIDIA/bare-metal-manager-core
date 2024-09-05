@@ -16,11 +16,11 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::machine_interface::MachineInterfaceId;
 use super::DatabaseError;
 use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use crate::CarbideResult;
+use forge_uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 

@@ -22,12 +22,12 @@ use crate::db::instance::Instance;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::DatabaseError;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::ReprovisionState;
 use crate::model::os::OperatingSystemVariant;
 use crate::CarbideError;
+use forge_uuid::machine::MachineInterfaceId;
 
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(
