@@ -17,9 +17,9 @@ use carbide::{
         self,
         address_selection_strategy::AddressSelectionStrategy,
         dhcp_entry::DhcpEntry,
-        domain::{Domain, DomainId, DomainIdKeyedObjectFilter},
+        domain::{Domain, DomainIdKeyedObjectFilter},
         machine::Machine,
-        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
+        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
     model::machine::{
         machine_id::{try_parse_machine_id, MachineId},
@@ -27,6 +27,8 @@ use carbide::{
     },
     CarbideError,
 };
+use forge_uuid::{domain::DomainId, network::NetworkSegmentId};
+
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};

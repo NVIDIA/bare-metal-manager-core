@@ -16,9 +16,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{
-        ib_partition::{
-            IBPartition, IBPartitionId, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
-        },
+        ib_partition::{IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig},
         DatabaseError,
     },
     model::controller_outcome::PersistentStateHandlerOutcome,
@@ -28,6 +26,7 @@ use crate::{
         metrics::NoopMetricsEmitter,
     },
 };
+use forge_uuid::infiniband::IBPartitionId;
 
 /// State Controller IO implementation for Infiniband Partitions
 #[derive(Default, Debug)]

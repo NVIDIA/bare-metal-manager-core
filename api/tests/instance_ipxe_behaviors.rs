@@ -11,7 +11,7 @@
  */
 
 use carbide::{
-    db::{self, instance::InstanceId},
+    db::{self},
     model::machine::machine_id::MachineId,
 };
 use common::api_fixtures::{create_test_env, TestEnv};
@@ -25,6 +25,7 @@ use crate::common::api_fixtures::{
     },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
+use forge_uuid::instance::InstanceId;
 
 pub mod common;
 

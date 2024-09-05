@@ -16,7 +16,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{
-        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
+        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
         DatabaseError,
     },
     model::controller_outcome::PersistentStateHandlerOutcome,
@@ -29,6 +29,7 @@ use crate::{
         },
     },
 };
+use forge_uuid::network::NetworkSegmentId;
 
 /// State Controller IO implementation for network segments
 #[derive(Default, Debug)]

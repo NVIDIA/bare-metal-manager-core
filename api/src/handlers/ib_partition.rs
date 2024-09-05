@@ -15,12 +15,12 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 use crate::db::ib_partition::{
-    IBPartition, IBPartitionId, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
-    NewIBPartition,
+    IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig, NewIBPartition,
 };
 use crate::db::DatabaseError;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::infiniband::IBPartitionId;
 
 pub(crate) async fn create(
     api: &Api,

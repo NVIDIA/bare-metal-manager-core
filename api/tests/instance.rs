@@ -15,7 +15,7 @@ use ::rpc::forge::forge_server::Forge;
 use carbide::{
     db::{
         dhcp_record::InstanceDhcpRecord,
-        instance::{Instance, InstanceId},
+        instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         machine::{Machine, MachineSearchConfig},
         network_prefix::NetworkPrefix,
@@ -50,6 +50,7 @@ use common::api_fixtures::{
     network_configured_with_health,
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
+use forge_uuid::instance::InstanceId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use rpc::InstanceReleaseRequest;

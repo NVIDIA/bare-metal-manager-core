@@ -42,9 +42,8 @@ use tss_esapi::{
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::db::ib_partition::{IBPartition, IBPartitionId};
+use crate::db::ib_partition::IBPartition;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
-use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
@@ -86,6 +85,7 @@ use crate::{
 };
 use crate::{resource_pool, site_explorer};
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
 use utils::HostPortPair;
 
 pub struct Api {

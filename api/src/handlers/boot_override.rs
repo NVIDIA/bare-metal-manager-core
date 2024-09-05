@@ -15,9 +15,9 @@ use ::rpc::forge as rpc;
 use crate::api::Api;
 use crate::db;
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::DatabaseError;
 use crate::CarbideError;
+use forge_uuid::machine::MachineInterfaceId;
 use tonic::Status;
 
 pub(crate) async fn get(

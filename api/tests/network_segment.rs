@@ -18,10 +18,9 @@ use carbide::db;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{
-    NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentType,
-    NewNetworkSegment,
+    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentType, NewNetworkSegment,
 };
-use carbide::db::vpc::{Vpc, VpcId, VpcIdKeyedObjectFilter};
+use carbide::db::vpc::{Vpc, VpcIdKeyedObjectFilter};
 use carbide::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
     NetworkSegmentDeletionState,
@@ -34,6 +33,7 @@ use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
 };
+use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 use mac_address::MacAddress;
 
 pub mod common;

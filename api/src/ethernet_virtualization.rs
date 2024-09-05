@@ -18,8 +18,6 @@ use crate::{
     db::{
         self,
         domain::Domain,
-        instance::InstanceId,
-        machine_interface::MachineInterfaceId,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
         network_segment::{
@@ -34,6 +32,7 @@ use crate::{
     CarbideError,
 };
 use forge_network::virtualization::get_svi_ip;
+use forge_uuid::{instance::InstanceId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

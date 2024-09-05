@@ -391,8 +391,8 @@ mod tests {
     use std::{collections::HashMap, fmt::Write};
 
     use super::*;
-    use crate::db::network_segment::NetworkSegmentId;
     use crate::model::instance::config::network::InstanceInterfaceConfig;
+    use forge_uuid::network::NetworkSegmentId;
 
     #[test]
     fn deserialize_old_network_status_observation() {

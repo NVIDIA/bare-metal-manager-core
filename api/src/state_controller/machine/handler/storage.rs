@@ -14,7 +14,7 @@ use chrono::Utc;
 
 use crate::storage::{attach_volume_to_client, detach_volume_from_client};
 use crate::{
-    db::instance::{Instance, InstanceId},
+    db::instance::Instance,
     model::instance::{
         config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
         status::storage::InstanceStorageStatusObservation,
@@ -23,6 +23,7 @@ use crate::{
     model::storage::StorageCluster,
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
 };
+use forge_uuid::instance::InstanceId;
 
 pub(crate) async fn attach_storage_volumes(
     services: &StateHandlerServices,

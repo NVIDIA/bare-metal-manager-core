@@ -12,13 +12,13 @@
 use carbide::{
     db::{
         self,
-        domain::DomainId,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
     model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
 };
+use forge_uuid::domain::DomainId;
 
 pub mod common;
 use common::api_fixtures::{

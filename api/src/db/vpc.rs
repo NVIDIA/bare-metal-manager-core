@@ -10,92 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::fmt;
 use std::ops::DerefMut;
-use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
-use sqlx::{FromRow, Postgres, Row, Transaction, Type};
+use sqlx::postgres::PgRow;
+use sqlx::{Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::db::network_segment::NetworkSegmentId;
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::errors::RpcDataConversionError;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
-
-/// VpcId is a strongly typed UUID specific to a VPC ID, with
-/// trait implementations allowing it to be passed around as
-/// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[sqlx(type_name = "UUID")]
-pub struct VpcId(pub uuid::Uuid);
-
-impl From<VpcId> for uuid::Uuid {
-    fn from(id: VpcId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for VpcId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for VpcId {
-    type Err = RpcDataConversionError;
-    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("VpcId", input.to_string())
-        })?))
-    }
-}
-
-impl fmt::Display for VpcId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<VpcId> for ::rpc::common::Uuid {
-    fn from(val: VpcId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<::rpc::common::Uuid> for VpcId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<::rpc::common::Uuid>> for VpcId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("VpcId").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl PgHasArrayType for VpcId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
+use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
 ///
 /// A parameter to find() to filter resources by VpcId;

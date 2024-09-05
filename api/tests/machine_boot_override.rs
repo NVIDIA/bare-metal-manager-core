@@ -11,8 +11,8 @@
  */
 
 use carbide::db::machine_boot_override::MachineBootOverride;
-use carbide::db::machine_interface::MachineInterfaceId;
 use carbide::CarbideError;
+use forge_uuid::machine::MachineInterfaceId;
 
 pub mod common;
 use common::api_fixtures::create_test_env;

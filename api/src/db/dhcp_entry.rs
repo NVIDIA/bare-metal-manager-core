@@ -14,7 +14,8 @@ use std::ops::DerefMut;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use super::DatabaseError;
-use crate::db::machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter};
+use crate::db::machine_interface::MachineInterfaceIdKeyedObjectFilter;
+use forge_uuid::machine::MachineInterfaceId;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID

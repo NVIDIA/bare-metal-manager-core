@@ -11,8 +11,8 @@
  */
 
 use carbide::api::Api;
-use carbide::db::network_segment::NetworkSegmentId;
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,

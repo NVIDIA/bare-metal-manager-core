@@ -30,15 +30,11 @@ use super::{
 };
 use crate::cfg::HardwareHealthReportsConfig;
 use crate::{
-    cfg::FirmwareComponentType,
-    db::{
-        domain::DomainId, machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId,
-    },
-    model::hardware_info::HardwareInfo,
-    state_controller::state_handler::StateHandlerError,
-    CarbideError,
+    cfg::FirmwareComponentType, model::hardware_info::HardwareInfo,
+    state_controller::state_handler::StateHandlerError, CarbideError,
 };
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
 pub mod health_override;
 pub mod machine_id;

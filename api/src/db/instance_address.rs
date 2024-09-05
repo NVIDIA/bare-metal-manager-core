@@ -24,16 +24,14 @@ use super::{
     UuidKeyedObjectFilter,
 };
 
-use crate::db::instance::InstanceId;
-use crate::db::network_segment::{
-    NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
-};
+use crate::db::network_segment::{NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
 use forge_network::virtualization::get_host_ip;
+use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
@@ -417,13 +415,13 @@ WHERE network_segments.id = $1::uuid";
 mod tests {
     use super::*;
     use crate::db::network_segment::NetworkSegmentType;
-    use crate::db::vpc::VpcId;
     use crate::model::{
         controller_outcome::PersistentStateHandlerOutcome,
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     };
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
+    use forge_uuid::vpc::VpcId;
     use std::str::FromStr;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {

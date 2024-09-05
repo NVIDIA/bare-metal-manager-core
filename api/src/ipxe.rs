@@ -8,11 +8,11 @@ use crate::{
         self,
         instance::Instance,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterfaceId,
     },
     model::machine::{InstanceState, ManagedHostState},
     CarbideError,
 };
+use forge_uuid::machine::MachineInterfaceId;
 
 pub struct PxeInstructions;
 

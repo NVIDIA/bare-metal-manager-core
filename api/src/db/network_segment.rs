@@ -16,21 +16,19 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::domain::DomainId;
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
-use crate::db::vpc::VpcId;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
-use sqlx::{FromRow, Postgres, Row, Transaction, Type};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -46,101 +44,9 @@ use crate::{
 };
 use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
-use tonic::Status;
 
 const DEFAULT_MTU_TENANT: i32 = 9000;
 const DEFAULT_MTU_OTHER: i32 = 1500;
-
-/// NetworkSegmentId is a strongly typed UUID specific to a network
-/// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId, and
-/// basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
-pub struct NetworkSegmentId(pub uuid::Uuid);
-
-impl From<NetworkSegmentId> for uuid::Uuid {
-    fn from(id: NetworkSegmentId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for NetworkSegmentId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for NetworkSegmentId {
-    type Err = RpcDataConversionError;
-    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("NetworkSegmentId", input.to_string())
-        })?))
-    }
-}
-
-impl fmt::Display for NetworkSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<NetworkSegmentId> for ::rpc::common::Uuid {
-    fn from(val: NetworkSegmentId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<::rpc::common::Uuid> for NetworkSegmentId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<&::rpc::common::Uuid> for NetworkSegmentId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<::rpc::common::Uuid>> for NetworkSegmentId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            // TODO(chet): Maybe this isn't the right place for this, since
-            // depending on the proto message, the field name can differ (which
-            // should actually probably be standardized anyway), or we can just
-            // take a similar approach to ::InvalidUuid can say "field of type"?
-            return Err(CarbideError::MissingArgument("segment_id").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl NetworkSegmentId {
-    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc network segment ID: {}", e)))
-    }
-}
-
-impl PgHasArrayType for NetworkSegmentId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
 
 ///
 /// A parameter to find() to filter resources by NetworkSegmentId;

@@ -15,10 +15,10 @@ use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::str::FromStr;
 
 use crate::{
-    db::machine_interface::MachineInterfaceId,
     db::{ColumnInfo, DatabaseError, ObjectColumnFilter},
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::MachineInterfaceId;
 
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data

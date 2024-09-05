@@ -14,8 +14,8 @@
 // in the fixtures folder. This file just contains the UUID references
 // for those.
 
-use carbide::db::network_segment::NetworkSegmentId;
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
+use forge_uuid::network::NetworkSegmentId;
 
 use crate::common::network_segment::FIXTURE_CREATED_DOMAIN_UUID;
 

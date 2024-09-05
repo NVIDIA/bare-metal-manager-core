@@ -15,9 +15,9 @@ use carbide::{
     api::rpc::{
         forge_server::Forge, IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig,
     },
-    db::ib_partition::IBPartitionId,
     state_controller::ib_partition::handler::IBPartitionStateHandler,
 };
+use forge_uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 pub const DEFAULT_TENANT: &str = "Tenant1";

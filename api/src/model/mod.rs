@@ -22,7 +22,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use crate::db::network_segment::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 

@@ -13,11 +13,10 @@
 use std::str::FromStr;
 
 use carbide::db::{
-    self,
-    dhcp_entry::DhcpEntry,
-    machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter},
+    self, dhcp_entry::DhcpEntry, machine_interface::MachineInterfaceIdKeyedObjectFilter,
 };
 use carbide::CarbideError;
+use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 

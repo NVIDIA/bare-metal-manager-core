@@ -16,11 +16,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::{
     db::{
-        address_selection_strategy::AddressSelectionStrategy, instance::InstanceId,
-        network_segment::NetworkSegment, DatabaseError,
+        address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
+        DatabaseError,
     },
     CarbideError, CarbideResult,
 };
+use forge_uuid::instance::InstanceId;
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {

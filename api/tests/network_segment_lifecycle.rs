@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use carbide::{
-    db::network_segment::{NetworkSegment, NetworkSegmentId},
+    db::network_segment::NetworkSegment,
     state_controller::network_segment::handler::NetworkSegmentStateHandler,
 };
 
@@ -22,6 +22,7 @@ use common::{
     api_fixtures::{create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID},
     network_segment::{create_network_segment_with_api, get_segment_state, text_history},
 };
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 

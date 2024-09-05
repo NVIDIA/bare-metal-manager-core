@@ -21,9 +21,8 @@ use common::api_fixtures::{
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
-use carbide::db::ib_partition::IBPartitionId;
-use carbide::db::network_segment::NetworkSegmentId;
 use config_version::ConfigVersion;
+use forge_uuid::{infiniband::IBPartitionId, network::NetworkSegmentId};
 use rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
