@@ -71,10 +71,6 @@ variables:
   CONTAINER_MACHINE_LIFECYCLE_TEST: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/tools/machine-lifecycle-test-container:latest"
 
 include:
-  - project: "nvmetal/ci-tools/build-container-cocogitto"
-    ref: main
-    file:
-      - defaults.gitlab-ci.yml
   - project: "nvmetal/gitlab-templates"
     ref: main
     file:
