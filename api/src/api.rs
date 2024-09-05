@@ -50,7 +50,8 @@ use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
     add_update_machine_validation_external_config, get_machine_validation_external_config,
-    get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
+    get_machine_validation_results, get_machine_validation_runs, mark_machine_validation_complete,
+    persist_validation_result,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::logging::log_limiter::LogLimiter;
@@ -3995,6 +3996,12 @@ impl Forge for Api {
         request: Request<rpc::OsImageAttributes>,
     ) -> Result<Response<rpc::OsImage>, Status> {
         crate::storage::update_os_image(self, request).await
+    }
+    async fn get_machine_validation_runs(
+        &self,
+        request: tonic::Request<rpc::MachineValidationRunListGetRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationRunList>, Status> {
+        get_machine_validation_runs(self, request).await
     }
 }
 

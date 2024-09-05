@@ -390,6 +390,9 @@ service Forge {
 
   // post or put Machine-Validation ExternalConfig Config
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
+  // Machine-Validation executed list
+  rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
+
 }
 
 message BindRequest{
@@ -3160,8 +3163,16 @@ message MachineValidationResultList {
 }
 
 message MachineValidationGetRequest {
-  common.MachineId machine_id = 1;
+  common.MachineId machine_id = 1;  
   bool include_history = 2;
+}
+
+message MachineValidationRun {
+  common.UUID validation_id = 1;
+  common.MachineId machine_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  string name = 5;
 }
 
 message MachineSetAutoUpdateRequest {
@@ -3224,4 +3235,13 @@ message GetRedfishJobStateResponse {
     Unknown = 4;
   }
   RedfishJobState job_state = 1;
+}
+
+message MachineValidationRunList {
+  repeated MachineValidationRun runs = 1;
+}
+
+message MachineValidationRunListGetRequest {
+  common.MachineId machine_id = 1;
+  bool include_history = 2;
 }

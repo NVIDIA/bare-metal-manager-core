@@ -2250,3 +2250,46 @@ pub async fn add_update_machine_validation_external_config(
     })
     .await
 }
+
+pub async fn get_machine_validation_results(
+    api_config: &ApiConfig<'_>,
+    machine_id: String,
+    history: bool,
+) -> CarbideCliResult<rpc::MachineValidationResultList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationGetRequest {
+            machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+            include_history: history,
+        });
+        let details = client
+            .get_machine_validation_results(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(details)
+    })
+    .await
+}
+
+pub async fn get_machine_validation_runs(
+    api_config: &ApiConfig<'_>,
+    machine_id: Option<String>,
+) -> CarbideCliResult<rpc::MachineValidationRunList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationRunListGetRequest {
+            machine_id: Some(::rpc::common::MachineId {
+                id: machine_id.unwrap_or_default(),
+            }),
+            include_history: false,
+        });
+        let details = client
+            .get_machine_validation_runs(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(details)
+    })
+    .await
+}
