@@ -1,6 +1,4 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+/* SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -10,7 +8,13 @@
  * its affiliates is strictly prohibited.
  */
 use super::{rpc, CarbideCliResult};
+use crate::cfg::carbide_options::{
+    OutputFormat, ShowMachineValidationResultsOptions, ShowMachineValidationRunsOptions,
+};
+use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
+use prettytable::{row, Table};
+use std::fmt::Write;
 
 pub async fn external_config_show(
     api_config: &ApiConfig<'_>,
@@ -20,7 +24,6 @@ pub async fn external_config_show(
 
     println!("---------------------------");
     if response.config.is_some() {
-        // println!("{:?}", response.config.unwrap_or_default());
         let s = String::from_utf8(response.config.unwrap_or_default().config)
             .expect("Found invalid UTF-8");
 
@@ -45,4 +48,175 @@ pub async fn external_config_add_update(
     )
     .await?;
     Ok(())
+}
+
+pub async fn handle_runs_show(
+    args: ShowMachineValidationRunsOptions,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+    _page_size: usize,
+) -> CarbideCliResult<()> {
+    let is_json = output_format == OutputFormat::Json;
+    show_runs(is_json, api_config, args).await?;
+    Ok(())
+}
+
+async fn show_runs(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    args: ShowMachineValidationRunsOptions,
+) -> CarbideCliResult<()> {
+    let runs = match rpc::get_machine_validation_runs(api_config, args.machine).await {
+        Ok(runs) => runs,
+        Err(e) => return Err(e),
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&runs).unwrap());
+    } else {
+        convert_runs_to_nice_table(runs).printstd();
+    }
+    Ok(())
+}
+
+fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row!["Id", "MachineId", "StartTime", "EndTime",]);
+
+    for run in runs.runs {
+        table.add_row(row![
+            run.validation_id.clone().unwrap_or_default(),
+            run.machine_id.unwrap_or_default(),
+            run.start_time.unwrap_or_default(),
+            run.end_time.unwrap_or_default(),
+        ]);
+    }
+
+    table.into()
+}
+
+pub async fn handle_results_show(
+    args: ShowMachineValidationResultsOptions,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+    _page_size: usize,
+    extended: bool,
+) -> CarbideCliResult<()> {
+    let is_json = output_format == OutputFormat::Json;
+    if extended {
+        show_results_details(is_json, api_config, args).await?;
+    } else {
+        show_results(is_json, api_config, args).await?;
+    }
+
+    Ok(())
+}
+
+async fn show_results(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    args: ShowMachineValidationResultsOptions,
+) -> CarbideCliResult<()> {
+    let results =
+        match rpc::get_machine_validation_results(api_config, args.machine, args.history).await {
+            Ok(results) => results,
+            Err(e) => return Err(e),
+        };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    } else {
+        convert_results_to_nice_table(results).printstd();
+    }
+    Ok(())
+}
+
+async fn show_results_details(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    args: ShowMachineValidationResultsOptions,
+) -> CarbideCliResult<()> {
+    let results =
+        match rpc::get_machine_validation_results(api_config, args.machine, args.history).await {
+            Ok(results) => results,
+            Err(e) => return Err(e),
+        };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    } else {
+        println!(
+            "{}",
+            convert_to_nice_format(results).unwrap_or_else(|x| x.to_string())
+        );
+    }
+
+    Ok(())
+}
+
+fn convert_results_to_nice_table(results: forgerpc::MachineValidationResultList) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row!["RunID", "Name", "ExitCode", "StartTime", "EndTime",]);
+
+    for result in results.results {
+        table.add_row(row![
+            result.validation_id.clone().unwrap_or_default(),
+            result.name,
+            result.exit_code,
+            result.start_time.unwrap_or_default(),
+            result.end_time.unwrap_or_default(),
+        ]);
+    }
+
+    table.into()
+}
+
+fn convert_to_nice_format(
+    results: forgerpc::MachineValidationResultList,
+) -> CarbideCliResult<String> {
+    let width = 14;
+    let mut lines = String::new();
+    if results.results.is_empty() {
+        return Ok(lines);
+    }
+    let first = results.results.first().unwrap();
+    let data = vec![
+        (
+            "ID",
+            first.validation_id.clone().unwrap_or_default().to_string(),
+        ),
+        ("CONTEXT", first.context.clone()),
+    ];
+    for (key, value) in data {
+        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+    }
+    // data.clear();
+    for result in results.results {
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+        let details = vec![
+            ("Name", result.name.clone()),
+            ("Description", result.description.clone()),
+            ("Command", result.command.clone()),
+            ("Args", result.args.clone()),
+            ("StdOut", result.std_out.clone()),
+            ("StdErr", result.std_err.clone()),
+            ("ExitCode", result.exit_code.to_string()),
+            (
+                "StartTime",
+                result.start_time.unwrap_or_default().to_string(),
+            ),
+            ("EndTime", result.end_time.unwrap_or_default().to_string()),
+        ];
+
+        for (key, value) in details {
+            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        }
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+    }
+    Ok(lines)
 }

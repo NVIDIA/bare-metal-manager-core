@@ -181,7 +181,7 @@ pub enum CarbideCommand {
     )]
     Jump(JumpOptions),
 
-    #[clap(about = "Machine Vaildation", subcommand, visible_alias = "mv")]
+    #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(MachineValidationCommand),
 }
 
@@ -1645,7 +1645,9 @@ pub struct JumpOptions {
 
 pub enum MachineValidationCommand {
     #[clap(about = "External config", subcommand, visible_alias = "mve")]
-    MachineValidationExternalConfig(MachineValidationExternalConfigCommand),
+    ExternalConfig(MachineValidationExternalConfigCommand),
+    #[clap(about = "Validation Results", subcommand, visible_alias = "mvr")]
+    Validation(MachineValidationResultsCommand),
 }
 #[derive(Parser, Debug)]
 pub enum MachineValidationExternalConfigCommand {
@@ -1670,4 +1672,54 @@ pub struct MachineValidationExternalConfigAddOptions {
     pub name: String,
     #[clap(short, long, help = "description of the file to update")]
     pub description: String,
+}
+#[derive(Parser, Debug)]
+pub enum MachineValidationResultsCommand {
+    #[clap(about = "Display all machine validation runs", subcommand)]
+    Runs(ShowMachineValidationRuns),
+    #[clap(
+        about = "Display machine validation in results of indivisual runs",
+        subcommand
+    )]
+    Results(ShowMachineValidationResults),
+}
+
+#[derive(Parser, Debug)]
+pub enum ShowMachineValidationRuns {
+    #[clap(about = "Show expected machine data")]
+    Show(ShowMachineValidationRunsOptions),
+}
+
+#[derive(Parser, Debug)]
+pub enum ShowMachineValidationResults {
+    #[clap(about = "Show expected machine data")]
+    Show(ShowMachineValidationResultsOptions),
+}
+
+#[derive(Parser, Debug)]
+#[clap(disable_help_flag = true)]
+pub struct ShowMachineValidationRunsOptions {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
+    #[clap(
+        short,
+        long,
+        default_value(""),
+        help = "Show machine validation runs of a machine"
+    )]
+    pub machine: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[clap(disable_help_flag = true)]
+pub struct ShowMachineValidationResultsOptions {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
+    #[clap(short, long, help = "Show machine validation result of a machine")]
+    pub machine: String,
+
+    #[clap(long, default_value = "false", help = "Results history")]
+    pub history: bool,
 }

@@ -134,9 +134,45 @@ impl MachineValidation {
         Machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
         Ok(id)
     }
+    pub async fn find_by_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> CarbideResult<Vec<MachineValidation>> {
+        MachineValidation::find_by(
+            txn,
+            ObjectFilter::List(&[machine_id.to_string()]),
+            "machine_id",
+        )
+        .await
+        .map_err(CarbideError::from)
+    }
+    pub async fn find_all(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<MachineValidation>> {
+        MachineValidation::find_by(txn, ObjectFilter::All, "")
+            .await
+            .map_err(CarbideError::from)
+    }
 }
+
+impl From<MachineValidation> for rpc::forge::MachineValidationRun {
+    fn from(value: MachineValidation) -> Self {
+        let end_time = Some(value.end_time.unwrap_or_default().into());
+        let start_time = Some(value.start_time.unwrap_or_default().into());
+        rpc::forge::MachineValidationRun {
+            validation_id: Some(value.id.into()),
+            name: value.name,
+            start_time,
+            end_time,
+            machine_id: Some(rpc::common::MachineId {
+                id: value.machine_id.to_string(),
+            }),
+        }
+    }
+}
+
 //
-// MachineValidation
+// MachineValidationResult
 //
 
 #[derive(Debug, Clone)]

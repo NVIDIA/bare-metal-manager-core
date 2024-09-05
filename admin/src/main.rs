@@ -91,7 +91,6 @@ mod tenant_keyset;
 mod uefi;
 mod version;
 mod vpc;
-
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
     #[error("Unable to connect to carbide API: {0}")]
@@ -1290,22 +1289,54 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
         CarbideCommand::MachineValidation(command) => match command {
-            cfg::carbide_options::MachineValidationCommand::MachineValidationExternalConfig(
-                config_command,
-            ) => match config_command {
-                cfg::carbide_options::MachineValidationExternalConfigCommand::Show(opts) => {
-                    machine_validation::external_config_show(api_config, opts.name).await?;
+            cfg::carbide_options::MachineValidationCommand::ExternalConfig(config_command) => {
+                match config_command {
+                    cfg::carbide_options::MachineValidationExternalConfigCommand::Show(opts) => {
+                        machine_validation::external_config_show(api_config, opts.name).await?;
+                    }
+                    cfg::carbide_options::MachineValidationExternalConfigCommand::AddUpdate(
+                        opts,
+                    ) => {
+                        machine_validation::external_config_add_update(
+                            api_config,
+                            opts.name,
+                            opts.file_name,
+                            opts.description,
+                        )
+                        .await?;
+                    }
                 }
-                cfg::carbide_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
-                    machine_validation::external_config_add_update(
-                        api_config,
-                        opts.name,
-                        opts.file_name,
-                        opts.description,
-                    )
-                    .await?;
+            }
+            cfg::carbide_options::MachineValidationCommand::Validation(results_command) => {
+                match results_command {
+                    cfg::carbide_options::MachineValidationResultsCommand::Runs(runs) => match runs
+                    {
+                        cfg::carbide_options::ShowMachineValidationRuns::Show(opts) => {
+                            machine_validation::handle_runs_show(
+                                opts,
+                                config.format,
+                                api_config,
+                                config.internal_page_size,
+                            )
+                            .await?;
+                        }
+                    },
+                    cfg::carbide_options::MachineValidationResultsCommand::Results(results) => {
+                        match results {
+                            cfg::carbide_options::ShowMachineValidationResults::Show(opts) => {
+                                machine_validation::handle_results_show(
+                                    opts,
+                                    config.format,
+                                    api_config,
+                                    config.internal_page_size,
+                                    config.extended,
+                                )
+                                .await?;
+                            }
+                        }
+                    }
                 }
-            },
+            }
         },
     }
 

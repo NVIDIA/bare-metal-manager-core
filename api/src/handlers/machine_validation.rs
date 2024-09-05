@@ -187,14 +187,11 @@ pub(crate) async fn get_machine_validation_results(
 ) -> Result<tonic::Response<rpc::MachineValidationResultList>, Status> {
     log_request_data(&request);
     let machine_validation_request: rpc::MachineValidationGetRequest = request.into_inner();
+
     let machine_id = match machine_validation_request.machine_id {
         Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-        None => {
-            tracing::error!("missing machine ID");
-            return Err(Status::invalid_argument("Missing machine ID"));
-        }
+        None => return Err(CarbideError::MissingArgument("MachineId").into()),
     };
-    log_machine_id(&machine_id);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -204,7 +201,6 @@ pub(crate) async fn get_machine_validation_results(
             e,
         ))
     })?;
-
     let db_results: Result<Vec<MachineValidationResult>, CarbideError> =
         MachineValidationResult::find_by_machine_id(
             &mut txn,
@@ -286,4 +282,44 @@ pub(crate) async fn add_update_machine_validation_external_config(
         ))
     })?;
     Ok(tonic::Response::new(()))
+}
+
+pub(crate) async fn get_machine_validation_runs(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationRunListGetRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationRunList>, Status> {
+    log_request_data(&request);
+    let machine_validation_run_request: rpc::MachineValidationRunListGetRequest =
+        request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_machine_validation_run ",
+            e,
+        ))
+    })?;
+    let db_runs = match machine_validation_run_request.machine_id {
+        Some(id) => {
+            let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
+            log_machine_id(&machine_id);
+            MachineValidation::find_by_machine_id(&mut txn, &machine_id).await
+        }
+        None => {
+            tracing::info!("no machine ID");
+            MachineValidation::find_all(&mut txn).await
+        }
+    };
+    let ret = db_runs
+        .map(
+            |runs: Vec<MachineValidation>| rpc::MachineValidationRunList {
+                runs: runs
+                    .into_iter()
+                    .map(rpc::MachineValidationRun::from)
+                    .collect(),
+            },
+        )
+        .map(Response::new)
+        .map_err(CarbideError::from)?;
+    Ok(ret)
 }
