@@ -69,7 +69,11 @@
 - [Discovering Machines](playbooks/machine_discovery.md)
 - [Cleaning up the Gitlab Runner in CI when it runs out of disk space](playbooks/gitlab_runner_disk_cleanup.md)
 - [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
-- [Instance/Subnet/etc is stuck in a state](playbooks/stuck_objects.md)
+- [Instance/Subnet/etc is stuck in a state]()
+  - [Overview and general troubleshooting](playbooks/stuck_objects/stuck_objects.md)
+  - [Common Mitigations](playbooks/stuck_objects/common_mitigations.md)
+  - [Machine stuck in `WaitingForNetworkConfig`](playbooks/stuck_objects/waiting_for_network_config.md)
+  - [Machine stuck in DPU `Reprovisioning`](playbooks/stuck_objects/dpu_reprovisioning.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 
 # NVMesh
