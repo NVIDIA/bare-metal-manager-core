@@ -828,6 +828,7 @@ nspect-source-scan-x86_64:
     PULSE_SCAN_VULNERABILITY_REPORT: "nspect_${CI_COMMIT_BRANCH}_scan_report.json"
     PULSE_SCAN_EXCLUDE_DETECTORS: "Setuptools"
   rules:
+    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
