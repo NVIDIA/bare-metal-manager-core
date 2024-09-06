@@ -74,6 +74,7 @@
   - [Common Mitigations](playbooks/stuck_objects/common_mitigations.md)
   - [Machine stuck in `WaitingForNetworkConfig`](playbooks/stuck_objects/waiting_for_network_config.md)
   - [Machine stuck in DPU `Reprovisioning`](playbooks/stuck_objects/dpu_reprovisioning.md)
+  - [State is stuck in Forge Cloud](playbooks/stuck_objects/stuck_in_forge_cloud.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 
 # NVMesh
