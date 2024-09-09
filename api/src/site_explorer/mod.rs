@@ -11,7 +11,7 @@
  */
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -43,12 +43,12 @@ use crate::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
         machine::{
-            machine_id::MachineId, DpuDiscoveringState, DpuDiscoveringStates,
-            MachineInterfaceSnapshot, ManagedHostState,
+            machine_id::{MachineId, MachineType},
+            DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
         },
         site_explorer::{
             EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
-            ExploredManagedHost, NicMode, Service,
+            ExploredManagedHost, MachineExpectation, NicMode, PreingestionState, Service,
         },
     },
     resource_pool::common::CommonPools,
@@ -269,10 +269,115 @@ impl SiteExplorer {
         Ok(())
     }
 
+    /// Audits and collects metrics of _all_ explored results vs. _all_ expected machines, not a single exploration cycle.
+    ///
+    /// * `metrics`                   - A metrics collector for accumulating and later emitting metrics.
+    /// * `matched_expected_machines` - A map of expected machines that have been matched to interfaces, indexed by IP(s).
+    async fn audit_exploration_results(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
+    ) -> CarbideResult<()> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "begin load audit_exploration_results data",
+                e,
+            )
+        })?;
+
+        // Grab them all because we care about everything,
+        // not just the subset in the current run.
+        let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+        let explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
+
+        txn.rollback().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "end load audit_exploration_results data",
+                e,
+            )
+        })?;
+
+        // Go through all the explored endpoints and start collecting metrics
+        for ep in explored_endpoints.into_iter() {
+            if let Some(ref e) = ep.report.last_exploration_error {
+                metrics.increment_endpoint_explorations_failures_overall_count(
+                    exploration_error_to_metric_label(e),
+                );
+                // We could skip everything else now,
+                // but there might have been explored machines that
+                // later fell into an error state.
+                // We should report on what we can.
+            }
+
+            if ep.report.endpoint_type != EndpointType::Bmc {
+                // Skip anything that isn't a BMC.
+                continue;
+            }
+
+            let expected_machine = matched_expected_machines.get(&ep.address);
+
+            let (machine_type, expected) = match ep.report.is_dpu() {
+                true => (MachineType::Dpu, MachineExpectation::NotApplicable),
+                false => (MachineType::Host, expected_machine.is_some().into()),
+            };
+
+            // Track machines in a preingestion state.
+            if ep.preingestion_state != PreingestionState::Complete {
+                metrics.increment_endpoint_explorations_preingestions_incomplete_overall_count(
+                    expected,
+                    machine_type,
+                );
+            }
+
+            // Increment total exploration counts
+            metrics.increment_endpoint_explorations_machines_explored_overall_count(
+                expected,
+                machine_type,
+            );
+
+            if let Some(expected_machine) = expected_machine {
+                let expected_sn = &expected_machine.serial_number;
+
+                // Check expected vs actual serial number
+                // using system serial numbers.
+                // If nothing found, try again with chassis
+                // serial numbers.
+                if !ep.report.systems.iter().any(|s| match s.serial_number {
+                    Some(ref sn) => sn == expected_sn,
+                    _ => false,
+                }) && !ep.report.chassis.iter().any(|s| match s.serial_number {
+                    Some(ref sn) => sn == expected_sn,
+                    _ => false,
+                }) {
+                    metrics
+                            .increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
+                                machine_type,
+                            );
+                }
+            }
+        }
+
+        // Count the total number of explored managed hosts
+        for explored_managed_host in explored_managed_hosts {
+            metrics.increment_endpoint_explorations_identified_managed_hosts_overall_count(
+                matched_expected_machines
+                    .get(&explored_managed_host.host_bmc_ip)
+                    .is_some()
+                    .into(),
+            );
+        }
+
+        Ok(())
+    }
+
     async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
         self.check_preconditions(metrics).await?;
 
-        let expected_machines = self.update_explored_endpoints(metrics).await?;
+        let matched_expected_machines = self.update_explored_endpoints(metrics).await?;
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
         // the generation of both reports is not necessarily atomic.
@@ -280,7 +385,7 @@ impl SiteExplorer {
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
         let identified_hosts = self
-            .identify_managed_hosts(metrics, expected_machines)
+            .identify_managed_hosts(metrics, &matched_expected_machines)
             .await?;
 
         if **self.config.create_machines.load() {
@@ -289,6 +394,10 @@ impl SiteExplorer {
             metrics.create_machines_latency = Some(start_create_machines.elapsed());
             create_machines_res?;
         }
+
+        // Audit after everything has been explored, identified, and created.
+        self.audit_exploration_results(metrics, &matched_expected_machines)
+            .await?;
 
         Ok(())
     }
@@ -406,7 +515,7 @@ impl SiteExplorer {
     async fn identify_managed_hosts(
         &self,
         metrics: &mut SiteExplorationMetrics,
-        expected_machines: HashMap<IpAddr, ExpectedMachine>,
+        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
@@ -510,7 +619,7 @@ impl SiteExplorer {
             {
                 // Check if there are dpu serial(s) specified in expected_machine table for this host
                 let mut dpu_added = false;
-                if let Some(expected_machine) = expected_machines.get(&ep.address) {
+                if let Some(expected_machine) = matched_expected_machines.get(&ep.address) {
                     for dpu_sn in expected_machine.fallback_dpu_serial_numbers.clone() {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(dpu_sn.as_str()) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
@@ -675,11 +784,19 @@ impl SiteExplorer {
             .filter(|iface| underlay_segments.contains(&iface.segment_id))
             .collect();
 
+        // We'll be returning a hashmap of all expected machines by IP
+        // for later auditing, but the list of expected machines is also used for
+        // identifying managed hosts in identify_managed_hosts based on matching
+        // interfaces, so we'll need by-mac to filter the list of expected machines
+        // we pull from the DB.
+        let mut underlay_interfaces_by_mac =
+            HashMap::<MacAddress, &MachineInterfaceSnapshot>::new();
         let mut underlay_interfaces_by_address =
             HashMap::<IpAddr, &MachineInterfaceSnapshot>::new();
         for iface in underlay_interfaces.iter() {
             for addr in iface.addresses.iter() {
                 underlay_interfaces_by_address.insert(*addr, iface);
+                underlay_interfaces_by_mac.insert(iface.mac_address, iface);
             }
         }
 
@@ -788,26 +905,33 @@ impl SiteExplorer {
             self.config.concurrent_explorations as usize,
         ));
 
-        let macs = explore_endpoint_data
-            .iter()
-            .map(|d| d.iface.mac_address)
-            .collect::<Vec<_>>();
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin find_many_by_bmc_mac_address", e)
-        })?;
-        let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &macs).await?;
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "end find_many_by_bmc_mac_address", e)
-        })?;
-        let mut expected_machines: HashMap<IpAddr, ExpectedMachine> = HashMap::new();
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "begin find_all", e))?;
+        let expected = ExpectedMachine::find_all(&mut txn).await?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "end find_all", e))?;
 
-        for endpoint in explore_endpoint_data.iter_mut() {
-            endpoint.expected = expected.remove(&endpoint.iface.mac_address);
-            if endpoint.expected.is_some() {
-                let em = endpoint.expected.clone().unwrap();
-                expected_machines.insert(endpoint.address, em);
+        let expected_count = expected.len();
+        let mut unique_matched_expected_machines: HashSet<MacAddress> = HashSet::new();
+
+        let mut matched_expected_machines: HashMap<IpAddr, ExpectedMachine> = HashMap::new();
+        for expected_machine in expected {
+            if let Some(iface) = underlay_interfaces_by_mac.get(&expected_machine.bmc_mac_address) {
+                unique_matched_expected_machines.insert(expected_machine.bmc_mac_address);
+                for addr in iface.addresses.iter() {
+                    matched_expected_machines.insert(*addr, expected_machine.clone());
+                }
             }
         }
+
+        // Record the difference between the total expected machine count and
+        // the number of expected machines we've actually "seen."
+        metrics.endpoint_explorations_expected_machines_missing_overall_count =
+            expected_count - unique_matched_expected_machines.len();
 
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
@@ -975,7 +1099,7 @@ impl SiteExplorer {
             return Err(err.into());
         }
 
-        Ok(expected_machines)
+        Ok(matched_expected_machines)
     }
 
     // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.

@@ -22,7 +22,10 @@ use opentelemetry::{
     KeyValue,
 };
 
-use crate::model::site_explorer::EndpointExplorationError;
+use crate::model::{
+    machine::machine_id::MachineType,
+    site_explorer::{EndpointExplorationError, MachineExpectation},
+};
 
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]
@@ -37,6 +40,26 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations_success: usize,
     /// Endpoint exploration failures by type
     pub endpoint_explorations_failures_by_type: HashMap<String, usize>,
+    /// Total amount of endpoint exploration failures by failure type
+    pub endpoint_explorations_failures_overall_count: HashMap<String, usize>,
+    /// Total number of machines that have not completed preingestion,
+    /// by expected/unexpected and machine type
+    pub endpoint_explorations_preingestions_incomplete_overall_count:
+        HashMap<(MachineExpectation, MachineType), usize>,
+    /// Total amount of expected machines where actual serial doesn't
+    /// match expected serial, by machine type.
+    pub endpoint_explorations_expected_serial_number_mismatches_overall_count:
+        HashMap<MachineType, usize>,
+    /// Total number of expected machines that have been explored,
+    /// by expected/unexpected and machine type
+    pub endpoint_explorations_machines_explored_overall_count:
+        HashMap<(MachineExpectation, MachineType), usize>,
+    /// Total number of managed hosts have been successfully constructed,
+    /// by expected/unexpected.
+    pub endpoint_explorations_identified_managed_hosts_overall_count:
+        HashMap<MachineExpectation, usize>,
+    /// Total number of expected managed hosts that were not successfully constructed.
+    pub endpoint_explorations_expected_machines_missing_overall_count: usize,
     /// The time it took to explore endpoints
     pub endpoint_exploration_duration: Vec<Duration>,
     /// Total amount of managedhosts that has been identified via Site Exploration
@@ -61,6 +84,12 @@ impl SiteExplorationMetrics {
             endpoint_explorations: 0,
             endpoint_explorations_success: 0,
             endpoint_explorations_failures_by_type: HashMap::new(),
+            endpoint_explorations_failures_overall_count: HashMap::new(),
+            endpoint_explorations_preingestions_incomplete_overall_count: HashMap::new(),
+            endpoint_explorations_expected_serial_number_mismatches_overall_count: HashMap::new(),
+            endpoint_explorations_machines_explored_overall_count: HashMap::new(),
+            endpoint_explorations_identified_managed_hosts_overall_count: HashMap::new(),
+            endpoint_explorations_expected_machines_missing_overall_count: 0,
             endpoint_exploration_duration: Vec::new(),
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
@@ -80,6 +109,55 @@ impl SiteExplorationMetrics {
             "credentials_missing_{credential_key}"
         ))
     }
+
+    pub fn increment_endpoint_explorations_failures_overall_count(&mut self, failure_type: String) {
+        *self
+            .endpoint_explorations_failures_overall_count
+            .entry(failure_type)
+            .or_default() += 1;
+    }
+
+    pub fn increment_endpoint_explorations_preingestions_incomplete_overall_count(
+        &mut self,
+        expected: MachineExpectation,
+        machine_type: MachineType,
+    ) {
+        *self
+            .endpoint_explorations_preingestions_incomplete_overall_count
+            .entry((expected, machine_type))
+            .or_default() += 1;
+    }
+
+    pub fn increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
+        &mut self,
+        machine_type: MachineType,
+    ) {
+        *self
+            .endpoint_explorations_expected_serial_number_mismatches_overall_count
+            .entry(machine_type)
+            .or_default() += 1;
+    }
+
+    pub fn increment_endpoint_explorations_machines_explored_overall_count(
+        &mut self,
+        expected: MachineExpectation,
+        machine_type: MachineType,
+    ) {
+        *self
+            .endpoint_explorations_machines_explored_overall_count
+            .entry((expected, machine_type))
+            .or_default() += 1;
+    }
+
+    pub fn increment_endpoint_explorations_identified_managed_hosts_overall_count(
+        &mut self,
+        expected: MachineExpectation,
+    ) {
+        *self
+            .endpoint_explorations_identified_managed_hosts_overall_count
+            .entry(expected)
+            .or_default() += 1;
+    }
 }
 
 /// Instruments that are used by the Site Explorer
@@ -89,6 +167,14 @@ pub struct SiteExplorerInstruments {
     pub endpoint_exploration_success_count: ObservableGauge<u64>,
     pub endpoint_exploration_failures_count: ObservableGauge<u64>,
     pub endpoint_exploration_duration: Histogram<f64>,
+
+    pub endpoint_exploration_failures_overall_count: ObservableGauge<u64>,
+    pub endpoint_exploration_preingestions_incomplete_overall_count: ObservableGauge<u64>,
+    pub endpoint_exploration_expected_serial_number_mismatches_overall_count: ObservableGauge<u64>,
+    pub endpoint_exploration_machines_explored_overall_count: ObservableGauge<u64>,
+    pub endpoint_exploration_identified_managed_hosts_overall_count: ObservableGauge<u64>,
+    pub endpoint_exploration_expected_machines_missing_overall_count: ObservableGauge<u64>,
+
     pub site_explorer_iteration_latency: Histogram<f64>,
     pub site_explorer_create_machines_latency: Histogram<f64>,
     pub site_exploration_identified_managed_hosts_count: ObservableGauge<u64>,
@@ -110,6 +196,30 @@ impl SiteExplorerInstruments {
             endpoint_exploration_failures_count: meter
                 .u64_observable_gauge("forge_endpoint_exploration_failures_count")
                 .with_description("The amount of endpoint explorations that have failed by error")
+                .init(),
+            endpoint_exploration_failures_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_failures_overall_count")
+                .with_description("The total number of endpoint explorations that have failed by error")
+                .init(),
+            endpoint_exploration_preingestions_incomplete_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_preingestions_incomplete_overall_count")
+                .with_description("The total number of machines in a preingestion state by expectation and machine type")
+                .init(),
+            endpoint_exploration_expected_serial_number_mismatches_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_expected_serial_number_mismatches_overall_count")
+                .with_description("The total number of found expected machines by machine type where the observed and expected serial numbers do not match")
+                .init(),
+            endpoint_exploration_machines_explored_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_machines_explored_overall_count")
+                .with_description("The total number of machines explored by machine type")
+                .init(),
+            endpoint_exploration_identified_managed_hosts_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_identified_managed_hosts_overall_count")
+                .with_description("The total number of managed hosts identified by expectation")
+                .init(),
+            endpoint_exploration_expected_machines_missing_overall_count: meter
+                .u64_observable_gauge("forge_endpoint_exploration_expected_machines_missing_overall_count")
+                .with_description("The total number of machines that were expected but not identified")
                 .init(),
             endpoint_exploration_duration: meter
                 .f64_histogram("forge_endpoint_exploration_duration")
@@ -144,9 +254,20 @@ impl SiteExplorerInstruments {
             self.endpoint_explorations_count.as_any(),
             self.endpoint_exploration_success_count.as_any(),
             self.endpoint_exploration_failures_count.as_any(),
+            self.endpoint_exploration_failures_overall_count.as_any(),
             self.site_exploration_identified_managed_hosts_count
                 .as_any(),
             self.site_explorer_created_machines_count.as_any(),
+            self.endpoint_exploration_preingestions_incomplete_overall_count
+                .as_any(),
+            self.endpoint_exploration_expected_serial_number_mismatches_overall_count
+                .as_any(),
+            self.endpoint_exploration_machines_explored_overall_count
+                .as_any(),
+            self.endpoint_exploration_identified_managed_hosts_overall_count
+                .as_any(),
+            self.endpoint_exploration_expected_machines_missing_overall_count
+                .as_any(),
         ]
     }
 
@@ -187,6 +308,12 @@ impl SiteExplorerInstruments {
             attributes,
         );
 
+        observer.observe_u64(
+            &self.endpoint_exploration_expected_machines_missing_overall_count,
+            metrics.endpoint_explorations_expected_machines_missing_overall_count as u64,
+            attributes,
+        );
+
         let mut error_attributes = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         error_attributes.push(KeyValue::new("failure", "".to_string()));
@@ -196,6 +323,83 @@ impl SiteExplorerInstruments {
                 &self.endpoint_exploration_failures_count,
                 count as u64,
                 &error_attributes,
+            );
+        }
+
+        for (error, &count) in metrics.endpoint_explorations_failures_overall_count.iter() {
+            error_attributes.last_mut().unwrap().value = error.to_string().into();
+            observer.observe_u64(
+                &self.endpoint_exploration_failures_overall_count,
+                count as u64,
+                &error_attributes,
+            );
+        }
+
+        let attrs_len = attributes.len();
+        let mut additional_attributes = attributes.to_vec();
+        additional_attributes.push(KeyValue::new("expectation", "".to_string()));
+        additional_attributes.push(KeyValue::new("machine_type", "".to_string()));
+
+        for ((ref expected, machine_type), &count) in metrics
+            .endpoint_explorations_preingestions_incomplete_overall_count
+            .iter()
+        {
+            additional_attributes[attrs_len].value = expected.to_string().into();
+
+            additional_attributes[attrs_len + 1].value =
+                machine_type.to_string().to_lowercase().into();
+
+            observer.observe_u64(
+                &self.endpoint_exploration_preingestions_incomplete_overall_count,
+                count as u64,
+                &additional_attributes,
+            );
+        }
+
+        for ((ref expected, machine_type), &count) in metrics
+            .endpoint_explorations_machines_explored_overall_count
+            .iter()
+        {
+            additional_attributes[attrs_len].value = expected.to_string().into();
+
+            additional_attributes[attrs_len + 1].value =
+                machine_type.to_string().to_lowercase().into();
+
+            observer.observe_u64(
+                &self.endpoint_exploration_machines_explored_overall_count,
+                count as u64,
+                &additional_attributes,
+            );
+        }
+
+        let mut additional_attributes = attributes.to_vec();
+        additional_attributes.push(KeyValue::new("machine_type", "".to_string()));
+
+        for (machine_type, &count) in metrics
+            .endpoint_explorations_expected_serial_number_mismatches_overall_count
+            .iter()
+        {
+            additional_attributes.last_mut().unwrap().value =
+                machine_type.to_string().to_lowercase().into();
+
+            observer.observe_u64(
+                &self.endpoint_exploration_expected_serial_number_mismatches_overall_count,
+                count as u64,
+                &additional_attributes,
+            );
+        }
+
+        additional_attributes.last_mut().unwrap().key = "expectation".into();
+        for (ref expected, &count) in metrics
+            .endpoint_explorations_identified_managed_hosts_overall_count
+            .iter()
+        {
+            additional_attributes.last_mut().unwrap().value = expected.to_string().into();
+
+            observer.observe_u64(
+                &self.endpoint_exploration_identified_managed_hosts_overall_count,
+                count as u64,
+                &additional_attributes,
             );
         }
     }

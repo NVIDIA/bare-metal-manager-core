@@ -3,3 +3,4 @@ INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc
 INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc_password) VALUES ('2a:2b:2c:2d:2e:2f', 'VVG121GI', 'ADMIN', 'Pwd2023x0x0x0x0x7');
 INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc_password, fallback_dpu_serial_numbers) VALUES ('3a:3b:3c:3d:3e:3f', 'VVG121GJ', 'ADMIN', 'Pwd2023x0x0x0x0x7', ARRAY ['dpu_serial1']);
 INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc_password, fallback_dpu_serial_numbers) VALUES ('4a:4b:4c:4d:4e:4f', 'VVG121GK', 'ADMIN', 'Pwd2023x0x0x0x0x7', ARRAY ['dpu_serial2', 'dpu_serial3']);
+INSERT INTO expected_machines (bmc_mac_address, serial_number, bmc_username, bmc_password) VALUES ('5a:5b:5c:5d:5e:5f', 'VVG121GL', 'ADMIN', 'Pwd2023x0x0x0x0x7');

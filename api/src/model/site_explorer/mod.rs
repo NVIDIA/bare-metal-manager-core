@@ -70,9 +70,17 @@ pub struct EndpointExplorationReport {
 
 impl EndpointExplorationReport {
     pub fn cannot_login(&self) -> bool {
-        if let Some(e) = self.last_exploration_error.clone() {
+        if let Some(ref e) = self.last_exploration_error {
             return e.is_unauthorized();
         }
+
+        false
+    }
+
+    pub fn is_missing_credentials(&self) -> bool {
+        if let Some(ref e) = self.last_exploration_error {
+            return matches!(e, EndpointExplorationError::MissingCredentials { .. });
+        };
 
         false
     }
@@ -959,6 +967,45 @@ impl From<Inventory> for rpc::site_explorer::Inventory {
             description: inventory.description,
             version: inventory.version,
             release_date: inventory.release_date,
+        }
+    }
+}
+
+/// Whether a found/explored machine is in the set of expected machines,
+/// currently defined by the expected_machines table in the database.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MachineExpectation {
+    #[default]
+    NotApplicable,
+    Unexpected,
+    Expected,
+}
+
+impl Display for MachineExpectation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotApplicable => write!(f, "na"),
+            Self::Unexpected => write!(f, "unexpected"),
+            Self::Expected => write!(f, "expected"),
+        }
+    }
+}
+
+impl From<bool> for MachineExpectation {
+    fn from(b: bool) -> Self {
+        match b {
+            true => MachineExpectation::Expected,
+            false => MachineExpectation::Unexpected,
+        }
+    }
+}
+
+impl From<Option<bool>> for MachineExpectation {
+    fn from(b: Option<bool>) -> Self {
+        match b {
+            None => MachineExpectation::NotApplicable,
+            Some(true) => MachineExpectation::Expected,
+            _ => MachineExpectation::Unexpected,
         }
     }
 }
