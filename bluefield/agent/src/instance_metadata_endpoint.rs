@@ -25,10 +25,10 @@ use governor::RateLimiter;
 use mockall::automock;
 use nonzero_ext::nonzero;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-
 use crate::instance_metadata_fetcher::InstanceMetadata;
 use crate::util::{create_forge_client, phone_home};
+use ::rpc::forge_tls_client::ForgeClientConfig;
+use rpc::forge::ManagedHostNetworkConfigResponse;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -43,16 +43,23 @@ const INFINIBAND_CATEGORY: &str = "infiniband";
 const MACHINE_ID_CATEGORY: &str = "machine-id";
 const INSTANCE_ID_CATEGORY: &str = "instance-id";
 const PHONE_HOME_CATEGORY: &str = "phone_home";
+const ASN_CATEGORY: &str = "asn";
 
 #[automock]
 #[async_trait]
 pub trait InstanceMetadataRouterState: Sync + Send {
-    fn read(&self) -> Option<Arc<InstanceMetadata>>;
+    fn read(
+        &self,
+    ) -> (
+        Option<Arc<InstanceMetadata>>,
+        Option<Arc<ManagedHostNetworkConfigResponse>>,
+    );
     async fn phone_home(&self) -> Result<(), eyre::Error>;
 }
 
 pub struct InstanceMetadataRouterStateImpl {
     latest_instance_data: ArcSwapOption<InstanceMetadata>,
+    latest_network_config: ArcSwapOption<ManagedHostNetworkConfigResponse>,
     machine_id: String,
     forge_api: String,
     forge_client_config: ForgeClientConfig,
@@ -64,8 +71,16 @@ pub struct InstanceMetadataRouterStateImpl {
 impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
     /// Reads the latest desired instance metadata obtained from the Forge
     /// Site controller
-    fn read(&self) -> Option<Arc<InstanceMetadata>> {
-        self.latest_instance_data.load_full()
+    fn read(
+        &self,
+    ) -> (
+        Option<Arc<InstanceMetadata>>,
+        Option<Arc<ManagedHostNetworkConfigResponse>>,
+    ) {
+        (
+            self.latest_instance_data.load_full(),
+            self.latest_network_config.load_full(),
+        )
     }
 
     // Phones home to the site controller.
@@ -101,6 +116,7 @@ impl InstanceMetadataRouterStateImpl {
     ) -> Self {
         Self {
             latest_instance_data: ArcSwapOption::new(None),
+            latest_network_config: ArcSwapOption::new(None),
             machine_id,
             forge_api,
             forge_client_config,
@@ -111,6 +127,13 @@ impl InstanceMetadataRouterStateImpl {
     /// Updates the instance metadata that should be served by FMDS
     pub fn update_instance_data(&self, instance_data: Option<Arc<InstanceMetadata>>) {
         self.latest_instance_data.store(instance_data);
+    }
+
+    pub fn update_network_configuration(
+        &self,
+        network_config: Option<Arc<ManagedHostNetworkConfigResponse>>,
+    ) {
+        self.latest_network_config.store(network_config);
     }
 }
 
@@ -179,11 +202,14 @@ fn extract_metadata(
     category: String,
     state: Arc<dyn InstanceMetadataRouterState>,
 ) -> (StatusCode, String) {
-    if let Some(metadata) = state.read().as_ref() {
+    if let (Some(metadata), Some(network_config)) =
+        (state.read().0.as_ref(), state.read().1.as_ref())
+    {
         return match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
             USER_DATA_CATEGORY => (StatusCode::OK, metadata.user_data.clone()),
+            ASN_CATEGORY => (StatusCode::OK, network_config.asn.to_string()),
             _ => (
                 StatusCode::NOT_FOUND,
                 format!("metadata category not found: {}", category),
@@ -199,7 +225,7 @@ fn extract_metadata(
 async fn get_machine_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let metadata = match state.read() {
+    let metadata = match state.read().0 {
         Some(metadata) => metadata,
         None => {
             return (
@@ -222,7 +248,7 @@ async fn get_machine_id(
 async fn get_instance_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let metadata = match state.read() {
+    let metadata = match state.read().0 {
         Some(metadata) => metadata,
         None => {
             return (
@@ -247,14 +273,20 @@ async fn get_metadata_params(
 ) -> (StatusCode, String) {
     (
         StatusCode::OK,
-        [HOSTNAME_CATEGORY, MACHINE_ID_CATEGORY, INSTANCE_ID_CATEGORY].join("\n"),
+        [
+            HOSTNAME_CATEGORY,
+            MACHINE_ID_CATEGORY,
+            INSTANCE_ID_CATEGORY,
+            ASN_CATEGORY,
+        ]
+        .join("\n"),
     )
 }
 
 async fn get_devices(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let metadata = match state.read() {
+    let metadata = match state.read().0 {
         Some(metadata) => metadata,
         None => {
             return (
@@ -280,7 +312,7 @@ async fn get_instances(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path(device_index): Path<usize>,
 ) -> (StatusCode, String) {
-    let metadata = match state.read() {
+    let metadata = match state.read().0 {
         Some(metadata) => metadata,
         None => {
             return (
@@ -319,7 +351,7 @@ async fn get_instance_attributes(
 ) -> (StatusCode, String) {
     println!("Got here!");
     let read_guard = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match read_guard.0.as_ref() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -368,7 +400,7 @@ async fn get_instance_attribute(
     Path((device_index, instance_index, attribute)): Path<(usize, usize, String)>,
 ) -> (StatusCode, String) {
     let read_guard = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match read_guard.0.as_ref() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -445,13 +477,15 @@ mod tests {
 
     async fn setup_server(
         metadata: Option<InstanceMetadata>,
+        network_config: Option<ManagedHostNetworkConfigResponse>,
     ) -> (tokio::task::JoinHandle<()>, u16) {
         let metadata = metadata.map(Arc::new);
+        let network_config = network_config.map(Arc::new);
         let mut mock_router_state = MockInstanceMetadataRouterState::new();
         mock_router_state
             .expect_read()
-            .times(1)
-            .return_const(metadata.clone());
+            .times(2)
+            .return_const((metadata.clone(), network_config.clone()));
 
         let arc_mock_router_state = Arc::new(mock_router_state);
 
@@ -513,7 +547,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/public-ipv4",
@@ -539,7 +577,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/hostname",
@@ -565,10 +607,19 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let expected_output =
-            [HOSTNAME_CATEGORY, MACHINE_ID_CATEGORY, INSTANCE_ID_CATEGORY].join("\n");
+        let expected_output = [
+            HOSTNAME_CATEGORY,
+            MACHINE_ID_CATEGORY,
+            INSTANCE_ID_CATEGORY,
+            ASN_CATEGORY,
+        ]
+        .join("\n");
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(server_port, "meta-data", &expected_output, StatusCode::OK)
             .await;
         // Also check the metadata url with the end slash is valid
@@ -597,7 +648,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "user-data",
@@ -610,7 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_server_error_on_empty_metadata() {
-        let (server, server_port) = setup_server(None).await;
+        let (server, server_port) = setup_server(None, None).await;
         send_request_and_check_response(
             server_port,
             "meta-data/hostname",
@@ -653,7 +708,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices",
@@ -686,7 +745,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/2",
@@ -726,7 +789,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances",
@@ -761,7 +828,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances/0",
@@ -794,7 +865,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances/0",
@@ -827,7 +902,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances/3",
@@ -860,7 +939,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances/0/guid",
@@ -893,7 +976,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/infiniband/devices/0/instances/0/partition",
@@ -919,7 +1006,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/instance-id",
@@ -945,7 +1036,11 @@ mod tests {
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
-        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
         send_request_and_check_response(
             server_port,
             "meta-data/machine-id",
@@ -953,6 +1048,32 @@ mod tests {
             StatusCode::OK,
         )
         .await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_asn() {
+        let metadata = InstanceMetadata {
+            instance_id: None,
+            machine_id: Some(MachineId {
+                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
+            }),
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+            ib_devices: None,
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
+        };
+
+        let network_config = ManagedHostNetworkConfigResponse {
+            asn: 123,
+            ..Default::default()
+        };
+
+        let (server, server_port) =
+            setup_server(Some(metadata.clone()), Some(network_config)).await;
+        send_request_and_check_response(server_port, "meta-data/asn", "123", StatusCode::OK).await;
         server.abort();
     }
 }

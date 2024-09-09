@@ -17,7 +17,7 @@ use std::{
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use tracing::{error, trace, warn};
 
 pub struct NetworkConfigReader {
@@ -27,13 +27,13 @@ pub struct NetworkConfigReader {
 impl NetworkConfigReader {
     /// Reads the latest desired network configuration obtained from the Forge
     /// Site controller
-    pub fn read(&self) -> Arc<Option<rpc::ManagedHostNetworkConfigResponse>> {
+    pub fn read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
         self.state.current.load_full()
     }
 }
 
 struct NetworkConfigFetcherState {
-    current: ArcSwap<Option<rpc::ManagedHostNetworkConfigResponse>>,
+    current: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
     config: NetworkConfigFetcherConfig,
     is_cancelled: AtomicBool,
 }
@@ -65,7 +65,7 @@ impl NetworkConfigFetcher {
     pub async fn new(config: NetworkConfigFetcherConfig) -> Self {
         let forge_client_config = config.forge_client_config.clone();
         let state = Arc::new(NetworkConfigFetcherState {
-            current: ArcSwap::default(),
+            current: ArcSwapOption::default(),
             config,
             is_cancelled: AtomicBool::new(false),
         });
@@ -129,12 +129,12 @@ async fn single_fetch(
     .await
     {
         Ok(config) => {
-            state.current.store(Arc::new(Some(config)));
+            state.current.store(Some(Arc::new(config)));
         }
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
                 warn!("DPU not found: {}", state.config.machine_id);
-                state.current.store(Arc::new(None));
+                state.current.store(None);
             }
             _ => {
                 error!(

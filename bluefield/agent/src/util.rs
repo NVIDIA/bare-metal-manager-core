@@ -17,6 +17,7 @@ use hickory_resolver::{config::ResolverConfig, Name};
 use resolv_conf::Config;
 use rpc::{
     forge::InstancePhoneHomeLastContactRequest,
+    forge::ManagedHostNetworkConfigRequest,
     forge_resolver,
     forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
     Instance, Timestamp,
@@ -173,6 +174,29 @@ pub async fn get_instance(
     };
 
     return Ok(instances.first().cloned());
+}
+
+pub async fn get_asn(
+    client: &mut ForgeClientT,
+    dpu_machine_id: String,
+) -> Result<u32, eyre::Error> {
+    let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
+        dpu_machine_id: Some(rpc::MachineId {
+            id: dpu_machine_id.clone(),
+        }),
+    });
+
+    let network_config = match client.get_managed_host_network_config(request).await {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the FindInstanceByMachineId gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    Ok(network_config.asn)
 }
 
 // phone_home returns the timestamp returned from Carbide as a string
