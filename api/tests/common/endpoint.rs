@@ -88,6 +88,7 @@ fn build_exploration_report(
                 http_dev1_interface: Some("NIC.Slot.5-1".to_string()),
             },
             pcie_devices: vec![],
+            base_mac: None,
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),

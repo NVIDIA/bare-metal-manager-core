@@ -1423,6 +1423,15 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
+    if let Some(base_mac) = dpu_ep
+        .report
+        .systems
+        .first()
+        .and_then(|s| s.base_mac.clone())
+    {
+        return MacAddress::from_str(base_mac.as_str())
+            .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()));
+    }
     let mut base_mac = get_sys_image_version(dpu_ep.report.service.as_ref())?;
     if base_mac.len() != 19 {
         return Err(format!("Invalid base_mac length: {}", base_mac.len()));

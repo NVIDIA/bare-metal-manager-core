@@ -780,6 +780,7 @@ pub struct ComputerSystem {
     pub attributes: ComputerSystemAttributes,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pcie_devices: Vec<PCIeDevice>,
+    pub base_mac: Option<String>,
 }
 
 impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
@@ -1087,6 +1088,7 @@ mod tests {
                     http_dev1_interface: None,
                 },
                 pcie_devices: vec![],
+                base_mac: Some("A088C208804C".to_string()),
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -1138,6 +1140,7 @@ mod tests {
                     http_dev1_interface: None,
                 },
                 pcie_devices: vec![],
+                base_mac: Some("A088C208804C".to_string()),
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),

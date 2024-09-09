@@ -310,6 +310,12 @@ async fn fetch_system(
         system.serial_number = chassis.serial_number;
     }
 
+    let base_mac = if is_dpu {
+        client.get_base_mac_address().await?
+    } else {
+        None
+    };
+
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
     let bios_attributes = match client.bios().await {
@@ -345,6 +351,7 @@ async fn fetch_system(
             http_dev1_interface: get_bios_attribute(&bios_attributes, vendor, "HttpDev1Interface")?,
         },
         pcie_devices,
+        base_mac,
     })
 }
 

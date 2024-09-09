@@ -1050,7 +1050,7 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_base_mac_address(&self) -> Result<Option<String>, RedfishError> {
-        todo!();
+        Ok(Some("a088c208804c".to_string()))
     }
 
     async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {

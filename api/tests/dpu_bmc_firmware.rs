@@ -121,6 +121,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 http_dev1_interface: None,
             },
             pcie_devices: vec![],
+            base_mac: Some("a088c208804c".to_string()),
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
