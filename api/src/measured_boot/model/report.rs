@@ -33,7 +33,7 @@ use crate::measured_boot::dto::records::{
     MeasurementReportRecord, MeasurementReportValueRecord,
 };
 use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::{parse_pcr_index_input, PcrRegisterValue, ToTable};
+use crate::measured_boot::interface::common::{parse_pcr_index_input, PcrRegisterValue};
 use crate::measured_boot::interface::{
     report::{
         delete_report_for_id, delete_report_values_for_id,
@@ -51,8 +51,9 @@ use crate::measured_boot::model::{
     bundle::MeasurementBundle, journal::MeasurementJournal, machine::CandidateMachine,
     profile::MeasurementSystemProfile,
 };
-use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
+use utils::admin_cli::ToTable;
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -348,35 +349,6 @@ impl ToTable for MeasurementReport {
         table.add_row(prettytable::row!["machine_id", self.machine_id]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
         table.add_row(prettytable::row!["values", values_table]);
-        Ok(table.to_string())
-    }
-}
-
-// When `report show` gets called (for all entries), and the output format
-// is the default table view, this gets used to print a pretty table.
-impl ToTable for Vec<MeasurementReport> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["report_id", "details", "values"]);
-        for report in self.iter() {
-            let mut details_table = prettytable::Table::new();
-            details_table.add_row(prettytable::row!["report_id", report.report_id]);
-            details_table.add_row(prettytable::row!["machine_id", report.machine_id]);
-            details_table.add_row(prettytable::row!["created_ts", report.ts]);
-            let mut values_table = prettytable::Table::new();
-            values_table.add_row(prettytable::row!["pcr_register", "value"]);
-            for value_record in report.values.iter() {
-                values_table.add_row(prettytable::row![
-                    value_record.pcr_register,
-                    value_record.sha256
-                ]);
-            }
-            table.add_row(prettytable::row![
-                report.report_id,
-                details_table,
-                values_table
-            ]);
-        }
         Ok(table.to_string())
     }
 }

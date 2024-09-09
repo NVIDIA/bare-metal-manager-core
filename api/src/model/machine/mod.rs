@@ -34,14 +34,16 @@ use crate::{
     state_controller::state_handler::StateHandlerError, CarbideError,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
+use forge_uuid::{
+    domain::DomainId, machine::MachineId, machine::MachineInterfaceId,
+    machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
+};
 
 pub mod health_override;
 pub mod machine_id;
 pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
-use machine_id::{MachineId, RpcMachineTypeWrapper};
 use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {

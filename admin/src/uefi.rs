@@ -13,8 +13,9 @@
 use std::time::Duration;
 
 use super::rpc;
-use crate::{cfg::carbide_options::MachineQuery, CarbideCliResult};
+use crate::cfg::carbide_options::MachineQuery;
 use ::rpc::{forge::get_redfish_job_state_response::RedfishJobState, forge_tls_client::ApiConfig};
+use utils::admin_cli::CarbideCliResult;
 
 async fn get_redfish_job_state(
     query: MachineQuery,

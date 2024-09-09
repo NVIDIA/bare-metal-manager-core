@@ -20,7 +20,9 @@ use std::{
 };
 
 use carbide::{
-    model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
+    model::machine::{
+        machine_id::host_id_from_dpu_hardware_info, ManagedHostState, ManagedHostStateSnapshot,
+    },
     state_controller::{
         config::IterationConfig,
         controller::StateController,
@@ -30,6 +32,7 @@ use carbide::{
         },
     },
 };
+use forge_uuid::machine::MachineId;
 use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
@@ -99,7 +102,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .unwrap()
             .into_inner();
 
-        let host_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info).unwrap();
+        let host_machine_id = host_id_from_dpu_hardware_info(&hardware_info).unwrap();
         machine_ids.push(host_machine_id);
     }
 

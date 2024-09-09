@@ -18,7 +18,7 @@ use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeTlsClient};
 
 use crate::cfg::carbide_options::PingOptions;
-use crate::CarbideCliError;
+use utils::admin_cli::CarbideCliError;
 
 pub async fn ping(api_config: &ApiConfig<'_>, opts: PingOptions) -> color_eyre::Result<()> {
     let mut client = ForgeTlsClient::retry_build(api_config)

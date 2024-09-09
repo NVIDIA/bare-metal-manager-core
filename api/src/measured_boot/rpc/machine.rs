@@ -20,9 +20,9 @@ use crate::measured_boot::{
     interface::common::PcrRegisterValue, model::machine::CandidateMachine,
     model::report::MeasurementReport,
 };
-use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::show_candidate_machine_request;
 use rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,

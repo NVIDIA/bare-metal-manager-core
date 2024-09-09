@@ -21,8 +21,9 @@ use sqlx::{Postgres, Transaction};
 use super::DatabaseError;
 use crate::db;
 use crate::model::bmc_info::BmcInfo;
-use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "user_roles")]

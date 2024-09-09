@@ -17,7 +17,7 @@
 
 use std::ops::DerefMut;
 
-use crate::db::{DatabaseError, DbTable};
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
@@ -26,7 +26,8 @@ use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::DbTable;
 use sqlx::{Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(

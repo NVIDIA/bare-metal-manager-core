@@ -25,14 +25,11 @@ use crate::{
         },
         vpc::{Vpc, VpcIdKeyedObjectFilter},
     },
-    model::{
-        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
-        machine::machine_id::MachineId,
-    },
+    model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     CarbideError,
 };
 use forge_network::virtualization::get_svi_ip;
-use forge_uuid::{instance::InstanceId, machine::MachineInterfaceId};
+use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

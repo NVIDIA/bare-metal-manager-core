@@ -50,8 +50,8 @@ use carbide::{
     model::{
         hardware_info::TpmEkCertificate,
         machine::{
-            machine_id::{try_parse_machine_id, MachineId},
-            FailureDetails, MachineLastRebootRequested, ManagedHostState,
+            machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
+            ManagedHostState,
         },
     },
     redfish::RedfishSim,
@@ -74,6 +74,7 @@ use chrono::Duration;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
+use forge_uuid::machine::MachineId;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use regex::Regex;

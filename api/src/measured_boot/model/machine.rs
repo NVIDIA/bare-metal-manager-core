@@ -20,19 +20,19 @@ use crate::measured_boot::dto::keys::UuidEmptyStringError;
 use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
 use crate::measured_boot::model::journal::{get_latest_journal_for_id, MeasurementJournal};
-use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
+use utils::admin_cli::ToTable;
 
 /// CandidateMachine describes a machine that is a candidate for attestation,
 /// and is derived from machine information in the machine_toplogies table.
@@ -104,44 +104,6 @@ impl ToTable for CandidateMachine {
         table.add_row(prettytable::row!["updated_ts", self.updated_ts]);
         table.add_row(prettytable::row!["journal", journal_table]);
         table.add_row(prettytable::row!["attrs", attrs_table]);
-        Ok(table.to_string())
-    }
-}
-
-impl ToTable for Vec<CandidateMachine> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row![
-            "machine_id",
-            "state",
-            "created_ts",
-            "updated_ts",
-            "journal",
-            "attributes",
-        ]);
-        for record in self.iter() {
-            let journal_table = match &record.journal {
-                Some(journal) => journal.to_nested_prettytable(),
-                None => {
-                    let mut not_found = prettytable::Table::new();
-                    not_found.add_row(prettytable::row!["<no journal found>"]);
-                    not_found
-                }
-            };
-            let mut attrs_table = prettytable::Table::new();
-            attrs_table.add_row(prettytable::row!["name", "value"]);
-            for (key, value) in record.attrs.iter() {
-                attrs_table.add_row(prettytable::row![key, value]);
-            }
-            table.add_row(prettytable::row![
-                record.machine_id,
-                record.state,
-                record.created_ts,
-                record.updated_ts,
-                journal_table,
-                attrs_table,
-            ]);
-        }
         Ok(table.to_string())
     }
 }

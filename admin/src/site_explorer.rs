@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::{cfg::carbide_options::GetReportMode, rpc, CarbideCliError};
+use crate::{cfg::carbide_options::GetReportMode, rpc};
 use ::rpc::{
     forge_tls_client::ApiConfig,
     site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport},
 };
 use prettytable::{format, row, Cell, Row, Table};
 
-use crate::{cfg::carbide_options::OutputFormat, CarbideCliResult};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn get_endpoints_for_managed_host<'a>(
     managedhost: &'a ExploredManagedHost,

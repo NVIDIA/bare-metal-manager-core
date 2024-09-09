@@ -22,8 +22,8 @@ use crate::measured_boot::dto::records::{
     CandidateMachineRecord, MeasurementJournalRecord, MeasurementMachineState,
 };
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
 

@@ -12,7 +12,9 @@
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
-use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
+use forge_uuid::{
+    domain::DomainId, machine::MachineId, machine::MachineInterfaceId, network::NetworkSegmentId,
+};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -21,10 +23,7 @@ use std::net::IpAddr;
 use crate::{
     db::DatabaseError,
     dhcp::allocation::DhcpError,
-    model::{
-        instance::{config::network::InterfaceFunctionId, snapshot::InstanceSnapshot},
-        machine::machine_id::MachineId,
-    },
+    model::instance::{config::network::InterfaceFunctionId, snapshot::InstanceSnapshot},
     CarbideError, CarbideResult,
 };
 

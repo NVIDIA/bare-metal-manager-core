@@ -17,15 +17,16 @@ use serde::{Deserialize, Serialize};
 
 use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::model::hardware_info::HardwareInfoError;
-use crate::model::machine::machine_id::{MachineType, MissingHardwareInfo};
+use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::{
     cfg::{DpuModel, Firmware, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
-        machine::machine_id::MachineId,
+        machine::machine_id::from_hardware_info_with_type,
     },
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::{MachineId, MachineType};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -595,7 +596,7 @@ impl EndpointExplorationReport {
             // Construct a HardwareInfo object specifically so that we can mint a MachineId.
             let hardware_info = HardwareInfo {
                 dmi_data: Some(dmi_data),
-                // This field should not be read, MachineId::from_hardware_info_with_type should not
+                // This field should not be read, machine_id::from_hardware_info_with_type should not
                 // need this, only the dmi_data.
                 machine_type: "DO_NOT_USE".to_string(),
                 ..Default::default()
@@ -609,8 +610,8 @@ impl EndpointExplorationReport {
                 MachineType::Host
             };
 
-            let machine_id = MachineId::from_hardware_info_with_type(&hardware_info, machine_type)
-                .map_err(|e| {
+            let machine_id =
+                from_hardware_info_with_type(&hardware_info, machine_type).map_err(|e| {
                     CarbideError::HardwareInfoError(HardwareInfoError::MissingHardwareInfo(e))
                 })?;
 
@@ -1013,6 +1014,7 @@ impl From<Option<bool>> for MachineExpectation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::machine::machine_id::from_hardware_info;
 
     const TEST_DATA_DIR: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1226,7 +1228,7 @@ mod tests {
         let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
-        let hardware_info_machine_id = MachineId::from_hardware_info(&info).unwrap();
+        let hardware_info_machine_id = from_hardware_info(&info).unwrap();
         assert_eq!(hardware_info_machine_id.to_string(), machine_id.to_string());
 
         // Check the MachineId serialization and deserialization

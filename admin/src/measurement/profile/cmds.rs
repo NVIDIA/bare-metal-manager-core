@@ -15,12 +15,11 @@
 //!
 
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::global::cmds::{get_identifier, IdentifierType};
 use crate::measurement::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
-use crate::{CarbideCliError, CarbideCliResult};
+use crate::measurement::MachineIdList;
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
@@ -38,8 +37,10 @@ use carbide::measured_boot::dto::{
     records::MeasurementSystemProfileRecord,
 };
 use carbide::measured_boot::model::profile::MeasurementSystemProfile;
-use carbide::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
+use serde::Serialize;
 use std::str::FromStr;
+use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
 
 /// dispatch matches + dispatches the correct command for
 /// the `profile` subcommand (e.g. create, delete, etc).
@@ -52,21 +53,21 @@ pub async fn dispatch(
             cli_output(
                 create(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Rename(local_args) => {
             cli_output(
                 rename(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Show(local_args) => {
@@ -74,13 +75,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -89,21 +90,21 @@ pub async fn dispatch(
                 cli_output(
                     list_bundles_for_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::Machines(local_args) => {
                 cli_output(
                     list_machines_for_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -246,23 +247,25 @@ pub async fn rename(
 /// specified on the command line).
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<Vec<MeasurementSystemProfile>> {
+) -> CarbideCliResult<MeasurementSystemProfileList> {
     // Request.
     let request = ShowMeasurementSystemProfilesRequest {};
 
     // Response.
-    grpc_conn
-        .show_measurement_system_profiles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .system_profiles
-        .iter()
-        .map(|system_profile| {
-            MeasurementSystemProfile::try_from(system_profile.clone())
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementSystemProfile>>>()
+    Ok(MeasurementSystemProfileList(
+        grpc_conn
+            .show_measurement_system_profiles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .system_profiles
+            .iter()
+            .map(|system_profile| {
+                MeasurementSystemProfile::try_from(system_profile.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementSystemProfile>>>()?,
+    ))
 }
 
 /// show_by_id_or_name is `show <profile-id|profile-name>` and is used for
@@ -317,23 +320,25 @@ pub async fn show_by_id_or_name(
 /// details, use `show`.
 pub async fn list_all(
     grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<Vec<MeasurementSystemProfileRecord>> {
+) -> CarbideCliResult<MeasurementSystemProfileRecordList> {
     // Request.
     let request = ListMeasurementSystemProfilesRequest {};
 
     // Response.
-    grpc_conn
-        .list_measurement_system_profiles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .system_profiles
-        .iter()
-        .map(|rec| {
-            MeasurementSystemProfileRecord::try_from(rec.clone())
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementSystemProfileRecord>>>()
+    Ok(MeasurementSystemProfileRecordList(
+        grpc_conn
+            .list_measurement_system_profiles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .system_profiles
+            .iter()
+            .map(|rec| {
+                MeasurementSystemProfileRecord::try_from(rec.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementSystemProfileRecord>>>()?,
+    ))
 }
 
 /// list_bundles_by_id_or_name is `list bundles <profile-id|profile-name>` and
@@ -341,7 +346,7 @@ pub async fn list_all(
 pub async fn list_bundles_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_bundles: &ListBundles,
-) -> CarbideCliResult<Vec<MeasurementBundleId>> {
+) -> CarbideCliResult<MeasurementBundleIdList> {
     // Prepare.
     let selector = match get_identifier(list_bundles)? {
         IdentifierType::ForId => {
@@ -379,18 +384,20 @@ pub async fn list_bundles_for_id_or_name(
     let request = ListMeasurementSystemProfileBundlesRequest { selector };
 
     // Response.
-    grpc_conn
-        .list_measurement_system_profile_bundles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .bundle_ids
-        .iter()
-        .map(|rec| {
-            MeasurementBundleId::try_from(rec.clone())
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementBundleId>>>()
+    Ok(MeasurementBundleIdList(
+        grpc_conn
+            .list_measurement_system_profile_bundles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .bundle_ids
+            .iter()
+            .map(|rec| {
+                MeasurementBundleId::try_from(rec.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementBundleId>>>()?,
+    ))
 }
 
 /// list_machines_for_id_or_name is `list machines <profile-id|profile-name>`
@@ -399,7 +406,7 @@ pub async fn list_bundles_for_id_or_name(
 pub async fn list_machines_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> CarbideCliResult<Vec<MachineId>> {
+) -> CarbideCliResult<MachineIdList> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
@@ -437,15 +444,89 @@ pub async fn list_machines_for_id_or_name(
     let request = ListMeasurementSystemProfileMachinesRequest { selector };
 
     // Response.
-    grpc_conn
-        .list_measurement_system_profile_machines(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .machine_ids
-        .iter()
-        .map(|rec| {
-            MachineId::from_str(rec).map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MachineId>>>()
+    Ok(MachineIdList(
+        grpc_conn
+            .list_measurement_system_profile_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .machine_ids
+            .iter()
+            .map(|rec| {
+                MachineId::from_str(rec).map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MachineId>>>()?,
+    ))
+}
+
+/// MeasurementSystemProfileRecordList just implements a newtype pattern
+/// for a Vec<MeasurementSystemProfileRecord> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementSystemProfileRecordList(Vec<MeasurementSystemProfileRecord>);
+
+impl ToTable for MeasurementSystemProfileRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["profile_id", "name", "created_ts"]);
+        for profile in self.0.iter() {
+            table.add_row(prettytable::row![
+                profile.profile_id,
+                profile.name,
+                profile.ts
+            ]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementBundleIdList just implements a newtype pattern
+/// for a Vec<MeasurementBundleId> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementBundleIdList(Vec<MeasurementBundleId>);
+
+impl ToTable for MeasurementBundleIdList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["bundle_id"]);
+        for bundle_id in self.0.iter() {
+            table.add_row(prettytable::row![bundle_id]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementSystemProfileList just implements a newtype
+/// pattern for a Vec<MeasurementSystemProfile> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementSystemProfileList(Vec<MeasurementSystemProfile>);
+
+// When `profile show` gets called (for all entries), and the output format
+// is the default table view, this gets used to print a pretty table.
+impl ToTable for MeasurementSystemProfileList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row![
+            "profile_id",
+            "name",
+            "created_ts",
+            "attributes"
+        ]);
+        for profile in self.0.iter() {
+            let mut attrs_table = prettytable::Table::new();
+            attrs_table.add_row(prettytable::row!["name", "value"]);
+            for attr_record in profile.attrs.iter() {
+                attrs_table.add_row(prettytable::row![attr_record.key, attr_record.value]);
+            }
+            table.add_row(prettytable::row![
+                profile.profile_id,
+                profile.name,
+                profile.ts,
+                attrs_table
+            ]);
+        }
+        Ok(table.to_string())
+    }
 }

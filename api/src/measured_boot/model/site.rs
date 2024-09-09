@@ -27,7 +27,6 @@ use crate::measured_boot::interface::bundle::{
 use crate::measured_boot::interface::bundle::{
     import_measurement_bundles, import_measurement_bundles_values,
 };
-use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::profile::{
     export_measurement_profile_records, export_measurement_system_profiles_attrs,
 };
@@ -38,6 +37,7 @@ use crate::CarbideResult;
 use rpc::protos::measured_boot::{ImportSiteMeasurementsResponse, SiteModelPb};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
+use utils::admin_cli::ToTable;
 
 #[derive(Serialize)]
 pub struct ImportResult {

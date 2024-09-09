@@ -6,14 +6,14 @@ use std::{
 
 use crate::{
     cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
-    machine_update_manager::MachineUpdateManager, model::machine::machine_id::MachineId,
-    CarbideError, CarbideResult,
+    machine_update_manager::MachineUpdateManager, CarbideError, CarbideResult,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
+use forge_uuid::machine::MachineId;
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
 /// to ensure that DPU NIC firmware matches the expected version of the carbide release.

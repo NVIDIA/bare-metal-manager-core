@@ -21,9 +21,10 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         DatabaseError,
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::machine_id::try_parse_machine_id,
     CarbideError,
 };
+use forge_uuid::machine::MachineId;
 
 pub async fn record_hardware_health_report(
     api: &Api,

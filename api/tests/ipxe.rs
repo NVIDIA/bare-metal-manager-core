@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use carbide::{
     db::{self, machine::Machine},
-    model::machine::{machine_id::MachineId, DpuInitState, MachineState, ManagedHostState},
+    model::machine::{DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
-use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, CloudInitInstructionsRequest, DhcpDiscovery};
 

@@ -1,6 +1,7 @@
 use carbide::db::{self, machine_topology::MachineTopology};
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
+use forge_uuid::machine::MachineId;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use sqlx::{Postgres, Row};
 
@@ -95,7 +96,7 @@ async fn test_dns(pool: sqlx::PgPool) {
 
     // And now check to make sure the DNS records exist and,
     // of course, that they are correct.
-    let machine_ids = [host_id, dpu_id];
+    let machine_ids: [MachineId; 2] = [host_id, dpu_id];
     for machine_id in machine_ids.iter() {
         let mut txn = env.pool.begin().await.unwrap();
 

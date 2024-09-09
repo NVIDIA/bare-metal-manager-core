@@ -21,7 +21,7 @@ use carbide::{
     },
     machine_update_manager::MachineUpdateManager,
     model::{
-        machine::{machine_id::MachineId, HostReprovisionState, ManagedHostState},
+        machine::{HostReprovisionState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
             EndpointType, Inventory, PreingestionState, Service,
@@ -32,6 +32,7 @@ use carbide::{
     CarbideResult,
 };
 use common::api_fixtures::{network_segment::create_admin_network_segment, TestEnv};
+use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::DhcpDiscovery;
 use sqlx::{Postgres, Transaction};

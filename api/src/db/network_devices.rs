@@ -18,11 +18,11 @@ use sqlx::{Postgres, Transaction};
 use super::{DatabaseError, ObjectFilter};
 use crate::model::{
     hardware_info::LldpSwitchData,
-    machine::machine_id::MachineId,
     network_devices::{
         DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
     },
 };
+use forge_uuid::machine::MachineId;
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,

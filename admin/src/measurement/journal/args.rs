@@ -20,8 +20,8 @@
 */
 
 use carbide::measured_boot::dto::keys::MeasurementJournalId;
-use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
+use forge_uuid::machine::MachineId;
 
 /// CmdJournal provides a container for the `journal` subcommand, which itself
 /// contains other subcommands for working with journals.

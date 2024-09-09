@@ -14,10 +14,10 @@ use super::machine_update_module::MachineUpdateModule;
 use crate::{
     cfg::{CarbideConfig, FirmwareConfig},
     db::{desired_firmware, host_machine_update::HostMachineUpdate, machine::Machine},
-    model::machine::machine_id::MachineId,
     CarbideResult,
 };
 use async_trait::async_trait;
+use forge_uuid::machine::MachineId;
 use opentelemetry::metrics::{ObservableGauge, Observer};
 use sqlx::{Postgres, Transaction};
 use std::{any::Any, collections::HashSet, fmt, sync::Arc};

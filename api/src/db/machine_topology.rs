@@ -21,8 +21,9 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
 use crate::model::bmc_info::BmcInfo;
-use crate::model::{hardware_info::HardwareInfo, machine::machine_id::MachineId};
+use crate::model::hardware_info::HardwareInfo;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct MachineTopology {

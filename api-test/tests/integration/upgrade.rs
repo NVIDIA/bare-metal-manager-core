@@ -20,7 +20,7 @@ use carbide::db::{
     machine::{Machine, MachineSearchConfig},
     DatabaseError,
 };
-use carbide::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use sqlx::{Pool, Postgres};
 
 use crate::grpcurl::grpcurl;

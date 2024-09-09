@@ -23,8 +23,8 @@
 
 use crate::cfg::measurement::parse_pcr_register_values;
 use carbide::measured_boot::interface::common::PcrRegisterValue;
-use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
+use forge_uuid::machine::MachineId;
 
 /// CmdMachine provides a container for the `mock-machine`
 /// subcommand, which itself contains other subcommands

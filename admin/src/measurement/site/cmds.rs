@@ -15,19 +15,18 @@
 //!
 
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::site::args::{
     ApproveMachine, ApproveProfile, CmdSite, Export, Import, RemoveMachine,
     RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
 };
 use carbide::measured_boot::model::site::{ImportResult, SiteModel};
+use utils::admin_cli::cli_output;
 
 use carbide::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord,
 };
 
-use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
@@ -38,9 +37,10 @@ use ::rpc::protos::measured_boot::{
     MeasurementApprovedTypePb, RemoveMeasurementTrustedMachineRequest,
     RemoveMeasurementTrustedProfileRequest,
 };
+use serde::Serialize;
 use std::fs::File;
 use std::io::BufReader;
-use utils::admin_cli::set_summary;
+use utils::admin_cli::{set_summary, CarbideCliError, CarbideCliResult, ToTable};
 
 /// dispatch matches + dispatches the correct command
 /// for this subcommand.
@@ -53,13 +53,13 @@ pub async fn dispatch(
             cli_output(
                 import(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdSite::Export(local_args) => {
-            let dest: global::cmds::Destination = match &local_args.path {
-                Some(path) => global::cmds::Destination::Path(path.clone()),
-                None => global::cmds::Destination::Stdout(),
+            let dest: utils::admin_cli::Destination = match &local_args.path {
+                Some(path) => utils::admin_cli::Destination::Path(path.clone()),
+                None => utils::admin_cli::Destination::Stdout(),
             };
             cli_output(
                 export(cli.grpc_conn, local_args).await?,
@@ -72,7 +72,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_machine(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedMachine::Remove(selector) => match selector {
@@ -80,14 +80,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_machine_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        global::cmds::Destination::Stdout(),
+                        utils::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveMachine::ByMachineId(local_args) => {
                     cli_output(
                         remove_machine_by_machine_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        global::cmds::Destination::Stdout(),
+                        utils::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -95,7 +95,7 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -104,7 +104,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_profile(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedProfile::Remove(selector) => match selector {
@@ -112,14 +112,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_profile_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        global::cmds::Destination::Stdout(),
+                        utils::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveProfile::ByProfileId(local_args) => {
                     cli_output(
                         remove_profile_by_profile_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        global::cmds::Destination::Stdout(),
+                        utils::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -127,7 +127,7 @@ pub async fn dispatch(
                 cli_output(
                     list_profiles(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -265,23 +265,25 @@ pub async fn remove_machine_by_machine_id(
 /// list_machines lists all trusted machine approvals.
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<Vec<MeasurementApprovedMachineRecord>> {
+) -> CarbideCliResult<MeasurementApprovedMachineRecordList> {
     // Request.
     let request = ListMeasurementTrustedMachinesRequest {};
 
     // Response.
-    grpc_conn
-        .list_measurement_trusted_machines(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .approval_records
-        .iter()
-        .map(|record| {
-            MeasurementApprovedMachineRecord::try_from(record.clone())
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementApprovedMachineRecord>>>()
+    Ok(MeasurementApprovedMachineRecordList(
+        grpc_conn
+            .list_measurement_trusted_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .approval_records
+            .iter()
+            .map(|record| {
+                MeasurementApprovedMachineRecord::try_from(record.clone())
+                    .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementApprovedMachineRecord>>>()?,
+    ))
 }
 
 /// approve_profile is used to approve a trusted profile by profile ID.
@@ -364,21 +366,99 @@ pub async fn remove_profile_by_profile_id(
 /// list_profiles lists all trusted profile approvals.
 pub async fn list_profiles(
     grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<Vec<MeasurementApprovedProfileRecord>> {
+) -> CarbideCliResult<MeasurementApprovedProfileRecordList> {
     // Request.
     let request = ListMeasurementTrustedProfilesRequest {};
 
     // Response.
-    grpc_conn
-        .list_measurement_trusted_profiles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .approval_records
-        .iter()
-        .map(|record| {
-            MeasurementApprovedProfileRecord::try_from(record.clone())
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementApprovedProfileRecord>>>()
+    Ok(MeasurementApprovedProfileRecordList(
+        grpc_conn
+            .list_measurement_trusted_profiles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .approval_records
+            .iter()
+            .map(|record| {
+                MeasurementApprovedProfileRecord::try_from(record.clone())
+                    .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementApprovedProfileRecord>>>()?,
+    ))
+}
+
+/// MeasurementApprovedMachineRecordList just implements a newtype
+/// pattern for a Vec<MeasurementApprovedMachineRecord> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementApprovedMachineRecordList(Vec<MeasurementApprovedMachineRecord>);
+
+impl ToTable for MeasurementApprovedMachineRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row![
+            "approval_id",
+            "machine_id",
+            "approval_type",
+            "ts",
+            "comments",
+        ]);
+        for rec in self.0.iter() {
+            let pcr_registers: String = match rec.pcr_registers.clone() {
+                Some(pcr_registers) => pcr_registers,
+                None => "".to_string(),
+            };
+            let comments: String = match rec.comments.clone() {
+                Some(comments) => comments,
+                None => "".to_string(),
+            };
+            table.add_row(prettytable::row![
+                rec.approval_id,
+                rec.machine_id,
+                rec.approval_type,
+                rec.ts,
+                pcr_registers,
+                comments,
+            ]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementApprovedProfileRecordList just implements a newtype
+/// pattern for a Vec<MeasurementApprovedProfileRecord> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementApprovedProfileRecordList(Vec<MeasurementApprovedProfileRecord>);
+
+impl ToTable for MeasurementApprovedProfileRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row![
+            "approval_id",
+            "profile_id",
+            "approval_type",
+            "ts",
+            "comments",
+        ]);
+        for rec in self.0.iter() {
+            let pcr_registers: String = match rec.pcr_registers.clone() {
+                Some(pcr_registers) => pcr_registers,
+                None => "".to_string(),
+            };
+            let comments: String = match rec.comments.clone() {
+                Some(comments) => comments,
+                None => "".to_string(),
+            };
+            table.add_row(prettytable::row![
+                rec.approval_id,
+                rec.profile_id,
+                rec.approval_type,
+                rec.ts,
+                pcr_registers,
+                comments,
+            ]);
+        }
+        Ok(table.to_string())
+    }
 }

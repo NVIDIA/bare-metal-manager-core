@@ -22,10 +22,8 @@ use opentelemetry::{
     KeyValue,
 };
 
-use crate::model::{
-    machine::machine_id::MachineType,
-    site_explorer::{EndpointExplorationError, MachineExpectation},
-};
+use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
+use forge_uuid::machine::MachineType;
 
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]

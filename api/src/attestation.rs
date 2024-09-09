@@ -22,7 +22,7 @@ use tempdir::TempDir;
 use crate::db::machine::Machine;
 use crate::db::machine::MachineSearchConfig;
 use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use x509_certificate::certificate::X509Certificate;
 
 use tss_esapi::structures::Attest;

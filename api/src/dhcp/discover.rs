@@ -28,9 +28,9 @@ use crate::{
         DatabaseError,
     },
     dhcp::allocation::DhcpError,
-    model::machine::machine_id::MachineId,
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::MachineId;
 
 /// dhcrelay adds remote_id to each dhcp request sent by host.
 /// In case of instance, remote_id should be matched with attached dpu_id.

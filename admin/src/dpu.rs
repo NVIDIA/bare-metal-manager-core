@@ -18,8 +18,9 @@ use ::rpc::{forge::MachineType, Machine, MachineId};
 use prettytable::{row, Row, Table};
 use serde::Serialize;
 
-use super::{rpc, CarbideCliResult};
-use crate::cfg::carbide_options::{AgentUpgradePolicyChoice, OutputFormat};
+use super::rpc;
+use crate::cfg::carbide_options::AgentUpgradePolicyChoice;
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn trigger_reprovisioning(
     id: String,
@@ -44,7 +45,7 @@ pub async fn trigger_reprovisioning(
             if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
                 host_id
             } else {
-                return Err(crate::CarbideCliError::GenericError(format!(
+                return Err(CarbideCliError::GenericError(format!(
                     "Could not find host attached with dpu {id}",
                 )));
             }
@@ -60,7 +61,7 @@ pub async fn trigger_reprovisioning(
 
             if let Some(host_machine) = host_machine {
                 if host_machine.maintenance_reference.is_some() {
-                    return Err(crate::CarbideCliError::GenericError(format!(
+                    return Err(CarbideCliError::GenericError(format!(
                         "Host machine: {:?} is already in maintenance.",
                         host_machine.id,
                     )));

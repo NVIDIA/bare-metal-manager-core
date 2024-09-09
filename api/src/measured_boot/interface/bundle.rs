@@ -17,14 +17,15 @@
 
 use std::ops::DerefMut;
 
-use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleStateRecord,
     MeasurementBundleValueRecord, MeasurementReportRecord,
 };
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::{DbPrimaryUuid, DbTable};
 use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_bundle_record is a very basic insert of a

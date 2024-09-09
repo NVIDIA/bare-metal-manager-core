@@ -18,8 +18,9 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
     db::DatabaseError,
-    model::machine::{machine_id::MachineId, MachineStateHistory, ManagedHostState},
+    model::machine::{MachineStateHistory, ManagedHostState},
 };
+use forge_uuid::machine::MachineId;
 
 /// History of Machine states for a single Machine
 #[derive(Debug, Clone, FromRow)]

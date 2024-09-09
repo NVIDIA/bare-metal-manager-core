@@ -15,12 +15,10 @@
 //!
 
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::report::args::{
     CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
     ShowForMachine,
 };
-use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::list_measurement_report_request;
 use ::rpc::protos::measured_boot::{
@@ -33,6 +31,8 @@ use carbide::measured_boot::dto::records::MeasurementReportRecord;
 use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::measured_boot::model::report::MeasurementReport;
+use serde::Serialize;
+use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
 
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
@@ -45,28 +45,28 @@ pub async fn dispatch(
             cli_output(
                 create_for_id(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Promote(local_args) => {
             cli_output(
                 promote(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Revoke(local_args) => {
             cli_output(
                 revoke(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Show(selector) => match selector {
@@ -74,20 +74,20 @@ pub async fn dispatch(
                 cli_output(
                     show_for_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             ShowFor::Machine(local_args) => {
                 cli_output(
                     show_for_machine(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             ShowFor::All => cli_output(
                 show_all(cli.grpc_conn).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?,
         },
         CmdReport::List(selector) => match selector {
@@ -95,14 +95,14 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -110,7 +110,7 @@ pub async fn dispatch(
             cli_output(
                 match_values(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
     }
@@ -236,74 +236,80 @@ pub async fn show_for_id(
 pub async fn show_for_machine(
     grpc_conn: &mut ForgeClientT,
     show_for_machine: &ShowForMachine,
-) -> CarbideCliResult<Vec<MeasurementReport>> {
+) -> CarbideCliResult<MeasurementReportList> {
     // Request.
     let request = ShowMeasurementReportsForMachineRequest {
         machine_id: show_for_machine.machine_id.to_string(),
     };
 
     // Response.
-    grpc_conn
-        .show_measurement_reports_for_machine(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .reports
-        .iter()
-        .map(|report| {
-            MeasurementReport::try_from(report.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementReport>>>()
+    Ok(MeasurementReportList(
+        grpc_conn
+            .show_measurement_reports_for_machine(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .reports
+            .iter()
+            .map(|report| {
+                MeasurementReport::try_from(report.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
+    ))
 }
 
 /// show_all dumps all info about all reports.
-pub async fn show_all(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<MeasurementReport>> {
+pub async fn show_all(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<MeasurementReportList> {
     // Request.
     let request = ShowMeasurementReportsRequest {};
 
     // Response.
-    grpc_conn
-        .show_measurement_reports(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .reports
-        .iter()
-        .map(|report| {
-            MeasurementReport::try_from(report.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementReport>>>()
+    Ok(MeasurementReportList(
+        grpc_conn
+            .show_measurement_reports(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .reports
+            .iter()
+            .map(|report| {
+                MeasurementReport::try_from(report.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
+    ))
 }
 
 /// list lists all bundle ids.
 pub async fn list_all(
     grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
+) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
 
     // Response.
-    grpc_conn
-        .list_measurement_report(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .reports
-        .iter()
-        .map(|report| {
-            MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
+    Ok(MeasurementReportRecordList(
+        grpc_conn
+            .list_measurement_report(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .reports
+            .iter()
+            .map(|report| {
+                MeasurementReportRecord::try_from(report.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+    ))
 }
 
 /// list_machines lists all reports for the given machine ID.
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
+) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest {
         selector: Some(list_measurement_report_request::Selector::MachineId(
@@ -312,18 +318,20 @@ pub async fn list_machines(
     };
 
     // Response.
-    grpc_conn
-        .list_measurement_report(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .reports
-        .iter()
-        .map(|report| {
-            MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
+    Ok(MeasurementReportRecordList(
+        grpc_conn
+            .list_measurement_report(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .reports
+            .iter()
+            .map(|report| {
+                MeasurementReportRecord::try_from(report.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+    ))
 }
 
 /// match_values matches all reports with the provided PCR values.
@@ -332,23 +340,81 @@ pub async fn list_machines(
 pub async fn match_values(
     grpc_conn: &mut ForgeClientT,
     match_args: &Match,
-) -> CarbideCliResult<Vec<MeasurementReportRecord>> {
+) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = MatchMeasurementReportRequest {
         pcr_values: PcrRegisterValue::to_pb_vec(&match_args.values),
     };
 
     // Response.
-    grpc_conn
-        .match_measurement_report(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .reports
-        .iter()
-        .map(|report| {
-            MeasurementReportRecord::try_from(report.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()
+    Ok(MeasurementReportRecordList(
+        grpc_conn
+            .match_measurement_report(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .reports
+            .iter()
+            .map(|report| {
+                MeasurementReportRecord::try_from(report.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
+    ))
+}
+
+/// MeasurementReportRecordList just implements a newtype pattern
+/// for a Vec<MeasurementReportRecord> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementReportRecordList(Vec<MeasurementReportRecord>);
+
+impl ToTable for MeasurementReportRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["report_id", "machine_id", "created_ts"]);
+        for report in self.0.iter() {
+            table.add_row(prettytable::row![
+                report.report_id,
+                report.machine_id,
+                report.ts
+            ]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementReportList just implements a newtype
+/// pattern for a Vec<MeasurementReport> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementReportList(Vec<MeasurementReport>);
+
+// When `report show` gets called (for all entries), and the output format
+// is the default table view, this gets used to print a pretty table.
+impl ToTable for MeasurementReportList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["report_id", "details", "values"]);
+        for report in self.0.iter() {
+            let mut details_table = prettytable::Table::new();
+            details_table.add_row(prettytable::row!["report_id", report.report_id]);
+            details_table.add_row(prettytable::row!["machine_id", report.machine_id]);
+            details_table.add_row(prettytable::row!["created_ts", report.ts]);
+            let mut values_table = prettytable::Table::new();
+            values_table.add_row(prettytable::row!["pcr_register", "value"]);
+            for value_record in report.values.iter() {
+                values_table.add_row(prettytable::row![
+                    value_record.pcr_register,
+                    value_record.sha256
+                ]);
+            }
+            table.add_row(prettytable::row![
+                report.report_id,
+                details_table,
+                values_table
+            ]);
+        }
+        Ok(table.to_string())
+    }
 }

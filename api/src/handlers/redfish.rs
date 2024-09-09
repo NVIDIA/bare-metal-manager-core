@@ -1,5 +1,6 @@
 use ::rpc::forge::{self as rpc};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use forge_uuid::machine::MachineId;
 use libredfish::Redfish;
 use mac_address::MacAddress;
 use tonic::{Response, Status};
@@ -7,7 +8,7 @@ use tonic::{Response, Status};
 use crate::{
     api::{log_machine_id, log_request_data, Api},
     db::{self, managed_host::LoadSnapshotOptions, DatabaseError},
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::machine_id::try_parse_machine_id,
     redfish::RedfishAuth,
     CarbideError,
 };

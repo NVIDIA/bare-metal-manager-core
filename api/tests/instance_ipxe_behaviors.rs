@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::{
-    db::{self},
-    model::machine::machine_id::MachineId,
-};
+use carbide::db::{self};
 use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, PxeInstructions};
 
@@ -25,7 +22,7 @@ use crate::common::api_fixtures::{
     },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 pub mod common;
 

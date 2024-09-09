@@ -25,7 +25,8 @@ use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use crate::api::Api;
-use crate::model::machine::machine_id::{self, MachineId, MachineType};
+use crate::model::machine::machine_id::try_parse_machine_id;
+use forge_uuid::machine::{MachineId, MachineType};
 
 pub async fn find(
     AxumState(state): AxumState<Arc<Api>>,
@@ -172,7 +173,7 @@ async fn find_by_serial(state: Arc<Api>, serial_number: &str) -> Option<MachineI
         .map(|response| response.into_inner())
     {
         Ok(resp) if resp.machine_id.is_some() => {
-            match machine_id::try_parse_machine_id(resp.machine_id.as_ref().unwrap()) {
+            match try_parse_machine_id(resp.machine_id.as_ref().unwrap()) {
                 Ok(id) => Some(id),
                 Err(err) => {
                     tracing::warn!(

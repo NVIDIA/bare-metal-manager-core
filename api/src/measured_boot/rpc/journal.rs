@@ -19,7 +19,7 @@ use crate::measured_boot::interface::journal::{
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use crate::measured_boot::{dto::keys::MeasurementJournalId, model::journal::MeasurementJournal};
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{
     list_measurement_journal_request, show_measurement_journal_request, MeasurementJournalRecordPb,
 };

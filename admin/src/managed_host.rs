@@ -13,13 +13,14 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use super::{rpc, CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
+use super::rpc;
+use crate::cfg::carbide_options::ShowManagedHost;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 use tracing::warn;
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 const UNKNOWN: &str = "Unknown";
 

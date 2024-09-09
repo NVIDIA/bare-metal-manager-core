@@ -17,7 +17,8 @@ use crate::db::machine::Machine;
 use crate::db::machine_topology::MachineTopology;
 use crate::measured_boot::model::machine::CandidateMachine;
 use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::{machine_id::MachineId, ManagedHostState};
+use crate::model::machine::ManagedHostState;
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 

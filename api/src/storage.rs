@@ -22,7 +22,6 @@ use uuid::Uuid;
 
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::model::machine::machine_id::MachineId;
 use crate::model::storage::{
     OsImage, OsImageAttributes, OsImageStatus, StorageCluster, StorageClusterAttributes,
     StoragePool, StoragePoolAttributes, StorageVolume, StorageVolumeAttributes,
@@ -30,6 +29,7 @@ use crate::model::storage::{
 };
 use crate::model::tenant::TenantOrganizationId;
 use crate::CarbideError;
+use forge_uuid::machine::MachineId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {

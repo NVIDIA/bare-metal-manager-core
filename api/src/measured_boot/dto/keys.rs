@@ -24,11 +24,10 @@
  *  mad because it cant bind it as a UUID.
 */
 
-use crate::db::DbPrimaryUuid;
-use crate::measured_boot::interface::common::ToTable;
-use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
+use forge_uuid::DbPrimaryUuid;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo};
@@ -323,17 +322,6 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleId {
             return Err(CarbideError::MissingArgument("MeasurementBundleId").into());
         };
         Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl ToTable for Vec<MeasurementBundleId> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["bundle_id"]);
-        for bundle_id in self.iter() {
-            table.add_row(prettytable::row![bundle_id]);
-        }
-        Ok(table.to_string())
     }
 }
 

@@ -24,10 +24,11 @@ use ::rpc::errors::RpcDataConversionError;
 use config_version::{ConfigVersion, ConfigVersionParseError};
 use dhcp::allocation::DhcpError;
 use eyre::WrapErr;
+use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::{
-    hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
-    tenant::TenantError, ConfigValidationError,
+    hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
+    ConfigValidationError,
 };
 use std::sync::Arc;
 use std::{

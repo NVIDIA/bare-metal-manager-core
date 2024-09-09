@@ -20,7 +20,7 @@ mod tests {
     use crate::measured_boot::dto::keys::{MeasurementReportId, MeasurementSystemProfileId};
     use crate::measured_boot::dto::records::MeasurementMachineState;
     use crate::measured_boot::model::journal::MeasurementJournal;
-    use crate::model::machine::machine_id::MachineId;
+    use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 
     // test_journal_crudl makes sure database constraints

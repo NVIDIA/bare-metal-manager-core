@@ -20,13 +20,11 @@ use carbide::{
     db::{self, network_segment::NetworkSegmentIdKeyedObjectFilter},
     model::{
         hardware_info::HardwareInfo,
-        machine::{
-            machine_id::{try_parse_machine_id, MachineId},
-            ManagedHostState,
-        },
+        machine::{machine_id::try_parse_machine_id, ManagedHostState},
     },
     state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
+use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use rpc::forge::HardwareHealthReport;
 use rpc::{

@@ -19,11 +19,9 @@ use carbide::{
         machine_topology::MachineTopology,
     },
     ib::DEFAULT_IB_FABRIC_NAME,
-    model::machine::{
-        machine_id::{try_parse_machine_id, MachineId, MachineType},
-        InstanceState, ManagedHostState,
-    },
+    model::machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
 };
+use forge_uuid::machine::{MachineId, MachineType};
 use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
 pub mod common;

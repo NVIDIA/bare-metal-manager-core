@@ -19,14 +19,12 @@ use sqlx::{Postgres, Transaction};
 
 use carbide::{
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
-    model::{
-        machine::machine_id::MachineId,
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, Inventory, Service,
-        },
+    model::site_explorer::{
+        Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+        Inventory, Service,
     },
 };
+use forge_uuid::machine::MachineId;
 
 pub async fn insert_endpoint_version(
     txn: &mut Transaction<'_, Postgres>,

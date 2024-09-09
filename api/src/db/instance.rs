@@ -30,7 +30,6 @@ use crate::{
                 storage::InstanceStorageStatusObservation, InstanceStatusObservations,
             },
         },
-        machine::machine_id::MachineId,
         metadata::Metadata,
         os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
         storage::StorageVolume,
@@ -42,7 +41,7 @@ use crate::{
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::{instance::InstanceId, vpc::VpcId};
+use forge_uuid::{instance::InstanceId, machine::MachineId, vpc::VpcId};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 ///

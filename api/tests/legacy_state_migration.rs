@@ -23,12 +23,10 @@ use carbide::{
         self,
         states::machine::{migrate_machines, ManagedHostStateV1 as OldStates},
     },
-    model::machine::{
-        machine_id::MachineId, DpuDiscoveringState, DpuInitState, ManagedHostState,
-        ReprovisionState,
-    },
+    model::machine::{DpuDiscoveringState, DpuInitState, ManagedHostState, ReprovisionState},
 };
 use common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 
 async fn update_host_state(

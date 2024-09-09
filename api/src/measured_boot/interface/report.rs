@@ -22,7 +22,7 @@ use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, QueryBuilder, Transaction};
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:sha256)

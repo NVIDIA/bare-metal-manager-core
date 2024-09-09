@@ -55,7 +55,9 @@ use crate::handlers::machine_validation::{
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
-use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
+use crate::model::machine::machine_id::{
+    from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
+};
 use crate::model::machine::{
     get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
     FailureSource, ManagedHostState, ManagedHostStateSnapshot,
@@ -79,13 +81,14 @@ use crate::{
     ethernet_virtualization,
     model::{
         hardware_info::HardwareInfo,
-        machine::{machine_id::MachineId, MachineState, MeasuringState},
+        machine::{MachineState, MeasuringState},
     },
     redfish::RedfishClientPool,
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
 use utils::HostPortPair;
 
@@ -583,7 +586,7 @@ impl Forge for Api {
         let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
 
         // Generate a stable Machine ID based on the hardware information
-        let stable_machine_id = MachineId::from_hardware_info(&hardware_info).map_err(|e| {
+        let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
                 format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {:?}: {e}", interface_id),
             )
@@ -710,7 +713,7 @@ impl Forge for Api {
             // Create host machine with temporary ID if no machine is attached.
             if machine_interface.machine_id.is_none() {
                 let predicted_machine_id =
-                    MachineId::host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
+                    host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
                         CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;

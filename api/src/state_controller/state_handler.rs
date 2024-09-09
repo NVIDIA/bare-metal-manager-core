@@ -21,11 +21,12 @@ use crate::{
     db::DatabaseError,
     ib::IBFabricManager,
     ipmitool::IPMITool,
-    model::machine::{machine_id::MachineId, ManagedHostState},
+    model::machine::ManagedHostState,
     redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
     storage::NvmeshClientPool,
 };
+use forge_uuid::machine::MachineId;
 
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {

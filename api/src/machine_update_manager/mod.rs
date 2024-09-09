@@ -39,9 +39,9 @@ use crate::{
         machine::{Machine, MachineSearchConfig, MaintenanceMode},
         DatabaseError, ObjectFilter,
     },
-    model::machine::machine_id::MachineId,
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::MachineId;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:

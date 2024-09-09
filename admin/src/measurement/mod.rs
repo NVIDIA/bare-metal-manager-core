@@ -26,7 +26,9 @@ pub mod site;
 use crate::cfg::measurement::{Cmd, GlobalOptions};
 use crate::measurement::global::cmds::get_forge_client;
 use ::rpc::forge_tls_client::ApiConfig;
-use utils::admin_cli::set_summary;
+use forge_uuid::machine::MachineId;
+use serde::Serialize;
+use utils::admin_cli::{set_summary, ToTable};
 
 pub async fn dispatch(
     command: &Cmd,
@@ -61,4 +63,18 @@ pub async fn dispatch(
     }
 
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct MachineIdList(Vec<MachineId>);
+
+impl ToTable for MachineIdList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["machine_id"]);
+        for machine_id in self.0.iter() {
+            table.add_row(prettytable::row![machine_id]);
+        }
+        Ok(table.to_string())
+    }
 }

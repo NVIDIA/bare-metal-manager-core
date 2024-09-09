@@ -22,19 +22,19 @@ use crate::measured_boot::dto::keys::{
 };
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
     get_measurement_journal_records_for_machine_id, insert_measurement_journal_record,
 };
-use crate::model::machine::machine_id::MachineId;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 use std::ops::DerefMut;
 use std::str::FromStr;
+use utils::admin_cli::ToTable;
 use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 
 /// MeasurementJournal is a composition of a MeasurementJournalRecord,
@@ -258,36 +258,6 @@ impl ToTable for MeasurementJournal {
         }
         table.add_row(prettytable::row!["state", self.state]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
-        Ok(table.to_string())
-    }
-}
-
-// When `journal show` gets called (for all entries), and the output format
-// is the default table view, this gets used to print a pretty table.
-impl ToTable for Vec<MeasurementJournal> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["journal_id", "details"]);
-        for journal in self.iter() {
-            let profile_id: String = match journal.profile_id {
-                Some(profile_id) => profile_id.to_string(),
-                None => "<none>".to_string(),
-            };
-            let bundle_id: String = match journal.bundle_id {
-                Some(bundle_id) => bundle_id.to_string(),
-                None => "<none>".to_string(),
-            };
-            let mut details_table = prettytable::Table::new();
-            details_table.add_row(prettytable::row!["machine_id", journal.machine_id]);
-            if !just_print_summary() {
-                details_table.add_row(prettytable::row!["report_id", journal.report_id]);
-                details_table.add_row(prettytable::row!["profile_id", profile_id]);
-                details_table.add_row(prettytable::row!["bundle_id", bundle_id]);
-            }
-            details_table.add_row(prettytable::row!["state", journal.state]);
-            details_table.add_row(prettytable::row!["created_ts", journal.ts]);
-            table.add_row(prettytable::row![journal.journal_id, details_table,]);
-        }
         Ok(table.to_string())
     }
 }

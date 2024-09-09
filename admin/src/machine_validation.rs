@@ -7,14 +7,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::{rpc, CarbideCliResult};
+use super::rpc;
 use crate::cfg::carbide_options::{
-    OutputFormat, ShowMachineValidationResultsOptions, ShowMachineValidationRunsOptions,
+    ShowMachineValidationResultsOptions, ShowMachineValidationRunsOptions,
 };
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 use std::fmt::Write;
+use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 pub async fn external_config_show(
     api_config: &ApiConfig<'_>,

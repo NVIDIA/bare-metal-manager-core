@@ -13,8 +13,8 @@ use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 
-use super::CarbideCliResult;
 use crate::rpc;
+use utils::admin_cli::CarbideCliResult;
 
 pub async fn list<'a>(api_config: &ApiConfig<'a>) -> CarbideCliResult<()> {
     let response =

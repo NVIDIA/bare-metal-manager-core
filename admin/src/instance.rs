@@ -16,9 +16,9 @@ use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowInstance;
-use super::{default_uuid, invalid_machine_id, rpc, CarbideCliResult};
-use crate::cfg::carbide_options::{OutputFormat, RebootInstance};
-use crate::CarbideCliError;
+use super::{default_uuid, invalid_machine_id, rpc};
+use crate::cfg::carbide_options::RebootInstance;
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
