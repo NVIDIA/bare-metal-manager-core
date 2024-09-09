@@ -302,8 +302,8 @@ pub async fn run(
         status_out.last_dhcp_requests = last_dhcp_requests;
 
         // `read` does not block
-        match *network_config_reader.read() {
-            Some(ref conf) => {
+        match network_config_reader.read() {
+            Some(conf) => {
                 let instance_data = instance_metadata_reader.read();
 
                 let proposed_routes: Vec<_> = conf
@@ -326,7 +326,7 @@ pub async fn run(
                         DEFAULT_NETWORK_VIRTUALIZATION_TYPE
                     });
 
-                let tenant_peers = ethernet_virtualization::tenant_peers(conf);
+                let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
                     // Generate the fmds interface plan from the config. This does not apply the plan.
@@ -362,7 +362,7 @@ pub async fn run(
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &agent.hbn.root_dir,
-                        conf,
+                        &conf,
                         agent.hbn.skip_reload,
                         pxe_ip,
                         ntpservers.clone(),
@@ -375,7 +375,7 @@ pub async fn run(
                         VpcVirtualizationType::EthernetVirtualizer => {
                             ethernet_virtualization::update_files(
                                 &agent.hbn.root_dir,
-                                conf,
+                                &conf,
                                 agent.hbn.skip_reload,
                             )
                             .await
@@ -403,7 +403,7 @@ pub async fn run(
 
                             ethernet_virtualization::update_nvue(
                                 &agent.hbn.root_dir,
-                                conf,
+                                &conf,
                                 agent.hbn.skip_reload,
                             )
                             .await
@@ -491,7 +491,7 @@ pub async fn run(
                             current_instance_network_config_version =
                                 status_out.instance_network_config_version.clone();
 
-                            match ethernet_virtualization::interfaces(conf, mac_address).await {
+                            match ethernet_virtualization::interfaces(&conf, mac_address).await {
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
@@ -508,9 +508,11 @@ pub async fn run(
                     // In case of secondary DPU, physical interface must be disabled.
                     // TODO:  multidpu: This logic has to be improved to support instance handling where physical
                     // interface should be enabled on secondary DPU also.
-                    if let Err(err) =
-                        ethernet_virtualization::update_interface_state(conf, agent.hbn.skip_reload)
-                            .await
+                    if let Err(err) = ethernet_virtualization::update_interface_state(
+                        &conf,
+                        agent.hbn.skip_reload,
+                    )
+                    .await
                     {
                         tracing::error!(error = format!("{err:#}"), "Updating interface state.");
                         // no need to mark anything fail. It is just a temporary fix.
@@ -525,6 +527,7 @@ pub async fn run(
                 // carbide via the status message is actually visible to the tenant via
                 // FMDS
                 instance_metadata_state.update_instance_data(instance_data.clone());
+                instance_metadata_state.update_network_configuration(Some(conf.clone()));
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());
