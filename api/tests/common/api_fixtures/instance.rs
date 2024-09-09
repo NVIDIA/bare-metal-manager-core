@@ -14,13 +14,10 @@ use std::time::SystemTime;
 
 use carbide::{
     db::machine::Machine,
-    model::{
-        machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
-        machine::ManagedHostState,
-    },
+    model::{machine::CleanupState, machine::MachineState, machine::ManagedHostState},
     state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
-use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
+use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};
 
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;

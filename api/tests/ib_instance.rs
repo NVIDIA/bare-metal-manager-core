@@ -15,7 +15,7 @@ use carbide::{
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
     },
-    model::machine::{machine_id::MachineId, InstanceState, ManagedHostState},
+    model::machine::{InstanceState, ManagedHostState},
 };
 use common::api_fixtures::{
     create_managed_host, create_test_env,
@@ -24,6 +24,7 @@ use common::api_fixtures::{
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     TestEnv,
 };
+use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 
 pub mod common;

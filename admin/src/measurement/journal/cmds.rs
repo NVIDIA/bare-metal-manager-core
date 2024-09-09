@@ -15,9 +15,7 @@
 //!
 
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::journal::args::{CmdJournal, Delete, List, Show};
-use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
@@ -27,6 +25,10 @@ use ::rpc::protos::measured_boot::{
 };
 use carbide::measured_boot::dto::records::MeasurementJournalRecord;
 use carbide::measured_boot::model::journal::MeasurementJournal;
+use serde::Serialize;
+use utils::admin_cli::{
+    cli_output, just_print_summary, CarbideCliError, CarbideCliResult, ToTable,
+};
 
 /// dispatch matches + dispatches the correct command for
 /// the `journal` subcommand.
@@ -39,7 +41,7 @@ pub async fn dispatch(
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdJournal::Show(local_args) => {
@@ -47,13 +49,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -61,7 +63,7 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
     }
@@ -132,23 +134,25 @@ pub async fn show_by_id(
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
-) -> CarbideCliResult<Vec<MeasurementJournal>> {
+) -> CarbideCliResult<MeasurementJournalList> {
     // Request.
     let request = ShowMeasurementJournalsRequest {};
 
     // Response.
-    grpc_conn
-        .show_measurement_journals(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_mut()
-        .journals
-        .drain(..)
-        .map(|journal| {
-            MeasurementJournal::from_grpc(Some(&journal))
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementJournal>>>()
+    Ok(MeasurementJournalList(
+        grpc_conn
+            .show_measurement_journals(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_mut()
+            .journals
+            .drain(..)
+            .map(|journal| {
+                MeasurementJournal::from_grpc(Some(&journal))
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementJournal>>>()?,
+    ))
 }
 
 /// list just lists all journal IDs.
@@ -157,7 +161,7 @@ pub async fn show_all(
 pub async fn list(
     grpc_conn: &mut ForgeClientT,
     list: &List,
-) -> CarbideCliResult<Vec<MeasurementJournalRecord>> {
+) -> CarbideCliResult<MeasurementJournalRecordList> {
     // Request.
     let request = match list.machine_id.clone() {
         Some(machine_id) => ListMeasurementJournalRequest {
@@ -169,16 +173,113 @@ pub async fn list(
     };
 
     // Response.
-    grpc_conn
-        .list_measurement_journal(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_mut()
-        .journals
-        .drain(..)
-        .map(|journal| {
-            MeasurementJournalRecord::try_from(journal)
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementJournalRecord>>>()
+    Ok(MeasurementJournalRecordList(
+        grpc_conn
+            .list_measurement_journal(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_mut()
+            .journals
+            .drain(..)
+            .map(|journal| {
+                MeasurementJournalRecord::try_from(journal)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementJournalRecord>>>()?,
+    ))
+}
+
+/// MeasurementJournalRecordList just implements a newtype pattern
+/// for a Vec<MeasurementJournalRecord> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementJournalRecordList(Vec<MeasurementJournalRecord>);
+
+impl ToTable for MeasurementJournalRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        if just_print_summary() {
+            table.add_row(prettytable::row![
+                "journal_id",
+                "machine_id",
+                "state",
+                "created_ts"
+            ]);
+        } else {
+            table.add_row(prettytable::row![
+                "journal_id",
+                "machine_id",
+                "report_id",
+                "profile_id",
+                "bundle_id",
+                "state",
+                "created_ts"
+            ]);
+        }
+        for journal in self.0.iter() {
+            let profile_id: String = match journal.profile_id {
+                Some(profile_id) => profile_id.to_string(),
+                None => "<none>".to_string(),
+            };
+            let bundle_id: String = match journal.bundle_id {
+                Some(bundle_id) => bundle_id.to_string(),
+                None => "<none>".to_string(),
+            };
+            if just_print_summary() {
+                table.add_row(prettytable::row![
+                    journal.journal_id,
+                    journal.machine_id,
+                    journal.state,
+                    journal.ts
+                ]);
+            } else {
+                table.add_row(prettytable::row![
+                    journal.journal_id,
+                    journal.machine_id,
+                    journal.report_id,
+                    profile_id,
+                    bundle_id,
+                    journal.state,
+                    journal.ts
+                ]);
+            }
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementJournalList just implements a newtype
+/// pattern for a Vec<MeasurementJournal> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementJournalList(Vec<MeasurementJournal>);
+
+// When `journal show` gets called (for all entries), and the output format
+// is the default table view, this gets used to print a pretty table.
+impl ToTable for MeasurementJournalList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["journal_id", "details"]);
+        for journal in self.0.iter() {
+            let profile_id: String = match journal.profile_id {
+                Some(profile_id) => profile_id.to_string(),
+                None => "<none>".to_string(),
+            };
+            let bundle_id: String = match journal.bundle_id {
+                Some(bundle_id) => bundle_id.to_string(),
+                None => "<none>".to_string(),
+            };
+            let mut details_table = prettytable::Table::new();
+            details_table.add_row(prettytable::row!["machine_id", journal.machine_id]);
+            if !just_print_summary() {
+                details_table.add_row(prettytable::row!["report_id", journal.report_id]);
+                details_table.add_row(prettytable::row!["profile_id", profile_id]);
+                details_table.add_row(prettytable::row!["bundle_id", bundle_id]);
+            }
+            details_table.add_row(prettytable::row!["state", journal.state]);
+            details_table.add_row(prettytable::row!["created_ts", journal.ts]);
+            table.add_row(prettytable::row![journal.journal_id, details_table,]);
+        }
+        Ok(table.to_string())
+    }
 }

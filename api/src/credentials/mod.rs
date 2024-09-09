@@ -6,11 +6,9 @@ use ::rpc::forge::{
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use mac_address::MacAddress;
 
-use crate::{
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
-    CarbideError, CarbideResult,
-};
+use crate::{model::machine::machine_id::try_parse_machine_id, CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
 
 pub struct UpdateCredentials {
     pub machine_id: MachineId,

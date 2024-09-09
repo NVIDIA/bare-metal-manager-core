@@ -18,8 +18,8 @@ use prettytable::Cell;
 use prettytable::Row;
 use tracing::warn;
 
-use super::cfg::carbide_options::{OutputFormat, ShowMachineInterfaces};
-use super::CarbideCliResult;
+use super::cfg::carbide_options::ShowMachineInterfaces;
+use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 use super::rpc;
 use crate::cfg::carbide_options::DeleteMachineInterfaces;

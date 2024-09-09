@@ -19,11 +19,10 @@ use crate::{
         config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
         status::storage::InstanceStorageStatusObservation,
     },
-    model::machine::machine_id::MachineId,
     model::storage::StorageCluster,
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
 };
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 pub(crate) async fn attach_storage_volumes(
     services: &StateHandlerServices,

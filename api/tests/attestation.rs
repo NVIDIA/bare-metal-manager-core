@@ -24,7 +24,6 @@ pub mod tests {
     //use carbide::attestation::extract_cred_secret;
     use carbide::model::hardware_info::TpmEkCertificate;
     use carbide::model::machine::machine_id::try_parse_machine_id;
-    use carbide::model::machine::machine_id::MachineId;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::dpu::create_dpu_machine;
     use common::api_fixtures::host::create_host_machine;
@@ -34,6 +33,7 @@ pub mod tests {
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
+    use forge_uuid::machine::MachineId;
     use rpc::forge::forge_server::Forge;
     use rpc::forge::BindRequest;
     use rpc::forge::VerifyQuoteRequest;

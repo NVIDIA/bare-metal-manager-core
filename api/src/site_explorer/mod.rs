@@ -43,8 +43,8 @@ use crate::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
         machine::{
-            machine_id::{MachineId, MachineType},
-            DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
+            machine_id::host_id_from_dpu_hardware_info, DpuDiscoveringState, DpuDiscoveringStates,
+            MachineInterfaceSnapshot, ManagedHostState,
         },
         site_explorer::{
             EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
@@ -54,6 +54,7 @@ use crate::{
     resource_pool::common::CommonPools,
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::{MachineId, MachineType};
 
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
@@ -1423,7 +1424,7 @@ impl SiteExplorer {
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
-        let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&dpu_hw_info)
+        let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
         let _host_machine =
             Machine::create(txn, &predicted_machine_id, ManagedHostState::Created).await?;

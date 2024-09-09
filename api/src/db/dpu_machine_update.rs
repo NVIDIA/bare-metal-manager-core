@@ -8,9 +8,10 @@ use crate::{
     machine_update_manager::machine_update_module::{
         AutomaticFirmwareUpdateReference, DpuReprovisionInitiator,
     },
-    model::machine::{machine_id::MachineId, ReprovisionRequest},
+    model::machine::ReprovisionRequest,
     CarbideError,
 };
+use forge_uuid::machine::MachineId;
 
 use super::DatabaseError;
 

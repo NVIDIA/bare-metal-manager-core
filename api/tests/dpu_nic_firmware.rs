@@ -13,12 +13,13 @@ use carbide::{
         dpu_nic_firmware::DpuNicFirmwareUpdate,
         machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::machine_id::try_parse_machine_id,
 };
 use common::api_fixtures::{
     create_test_env, dpu::create_dpu_machine, host::create_host_machine,
     managed_host::create_managed_host_multi_dpu,
 };
+use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use sqlx::Row;
 

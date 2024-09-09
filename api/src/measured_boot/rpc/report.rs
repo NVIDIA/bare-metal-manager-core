@@ -26,9 +26,9 @@ use crate::measured_boot::{
     interface::common::{parse_pcr_index_input, PcrRegisterValue, PcrSet},
     model::report::MeasurementReport,
 };
-use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,

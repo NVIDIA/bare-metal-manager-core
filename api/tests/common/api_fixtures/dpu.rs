@@ -21,13 +21,11 @@ use carbide::{
     },
     model::{
         hardware_info::HardwareInfo,
-        machine::{
-            machine_id::{try_parse_machine_id, MachineId},
-            DpuInitState, MachineState, ManagedHostState,
-        },
+        machine::{machine_id::try_parse_machine_id, DpuInitState, MachineState, ManagedHostState},
     },
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
+use forge_uuid::machine::MachineId;
 use rpc::{
     forge::{
         forge_server::Forge,
@@ -36,6 +34,7 @@ use rpc::{
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
+
 use tonic::Request;
 
 use crate::common::api_fixtures::{

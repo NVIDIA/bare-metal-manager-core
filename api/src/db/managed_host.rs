@@ -25,10 +25,10 @@ use crate::{
     },
     model::{
         instance::snapshot::InstanceSnapshot,
-        machine::{machine_id::MachineId, MachineSnapshot, ManagedHostStateSnapshot},
+        machine::{MachineSnapshot, ManagedHostStateSnapshot},
     },
 };
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 /// Loads a ManagedHost snapshot from the database
 pub async fn load_snapshot(

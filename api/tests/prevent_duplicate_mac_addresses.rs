@@ -15,7 +15,7 @@ use carbide::db::{
     machine::Machine,
     network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
 };
-use carbide::model::machine::machine_id::MachineId;
+use carbide::model::machine::machine_id::from_hardware_info;
 use carbide::CarbideError;
 
 pub mod common;
@@ -58,8 +58,7 @@ async fn prevent_duplicate_mac_addresses(
     )
     .await?;
 
-    let machine_id =
-        MachineId::from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
+    let machine_id = from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
     Machine::get_or_create(&mut txn, &machine_id, &new_interface).await?;
 
     let duplicate_interface = db::machine_interface::create(

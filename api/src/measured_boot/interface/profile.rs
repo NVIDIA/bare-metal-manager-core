@@ -15,13 +15,14 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
-use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
 };
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::{DbPrimaryUuid, DbTable};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;

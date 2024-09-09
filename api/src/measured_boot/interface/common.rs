@@ -27,8 +27,9 @@ use sqlx::postgres::PgRow;
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Encode, Pool, Postgres, Transaction};
 
-use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
+use crate::db::DatabaseError;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::{DbPrimaryUuid, DbTable};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -66,21 +67,6 @@ pub fn filter_machine_discovery_attrs(
 pub enum ConnType<'p, 'm, 't> {
     DbConn(&'p Pool<Postgres>),
     Txn(&'m Transaction<'t, Postgres>),
-}
-
-/// ToTable is a trait which is used alongside the cli_output command
-/// and being able to prettytable print results.
-pub trait ToTable {
-    fn to_table(&self) -> eyre::Result<String> {
-        Ok("not implemented".to_string())
-    }
-}
-
-/// convert_to_table leverages input instances which
-/// implement the ToTable trait for the purpose of
-/// printing themselves as a prettytable.
-pub fn convert_to_table<T: ToTable>(input: &T) -> eyre::Result<String> {
-    input.to_table()
 }
 
 // PcrRange is a small struct used when parsing

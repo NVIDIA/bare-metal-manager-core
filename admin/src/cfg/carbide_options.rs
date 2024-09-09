@@ -12,11 +12,11 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use carbide::model::machine::machine_id::MachineId;
 use clap::{ArgGroup, Parser, ValueEnum};
 use forge_network::virtualization::VpcVirtualizationType;
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
-use utils::has_duplicates;
+use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
 
@@ -1213,15 +1213,6 @@ pub struct ShowNetwork {
 
     #[clap(short, long, help = "The VPC name to query")]
     pub name: Option<String>,
-}
-
-#[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
-#[clap(rename_all = "kebab_case")]
-pub enum OutputFormat {
-    Json,
-    Csv,
-    AsciiTable,
-    Yaml,
 }
 
 impl CarbideOptions {

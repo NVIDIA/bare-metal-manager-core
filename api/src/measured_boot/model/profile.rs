@@ -21,7 +21,6 @@ use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
 };
 use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::profile::{
     delete_profile_attr_records_for_id, delete_profile_record_for_id,
     get_all_measurement_profile_records, get_measurement_profile_attrs_for_profile_id,
@@ -34,6 +33,7 @@ use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
 use rpc::protos::measured_boot::MeasurementSystemProfilePb;
 use serde::Serialize;
+use utils::admin_cli::ToTable;
 // use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
@@ -413,34 +413,6 @@ impl ToTable for MeasurementSystemProfile {
         table.add_row(prettytable::row!["name", self.name]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
         table.add_row(prettytable::row!["attrs", attrs_table]);
-        Ok(table.to_string())
-    }
-}
-
-// When `profile show` gets called (for all entries), and the output format
-// is the default table view, this gets used to print a pretty table.
-impl ToTable for Vec<MeasurementSystemProfile> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row![
-            "profile_id",
-            "name",
-            "created_ts",
-            "attributes"
-        ]);
-        for profile in self.iter() {
-            let mut attrs_table = prettytable::Table::new();
-            attrs_table.add_row(prettytable::row!["name", "value"]);
-            for attr_record in profile.attrs.iter() {
-                attrs_table.add_row(prettytable::row![attr_record.key, attr_record.value]);
-            }
-            table.add_row(prettytable::row![
-                profile.profile_id,
-                profile.name,
-                profile.ts,
-                attrs_table
-            ]);
-        }
         Ok(table.to_string())
     }
 }

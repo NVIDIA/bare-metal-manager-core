@@ -23,7 +23,7 @@ use crate::measured_boot::dto::keys::{
 };
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_journal_record is a very basic insert of a

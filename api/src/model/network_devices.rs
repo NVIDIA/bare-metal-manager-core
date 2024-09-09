@@ -18,7 +18,7 @@ use sqlx::{postgres::PgRow, FromRow, Row};
 
 use crate::db::DatabaseError;
 
-use super::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 
 // When topology data is received,
 //  -> If corresponding Switch entry does not exist, create one.

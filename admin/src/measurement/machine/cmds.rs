@@ -14,7 +14,6 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
-use crate::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidateMachinesRequest};
 use ::rpc::protos::measured_boot::{
@@ -25,10 +24,11 @@ use carbide::measured_boot::{
     dto::records::CandidateMachineSummary,
     model::{machine::CandidateMachine, report::MeasurementReport},
 };
+use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
 
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
+use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command
 /// for the `mock-machine` subcommand.
@@ -41,7 +41,7 @@ pub async fn dispatch(
             cli_output(
                 attest(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdMachine::Show(local_args) => {
@@ -49,13 +49,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -63,7 +63,7 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
     }
@@ -130,41 +130,106 @@ pub async fn show_by_id(
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
-) -> CarbideCliResult<Vec<CandidateMachine>> {
+) -> CarbideCliResult<CandidateMachineList> {
     // Request.
     let request = ShowCandidateMachinesRequest {};
 
     // Response.
-    grpc_conn
-        .show_candidate_machines(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .machines
-        .iter()
-        .map(|machine| {
-            CandidateMachine::try_from(machine.clone())
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<CandidateMachine>>>()
+    Ok(CandidateMachineList(
+        grpc_conn
+            .show_candidate_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .machines
+            .iter()
+            .map(|machine| {
+                CandidateMachine::try_from(machine.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<CandidateMachine>>>()?,
+    ))
 }
 
 /// list lists all machine IDs.
-pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<CandidateMachineSummary>> {
+pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<CandidateMachineSummaryList> {
     // Request.
     let request = ListCandidateMachinesRequest {};
 
     // Response.
-    grpc_conn
-        .list_candidate_machines(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .machines
-        .iter()
-        .map(|machine| {
-            CandidateMachineSummary::try_from(machine.clone())
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-        })
-        .collect::<CarbideCliResult<Vec<CandidateMachineSummary>>>()
+    Ok(CandidateMachineSummaryList(
+        grpc_conn
+            .list_candidate_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .machines
+            .iter()
+            .map(|machine| {
+                CandidateMachineSummary::try_from(machine.clone())
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect::<CarbideCliResult<Vec<CandidateMachineSummary>>>()?,
+    ))
+}
+
+/// CandidateMachineSummaryList just implements a newtype pattern
+/// for a Vec<CandidateMachineSummary> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct CandidateMachineSummaryList(Vec<CandidateMachineSummary>);
+
+impl ToTable for CandidateMachineSummaryList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["machine_id", "created_ts"]);
+        for rec in self.0.iter() {
+            table.add_row(prettytable::row![rec.machine_id, rec.ts]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// CandidateMachineList just implements a newtype
+/// pattern for a Vec<CandidateMachine> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct CandidateMachineList(Vec<CandidateMachine>);
+
+impl ToTable for CandidateMachineList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row![
+            "machine_id",
+            "state",
+            "created_ts",
+            "updated_ts",
+            "journal",
+            "attributes",
+        ]);
+        for record in self.0.iter() {
+            let journal_table = match &record.journal {
+                Some(journal) => journal.to_nested_prettytable(),
+                None => {
+                    let mut not_found = prettytable::Table::new();
+                    not_found.add_row(prettytable::row!["<no journal found>"]);
+                    not_found
+                }
+            };
+            let mut attrs_table = prettytable::Table::new();
+            attrs_table.add_row(prettytable::row!["name", "value"]);
+            for (key, value) in record.attrs.iter() {
+                attrs_table.add_row(prettytable::row![key, value]);
+            }
+            table.add_row(prettytable::row![
+                record.machine_id,
+                record.state,
+                record.created_ts,
+                record.updated_ts,
+                journal_table,
+                attrs_table,
+            ]);
+        }
+        Ok(table.to_string())
+    }
 }

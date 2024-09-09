@@ -40,11 +40,9 @@ use crate::{
     },
     model::{
         machine::{
-            all_equal, get_display_ids,
-            machine_id::MachineId,
-            BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState,
-            FailureCause, FailureDetails, FailureSource, HostReprovisionState,
-            InstanceNextStateResolver, InstanceState, LockdownInfo,
+            all_equal, get_display_ids, BmcFirmwareUpdateSubstate, CleanupState,
+            DpuDiscoveringState, DpuInitState, FailureCause, FailureDetails, FailureSource,
+            HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
@@ -65,6 +63,7 @@ use crate::{
         },
     },
 };
+use forge_uuid::machine::MachineId;
 
 mod ib;
 mod storage;

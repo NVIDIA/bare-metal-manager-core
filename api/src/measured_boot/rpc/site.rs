@@ -46,9 +46,9 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse,
 };
 
-use crate::model::machine::machine_id::MachineId;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineId;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 

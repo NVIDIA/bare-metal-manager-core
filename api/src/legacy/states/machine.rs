@@ -19,13 +19,14 @@ use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use crate::{
     db::{machine::Machine, DatabaseError},
     model::machine::{
-        self as new_machine, machine_id::MachineId, CleanupState, DpuDiscoveringState,
-        DpuInitState, FailureDetails, LockdownInfo, ManagedHostState as NewManagedHostState,
-        MeasuringState, ReprovisionState, RetryInfo, UefiSetupInfo,
+        self as new_machine, CleanupState, DpuDiscoveringState, DpuInitState, FailureDetails,
+        LockdownInfo, ManagedHostState as NewManagedHostState, MeasuringState, ReprovisionState,
+        RetryInfo, UefiSetupInfo,
     },
     state_controller::machine::io::CURRENT_STATE_MODEL_VERSION,
     CarbideError, CarbideResult,
 };
+use forge_uuid::machine::MachineId;
 
 struct OldMachine {
     controller_state: ManagedHostStateV1,

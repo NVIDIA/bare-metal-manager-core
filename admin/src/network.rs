@@ -15,9 +15,10 @@ use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde::Deserialize;
 
-use super::cfg::carbide_options::{OutputFormat, ShowNetwork};
-use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
+use super::cfg::carbide_options::ShowNetwork;
+use super::{default_uuid, rpc};
 use ::rpc::forge_tls_client::ApiConfig;
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 #[derive(Deserialize)]
 struct NetworkState {

@@ -13,12 +13,12 @@
 use std::fmt::Write;
 
 use super::cfg::carbide_options::ShowVpc;
-use super::{rpc, CarbideCliResult};
-use crate::cfg::carbide_options::{OutputFormat, SetVpcVirt};
-use crate::CarbideCliError;
+use super::rpc;
+use crate::cfg::carbide_options::SetVpcVirt;
 use ::rpc::forge::{self as forgerpc};
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowVpc,

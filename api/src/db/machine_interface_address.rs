@@ -20,7 +20,7 @@ use super::{
     machine_interface::MachineInterfaceIdKeyedObjectFilter, network_segment::NetworkSegmentType,
     DatabaseError,
 };
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
 
 #[derive(Debug, FromRow, Clone)]

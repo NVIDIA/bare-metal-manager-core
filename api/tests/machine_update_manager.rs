@@ -20,7 +20,7 @@ use carbide::{
         },
         MachineUpdateManager,
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::machine_id::try_parse_machine_id,
     CarbideResult,
 };
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
@@ -28,6 +28,7 @@ use figment::{
     providers::{Format, Toml},
     Figment,
 };
+use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::common::api_fixtures::host::create_host_machine;

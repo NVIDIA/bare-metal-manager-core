@@ -18,7 +18,8 @@ use std::{
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 
-use crate::{model::machine::machine_id::MachineId, CarbideResult};
+use crate::CarbideResult;
+use forge_uuid::machine::MachineId;
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
 /// machine updates.  A module is responsible for managing its own updates and accurately reporting

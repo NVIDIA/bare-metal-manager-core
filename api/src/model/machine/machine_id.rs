@@ -10,421 +10,88 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{fmt::Write, ops::Deref, str::FromStr};
+// use std::fmt::Write;
+use std::str::FromStr;
 
-use crate::db::DbPrimaryUuid;
-use crate::measured_boot::interface::common::ToTable;
 use crate::model::hardware_info::HardwareInfo;
 use ::rpc::errors::RpcDataConversionError;
 use data_encoding::BASE32_DNSSEC;
-use serde::{Deserialize, Serialize};
+use forge_uuid::machine::{MachineId, MachineIdSource, MachineType, MACHINE_ID_HARDWARE_ID_LENGTH};
 use sha2::{Digest, Sha256};
-use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo};
-use sqlx::Row;
-/// The `MachineId` uniquely identifies a machine that is managed by the Forge system
+
+/// Generates a temporary Machine ID for a host from the hardware fingerprint
+/// of the attached DPU
 ///
-/// `MachineId`s are derived from a hardware fingerprint, and are thereby
-/// globally unique.
+/// Returns `None` if no sufficient data is available
 ///
-/// MachineIds are using an encoding which makes them valid DNS names.
-/// This requires the use of lowercase characters only.
+/// Panics of the Machine is not a DPU
+pub fn host_id_from_dpu_hardware_info(
+    hardware_info: &HardwareInfo,
+) -> Result<MachineId, MissingHardwareInfo> {
+    assert!(hardware_info.is_dpu(), "Method can only be called on a DPU");
+
+    from_hardware_info_with_type(hardware_info, MachineType::PredictedHost)
+}
+
+/// Generates a Machine ID from a hardware fingerprint
 ///
-/// Examples for MachineIds can be:
-/// - fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
-/// - fm100dtjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
-/// - fm100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
-/// - fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
-/// - fm100ptjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MachineId {
-    /// The hardware source from which the Machine ID was derived
-    source: MachineIdSource,
-    /// The Machine ID which was derived via hashing from the hardware piece
-    /// that is indicated in `source`.
-    hardware_id: String,
-    /// The Type of the Machine
-    ty: MachineType,
-}
+/// Returns `None` if no sufficient data is available
+pub fn from_hardware_info_with_type(
+    hardware_info: &HardwareInfo,
+    machine_type: MachineType,
+) -> Result<MachineId, MissingHardwareInfo> {
+    let bytes;
+    let source;
+    let all_serials;
 
-// Make MachineId bindable directly into a sqlx query
-impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        buf.extend(self.to_string().as_bytes());
-        sqlx::encode::IsNull::No
-    }
-}
-
-impl<'r, DB> sqlx::Decode<'r, DB> for MachineId
-where
-    DB: sqlx::Database,
-    String: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        let str_id: String = String::decode(value)?;
-        Ok(MachineId::from_str(&str_id).map_err(|e| sqlx::Error::Decode(Box::new(e)))?)
-    }
-}
-
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for MachineId {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        let id: MachineId = row.try_get(0)?;
-        Ok(id)
-    }
-}
-
-impl<DB> sqlx::Type<DB> for MachineId
-where
-    DB: sqlx::Database,
-    String: sqlx::Type<DB>,
-{
-    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
-        String::type_info()
-    }
-
-    fn compatible(ty: &DB::TypeInfo) -> bool {
-        String::compatible(ty)
-    }
-}
-
-impl PgHasArrayType for MachineId {
-    fn array_type_info() -> PgTypeInfo {
-        <&str as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <&str as PgHasArrayType>::array_compatible(ty)
-    }
-}
-
-impl MachineId {
-    /// The hardware source from which the Machine ID was derived
-    pub fn source(&self) -> MachineIdSource {
-        self.source
-    }
-
-    /// The type of the Machine
-    pub fn machine_type(&self) -> MachineType {
-        self.ty
-    }
-
-    /// Generate Remote ID based on machineID.
-    /// Remote Id is inserted by dhcrelay on DPU in each DHCP request sent by host.
-    /// This field is used only for DPU.
-    pub fn remote_id(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(self.to_string().as_bytes());
-        let hash: [u8; 32] = hasher.finalize().into();
-        BASE32_DNSSEC.encode(&hash)
-    }
-}
-
-impl DbPrimaryUuid for MachineId {
-    fn db_primary_uuid_name() -> &'static str {
-        "machine_id"
-    }
-}
-
-impl ToTable for Vec<MachineId> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["machine_id"]);
-        for machine_id in self.iter() {
-            table.add_row(prettytable::row![machine_id]);
+    if let Some(cert) = &hardware_info.tpm_ek_certificate {
+        bytes = cert.as_bytes();
+        if bytes.is_empty() {
+            return Err(MissingHardwareInfo::TPMCertEmpty);
         }
-        Ok(table.to_string())
-    }
-}
-
-/// The hardware source from which the Machine ID is derived
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum MachineIdSource {
-    /// The Machine ID was generated by hashing the TPM EkCertificate data.
-    Tpm,
-    /// The Machine ID was generated by the concatenation of product, board and chassis serial
-    /// and hashing the resulting value.
-    /// If any of those values is not available in DMI data, an empty
-    /// string will be used instead. At least one serial number must have been
-    /// available to generate this ID.
-    ProductBoardChassisSerial,
-}
-
-impl MachineIdSource {
-    /// Returns the character that identifies the source type
-    pub const fn id_char(self) -> char {
-        match self {
-            MachineIdSource::Tpm => 't',
-            MachineIdSource::ProductBoardChassisSerial => 's',
+        source = MachineIdSource::Tpm;
+    } else if let Some(dmi_data) = &hardware_info.dmi_data {
+        // We need at least 1 valid serial number
+        if dmi_data.product_serial.is_empty()
+            && dmi_data.board_serial.is_empty()
+            && dmi_data.chassis_serial.is_empty()
+        {
+            return Err(MissingHardwareInfo::Serial);
         }
+
+        all_serials = format!(
+            "p{}-b{}-c{}",
+            dmi_data.product_serial, dmi_data.board_serial, dmi_data.chassis_serial
+        );
+        bytes = all_serials.as_bytes();
+        source = MachineIdSource::ProductBoardChassisSerial;
+    } else {
+        return Err(MissingHardwareInfo::All);
     }
 
-    /// Parses the `MachineIdSource` from a character
-    pub fn from_id_char(c: char) -> Option<Self> {
-        match c {
-            c if c == Self::Tpm.id_char() => Some(Self::Tpm),
-            c if c == Self::ProductBoardChassisSerial.id_char() => {
-                Some(Self::ProductBoardChassisSerial)
-            }
-            _ => None,
-        }
-    }
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash: [u8; 32] = hasher.finalize().into();
+
+    // BASE32_DNSSEC is chosen to just generate lowercase characters and
+    // numbers - which will result in valid DNS names for MachineIds.
+    let encoded = BASE32_DNSSEC.encode(&hash);
+    assert_eq!(encoded.len(), MACHINE_ID_HARDWARE_ID_LENGTH);
+
+    Ok(MachineId::new(source, encoded, machine_type))
 }
 
-/// Extra flags that are associated with the machine ID
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum MachineType {
-    // The Machine is a DPU
-    Dpu,
-    /// The Machine is a Forge managed host
-    Host,
-    /// The Machine is a host whose existence had been predicated by a DPU
-    /// being detected by Forge.
-    /// However the actual Machine ID of the host is not yet known, since the
-    /// Machine hardware details are not yet known. Therefore a **temporary**
-    /// ID is created. The temporary ID is derived from the DPU Machine ID,
-    /// and carries its hardware identifier, which will be encoded in the
-    /// `source` and `hardware_id` fields.
-    ///
-    /// Once the hardware fingerprint of the host is known, the Machine will
-    /// obtain a new `MachineId` with `MachineType::Host`
-    PredictedHost,
-}
-
-impl MachineType {
-    /// Returns `true` if the Machine is a DPU
-    pub fn is_dpu(self) -> bool {
-        self == MachineType::Dpu
-    }
-
-    /// Returns `true` if the Machine is a Host
-    ///
-    /// This only returns `true` for hosts which actually have been discovered,
-    /// and not for temporary (predicted) hosts.
-    pub fn is_host(self) -> bool {
-        self == MachineType::Host
-    }
-
-    pub fn is_predicted_host(self) -> bool {
-        self == MachineType::PredictedHost
-    }
-}
-
-impl std::fmt::Display for MachineType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MachineType::Dpu => f.write_str("Dpu"),
-            MachineType::Host => f.write_str("Host"),
-            MachineType::PredictedHost => f.write_str("PredictedHost"),
-        }
-    }
-}
-
-pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
-
-impl From<MachineType> for RpcMachineTypeWrapper {
-    fn from(value: MachineType) -> Self {
-        RpcMachineTypeWrapper(match value {
-            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
-            MachineType::Dpu => rpc::forge::MachineType::Dpu,
-        })
-    }
-}
-
-impl Deref for RpcMachineTypeWrapper {
-    type Target = rpc::forge::MachineType;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl MachineType {
-    /// Returns the character that identifies the flag
-    pub const fn id_char(self) -> char {
-        match self {
-            MachineType::Dpu => 'd',
-            MachineType::Host => 'h',
-            MachineType::PredictedHost => 'p',
-        }
-    }
-
-    /// Parses the `MachineType` from a character
-    pub fn from_id_char(c: char) -> Option<Self> {
-        match c {
-            c if c == Self::Dpu.id_char() => Some(Self::Dpu),
-            c if c == Self::Host.id_char() => Some(Self::Host),
-            c if c == Self::PredictedHost.id_char() => Some(Self::PredictedHost),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for MachineId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // `fm` is for forge-machine
-        // `1` is a version identifier
-        // The next 2 bytes `00` are reserved
-        f.write_str("fm100")?;
-        // Write the machine type
-        f.write_char(self.ty.id_char())?;
-        // The next character determines how the MachineId is derived (`MachineIdSource`)
-        f.write_char(self.source.id_char())?;
-        // Then follows the actual source data
-        f.write_str(self.hardware_id.as_str())
-    }
-}
-
-impl From<MachineId> for ::rpc::common::MachineId {
-    fn from(machine_id: MachineId) -> Self {
-        Self {
-            id: machine_id.to_string(),
-        }
-    }
-}
-
-/// The length that is used for the prefix in Machine IDs
-pub const MACHINE_ID_PREFIX_LENGTH: usize = 7;
-
-/// The length of the hardware ID embedded in the Machine ID
+/// Generates a Machine ID from a hardware fingerprint
 ///
-/// Since it's a base32 encoded SHA256 (32byte), this makes 52 bytes
-pub const MACHINE_ID_HARDWARE_ID_LENGTH: usize = 52;
+/// Returns `None` if no sufficient data is available
+pub fn from_hardware_info(hardware_info: &HardwareInfo) -> Result<MachineId, MissingHardwareInfo> {
+    let machine_type = if hardware_info.is_dpu() {
+        MachineType::Dpu
+    } else {
+        MachineType::Host
+    };
 
-/// The length of a valid MachineID
-///
-/// It is made up of the prefix length (5 bytes) plus the encoded hardware ID length
-pub const MACHINE_ID_LENGTH: usize = MACHINE_ID_PREFIX_LENGTH + MACHINE_ID_HARDWARE_ID_LENGTH;
-
-#[derive(thiserror::Error, Debug, Clone)]
-pub enum MachineIdParseError {
-    #[error("The Machine ID has an invalid length of {0}")]
-    Length(usize),
-    #[error("The Machine ID {0} has an invalid prefix")]
-    Prefix(String),
-    #[error("The Machine ID {0} has an invalid encoding")]
-    Encoding(String),
-}
-
-impl FromStr for MachineId {
-    type Err = MachineIdParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != MACHINE_ID_LENGTH {
-            return Err(MachineIdParseError::Length(s.len()));
-        }
-        // Check for version 1 and 2 reserved bytes
-        if !s.starts_with("fm100") {
-            return Err(MachineIdParseError::Prefix(s.to_string()));
-        }
-
-        // Everything after the prefix needs to be valid base32
-        let mut buffer = [0u8; 64];
-        let encoded_hardware_id = &s.as_bytes()[MACHINE_ID_PREFIX_LENGTH..];
-        match BASE32_DNSSEC.decode_mut(
-            encoded_hardware_id,
-            &mut buffer[..BASE32_DNSSEC
-                .decode_len(encoded_hardware_id.len())
-                .expect("Maximum length of the encoded MachineId is small")],
-        ) {
-            Err(_) => return Err(MachineIdParseError::Encoding(s.to_string())),
-            Ok(size) if size != 32 => return Err(MachineIdParseError::Encoding(s.to_string())),
-            _ => {}
-        }
-
-        let ty = MachineType::from_id_char(s.as_bytes()[5] as char)
-            .ok_or_else(|| MachineIdParseError::Prefix(s.to_string()))?;
-        let source = MachineIdSource::from_id_char(s.as_bytes()[6] as char)
-            .ok_or_else(|| MachineIdParseError::Prefix(s.to_string()))?;
-
-        let hardware_id = s[MACHINE_ID_PREFIX_LENGTH..].to_string();
-
-        Ok(MachineId {
-            source,
-            hardware_id,
-            ty,
-        })
-    }
-}
-
-impl MachineId {
-    /// Generates a Machine ID from a hardware fingerprint
-    ///
-    /// Returns `None` if no sufficient data is available
-    pub fn from_hardware_info(hardware_info: &HardwareInfo) -> Result<Self, MissingHardwareInfo> {
-        let machine_type = if hardware_info.is_dpu() {
-            MachineType::Dpu
-        } else {
-            MachineType::Host
-        };
-
-        Self::from_hardware_info_with_type(hardware_info, machine_type)
-    }
-
-    /// Generates a temporary Machine ID for a host from the hardware fingerprint
-    /// of the attached DPU
-    ///
-    /// Returns `None` if no sufficient data is available
-    ///
-    /// Panics of the Machine is not a DPU
-    pub fn host_id_from_dpu_hardware_info(
-        hardware_info: &HardwareInfo,
-    ) -> Result<Self, MissingHardwareInfo> {
-        assert!(hardware_info.is_dpu(), "Method can only be called on a DPU");
-
-        Self::from_hardware_info_with_type(hardware_info, MachineType::PredictedHost)
-    }
-
-    /// Generates a Machine ID from a hardware fingerprint
-    ///
-    /// Returns `None` if no sufficient data is available
-    pub fn from_hardware_info_with_type(
-        hardware_info: &HardwareInfo,
-        machine_type: MachineType,
-    ) -> Result<Self, MissingHardwareInfo> {
-        let bytes;
-        let source;
-        let all_serials;
-
-        if let Some(cert) = &hardware_info.tpm_ek_certificate {
-            bytes = cert.as_bytes();
-            if bytes.is_empty() {
-                return Err(MissingHardwareInfo::TPMCertEmpty);
-            }
-            source = MachineIdSource::Tpm;
-        } else if let Some(dmi_data) = &hardware_info.dmi_data {
-            // We need at least 1 valid serial number
-            if dmi_data.product_serial.is_empty()
-                && dmi_data.board_serial.is_empty()
-                && dmi_data.chassis_serial.is_empty()
-            {
-                return Err(MissingHardwareInfo::Serial);
-            }
-
-            all_serials = format!(
-                "p{}-b{}-c{}",
-                dmi_data.product_serial, dmi_data.board_serial, dmi_data.chassis_serial
-            );
-            bytes = all_serials.as_bytes();
-            source = MachineIdSource::ProductBoardChassisSerial;
-        } else {
-            return Err(MissingHardwareInfo::All);
-        }
-
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        let hash: [u8; 32] = hasher.finalize().into();
-
-        // BASE32_DNSSEC is chosen to just generate lowercase characters and
-        // numbers - which will result in valid DNS names for MachineIds.
-        let encoded = BASE32_DNSSEC.encode(&hash);
-        assert_eq!(encoded.len(), MACHINE_ID_HARDWARE_ID_LENGTH);
-
-        Ok(MachineId {
-            source,
-            hardware_id: encoded,
-            ty: machine_type,
-        })
-    }
+    from_hardware_info_with_type(hardware_info, machine_type)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, thiserror::Error)]
@@ -435,28 +102,6 @@ pub enum MissingHardwareInfo {
     Serial,
     #[error("TPM and DMI data are both missing")]
     All,
-}
-
-impl Serialize for MachineId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for MachineId {
-    fn deserialize<D>(deserializer: D) -> Result<MachineId, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error;
-
-        let str_value = String::deserialize(deserializer)?;
-        let id = MachineId::from_str(&str_value).map_err(|err| Error::custom(err.to_string()))?;
-        Ok(id)
-    }
 }
 
 /// Converts a RPC MachineId into the internal data format
@@ -470,6 +115,7 @@ pub fn try_parse_machine_id(
 #[cfg(test)]
 mod tests {
     use crate::model::hardware_info::TpmEkCertificate;
+    use forge_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
 
@@ -564,11 +210,7 @@ mod tests {
         let data = std::fs::read(path).unwrap();
         let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 
-        test_derive_machine_id(
-            &mut fingerprint,
-            MachineType::Host,
-            MachineId::from_hardware_info,
-        );
+        test_derive_machine_id(&mut fingerprint, MachineType::Host, from_hardware_info);
     }
 
     #[test]
@@ -577,11 +219,7 @@ mod tests {
         let data = std::fs::read(path).unwrap();
         let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 
-        test_derive_machine_id(
-            &mut fingerprint,
-            MachineType::Dpu,
-            MachineId::from_hardware_info,
-        );
+        test_derive_machine_id(&mut fingerprint, MachineType::Dpu, from_hardware_info);
     }
 
     #[test]
@@ -593,7 +231,7 @@ mod tests {
         test_derive_machine_id(
             &mut fingerprint,
             MachineType::PredictedHost,
-            MachineId::host_id_from_dpu_hardware_info,
+            host_id_from_dpu_hardware_info,
         );
     }
 

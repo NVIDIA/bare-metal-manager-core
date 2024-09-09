@@ -15,14 +15,14 @@ use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::{
-    db::DatabaseError, model::machine::machine_id::MachineId, CarbideError, CarbideResult,
-};
+use crate::{db::DatabaseError, CarbideError, CarbideResult};
 
 use super::{
     machine::{Machine, MachineSearchConfig},
     ObjectFilter,
 };
+
+use forge_uuid::machine::MachineId;
 
 //
 // MachineValidation

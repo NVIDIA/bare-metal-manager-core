@@ -18,9 +18,8 @@ use crate::measurement::bundle::args::{
     CmdBundle, Create, Delete, List, ListMachines, Rename, SetState, Show,
 };
 use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
 use crate::measurement::global::cmds::{get_identifier, IdentifierType};
-use crate::{CarbideCliError, CarbideCliResult};
+use crate::measurement::MachineIdList;
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{
     delete_measurement_bundle_request, list_measurement_bundle_machines_request,
@@ -36,8 +35,11 @@ use ::rpc::protos::measured_boot::{
 use carbide::measured_boot::dto::{keys::MeasurementBundleId, records::MeasurementBundleRecord};
 use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
-use carbide::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
+use serde::Serialize;
 use std::str::FromStr;
+use utils::admin_cli::cli_output;
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable};
 
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
@@ -50,28 +52,28 @@ pub async fn dispatch(
             cli_output(
                 create_for_id(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Rename(local_args) => {
             cli_output(
                 rename(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::SetState(local_args) => {
             cli_output(
                 set_state(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                global::cmds::Destination::Stdout(),
+                utils::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Show(local_args) => {
@@ -79,13 +81,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -94,14 +96,14 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list(cli.grpc_conn).await?,
                     &cli.args.format,
-                    global::cmds::Destination::Stdout(),
+                    utils::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -302,43 +304,47 @@ pub async fn show_by_id_or_name(
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _get_by_id: &Show,
-) -> CarbideCliResult<Vec<MeasurementBundle>> {
+) -> CarbideCliResult<MeasurementBundleList> {
     // Request.
     let request = ShowMeasurementBundlesRequest {};
 
     // Response.
-    grpc_conn
-        .show_measurement_bundles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .bundles
-        .iter()
-        .map(|bundle| {
-            MeasurementBundle::try_from(bundle.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()
+    Ok(MeasurementBundleList(
+        grpc_conn
+            .show_measurement_bundles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .bundles
+            .iter()
+            .map(|bundle| {
+                MeasurementBundle::try_from(bundle.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()?,
+    ))
 }
 
 /// list lists all bundle ids.
-pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<MeasurementBundleRecord>> {
+pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<MeasurementBundleRecordList> {
     // Request.
     let request = ListMeasurementBundlesRequest {};
 
     // Response.
-    grpc_conn
-        .list_measurement_bundles(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .bundles
-        .iter()
-        .map(|rec| {
-            MeasurementBundleRecord::try_from(rec.clone())
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()
+    Ok(MeasurementBundleRecordList(
+        grpc_conn
+            .list_measurement_bundles(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .bundles
+            .iter()
+            .map(|rec| {
+                MeasurementBundleRecord::try_from(rec.clone())
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()?,
+    ))
 }
 
 /// list_machines lists all machines associated with the provided
@@ -346,7 +352,7 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Vec<Measurem
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> CarbideCliResult<Vec<MachineId>> {
+) -> CarbideCliResult<MachineIdList> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
@@ -377,16 +383,83 @@ pub async fn list_machines(
     let request = ListMeasurementBundleMachinesRequest { selector };
 
     // Response.
-    grpc_conn
-        .list_measurement_bundle_machines(request)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?
-        .get_ref()
-        .machine_ids
-        .iter()
-        .map(|rec| {
-            MachineId::from_str(rec)
-                .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
-        })
-        .collect::<CarbideCliResult<Vec<MachineId>>>()
+    Ok(MachineIdList(
+        grpc_conn
+            .list_measurement_bundle_machines(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .get_ref()
+            .machine_ids
+            .iter()
+            .map(|rec| {
+                MachineId::from_str(rec)
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+            })
+            .collect::<CarbideCliResult<Vec<MachineId>>>()?,
+    ))
+}
+
+/// MeasurementBundleRecordList just implements a newtype pattern
+/// for a Vec<MeasurementBundleRecord> so the ToTable trait can
+/// be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementBundleRecordList(Vec<MeasurementBundleRecord>);
+
+impl ToTable for MeasurementBundleRecordList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row![
+            Fg->"bundle_id",
+            Fg->"profile_id",
+            Fg->"name",
+            Fg->"state",
+            Fg->"created_ts"
+        ]);
+        for bundle in self.0.iter() {
+            table.add_row(prettytable::row![
+                bundle.bundle_id,
+                bundle.profile_id,
+                bundle.name,
+                bundle.state,
+                bundle.ts
+            ]);
+        }
+        Ok(table.to_string())
+    }
+}
+
+/// MeasurementBundleList just implements a newtype
+/// pattern for a Vec<MeasurementBundle> so the ToTable
+/// trait can be leveraged (since we don't define Vec).
+#[derive(Serialize)]
+pub struct MeasurementBundleList(Vec<MeasurementBundle>);
+
+// When `bundle show` gets called (for all entries), and the output format
+// is the default table view, this gets used to print a pretty table.
+impl ToTable for MeasurementBundleList {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["bundle_id", "details", "values"]);
+        for bundle in self.0.iter() {
+            let mut details_table = prettytable::Table::new();
+            details_table.add_row(prettytable::row!["profile_id", bundle.profile_id]);
+            details_table.add_row(prettytable::row!["name", bundle.name]);
+            details_table.add_row(prettytable::row!["state", bundle.state]);
+            details_table.add_row(prettytable::row!["created_ts", bundle.ts]);
+            let mut values_table = prettytable::Table::new();
+            values_table.add_row(prettytable::row!["pcr_register", "value"]);
+            for value_record in bundle.values.iter() {
+                values_table.add_row(prettytable::row![
+                    value_record.pcr_register,
+                    value_record.sha256
+                ]);
+            }
+            table.add_row(prettytable::row![
+                bundle.bundle_id,
+                details_table,
+                values_table
+            ]);
+        }
+        Ok(table.to_string())
+    }
 }

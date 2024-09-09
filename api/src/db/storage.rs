@@ -18,13 +18,13 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::db::DatabaseError;
-use crate::model::machine::machine_id::MachineId;
 use crate::model::storage::{
     OsImage, OsImageAttributes, OsImageStatus, StorageCluster, StorageClusterAttributes,
     StoragePool, StoragePoolAttributes, StorageRaidLevels, StorageVolume, StorageVolumeAttributes,
     StorageVolumeFilter, StorageVolumeHealth, StorageVolumeStatus,
 };
 use crate::model::tenant::TenantOrganizationId;
+use forge_uuid::machine::MachineId;
 
 /// actual carbide storage objects handling happens here
 /// calls go to api/src/storage.rs for nvmesh cluster mgmt api

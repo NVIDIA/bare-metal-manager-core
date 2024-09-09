@@ -24,16 +24,15 @@
 
 use super::keys::UuidEmptyStringError;
 use crate::db::machine_topology::TopologyData;
-use crate::db::DbTable;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
 use crate::measured_boot::interface::common::PcrRegisterValue;
-use crate::measured_boot::interface::common::ToTable;
-use crate::model::machine::machine_id::MachineId;
 use chrono::DateTime;
+use forge_uuid::machine::MachineId;
+use forge_uuid::DbTable;
 use rpc::protos::measured_boot::{
     CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
@@ -50,7 +49,7 @@ use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
-use utils::admin_cli::{just_print_summary, serde_just_print_summary};
+use utils::admin_cli::{serde_just_print_summary, ToTable};
 
 /// ProtoParseError is an error used for reporting back failures
 /// to parse a protobuf message back into its record or model.
@@ -137,21 +136,6 @@ impl MeasurementSystemProfileRecord {
 impl DbTable for MeasurementSystemProfileRecord {
     fn db_table_name() -> &'static str {
         "measurement_system_profiles"
-    }
-}
-
-impl ToTable for Vec<MeasurementSystemProfileRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["profile_id", "name", "created_ts"]);
-        for profile in self.iter() {
-            table.add_row(prettytable::row![
-                profile.profile_id,
-                profile.name,
-                profile.ts
-            ]);
-        }
-        Ok(table.to_string())
     }
 }
 
@@ -420,29 +404,6 @@ impl DbTable for MeasurementBundleRecord {
     }
 }
 
-impl ToTable for Vec<MeasurementBundleRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row![
-            Fg->"bundle_id",
-            Fg->"profile_id",
-            Fg->"name",
-            Fg->"state",
-            Fg->"created_ts"
-        ]);
-        for bundle in self.iter() {
-            table.add_row(prettytable::row![
-                bundle.bundle_id,
-                bundle.profile_id,
-                bundle.name,
-                bundle.state,
-                bundle.ts
-            ]);
-        }
-        Ok(table.to_string())
-    }
-}
-
 impl From<MeasurementBundleRecord> for MeasurementBundleRecordPb {
     fn from(val: MeasurementBundleRecord) -> Self {
         let pb_state: MeasurementBundleStatePb = val.state.into();
@@ -625,21 +586,6 @@ impl TryFrom<MeasurementReportRecordPb> for MeasurementReportRecord {
             machine_id: MachineId::from_str(&msg.machine_id)?,
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
-    }
-}
-
-impl ToTable for Vec<MeasurementReportRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["report_id", "machine_id", "created_ts"]);
-        for report in self.iter() {
-            table.add_row(prettytable::row![
-                report.report_id,
-                report.machine_id,
-                report.ts
-            ]);
-        }
-        Ok(table.to_string())
     }
 }
 
@@ -826,59 +772,6 @@ impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
     }
 }
 
-impl ToTable for Vec<MeasurementJournalRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        if just_print_summary() {
-            table.add_row(prettytable::row![
-                "journal_id",
-                "machine_id",
-                "state",
-                "created_ts"
-            ]);
-        } else {
-            table.add_row(prettytable::row![
-                "journal_id",
-                "machine_id",
-                "report_id",
-                "profile_id",
-                "bundle_id",
-                "state",
-                "created_ts"
-            ]);
-        }
-        for journal in self.iter() {
-            let profile_id: String = match journal.profile_id {
-                Some(profile_id) => profile_id.to_string(),
-                None => "<none>".to_string(),
-            };
-            let bundle_id: String = match journal.bundle_id {
-                Some(bundle_id) => bundle_id.to_string(),
-                None => "<none>".to_string(),
-            };
-            if just_print_summary() {
-                table.add_row(prettytable::row![
-                    journal.journal_id,
-                    journal.machine_id,
-                    journal.state,
-                    journal.ts
-                ]);
-            } else {
-                table.add_row(prettytable::row![
-                    journal.journal_id,
-                    journal.machine_id,
-                    journal.report_id,
-                    profile_id,
-                    bundle_id,
-                    journal.state,
-                    journal.ts
-                ]);
-            }
-        }
-        Ok(table.to_string())
-    }
-}
-
 /// MeasurementMachineState is an enum in the database, and
 /// is used for tracking the state of a machine.
 ///
@@ -1018,17 +911,6 @@ impl ToTable for CandidateMachineSummary {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["machine_id", self.machine_id]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
-        Ok(table.to_string())
-    }
-}
-
-impl ToTable for Vec<CandidateMachineSummary> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["machine_id", "created_ts"]);
-        for rec in self.iter() {
-            table.add_row(prettytable::row![rec.machine_id, rec.ts]);
-        }
         Ok(table.to_string())
     }
 }
@@ -1215,39 +1097,6 @@ impl ToTable for MeasurementApprovedMachineRecord {
         Ok(table.to_string())
     }
 }
-
-impl ToTable for Vec<MeasurementApprovedMachineRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row![
-            "approval_id",
-            "machine_id",
-            "approval_type",
-            "ts",
-            "comments",
-        ]);
-        for rec in self.iter() {
-            let pcr_registers: String = match rec.pcr_registers.clone() {
-                Some(pcr_registers) => pcr_registers,
-                None => "".to_string(),
-            };
-            let comments: String = match rec.comments.clone() {
-                Some(comments) => comments,
-                None => "".to_string(),
-            };
-            table.add_row(prettytable::row![
-                rec.approval_id,
-                rec.machine_id,
-                rec.approval_type,
-                rec.ts,
-                pcr_registers,
-                comments,
-            ]);
-        }
-        Ok(table.to_string())
-    }
-}
-
 /// MeasurementApprovedProfileRecord defines a single row from
 /// the measurement_approved_profiles table.
 ///
@@ -1360,38 +1209,6 @@ impl ToTable for MeasurementApprovedProfileRecord {
         table.add_row(prettytable::row!["created_ts", self.ts]);
         table.add_row(prettytable::row!["pcr_registers", pcr_registers]);
         table.add_row(prettytable::row!["comments", comments]);
-        Ok(table.to_string())
-    }
-}
-
-impl ToTable for Vec<MeasurementApprovedProfileRecord> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row![
-            "approval_id",
-            "profile_id",
-            "approval_type",
-            "ts",
-            "comments",
-        ]);
-        for rec in self.iter() {
-            let pcr_registers: String = match rec.pcr_registers.clone() {
-                Some(pcr_registers) => pcr_registers,
-                None => "".to_string(),
-            };
-            let comments: String = match rec.comments.clone() {
-                Some(comments) => comments,
-                None => "".to_string(),
-            };
-            table.add_row(prettytable::row![
-                rec.approval_id,
-                rec.profile_id,
-                rec.approval_type,
-                rec.ts,
-                pcr_registers,
-                comments,
-            ]);
-        }
         Ok(table.to_string())
     }
 }

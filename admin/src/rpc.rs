@@ -23,8 +23,8 @@ use ::rpc::forge::{
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
 
-use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn with_forge_client<'a, T, F>(
     api_config: &ApiConfig<'a>,

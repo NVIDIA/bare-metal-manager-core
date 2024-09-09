@@ -25,7 +25,7 @@ use rpc::forge::{
 };
 
 use crate::api::Api;
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 
 use super::machine::get_machine_type;
 

@@ -17,13 +17,13 @@
 
 */
 
-use crate::cfg::carbide_options::OutputFormat;
 use crate::measurement::bundle;
 use crate::measurement::journal;
 use crate::measurement::machine;
 use crate::measurement::profile;
 use crate::measurement::report;
 use crate::measurement::site;
+use utils::admin_cli::OutputFormat;
 
 use carbide::measured_boot::interface::common::PcrRegisterValue;
 use clap::Parser;

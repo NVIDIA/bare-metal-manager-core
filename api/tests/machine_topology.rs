@@ -16,9 +16,9 @@ use carbide::{
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
-    model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
+    model::{hardware_info::HardwareInfo, machine::machine_id::from_hardware_info},
 };
-use forge_uuid::domain::DomainId;
+use forge_uuid::{domain::DomainId, machine::MachineId};
 
 pub mod common;
 use common::api_fixtures::{
@@ -68,7 +68,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .await
     .unwrap();
     let hardware_info = create_host_hardware_info(&host_sim.config);
-    let machine_id = MachineId::from_hardware_info(&hardware_info).unwrap();
+    let machine_id = from_hardware_info(&hardware_info).unwrap();
     let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
         .await
         .unwrap();

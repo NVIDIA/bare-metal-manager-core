@@ -33,10 +33,7 @@ use crate::{
             network::{InstanceNetworkConfig, InterfaceFunctionId},
             InstanceConfig,
         },
-        machine::{
-            machine_id::{try_parse_machine_id, MachineId},
-            ManagedHostState, ManagedHostStateSnapshot,
-        },
+        machine::{machine_id::try_parse_machine_id, ManagedHostState, ManagedHostStateSnapshot},
         metadata::Metadata,
         tenant::TenantOrganizationId,
         ConfigValidationError,
@@ -44,7 +41,7 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 /// User parameters for creating an instance
 #[derive(Debug)]

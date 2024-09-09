@@ -12,7 +12,7 @@
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use crate::model::machine::machine_id::MachineId;
+use forge_uuid::machine::MachineId;
 
 use super::DatabaseError;
 

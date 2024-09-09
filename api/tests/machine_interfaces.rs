@@ -22,7 +22,7 @@ use carbide::{
         network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
     model::machine::{
-        machine_id::{try_parse_machine_id, MachineId},
+        machine_id::{from_hardware_info, try_parse_machine_id},
         MachineInterfaceSnapshot,
     },
     CarbideError,
@@ -90,8 +90,7 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let machine_id =
-        MachineId::from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
+    let machine_id = from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
     let new_machine = Machine::get_or_create(&mut txn, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");

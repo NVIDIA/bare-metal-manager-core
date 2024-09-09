@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::model::machine::machine_id::MachineId;
 use crate::model::site_explorer::ExploredManagedHost;
+use forge_uuid::machine::MachineId;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host

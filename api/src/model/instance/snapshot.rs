@@ -17,11 +17,11 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
-    machine::{machine_id::MachineId, ManagedHostState, ReprovisionRequest},
+    machine::{ManagedHostState, ReprovisionRequest},
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 /// Represents a snapshot view of an `Instance`
 ///

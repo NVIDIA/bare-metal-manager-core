@@ -30,9 +30,9 @@ use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::{HardwareInfo, NetworkInterface};
-use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";

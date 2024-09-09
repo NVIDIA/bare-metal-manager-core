@@ -31,10 +31,7 @@ use carbide::{
         DatabaseError,
     },
     model::{
-        machine::{
-            machine_id::MachineId, DpuDiscoveringState, DpuInitState, MachineInterfaceSnapshot,
-            ManagedHostState,
-        },
+        machine::{DpuDiscoveringState, DpuInitState, MachineInterfaceSnapshot, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
@@ -47,7 +44,7 @@ use carbide::{
     CarbideError,
 };
 use common::api_fixtures::TestEnv;
-use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{

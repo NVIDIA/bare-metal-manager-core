@@ -28,7 +28,6 @@ use crate::measured_boot::interface::bundle::{
     rename_bundle_for_bundle_id, rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
 use crate::measured_boot::interface::common;
-use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::model::machine::{bundle_state_to_machine_state, CandidateMachine};
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
@@ -37,6 +36,7 @@ use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
+use utils::admin_cli::ToTable;
 
 use crate::measured_boot::model::journal::MeasurementJournal;
 
@@ -618,36 +618,6 @@ impl ToTable for MeasurementBundle {
         table.add_row(prettytable::row!["state", self.state]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
         table.add_row(prettytable::row!["values", values_table]);
-        Ok(table.to_string())
-    }
-}
-
-// When `bundle show` gets called (for all entries), and the output format
-// is the default table view, this gets used to print a pretty table.
-impl ToTable for Vec<MeasurementBundle> {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["bundle_id", "details", "values"]);
-        for bundle in self.iter() {
-            let mut details_table = prettytable::Table::new();
-            details_table.add_row(prettytable::row!["profile_id", bundle.profile_id]);
-            details_table.add_row(prettytable::row!["name", bundle.name]);
-            details_table.add_row(prettytable::row!["state", bundle.state]);
-            details_table.add_row(prettytable::row!["created_ts", bundle.ts]);
-            let mut values_table = prettytable::Table::new();
-            values_table.add_row(prettytable::row!["pcr_register", "value"]);
-            for value_record in bundle.values.iter() {
-                values_table.add_row(prettytable::row![
-                    value_record.pcr_register,
-                    value_record.sha256
-                ]);
-            }
-            table.add_row(prettytable::row![
-                bundle.bundle_id,
-                details_table,
-                values_table
-            ]);
-        }
         Ok(table.to_string())
     }
 }

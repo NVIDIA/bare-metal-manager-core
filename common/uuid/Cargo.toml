@@ -7,9 +7,12 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
+data-encoding = "2.3.3"
 eyre = "*"
+prettytable-rs = "^0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
+sha2 = "0.10.3"
 sqlx = { version = "0.7.1", features = [
     "runtime-tokio-rustls",
     "mac_address",
@@ -21,8 +24,10 @@ sqlx = { version = "0.7.1", features = [
     "macros",
     "json",
 ] }
+thiserror = "1.0"
 tonic = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 
 rpc = { path = "../../rpc" }
+utils = {path = "../utils" }

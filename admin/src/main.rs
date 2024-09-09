@@ -28,11 +28,9 @@ use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::ConfigSetting;
-use ::rpc::forge::MachineType;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
 use ::rpc::Uuid;
-use carbide::model;
 use cfg::carbide_options::AgentUpgrade;
 use cfg::carbide_options::AgentUpgradePolicyChoice;
 use cfg::carbide_options::BmcMachine;
@@ -53,7 +51,7 @@ use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
-    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool, VpcOptions,
+    NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
 };
 use clap::CommandFactory;
 use forge_secrets::credentials::Credentials;
@@ -68,6 +66,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
+use utils::admin_cli::{CarbideCliError, OutputFormat};
 
 mod cfg;
 mod domain;
@@ -91,57 +90,6 @@ mod tenant_keyset;
 mod uefi;
 mod version;
 mod vpc;
-#[derive(thiserror::Error, Debug)]
-pub enum CarbideCliError {
-    #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(String),
-
-    #[error("The API call to the Forge API server returned {0}")]
-    ApiInvocationError(tonic::Status),
-
-    #[error("Error while writing into string: {0}")]
-    StringWriteError(#[from] std::fmt::Error),
-
-    #[error("Generic Error: {0}")]
-    GenericError(String),
-
-    #[error("Segment not found.")]
-    SegmentNotFound,
-
-    #[error("Domain not found.")]
-    DomainNotFound,
-
-    #[error("Uuid not found.")]
-    UuidNotFound,
-
-    #[error("MAC not found.")]
-    MacAddressNotFound,
-
-    #[error("Serial number not found.")]
-    SerialNumberNotFound,
-
-    #[error("Error while handling json: {0}")]
-    JsonError(#[from] serde_json::Error),
-
-    #[error("Error while handling yaml: {0}")]
-    YamlError(#[from] serde_yaml::Error),
-
-    #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
-    UnexpectedMachineType(MachineType, MachineType),
-
-    #[error("Host machine with id {0} not found")]
-    MachineNotFound(MachineId),
-
-    #[error("I/O error. Does the file exist? {0}")]
-    IOError(#[from] std::io::Error),
-
-    /// For when you expected some values but the response was empty.
-    /// If empty is acceptable don't use this.
-    #[error("No results returned")]
-    Empty,
-}
-
-pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
 
 pub fn default_uuid() -> ::rpc::common::Uuid {
     ::rpc::common::Uuid {
@@ -1027,7 +975,7 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
-            if model::machine::machine_id::MachineId::from_str(&j.id).is_ok() {
+            if forge_uuid::machine::MachineId::from_str(&j.id).is_ok() {
                 machine::handle_show(
                     cfg::carbide_options::ShowMachine {
                         machine: j.id,

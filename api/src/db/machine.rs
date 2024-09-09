@@ -35,8 +35,6 @@ use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{HardwareInfo, MachineInventory};
 use crate::model::machine::health_override::HealthReportOverrides;
-use crate::model::machine::machine_id::MachineId;
-use crate::model::machine::machine_id::MachineType;
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
@@ -47,6 +45,7 @@ use crate::model::machine::{
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
+use forge_uuid::machine::{MachineId, MachineType};
 
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug, Copy, Clone)]
@@ -2019,8 +2018,8 @@ pub enum MaintenanceMode {
 #[cfg(test)]
 mod test {
     use super::Machine;
-    use crate::model::machine::machine_id::MachineId;
     use crate::model::machine::ManagedHostState;
+    use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 
     #[sqlx::test]

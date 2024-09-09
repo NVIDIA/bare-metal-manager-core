@@ -1,10 +1,8 @@
 use std::fmt::Write;
 
-use crate::{
-    cfg::carbide_options::{NetworkDeviceShow, OutputFormat},
-    CarbideCliResult,
-};
+use crate::cfg::carbide_options::NetworkDeviceShow;
 use ::rpc::forge_tls_client::ApiConfig;
+use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 pub async fn show(
     output_format: OutputFormat,

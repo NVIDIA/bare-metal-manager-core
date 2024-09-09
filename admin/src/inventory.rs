@@ -17,7 +17,8 @@ use std::{
     fs,
 };
 
-use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliError, CarbideCliResult};
+use crate::{cfg::carbide_options::InventoryAction, rpc};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 // Expected output
 // x86_host_bmcs:
