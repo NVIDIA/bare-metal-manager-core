@@ -167,6 +167,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
                 InstanceState::DPUReprovision { .. } => "dpureprovisioning",
+                InstanceState::Failed { .. } => "failed",
             }
         }
 

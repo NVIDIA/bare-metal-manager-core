@@ -38,19 +38,21 @@ use crate::{
         dto::records::{MeasurementBundleState, MeasurementMachineState},
         model::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     },
-    model::machine::{
-        all_equal, get_display_ids,
-        machine_id::MachineId,
-        BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState, FailureCause,
-        FailureDetails, FailureSource, HostReprovisionState, InstanceNextStateResolver,
-        InstanceState, LockdownInfo,
-        LockdownMode::{self, Enable},
-        LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver, MachineSnapshot,
-        MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-        NextReprovisionState, PerformPowerOperation, ReprovisionState, RetryInfo, UefiSetupInfo,
-        UefiSetupState,
+    model::{
+        machine::{
+            all_equal, get_display_ids,
+            machine_id::MachineId,
+            BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState,
+            FailureCause, FailureDetails, FailureSource, HostReprovisionState,
+            InstanceNextStateResolver, InstanceState, LockdownInfo,
+            LockdownMode::{self, Enable},
+            LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
+            MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
+            MeasuringState, NextReprovisionState, PerformPowerOperation, ReprovisionState,
+            RetryInfo, UefiSetupInfo, UefiSetupState,
+        },
+        site_explorer::ExploredEndpoint,
     },
-    model::site_explorer::ExploredEndpoint,
     redfish::{
         build_redfish_client_from_bmc_ip, host_power_control, poll_redfish_job,
         set_host_uefi_password, RedfishClientCreationError,
@@ -386,10 +388,18 @@ impl MachineStateHandler {
                     machine_id,
                     details
                 );
-                let next_state = ManagedHostState::Failed {
-                    details,
-                    machine_id,
-                    retry_count: 0,
+                let next_state = match managed_state {
+                    ManagedHostState::Assigned { .. } => ManagedHostState::Assigned {
+                        instance_state: InstanceState::Failed {
+                            details,
+                            machine_id,
+                        },
+                    },
+                    _ => ManagedHostState::Failed {
+                        details,
+                        machine_id,
+                        retry_count: 0,
+                    },
                 };
                 return Ok(StateHandlerOutcome::Transition(next_state));
             }
@@ -608,7 +618,7 @@ impl MachineStateHandler {
                         );
                         Err(StateHandlerError::InvalidHostState(
                             host_machine_id.clone(),
-                            state.managed_state.clone(),
+                            Box::new(state.managed_state.clone()),
                         ))
                     }
                 }
@@ -617,7 +627,7 @@ impl MachineStateHandler {
                 tracing::error!("Machine just created. We should not be here.");
                 Err(StateHandlerError::InvalidHostState(
                     host_machine_id.clone(),
-                    state.managed_state.clone(),
+                    Box::new(state.managed_state.clone()),
                 ))
             }
             ManagedHostState::ForceDeletion => {
@@ -839,6 +849,41 @@ impl MachineStateHandler {
         }
     }
 
+    async fn handle_restart_dpu_reprovision_assigned_state(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        host_machine_id: &MachineId,
+        dpus_for_reprov: &[&MachineSnapshot],
+        upgrade_firmware: bool,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        // User approval must have received, otherwise reprovision has not
+        // started.
+        if let Err(err) =
+            handler_host_power_control(state, ctx.services, SystemPowerControl::ForceRestart, txn)
+                .await
+        {
+            tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
+        }
+        let next_reprov_state = if upgrade_firmware
+            && self
+                .instance_handler
+                .dpu_nic_firmware_reprovision_update_enabled
+        {
+            ReprovisionState::FirmwareUpgrade
+        } else {
+            set_managed_host_topology_update_needed(txn, &state.host_snapshot, dpus_for_reprov)
+                .await?;
+            ReprovisionState::WaitingForNetworkInstall
+        };
+        Ok(Some(next_reprov_state.next_state_with_all_dpus_updated(
+            &state.managed_state,
+            &state.dpu_snapshots,
+            dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+        )?))
+    }
+
     async fn restart_dpu_reprovision(
         &self,
         managed_state: &ManagedHostState,
@@ -858,40 +903,24 @@ impl MachineStateHandler {
 
         match managed_state {
             ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision { .. },
+                instance_state: InstanceState::DPUReprovision { .. } | InstanceState::Failed { .. },
             } => {
-                // User approval must have received, otherwise reprovision has not
-                // started.
-                if let Err(err) = handler_host_power_control(
-                    state,
-                    ctx.services,
-                    SystemPowerControl::ForceRestart,
-                    txn,
-                )
-                .await
-                {
-                    tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
-                }
-                let next_reprov_state = if upgrade_firmware
-                    && self
-                        .instance_handler
-                        .dpu_nic_firmware_reprovision_update_enabled
-                {
-                    ReprovisionState::FirmwareUpgrade
-                } else {
-                    set_managed_host_topology_update_needed(
+                // If we are here means already reprovision is going on, as validated by
+                // can_restart_reprovision fucntion.
+                next_state = self
+                    .handle_restart_dpu_reprovision_assigned_state(
+                        state,
+                        ctx,
                         txn,
-                        &state.host_snapshot,
+                        host_machine_id,
                         &dpus_for_reprov,
+                        upgrade_firmware,
                     )
                     .await?;
-                    ReprovisionState::WaitingForNetworkInstall
-                };
-                next_state = Some(next_reprov_state.next_state_with_all_dpus_updated(
-                    &state.managed_state,
-                    &state.dpu_snapshots,
-                    dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
-                )?);
+
+                for dpu in &dpus_for_reprov {
+                    Machine::clear_failure_details(&dpu.machine_id, txn).await?;
+                }
             }
             ManagedHostState::DPUReprovision { .. } => {
                 let next_reprov_state = if upgrade_firmware {
@@ -2888,7 +2917,7 @@ impl DpuMachineStateHandler {
                 );
                 Err(StateHandlerError::InvalidHostState(
                     dpu_machine_id.clone(),
-                    state.managed_state.clone(),
+                    Box::new(state.managed_state.clone()),
                 ))
             }
         }
@@ -3408,7 +3437,7 @@ impl StateHandler for HostMachineStateHandler {
             match machine_state {
                 MachineState::Init => Err(StateHandlerError::InvalidHostState(
                     host_machine_id.clone(),
-                    state.managed_state.clone(),
+                    Box::new(state.managed_state.clone()),
                 )),
                 MachineState::EnableIpmiOverLan => {
                     let host_redfish_client = build_redfish_client_from_bmc_ip(
@@ -3727,7 +3756,7 @@ impl StateHandler for HostMachineStateHandler {
         } else {
             Err(StateHandlerError::InvalidHostState(
                 host_machine_id.clone(),
-                state.managed_state.clone(),
+                Box::new(state.managed_state.clone()),
             ))
         }
     }
@@ -3781,7 +3810,7 @@ impl StateHandler for InstanceStateHandler {
                     // picked instance creation and user asked for status.
                     Err(StateHandlerError::InvalidHostState(
                         host_machine_id.clone(),
-                        state.managed_state.clone(),
+                        Box::new(state.managed_state.clone()),
                     ))
                 }
                 InstanceState::WaitingForNetworkConfig => {
@@ -4168,6 +4197,23 @@ impl StateHandler for InstanceStateHandler {
                         }
                     }
                     Ok(StateHandlerOutcome::DoNothing)
+                }
+                InstanceState::Failed {
+                    details,
+                    machine_id,
+                } => {
+                    // Only way to proceed is to
+                    // 1. Force-delete the machine.
+                    // 2. If failed during reprovision, fix the config/hw issue and
+                    //    retrigger DPU reprovision.
+                    tracing::warn!(
+                        "Instance id {}/machine: {} stuck in failed state. details: {:?}, failed machine: {}",
+                        instance.id,
+                        host_machine_id,
+                        details,
+                        machine_id
+                    );
+                    return Ok(StateHandlerOutcome::DoNothing);
                 }
             }
         } else {

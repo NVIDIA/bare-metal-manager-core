@@ -139,7 +139,7 @@ pub enum StateHandlerError {
     PoolAllocateError { owner_id: String },
 
     #[error("Invalid host state {1} for DPU {0}.")]
-    InvalidHostState(MachineId, ManagedHostState),
+    InvalidHostState(MachineId, Box<ManagedHostState>),
 
     #[error("Failed to call IBFabricManager: {0}")]
     IBFabricError(String),

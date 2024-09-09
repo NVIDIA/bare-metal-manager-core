@@ -114,6 +114,7 @@ impl InstanceStatus {
                 | InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
                 InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
+                InstanceState::Failed { .. } => tenant::TenantState::Failed,
             },
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
             _ => {
