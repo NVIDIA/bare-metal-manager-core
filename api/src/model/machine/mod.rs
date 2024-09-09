@@ -328,9 +328,6 @@ pub struct MachineSnapshot {
     /// A list of [MachineStateHistory] that this machine has experienced
     pub history: Vec<MachineStateHistory>,
 
-    // Other machine ids associated with this machine
-    pub associated_host_machine_id: Option<MachineId>,
-    pub associated_dpu_machine_ids: Vec<MachineId>,
     /// Latest active health overrides set in the database
     /// An override with [`OverrideMode::Override`] can only be set on the host.
     pub health_report_overrides: HealthReportOverrides,
@@ -355,6 +352,18 @@ impl MachineSnapshot {
 
     pub fn reprovisioning_requested(&self) -> Option<&ReprovisionRequest> {
         self.reprovisioning_requested.as_ref()
+    }
+
+    /// Returns all associated DPU Machine IDs if this is Host Machine
+    pub fn associated_dpu_machine_ids(&self) -> Vec<MachineId> {
+        if self.machine_id.machine_type().is_dpu() {
+            return Vec::new();
+        }
+
+        self.interfaces
+            .iter()
+            .filter_map(|i| i.attached_dpu_machine_id.clone())
+            .collect::<Vec<MachineId>>()
     }
 
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
@@ -413,6 +422,13 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             }
             false => HealthReport::empty("aggregate-health".to_string()), // TODO: FixMe
         };
+
+        let associated_dpu_machine_ids: Vec<rpc::MachineId> = machine
+            .associated_dpu_machine_ids()
+            .iter()
+            .map(|id| id.to_string().into())
+            .collect();
+        let associated_dpu_machine_id = associated_dpu_machine_ids.first().cloned();
 
         rpc::Machine {
             id: Some(machine.machine_id.to_string().into()),
@@ -474,18 +490,9 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 .and_then(|obs| obs.agent_version.clone()),
             maintenance_reference: machine.maintenance_reference,
             maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
-            associated_host_machine_id: machine
-                .associated_host_machine_id
-                .map(|id| id.to_string().into()),
-            associated_dpu_machine_ids: machine
-                .associated_dpu_machine_ids
-                .iter()
-                .map(|id| id.to_string().into())
-                .collect(),
-            associated_dpu_machine_id: machine
-                .associated_dpu_machine_ids
-                .first()
-                .map(|id| id.to_string().into()),
+            associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
+            associated_dpu_machine_ids,
+            associated_dpu_machine_id,
             inventory: Some(machine.agent_reported_inventory.clone().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested

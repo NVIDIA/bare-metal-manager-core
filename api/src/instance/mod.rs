@@ -171,7 +171,7 @@ pub async fn allocate_instance(
     if mh_snapshot.dpu_snapshots.is_empty()
         && !mh_snapshot
             .host_snapshot
-            .associated_dpu_machine_ids
+            .associated_dpu_machine_ids()
             .is_empty()
     {
         // If there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty, we can't

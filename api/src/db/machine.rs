@@ -156,10 +156,6 @@ pub struct Machine {
     /// All health report overrides
     health_report_overrides: HealthReportOverrides,
 
-    // Other machine ids associated with this machine
-    associated_host_machine_id: Option<MachineId>,
-    associated_dpu_machine_ids: Vec<MachineId>,
-
     // Inventory related to a DPU machine as reported by the agent there.
     // Software and versions installed on the machine.
     inventory: Option<MachineInventory>,
@@ -270,8 +266,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             hardware_health_report,
             health_report_overrides,
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
-            associated_host_machine_id: None,
-            associated_dpu_machine_ids: Vec::default(),
             inventory: machine_inventory.map(|x| x.0),
             controller_state_outcome: state_outcome.map(|x| x.0),
             bios_password_set_time: row.try_get("bios_password_set_time")?,
@@ -316,8 +310,6 @@ impl From<Machine> for MachineSnapshot {
             dpu_agent_health_report: machine.dpu_agent_health_report,
             firmware_autoupdate: machine.firmware_autoupdate,
             hardware_health_report: machine.hardware_health_report,
-            associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
-            associated_host_machine_id: machine.associated_host_machine_id,
             history: machine.history.into_iter().map(Into::into).collect(),
             health_report_overrides: machine.health_report_overrides,
         }
@@ -683,20 +675,6 @@ SELECT m.id FROM
                 if let Some(history) = history_for_machine.remove(&machine.id) {
                     machine.history = history;
                 }
-            }
-
-            // Note: `associated_host_machine_id` is populated from the ManagedHost snapshot
-            if !machine.is_dpu() {
-                machine.associated_dpu_machine_ids = interfaces_for_machine
-                    .get(&machine.id)
-                    .map(|interfaces| {
-                        interfaces
-                            .iter()
-                            .map(|i| i.attached_dpu_machine_id.clone())
-                            .collect::<Option<Vec<MachineId>>>()
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default();
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
