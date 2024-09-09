@@ -303,7 +303,7 @@ async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
         .expected_machines
         .len();
 
-    assert_eq!(expected_machine_count, 5);
+    assert_eq!(expected_machine_count, 6);
 
     env.api
         .delete_all_expected_machines(tonic::Request::new(()))
@@ -335,7 +335,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         .expected_machines
         .len();
 
-    assert_eq!(expected_machine_count, 5);
+    assert_eq!(expected_machine_count, 6);
 
     let mut expected_machine_list = ExpectedMachineList {
         expected_machines: Vec::new(),
@@ -416,7 +416,7 @@ async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(out.expected_machines.len(), 5);
+    assert_eq!(out.expected_machines.len(), 6);
     // They are sorted by MAC server-side
     let em = out.expected_machines.first().unwrap();
     assert_eq!(em.chassis_serial_number, "VVG121GG");
