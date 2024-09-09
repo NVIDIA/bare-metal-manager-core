@@ -406,7 +406,7 @@ impl MachineStateHandler {
 
         match &managed_state {
             ManagedHostState::DpuDiscoveringState { .. } => {
-                if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
                     tracing::info!(
                         machine_id = %host_machine_id,
                         "Skipping to HostInit because machine has no DPUs"
@@ -1541,7 +1541,7 @@ impl StateHandler for MachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        if !state.host_snapshot.associated_dpu_machine_ids.is_empty()
+        if !state.host_snapshot.associated_dpu_machine_ids().is_empty()
             && state.dpu_snapshots.is_empty()
         {
             return Err(StateHandlerError::GenericError(eyre!(
@@ -2851,7 +2851,7 @@ impl DpuMachineStateHandler {
                 if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
                     boot_interface_mac,
-                    state.host_snapshot.associated_dpu_machine_ids.len(),
+                    state.host_snapshot.associated_dpu_machine_ids().len(),
                     ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
                 )
                 .await
@@ -2940,7 +2940,7 @@ impl StateHandler for DpuMachineStateHandler {
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
 
-        if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+        if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
             let next_state = ManagedHostState::HostInit {
                 machine_state: MachineState::WaitingForPlatformConfiguration,
             };
@@ -3493,7 +3493,7 @@ impl StateHandler for HostMachineStateHandler {
                     match call_forge_setup_and_handle_no_dpu_error(
                         redfish_client.as_ref(),
                         boot_interface_mac,
-                        state.host_snapshot.associated_dpu_machine_ids.len(),
+                        state.host_snapshot.associated_dpu_machine_ids().len(),
                         ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
                     )
                     .await
@@ -3822,7 +3822,7 @@ impl StateHandler for InstanceStateHandler {
                     let expected = &instance.network_config_version;
                     let actual = match &instance.observations.network {
                         None => {
-                            if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                            if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
                                 tracing::info!(
                                     machine_id = %host_machine_id,
                                     "Skipping network config because machine has no DPUs"
@@ -3900,7 +3900,7 @@ impl StateHandler for InstanceStateHandler {
                         instance_state: InstanceState::Ready,
                     };
 
-                    if state.host_snapshot.associated_dpu_machine_ids.is_empty() {
+                    if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
                         // If there are no DPUs, there is no need for storage config, return ready.
                         tracing::info!(
                             machine_id = %host_machine_id,
@@ -4323,7 +4323,7 @@ async fn lockdown_host(
     call_forge_setup_and_handle_no_dpu_error(
         redfish_client.as_ref(),
         boot_interface_mac,
-        state.host_snapshot.associated_dpu_machine_ids.len(),
+        state.host_snapshot.associated_dpu_machine_ids().len(),
         services.site_config.site_explorer.allow_zero_dpu_hosts,
     )
     .await
