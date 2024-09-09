@@ -670,7 +670,8 @@ impl ReprovisionState {
             }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::DPUReprovision { .. }
-                | InstanceState::BootingWithDiscoveryImage { .. } => {
+                | InstanceState::BootingWithDiscoveryImage { .. }
+                | InstanceState::Failed { .. } => {
                     let states = dpu_snapshots
                         .iter()
                         .map(|x| {
@@ -1093,6 +1094,10 @@ pub enum InstanceState {
     WaitingForNetworkReconfig,
     DPUReprovision {
         dpu_states: DpuReprovisionStates,
+    },
+    Failed {
+        details: FailureDetails,
+        machine_id: MachineId,
     },
 }
 
