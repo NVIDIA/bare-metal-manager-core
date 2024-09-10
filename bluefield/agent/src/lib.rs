@@ -55,7 +55,7 @@ pub mod nvue; // pub so that integration tests can read nvue::PATH
 mod sysfs;
 mod systemd;
 pub mod upgrade;
-mod util;
+pub mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
@@ -287,6 +287,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
                 let conf = nvue::NvueConfig {
                     is_fnn: opts.is_fnn,
+                    vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
                     loopback_ip: opts.loopback_ip.to_string(),

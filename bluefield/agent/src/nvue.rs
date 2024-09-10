@@ -14,6 +14,7 @@ use std::fs;
 use std::path::Path;
 
 use eyre::WrapErr;
+use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
@@ -21,10 +22,18 @@ pub const PATH: &str = "var/support/nvue_startup.yaml";
 pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
 pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
-const TMPL_ETV: &str = include_str!("../templates/nvue_startup_etv.conf");
-const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
+const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
+const TMPL_FNN_CLASSIC: &str = include_str!("../templates/nvue_startup_fnn_classic.conf");
+const TMPL_FNN_L3: &str = include_str!("../templates/nvue_startup_fnn_l3.conf");
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
+    if !conf.vpc_virtualization_type.supports_nvue() {
+        return Err(eyre::eyre!(
+            "cannot nvue::build. provided virtualizaton type does not support nvue: {}",
+            conf.vpc_virtualization_type,
+        ));
+    }
+
     let mut l3_domains = Vec::with_capacity(conf.l3_domains.len());
     for d in conf.l3_domains {
         l3_domains.push(TmplL3Domain {
@@ -45,7 +54,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IP: network.gateway_cidr.clone(),
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
-            VrrMAC: "".to_string(),                          // FNN only
+            SviMAC: vni_to_svimac(network.vni.unwrap_or(0)),
+            VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
             VpcPrefixes: network
                 .vpc_prefixes
                 .iter()
@@ -55,8 +65,35 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     Prefix: prefix.to_string(),
                 })
                 .collect(),
+            StorageTarget: false, // XXX (Classic, L3)
         });
     }
+
+    // TODO(chet): So the VrfLoopback comes from a /30 interface allocation,
+    // which should be in `PortConfigs`, but in the template its one level
+    // up. Basically what this is saying is L3 templates can only support
+    // a single "address" right now, and a customer can't configure Additional
+    // Subnets. This needs to be addressed before we actually launch FNN,
+    // but for now, just pluck port_configs[0].
+    let vrf_loopback = match conf.vpc_virtualization_type {
+        VpcVirtualizationType::FnnL3 => {
+            if port_configs.is_empty() {
+                return Err(eyre::eyre!(
+                    "cannot configure VrfLoopback; no address allocations",
+                ));
+            }
+            if port_configs.len() > 1 {
+                return Err(eyre::eyre!(
+                    "cannot configure VrfLoopback; expected only one address allocation",
+                ));
+            }
+            port_configs[0].VrfLoopback.clone()
+        }
+        // TODO(chet): We need to figure out where this IP will come from.
+        VpcVirtualizationType::FnnClassic => "FNN".to_string(),
+        // unused by other virtualization types
+        _ => "".to_string(),
+    };
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
@@ -82,7 +119,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         ComputeTENANTs: vec![TmplComputeTenant {
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
-            VRFloopback: conf.ct_vrf_loopback,
+            l3vniVLAN: 0, // unused -- TODO(chet): unique per DPU within a VPC
+            VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
             ExternalAccess: conf.ct_external_access,
             AccessVLANs: conf
@@ -96,11 +134,37 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .collect(),
         }],
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
+        // XXX: Unused placeholders for later.
+        StorageTarget: false,                         // XXX (Classic, L3)
+        StorageDpuIP: "127.9.9.9".to_string(),        // XXX (Classic, L3)
+        l3vnistorageVLAN: "vlan1337".to_string(),     // XXX (Classic, L3)
+        StorageL3VNI: 0,                              // XXX (Classic, L3)
+        StorageLoopback: "127.8.8.8".to_string(),     // XXX (Classic, L3)
+        DPUstorageprefix: "127.7.7.7/32".to_string(), // XXX (Classic, L3)
     };
-    if conf.is_fnn {
-        gtmpl::template(TMPL_FNN, params).map_err(|e| e.into())
+
+    // Returns the full content of the nvue template for the forge-dpu-agent
+    // to load for the given virtualization type. Since `EthernetVirtualizer`
+    // (non-nvue) is still in the mix, this is an Option<String>. However, once
+    // we're fully moved away from ETV (and everything is nvue), this can simply
+    // become a String.
+    let virtualization_template = match conf.vpc_virtualization_type {
+        VpcVirtualizationType::EthernetVirtualizer => None,
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => Some(TMPL_ETV_WITH_NVUE),
+        VpcVirtualizationType::FnnClassic => Some(TMPL_FNN_CLASSIC),
+        VpcVirtualizationType::FnnL3 => Some(TMPL_FNN_L3),
+    };
+
+    if let Some(template) = virtualization_template {
+        gtmpl::template(template, params).map_err(|e| {
+            println!("ERR filling template: {}", e,);
+            e.into()
+        })
     } else {
-        gtmpl::template(TMPL_ETV, params).map_err(|e| e.into())
+        Err(eyre::eyre!(
+            "cannot nvue::build. no nvue template configured for virtualization type: {}",
+            conf.vpc_virtualization_type
+        ))
     }
 }
 
@@ -188,9 +252,30 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
+/// vni_to_svimac takes an VNI (which is a 24 bit integer whose range
+/// is 0-16777215), pads it with zeroes (so its 12 characters long), and
+/// then turns it into a MAC address for the purpose of having a consistent
+/// SVI MAC address value for all DPUs in a given VPC.
+///
+/// e.g, an L2VNI of 1637817 would result in an SviMAC of 00:00:01:63:78:17
+/// for all DPUs in the VPC.
+fn vni_to_svimac(vni: u32) -> String {
+    format!("{:012}", vni)
+        .chars()
+        .enumerate()
+        .fold(String::new(), |mut svi_mac, (index, char)| {
+            if index > 0 && index % 2 == 0 {
+                svi_mac.push(':');
+            }
+            svi_mac.push(char);
+            svi_mac
+        })
+}
+
 // What we need to configure NVUE
 pub struct NvueConfig {
     pub is_fnn: bool,
+    pub vpc_virtualization_type: VpcVirtualizationType,
     pub use_admin_network: bool,
     pub loopback_ip: String,
     pub asn: u32,
@@ -204,7 +289,15 @@ pub struct NvueConfig {
     pub use_local_dhcp: bool,
     pub deny_prefixes: Vec<String>,
 
-    // Currently we have a single tenant. Later this will be Vec<ComputeTenant>
+    // Currently we have a single tenant, hence the single ct_ prefix.
+    // Later this will be Vec<ComputeTenant>.
+
+    // ct_vrf_name is the VRF name. This value needs to be 15 characters
+    // or less, somehow derived from the VPC, and is the same for all
+    // DPUs in a VPC. To achieve this, we currently take the L3VNI of the
+    // VPC, and assign this as "vrf_<l3vni>". This ensures we keep the
+    // character count below 15, and by using the L3VNI, we're able to
+    // directly correlate that back to the VPC.
     pub ct_vrf_name: String,
     pub ct_l3_vni: Option<u32>,
     pub ct_vrf_loopback: String,
@@ -235,6 +328,7 @@ pub struct PortConfig {
     pub gateway_cidr: String,
     pub vpc_prefixes: Vec<String>,
     pub svi_ip: Option<String>,
+    pub tenant_vrf_loopback_ip: Option<String>,
 }
 
 //
@@ -276,6 +370,18 @@ struct TmplNvue {
     // field from the ManagedHostNetworkConfigResponse as an optional
     // value, and defaults to 0 if unset.
     InternetL3VNI: u32,
+
+    // XXX: These are unused placeholders for later.
+    // StorageDpuIP is an interface that should exist on
+    // client nodes that are NOT storage targets, so in the
+    // case where StorageTarget is false, we would expect
+    // there to be a StorageDpuIP.
+    StorageTarget: bool,      // XXX (Classic, L3)
+    StorageDpuIP: String,     // XXX (Classic, L3)
+    l3vnistorageVLAN: String, // XXX (Classic, L3)
+    StorageL3VNI: u32,        // XXX (Classic, L3)
+    StorageLoopback: String,  // XXX (Classic, L3)
+    DPUstorageprefix: String, // XXX (Classic, L3)
 }
 
 #[allow(non_snake_case)]
@@ -293,10 +399,15 @@ struct TmplComputeTenant {
     // TODO(chet): Does this need to be a string?
     L3VNI: String,
 
-    /// VRFloopback is the tenant loopback IP assigned to each DPU,
+    /// XXX: unused placeholder for later. In the template, this
+    /// will go right within an `evpn` block next to the `vni`
+    /// config as `vlan: {{ .l3vniVLAN }}`.
+    l3vniVLAN: u32,
+
+    /// VrfLoopback is the tenant loopback IP assigned to each DPU,
     /// which is allocated from the interface-specific /30 (it's the
     /// first IP in the allocation).
-    VRFloopback: String,
+    VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
 
     PortConfigs: Vec<TmplConfigPort>,
 
@@ -313,6 +424,12 @@ struct TmplComputeTenant {
 struct TmplConfigVLAN {
     ID: u32,
     HostIP: String,
+
+    // HostRoute in the context of FNN-L3 is the /30 prefix allocation.
+    // This used to be populated as the HostIP + "/32", but then with
+    // the advent of interface prefix allocations (where ETV is just a /32,
+    // and FNN-L3 is a /30), HostRoute became the allocation (which was
+    // a drop-in replacement for ETV/Classic environments).
     HostRoute: String,
 }
 
@@ -334,13 +451,28 @@ struct TmplConfigPort {
     /// Format: Standard IPv4 notation
     SviIP: String,
 
-    /// VRR, the distributed gateway, needs a manually defined mac address. This can be overlapping
+    /// VRR, the distributed gateway, needs a manually defined MAC address. This can be overlapping
     /// on the different VTEPs, but it is very convenient to be unique on the same VTEP.
+    ///
+    /// In other words, this is the same value for all DPUs in a given VPC.
+    ///
+    /// TO MAKE THIS THE SAME FOR A GIVEN VPC, we take the L2VNI (which is a 24bit integer),
+    /// pad it with zeroes so its 12 characters long, and then shove some colons in there.
+    ///
+    /// For example, for a VPC with an L2VNI of 1683714, the SviMAC would
+    /// be configured as 00:00:01:68:37:14.
+    ///
     /// Format: 48bit mac address in standard hex notation, e.g: 00:00:00:00:00:10
-    VrrMAC: String,
+    SviMAC: String,
+
+    VrfLoopback: String,
 
     /// Tenant VPCs we should allow them to access
     VpcPrefixes: Vec<Prefix>,
+
+    // XXX: all of these added so the L3 template can build, need
+    // to really actually wire them up.
+    StorageTarget: bool, // XXX (Classic, L3)
 }
 
 #[allow(non_snake_case)]

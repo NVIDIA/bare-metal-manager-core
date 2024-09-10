@@ -28,7 +28,7 @@ use crate::{
     model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     CarbideError,
 };
-use forge_network::virtualization::get_svi_ip;
+use forge_network::virtualization::{get_svi_ip, get_tenant_vrf_loopback_ip};
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
@@ -168,6 +168,7 @@ pub async fn admin_network(
         fqdn: format!("{}.{}", interface.hostname, domain),
         booturl: None,
         svi_ip: None,
+        tenant_vrf_loopback_ip: None,
     };
     Ok((cfg, interface.id))
 }
@@ -283,6 +284,14 @@ pub async fn tenant_network(
             .map_err(|e| {
                 Status::internal(format!(
                     "failed to configure FlatInterfaceConfig.svi_ip: {}",
+                    e
+                ))
+            })?
+            .map(|ip| ip.to_string()),
+        tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(interface_prefix)
+            .map_err(|e| {
+                Status::internal(format!(
+                    "failed to configure FlatInterfaceConfig.tenant_vrf_loopback_ip: {}",
                     e
                 ))
             })?

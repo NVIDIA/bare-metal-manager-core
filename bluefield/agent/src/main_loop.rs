@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
@@ -47,7 +48,7 @@ use crate::util::{get_host_boot_timestamp, UrlResolver};
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
-    sysfs, systemd, upgrade, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
+    sysfs, systemd, upgrade, RunOptions, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
 };
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 
@@ -312,20 +313,6 @@ pub async fn run(
                     .filter_map(|x| IpNetwork::from_str(x.prefix.as_str()).ok())
                     .collect();
 
-                // i32 -> VpcVirtualizationType -> VpcVirtualizationType
-                let nvt_from_remote = conf
-                    .network_virtualization_type
-                    .and_then(|vi| rpc::VpcVirtualizationType::try_from(vi).ok())
-                    .map(|v| v.into());
-                // If HBN is too old, this will be overridden once we are sure HBN is up
-                let mut nvt = options
-                    .override_network_virtualization_type // dev
-                    .or(nvt_from_remote)
-                    .unwrap_or_else(|| {
-                        tracing::warn!("Missing network_virtualization_type, defaulting");
-                        DEFAULT_NETWORK_VIRTUALIZATION_TYPE
-                    });
-
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
@@ -353,12 +340,15 @@ pub async fn run(
                     let hbn_version = Version::from(hbn_version.as_str())
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
 
-                    if hbn_version < nvue_minimum_hbn_version
-                        && matches!(nvt, VpcVirtualizationType::EthernetVirtualizerWithNvue)
-                    {
-                        tracing::trace!("Site does not support NVUE, HBN version {hbn_version} is too old. Using ETV.");
-                        nvt = VpcVirtualizationType::EthernetVirtualizer;
-                    }
+                    // Get the actual virtualization type to use for configuring
+                    // an interface, where we'll default to reading the one provided
+                    // by the Carbide API, with the ability to override via RunOptions.
+                    let virtualization_type = effective_virtualization_type(
+                        &conf,
+                        &options,
+                        &hbn_version,
+                        &nvue_minimum_hbn_version,
+                    )?;
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &agent.hbn.root_dir,
@@ -367,11 +357,11 @@ pub async fn run(
                         pxe_ip,
                         ntpservers.clone(),
                         nameservers.clone(),
-                        nvt,
+                        virtualization_type,
                     )
                     .await;
 
-                    let update_result = match nvt {
+                    let update_result = match virtualization_type {
                         VpcVirtualizationType::EthernetVirtualizer => {
                             ethernet_virtualization::update_files(
                                 &agent.hbn.root_dir,
@@ -380,19 +370,21 @@ pub async fn run(
                             )
                             .await
                         }
-                        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                        VpcVirtualizationType::EthernetVirtualizerWithNvue
+                        | VpcVirtualizationType::FnnClassic
+                        | VpcVirtualizationType::FnnL3 => {
                             if hbn_version >= fmds_minimum_hbn_version {
                                 // Apply the interface plan. This is where we actually configure
-                                // the interface on the Dpu
+                                // the FMDS phone home interface on the DPU.
                                 Interface::apply(fmds_interface_plan).await?;
 
-                                // If there are routes, apply the route plan. This is where we actually
-                                // add and remove routes.
+                                // If there are routes, apply the route plan. This is where we
+                                // actually add and remove FMDS phone home routes.
                                 //
-                                // When a dpu has recently booted, there may
-                                // not be a pf0dpu0_sf interface configured yet.  So routes may
-                                // not be applied on the first tick of the loop. Once the interface
-                                // is configured, routes can be added and removed.
+                                // When a DPU has recently booted, there may not be a pf0dpu0_sf
+                                // interface configured yet, so routes may not be applied on the
+                                // first tick of the loop. Once the interface is configured, routes
+                                // can be added and removed.
 
                                 // This means that routes will be added last and might take a few seconds
                                 // to appear
@@ -402,19 +394,13 @@ pub async fn run(
                             }
 
                             ethernet_virtualization::update_nvue(
+                                virtualization_type,
                                 &agent.hbn.root_dir,
                                 &conf,
                                 agent.hbn.skip_reload,
                             )
                             .await
                         }
-                        // TODO(chet,bill): Fill this in soon!
-                        VpcVirtualizationType::FnnClassic => Err(eyre::eyre!(
-                            "fnn-classic support not implemented in the forge-dpu-agent yet"
-                        )),
-                        VpcVirtualizationType::FnnL3 => Err(eyre::eyre!(
-                            "fnn-l3 support not implemented in the forge-dpu-agent yet"
-                        )),
                     };
 
                     let joined_result = match (update_result, dhcp_result) {
@@ -709,6 +695,71 @@ pub async fn run(
             _ = tokio::time::sleep(loop_period) => {}
         }
     }
+}
+
+/// effective_virtualization_type returns the virtualization type
+/// to use for generating configuration. This defaults to whatever
+/// comes from Carbide API, with the ability to override with runtime
+/// options.
+///
+/// It will fall back to ETV if all else fails.
+fn effective_virtualization_type(
+    conf: &ManagedHostNetworkConfigResponse,
+    options: &RunOptions,
+    hbn_version: &Version,
+    nvue_minimum_hbn_version: &Version,
+) -> eyre::Result<VpcVirtualizationType> {
+    // First, grab the VpcVirtualizationType returned to us
+    // from the Carbide API (which *should* be what comes from
+    // the `network_virtualization_type` column from the `vpcs`
+    // table for the VPC this DPU is in).
+    //
+    // This may be unset, which historically has just meant
+    // to use ETV (EthernetVirtualizer), the pre-nvue one.
+    let virtualization_type_from_remote = conf
+        .network_virtualization_type
+        .and_then(|vi| rpc::VpcVirtualizationType::try_from(vi).ok())
+        .map(|v| v.into());
+
+    // And now see if the remote virtualization type should be overwritten
+    // by runtime options. If it's not, and the remote value was also unset,
+    // then just use ETV, which has historically been the "default" when
+    // no virtualization type is configured.
+    let virtualization_type = options
+        .override_network_virtualization_type // dev
+        .or(virtualization_type_from_remote)
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "Missing network_virtualization_type, defaulting to {}",
+                DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+            );
+            DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+        });
+
+    // If the HBN version is older than the minimum required HBN version to
+    // support NVUE, there are a couple of options here:
+    // - If we're doing ETV-NVUE, we can just fall back to ETV safely.
+    // - If we're doing an FNN-based config, we can't, so return an error.
+    if hbn_version < nvue_minimum_hbn_version {
+        match virtualization_type {
+            VpcVirtualizationType::FnnClassic | VpcVirtualizationType::FnnL3 => {
+                return Err(eyre::eyre!("{virtualization_type} virtualization requested, but site does not support NVUE. Cannot configure."));
+            }
+            VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                tracing::warn!(
+                    "{virtualization_type} virtualization requested, but site does not support NVUE (HBN version {hbn_version} is too old). Using ETV."
+                );
+                return Ok(VpcVirtualizationType::EthernetVirtualizer);
+            }
+            // If it's already set to ETV, things are good. Log a debug
+            // message just incase.
+            VpcVirtualizationType::EthernetVirtualizer => {
+                tracing::debug!("HBN version is below the NVUE minimum HBN version, but already set to non-NVUE virtualization. No changes needed.");
+            }
+        }
+    }
+
+    Ok(virtualization_type)
 }
 
 async fn plan_fmds_armos_routing(

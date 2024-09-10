@@ -35,5 +35,6 @@ tonic = { workspace = true }
 # [local-dependencies]
 config-version = { path = "../config-version" }
 health-report = { path = "../health-report" }
+forge-network = { path = "../network" }
 rpc = { path = "../../rpc" }
 forge-tls = { path = "../tls" }

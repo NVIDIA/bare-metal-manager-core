@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_network::virtualization::get_svi_ip;
+use forge_network::virtualization::{get_svi_ip, get_tenant_vrf_loopback_ip};
 
 use std::fs;
 use std::io::Write;
@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use agent::util::compare_lines;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -25,6 +26,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
+use forge_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
 use rpc::forge::DpuInfo;
 use tokio::sync::Mutex;
@@ -33,12 +35,12 @@ mod common;
 
 #[derive(Default, Debug)]
 struct State {
-    is_nvue: bool,
     has_discovered: bool,
     has_checked_for_upgrade: bool,
     num_netconf_fetches: AtomicUsize,
     num_health_reports: AtomicUsize,
     num_get_dpu_ips: AtomicUsize,
+    virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Default, Debug)]
@@ -47,14 +49,19 @@ struct TestOut {
     hbn_root_dir: Option<tempfile::TempDir>,
 }
 
+// test_etv is different than the other tests (which all leverage
+// test_nvue_generic), because it writes out a bunch of additional
+// files (vs. the nvue-based mechanism, which just provides us with
+// a single nvue_startup.yaml config).
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv() -> eyre::Result<()> {
-    let out = run_common_parts(false).await?;
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer).await?;
     if out.is_skip {
         return Ok(());
     }
 
-    // The files were written
+    // Make sure all of the files that we expect (in the non-nvue
+    // world) are being written out.
     let td = out.hbn_root_dir.unwrap();
     let hbn_root = td.path();
     assert!(hbn_root.join("etc/frr/frr.conf").exists());
@@ -69,20 +76,59 @@ async fn test_etv() -> eyre::Result<()> {
     Ok(())
 }
 
+// test_etv_nvue tests that config is being generated successfully
+// for the OG networking config, but using nvue templating mechanism.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_nvue() -> eyre::Result<()> {
-    let out = run_common_parts(true).await?;
+async fn test_etv_nvue() -> eyre::Result<()> {
+    let expected = include_str!("../templates/tests/full_nvue_startup_etv.yaml.expected");
+    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
+}
+
+// test_fnn_classic tests that config is being generated successfully
+// via nvue templating against the FNN classic template.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_fnn_classic() -> eyre::Result<()> {
+    let expected = include_str!("../templates/tests/full_nvue_startup_fnn_classic.yaml.expected");
+    test_nvue_generic(VpcVirtualizationType::FnnClassic, expected).await
+}
+
+// test_fnn_l3 tests that config is being generated successfully
+// via nvue templating against the FNN L3 template.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_fnn_l3() -> eyre::Result<()> {
+    let expected = include_str!("../templates/tests/full_nvue_startup_fnn_l3.yaml.expected");
+    test_nvue_generic(VpcVirtualizationType::FnnL3, expected).await
+}
+
+// All of the new tests are leveraging nvue for configs, regardless
+// of template, so have a test_nvue_generic that just takes a virtualization
+// type.
+async fn test_nvue_generic(
+    virtualization_type: VpcVirtualizationType,
+    expected: &str,
+) -> eyre::Result<()> {
+    let out = run_common_parts(virtualization_type).await?;
     if out.is_skip {
         return Ok(());
     }
 
-    // The files were written
+    // Make sure the nvue startup file was written where
+    // it was supposed to be written (agent::nvue::PATH
+    // within the test-specific temp dir).
     let td = out.hbn_root_dir.unwrap();
     let hbn_root = td.path();
     let startup_yaml = hbn_root.join(agent::nvue::PATH);
-    assert!(startup_yaml.exists());
+    assert!(
+        startup_yaml.exists(),
+        "could not find {} startup_yaml at path: {:?}",
+        virtualization_type,
+        startup_yaml.to_str()
+    );
 
-    // Check its YAML
+    // And now check that the output nvue config YAML
+    // is actually valid YAML. If it's not, write out
+    // whatever the error is to ERR_FILE, so we can go
+    // check and see what's up.
     const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
     let startup_yaml = fs::read_to_string(startup_yaml)?;
     let yaml_obj: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
@@ -94,17 +140,32 @@ async fn test_nvue() -> eyre::Result<()> {
         .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
     assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'
 
+    let r = compare_lines(startup_yaml.as_str(), expected, None);
+    eprint!("Diff output:\n{}", r.report());
+    assert!(
+        r.is_identical(),
+        "generated startup_yaml does not match expected startup_yaml for {}",
+        virtualization_type
+    );
+
     Ok(())
 }
 
-// Most of the test is shared between ETV files and ETV NVUE
-async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
+// run_common_parts exists, because most of the test is
+// shared between the [legacy] ETV files mechanism and the
+// new nvue templating mechanism.
+async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::Result<TestOut> {
     forge_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
-    state.lock().await.is_nvue = is_nvue;
+    state.lock().await.virtualization_type = virtualization_type;
 
-    // Start carbide API
+    // Simulate a local carbide-api by initializing a new axum::Router that exposes the
+    // same gRPC endpoints that Carbide API would (and, in this case, the exact gRPC
+    // endpoints that our local agent that we're spawning will need to make calls to).
+    // A `state` is provided to the Router so that each mocked call (e.g. how `handle_netconf
+    // is leveraged for `/forge.Forge/GetManagedHostNetworkConfig` calls) can have
+    // additional bits of context (just like carbide-api would).
     let app = Router::new()
         .route("/up", get(handle_up))
         .route("/forge.Forge/DiscoverMachine", post(handle_discover))
@@ -216,7 +277,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             .num_netconf_fetches
             .fetch_add(1, Ordering::SeqCst);
     }
-    let is_nvue = state.lock().await.is_nvue;
+    let virtualization_type = state.lock().await.virtualization_type;
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
@@ -237,6 +298,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         svi_ip: get_svi_ip(&admin_interface_prefix)
             .unwrap()
             .map(|ip| ip.to_string()),
+        tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&admin_interface_prefix)
+            .unwrap()
+            .map(|ip| ip.to_string()),
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -254,11 +318,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         tenant_interfaces: vec![],
         instance_network_config_version: config_version,
         instance_id: None,
-        network_virtualization_type: Some(if is_nvue {
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32
-        } else {
-            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32
-        }),
+        network_virtualization_type: Some(virtualization_type as i32),
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
