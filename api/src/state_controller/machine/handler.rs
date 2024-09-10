@@ -1515,11 +1515,22 @@ fn is_dpu_up(state: &ManagedHostStateSnapshot, dpu_snapshot: &MachineSnapshot) -
     true
 }
 
-/// if dpu_agent has responded health after dpu is rebooted, return true.
-fn dpus_up(state: &ManagedHostStateSnapshot) -> bool {
+/// are_dpus_up_trigger_reboot_if_needed returns true if the dpu_agent indicates that the DPU has rebooted and is healthy.
+/// otherwise returns false. triggers a reboot in case the DPU is down/bricked.
+async fn are_dpus_up_trigger_reboot_if_needed(
+    state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    services: &StateHandlerServices,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> bool {
     for dpu_snapshot in &state.dpu_snapshots {
         if !is_dpu_up(state, dpu_snapshot) {
             return false;
+        } else {
+            match reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn).await {
+                Ok(_) => {}
+                Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.machine_id),
+            }
         }
     }
 
@@ -1987,6 +1998,10 @@ async fn handle_dpu_reprovision(
             for dpu_snapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dpu_snapshot) {
                     tracing::warn!("Waiting for DPU {} to come up", dpu_snapshot.machine_id);
+
+                    reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
+                        .await?;
+
                     return Ok(StateHandlerOutcome::Wait(format!(
                         "Waiting for DPU {} to come up.",
                         dpu_snapshot.machine_id
@@ -3603,7 +3618,14 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         LockdownState::WaitForDPUUp => {
                             // Has forge-dpu-agent reported state? That means DPU is up.
-                            if dpus_up(state) {
+                            if are_dpus_up_trigger_reboot_if_needed(
+                                state,
+                                &self.host_handler_params.reachability_params,
+                                ctx.services,
+                                txn,
+                            )
+                            .await
+                            {
                                 // reboot host
                                 // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
