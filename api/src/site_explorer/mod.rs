@@ -415,12 +415,12 @@ impl SiteExplorer {
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
         for (host, report) in explored_managed_hosts {
             match self
-                .create_managed_host(host, report, &self.database_connection)
+                .create_managed_host(host.clone(), report, &self.database_connection)
                 .await
             {
                 Ok(true) => metrics.created_machines += 1,
                 Ok(false) => {}
-                Err(error) => tracing::error!(%error, "Failed to create managed host"),
+                Err(error) => tracing::error!(%error, "Failed to create managed host {:#?}", host),
             }
         }
 
@@ -1548,19 +1548,27 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
-    if let Some(base_mac) = dpu_ep
+    if let Some(mut base_mac) = dpu_ep
         .report
         .systems
         .first()
         .and_then(|s| s.base_mac.clone())
     {
+        validate_and_add_colons_to_mac_address(&mut base_mac)?;
         return MacAddress::from_str(base_mac.as_str())
             .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()));
     }
+
+    // Legacy mechanism
     let mut base_mac = get_sys_image_version(dpu_ep.report.service.as_ref())?;
     if base_mac.len() != 19 {
-        return Err(format!("Invalid base_mac length: {}", base_mac.len()));
+        return Err(format!(
+            "Invalid base_mac length from get_sys_image_version: {} ({base_mac})",
+            base_mac.len()
+        ));
     }
+
+    // Remove colons
     base_mac = base_mac.replace(':', "");
     if base_mac.len() != 16 {
         return Err(format!(
@@ -1570,14 +1578,28 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     }
 
     base_mac.replace_range(6..10, "");
+
+    validate_and_add_colons_to_mac_address(&mut base_mac)?;
+    MacAddress::from_str(base_mac.as_str())
+        .map_err(|e| format!("Invalid MAC address format ({base_mac}): {e}"))
+}
+
+const MAC_ADDRESS_LENGTH_NO_COLONS: usize = 12;
+
+fn validate_and_add_colons_to_mac_address(base_mac: &mut String) -> Result<(), String> {
+    if base_mac.len() != MAC_ADDRESS_LENGTH_NO_COLONS {
+        return Err(format!(
+            "Invalid base_mac length: {} ({base_mac})",
+            base_mac.len()
+        ));
+    }
+
     base_mac.insert(10, ':');
     base_mac.insert(8, ':');
     base_mac.insert(6, ':');
     base_mac.insert(4, ':');
     base_mac.insert(2, ':');
-
-    MacAddress::from_str(base_mac.as_str())
-        .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1651,7 +1673,7 @@ mod tests {
         inv.version = Some("b83f:d203:0090:95fz".to_string());
         assert_eq!(
             find_host_pf_mac_address(&ep1),
-            Err("Invalid MAC address format: b8:3f:d2:90:95:fz".to_string())
+            Err("Invalid MAC address format (b8:3f:d2:90:95:fz): invalid digit".to_string())
         );
 
         // Invalid DPU_SYS_IMAGE field
@@ -1670,7 +1692,7 @@ mod tests {
         inv.version = Some("abc".to_string());
         assert_eq!(
             find_host_pf_mac_address(&ep1),
-            Err("Invalid base_mac length: 3".to_string())
+            Err("Invalid base_mac length from get_sys_image_version: 3 (abc)".to_string())
         );
 
         // Missing DPU_SYS_IMAGE field
