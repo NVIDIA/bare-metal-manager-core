@@ -24,8 +24,12 @@ use forge_secrets::credentials::{
 };
 use libredfish::{
     model::{
-        secure_boot::SecureBootMode, sensor::GPUSensors, service_root::ServiceRoot, task::Task,
-        update_service::UpdateService, ODataId, ODataLinks,
+        secure_boot::SecureBootMode,
+        sensor::GPUSensors,
+        service_root::ServiceRoot,
+        task::Task,
+        update_service::{TransferProtocolType, UpdateService},
+        ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, RoleId, SystemPowerControl,
@@ -1067,6 +1071,15 @@ impl Redfish for RedfishSimClient {
 
     async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
         Ok(())
+    }
+
+    async fn update_firmware_simple_update(
+        &self,
+        _image_uri: &str,
+        _targets: Vec<String>,
+        _transfer_protocol: TransferProtocolType,
+    ) -> Result<libredfish::model::task::Task, RedfishError> {
+        todo!();
     }
 }
 
