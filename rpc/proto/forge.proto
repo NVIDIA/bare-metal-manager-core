@@ -1924,6 +1924,12 @@ message FlatInterfaceConfig {
     // IP allocated from the /30, where the /30 is broken into two /31s,
     // and the SVI IP is the first IP in the second /31.
     optional string svi_ip = 13;
+
+    // tenant_vrf_loopback_ip is an administrative IP assigned from
+    // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
+    // to be able to access this IP; it is intended for monitoring
+    // and debugging by operators.
+    optional string tenant_vrf_loopback_ip = 14;
 }
 
 message ManagedHostNetworkStatusRequest {}

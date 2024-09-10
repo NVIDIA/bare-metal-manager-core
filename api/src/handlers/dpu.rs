@@ -14,6 +14,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -110,6 +111,16 @@ pub(crate) async fn get_managed_host_network_config(
 
     let mut vpc_vni = None;
 
+    // TODO(chet): This can eventually go away, but for now, keep the
+    // existing logic (where we set either ETV or ETV w/ NVUE depending
+    // on `nvue_enabled` being set), and then, if there's an instance,
+    // go into the complete matching logic.
+    let mut network_virtualization_type = Some(if api.runtime_config.nvue_enabled {
+        rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+    } else {
+        rpc::VpcVirtualizationType::EthernetVirtualizer
+    } as i32);
+
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
         Some(instance) => {
@@ -117,6 +128,27 @@ pub(crate) async fn get_managed_host_network_config(
             let vpc = Vpc::find_by_segment(&mut txn, interfaces[0].network_segment_id)
                 .await
                 .map_err(CarbideError::from)?;
+
+            // So the network_virtualization_type historically didn't come from the VPC table,
+            // even though the value was being set there, and we're in the process of changing
+            // that. If it's Fnn*, then set it accordingly. If it is EXPLICITLY ETV w/ NVUE,
+            // then set it accordingly. If it's ETV, then check the runtime config to see if
+            // nvue_enabled is true.
+            network_virtualization_type = Some(match vpc.network_virtualization_type {
+                VpcVirtualizationType::FnnClassic => rpc::VpcVirtualizationType::FnnClassic,
+                VpcVirtualizationType::FnnL3 => rpc::VpcVirtualizationType::FnnL3,
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                    rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                }
+                VpcVirtualizationType::EthernetVirtualizer => {
+                    if api.runtime_config.nvue_enabled {
+                        rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                    } else {
+                        rpc::VpcVirtualizationType::EthernetVirtualizer
+                    }
+                }
+            } as i32);
+
             vpc_vni = vpc.vni;
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
@@ -264,13 +296,7 @@ pub(crate) async fn get_managed_host_network_config(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type: Some(if api.runtime_config.nvue_enabled {
-            // new
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32
-        } else {
-            // old
-            rpc::VpcVirtualizationType::EthernetVirtualizer as i32
-        }),
+        network_virtualization_type,
         vpc_vni: vpc_vni.map(|vni| vni as u32),
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),

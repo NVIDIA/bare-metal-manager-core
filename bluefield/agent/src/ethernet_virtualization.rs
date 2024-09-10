@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ipnetwork::IpNetwork;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::CStr;
 use std::fs::File;
@@ -26,7 +27,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
-use forge_network::virtualization::VpcVirtualizationType;
+use forge_network::virtualization::{get_svi_prefix, VpcVirtualizationType};
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -98,6 +99,7 @@ fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
 
 // Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
 pub async fn update_nvue(
+    vpc_virtualization_type: VpcVirtualizationType,
     hbn_root: &Path,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the `nv` commands after writing the file
@@ -153,7 +155,8 @@ pub async fn update_nvue(
             l3_vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
             vpc_prefixes: admin_interface.vpc_prefixes.clone(), // probably empty
-            svi_ip: None, // FNN-specific. not used with admin network.
+            svi_ip: None,                 // FNN-specific. not used with admin network.
+            tenant_vrf_loopback_ip: None, // not used with admin network
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -173,6 +176,48 @@ pub async fn update_nvue(
                 )
             };
 
+            // TODO(chet): Move this API-side into api/src/ethernet_virtualization.rs.
+            let svi_ip = match vpc_virtualization_type {
+                VpcVirtualizationType::EthernetVirtualizer => None,
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => None,
+                // FNN Classic is IP + 1.
+                VpcVirtualizationType::FnnClassic => {
+                    let interface_ip: IpAddr = net.ip.parse().map_err(|e| {
+                        eyre::eyre!("failed to parse interface IP ({}): {}", net.ip, e)
+                    })?;
+                    let svi_ip = match interface_ip {
+                        IpAddr::V4(v4_ip) => {
+                            let svi_ip_u32 = u32::from(v4_ip).checked_add(1).ok_or_else(|| {
+                                eyre::eyre!("could not increment interface IP to an SVI IP")
+                            })?;
+                            Ipv4Addr::from(svi_ip_u32).to_string()
+                        }
+                        IpAddr::V6(_) => {
+                            return Err(eyre::eyre!(
+                                "found IPv6 interface IP ({}). IPv6 not supported.",
+                                net.ip
+                            ));
+                        }
+                    };
+
+                    Some(svi_ip)
+                }
+                // FNN L3 is the second /31 of the /30 allocation.
+                VpcVirtualizationType::FnnL3 => {
+                    let dpu_prefix: IpNetwork = net.interface_prefix.parse().map_err(|e| {
+                        eyre::eyre!(
+                            "failed to parse DPU prefix ({}) to determine SVI prefix: {}",
+                            net.interface_prefix,
+                            e
+                        )
+                    })?;
+                    let svi_prefix = get_svi_prefix(&dpu_prefix)?
+                        .ok_or_else(|| eyre::eyre!("failed"))?
+                        .to_string();
+                    Some(svi_prefix)
+                }
+            };
+
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 vlan: net.vlan_id as u16,
@@ -180,7 +225,8 @@ pub async fn update_nvue(
                 l3_vni: Some(net.vpc_vni),
                 gateway_cidr: net.gateway.clone(),
                 vpc_prefixes: net.vpc_prefixes.clone(),
-                svi_ip: net.svi_ip.clone(),
+                svi_ip,
+                tenant_vrf_loopback_ip: net.tenant_vrf_loopback_ip.clone(),
             });
         }
         ifs
@@ -189,6 +235,7 @@ pub async fn update_nvue(
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
+        vpc_virtualization_type,
         use_admin_network: nc.use_admin_network,
         loopback_ip,
         asn: nc.asn,
@@ -199,12 +246,11 @@ pub async fn update_nvue(
         dhcp_servers: nc.dhcp_servers.clone(),
         route_servers: nc.route_servers.clone(),
         ct_port_configs: networks,
-        ct_vrf_name: UPLINKS[0].to_string(),
+        ct_vrf_name: format!("vpc_{}", nc.vpc_vni.unwrap_or_default()),
         ct_access_vlans: access_vlans,
         use_local_dhcp: nc.enable_dhcp,
         deny_prefixes: nc.deny_prefixes.clone(),
 
-        // FNN only, not used yet
         ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
         ct_external_access: vec![],
@@ -1286,7 +1332,9 @@ mod tests {
     use super::FPath;
     use crate::ethernet_virtualization::get_interface_cmd;
     use crate::nvue;
-    use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
+    use forge_network::virtualization::{
+        get_svi_ip, get_tenant_vrf_loopback_ip, VpcVirtualizationType,
+    };
     use ipnetwork::IpNetwork;
 
     #[ctor::ctor]
@@ -1381,14 +1429,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizerWithNvue, 32);
+        let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+        let network_config = netconf(virtualization_type, 32);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
-        let has_changes = super::update_nvue(hbn_root, &network_config, true).await?;
+        let has_changes =
+            super::update_nvue(virtualization_type, hbn_root, &network_config, true).await?;
         assert!(
             has_changes,
             "update_nvue should have written the file, there should be changes"
@@ -1406,15 +1456,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_with_tenant_nvue_fnn() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(VpcVirtualizationType::FnnL3, 30);
+    async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::FnnClassic;
+        let network_config = netconf(virtualization_type, 32);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
-        let has_changes = super::update_nvue(hbn_root, &network_config, true).await?;
+        let has_changes =
+            super::update_nvue(virtualization_type, hbn_root, &network_config, true).await?;
         assert!(
             has_changes,
             "update_nvue should have written the file, there should be changes"
@@ -1425,7 +1477,7 @@ mod tests {
         compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
 
         // check startup.yaml
-        let expected = include_str!("../templates/tests/nvue_startup_fnn.yaml.expected");
+        let expected = include_str!("../templates/tests/nvue_startup_fnn_classic.yaml.expected");
         compare_diffed(hbn_root.join(nvue::PATH), expected)?;
 
         Ok(())
@@ -1452,6 +1504,9 @@ mod tests {
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: get_svi_ip(&admin_interface_prefix)
+                .unwrap()
+                .map(|ip| ip.to_string()),
+            tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&admin_interface_prefix)
                 .unwrap()
                 .map(|ip| ip.to_string()),
         };
@@ -1481,6 +1536,9 @@ mod tests {
                 svi_ip: get_svi_ip(&interface_prefix_1)
                     .unwrap()
                     .map(|ip| ip.to_string()),
+                tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&interface_prefix_1)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -1498,12 +1556,25 @@ mod tests {
                 svi_ip: get_svi_ip(&interface_prefix_2)
                     .unwrap()
                     .map(|ip| ip.to_string()),
+                tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&interface_prefix_2)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
         ];
 
         let svi_is_some = virtualization_type == VpcVirtualizationType::FnnL3;
-        assert_eq!(tenant_interfaces[0].svi_ip.is_some(), svi_is_some);
-        assert_eq!(tenant_interfaces[1].svi_ip.is_some(), svi_is_some);
+        assert_eq!(
+            tenant_interfaces[0].svi_ip.is_some(),
+            svi_is_some,
+            "got svi_ip: {:?}",
+            tenant_interfaces[0].svi_ip
+        );
+        assert_eq!(
+            tenant_interfaces[1].svi_ip.is_some(),
+            svi_is_some,
+            "got svi_ip: {:?}",
+            tenant_interfaces[1].svi_ip
+        );
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
@@ -1612,6 +1683,7 @@ mod tests {
     }
 
     fn test_nvue_is_yaml_inner(is_fnn: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
         let networks = vec![nvue::PortConfig {
             interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
             vlan: 123u16,
@@ -1623,11 +1695,18 @@ mod tests {
             } else {
                 None
             },
+            tenant_vrf_loopback_ip: if is_fnn {
+                Some("10.217.4.67".to_string())
+            } else {
+                None
+            },
             vpc_prefixes: vec!["10.217.4.168/29".to_string()],
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
+        let vpc_vni = 7777;
         let conf = nvue::NvueConfig {
             is_fnn,
+            vpc_virtualization_type,
             use_admin_network: true,
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
@@ -1639,7 +1718,7 @@ mod tests {
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["10.217.4.128/26".to_string()],
             ct_port_configs: networks,
-            ct_vrf_name: super::UPLINKS[0].to_string(),
+            ct_vrf_name: format!("vpc_{}", vpc_vni),
             use_local_dhcp: false,
             ct_access_vlans: vec![nvue::VlanConfig {
                 vlan_id: 123,
@@ -1648,7 +1727,7 @@ mod tests {
             }],
 
             // FNN only, not used yet
-            ct_l3_vni: Some(7777),
+            ct_l3_vni: Some(vpc_vni),
             ct_vrf_loopback: "FNN".to_string(),
             ct_external_access: vec![],
             l3_domains: vec![],
@@ -1763,6 +1842,9 @@ mod tests {
             svi_ip: get_svi_ip(&admin_interface_prefix)
                 .unwrap()
                 .map(|ip| ip.to_string()),
+            tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&admin_interface_prefix)
+                .unwrap()
+                .map(|ip| ip.to_string()),
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -1786,6 +1868,9 @@ mod tests {
                 svi_ip: get_svi_ip(&interface_prefix_1)
                     .unwrap()
                     .map(|ip| ip.to_string()),
+                tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&interface_prefix_1)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -1801,6 +1886,9 @@ mod tests {
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&interface_prefix_2)
+                    .unwrap()
+                    .map(|ip| ip.to_string()),
+                tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&interface_prefix_2)
                     .unwrap()
                     .map(|ip| ip.to_string()),
             },

@@ -58,6 +58,21 @@ impl VpcVirtualizationType {
             Self::FnnL3 => 30,
         }
     }
+
+    pub fn supports_nvue(&self) -> bool {
+        match self {
+            Self::EthernetVirtualizer => false,
+            Self::EthernetVirtualizerWithNvue => true,
+            Self::FnnClassic => true,
+            Self::FnnL3 => true,
+        }
+    }
+}
+
+impl Default for VpcVirtualizationType {
+    fn default() -> Self {
+        Self::EthernetVirtualizer
+    }
 }
 
 impl fmt::Display for VpcVirtualizationType {
@@ -167,10 +182,66 @@ pub fn get_svi_ip(network: &IpNetwork) -> eyre::Result<Option<IpAddr>> {
         30 => match network.iter().nth(2) {
             Some(ip_addr) => Ok(Some(ip_addr)),
             None => Err(eyre::eyre!(format!(
-                "no viable host IP found in network: {}",
+                "no viable SVI IP found in network: {}",
                 network
             ))),
         },
+        _ => Err(eyre::eyre!(format!(
+            "tenant instance network size unsupported: {}",
+            network.prefix()
+        ))),
+    }
+}
+
+/// get_tenant_vrf_loopback_ip returns the tenant VRF loopback IP for a tenant
+/// instance for a given IpNetwork allocation. This is being initially
+/// introduced for the purpose of FNN /30 allocations (where the VRF
+/// loopback ends up being the 1st IP -- aka the first IP of the first
+/// /31 allocation in the /30), and will probably change with a wider
+/// refactor + intro of Carbide IP Prefix Management.
+pub fn get_tenant_vrf_loopback_ip(network: &IpNetwork) -> eyre::Result<Option<IpAddr>> {
+    match network.prefix() {
+        32 => Ok(None),
+        // get the first IP (nth(0) but clippy hates it)
+        30 => match network.iter().next() {
+            Some(ip_addr) => Ok(Some(ip_addr)),
+            None => Err(eyre::eyre!(format!(
+                "no viable tenant VRF loopback IP found in network: {}",
+                network
+            ))),
+        },
+        _ => Err(eyre::eyre!(format!(
+            "tenant instance network size unsupported: {}",
+            network.prefix()
+        ))),
+    }
+}
+
+/// get_svi_prefix returns the SVI prefix (also known as the gateway prefix)
+/// for a tenant instance for a given IpNetwork. This is being initially introduced
+/// for the purpose of FNN /30 allocations (where the SVI prefix ends up being
+/// the second /31 allocation of the /30), and will probably change with a wider
+/// refactor + intro of Carbide IP Prefix Management.
+pub fn get_svi_prefix(network: &IpNetwork) -> eyre::Result<Option<IpNetwork>> {
+    match network.prefix() {
+        32 => Ok(None),
+        30 => {
+            let svi_ip = get_svi_ip(network)?;
+            if svi_ip.is_none() {
+                return Err(eyre::eyre!(
+                    "could not determine SVI IP from tenant instance network"
+                ));
+            }
+
+            let svi_prefix = IpNetwork::new(svi_ip.unwrap(), 31).map_err(|e| {
+                eyre::eyre!(format!(
+                    "unable to build SVI prefix from tenant instance network: {}",
+                    e
+                ))
+            })?;
+
+            Ok(Some(svi_prefix))
+        }
         _ => Err(eyre::eyre!(format!(
             "tenant instance network size unsupported: {}",
             network.prefix()

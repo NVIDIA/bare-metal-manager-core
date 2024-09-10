@@ -125,6 +125,12 @@ pub struct NvueOptions {
         help = "Site-wide GNI-supplied VNI to use for VPCs to access the Internet."
     )]
     pub ct_internet_l3_vni: Option<u32>,
+
+    #[clap(
+        long,
+        help = "The VpcVirtualizationType to use for this config + template (etv, etv_nvue, fnn_classic, fnn_l3)"
+    )]
+    pub virtualization_type: VpcVirtualizationType,
 }
 
 #[derive(Parser, Debug)]

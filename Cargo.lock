@@ -7655,6 +7655,7 @@ dependencies = [
  "clap 4.5.4",
  "config-version",
  "eyre",
+ "forge-network",
  "forge-tls",
  "health-report",
  "ipnetwork",
