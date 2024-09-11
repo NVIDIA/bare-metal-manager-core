@@ -658,6 +658,8 @@ pub enum RedfishCommand {
     EnableIpmiOverLan,
     // Disable IPMI over LAN
     DisableIpmiOverLan,
+    // Get Base Mac Address (DPU only)
+    GetBaseMacAddress,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

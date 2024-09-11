@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{path::Path, time::Duration};
+use std::{path::Path, str::FromStr, time::Duration};
 
 use color_eyre::eyre::eyre;
 use libredfish::{
@@ -22,6 +22,7 @@ use libredfish::{
     Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
     RedfishError, RoleId, SystemPowerControl,
 };
+use mac_address::MacAddress;
 use prettytable::{row, Table};
 use tracing::warn;
 
@@ -346,6 +347,24 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish
                 .enable_ipmi_over_lan(EnabledDisabled::Disabled)
                 .await?;
+        }
+        GetBaseMacAddress => {
+            let mut base_mac = redfish.get_base_mac_address().await?.unwrap_or_default();
+            base_mac = base_mac.replace('"', "");
+            println!("Raw Mac Address: {base_mac}, length: {}", base_mac.len());
+            base_mac.insert(10, ':');
+            base_mac.insert(8, ':');
+            base_mac.insert(6, ':');
+            base_mac.insert(4, ':');
+            base_mac.insert(2, ':');
+            match MacAddress::from_str(base_mac.as_str()) {
+                Ok(mac) => {
+                    println!("Parsed Base Mac Address: {mac}");
+                }
+                Err(e) => {
+                    println!("failed to parse mac address from {base_mac}: {e}");
+                }
+            }
         }
     }
     Ok(())
