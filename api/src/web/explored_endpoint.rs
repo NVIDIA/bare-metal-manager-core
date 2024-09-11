@@ -131,6 +131,7 @@ struct ExploredEndpointDisplay {
     vendor: String,
     bmc_mac_addrs: Vec<String>,
     machine_id: String,
+    preingestion_state: String,
     serial_numbers: Vec<String>,
 }
 
@@ -164,6 +165,7 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
             machine_id: report_ref
                 .and_then(|report| report.machine_id.clone())
                 .unwrap_or_default(),
+            preingestion_state: ep.preingestion_state.clone(),
             serial_numbers: report_ref
                 .map(|report| {
                     report
