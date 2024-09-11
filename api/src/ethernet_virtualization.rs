@@ -19,11 +19,9 @@ use crate::{
         self,
         domain::Domain,
         machine_interface_address::MachineInterfaceAddress,
-        network_prefix::NetworkPrefix,
         network_segment::{
             NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
         },
-        vpc::{Vpc, VpcIdKeyedObjectFilter},
     },
     model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     CarbideError,
@@ -175,6 +173,8 @@ pub async fn admin_network(
 
 pub async fn tenant_network(
     txn: &mut Transaction<'_, Postgres>,
+    vpc_vni: u32,
+    vpc_prefixes: &[String],
     instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
     fqdn: String,
@@ -186,6 +186,7 @@ pub async fn tenant_network(
     )
     .await
     .map_err(CarbideError::from)?;
+
     let Some(segment) = segments.first() else {
         return Err(Status::internal(format!(
             "Tenant network segment id '{}' matched more than one segment",
@@ -230,36 +231,6 @@ pub async fn tenant_network(
         .get(&v4_prefix.id)
         .unwrap_or(&default_prefix);
 
-    // FIXME: Ideally, we would like the containing prefix that is assigned to
-    // the tenant/VPC, but only the cloud tracks that information. Instead, we
-    // have to collect all of the smaller prefixes that were created from it and
-    // are attached to our VPC at the moment.
-    let vpc_prefixes: Vec<_> = match segment.vpc_id {
-        Some(vpc_id) => NetworkPrefix::find_by_vpc(txn, vpc_id)
-            .await
-            .map_err(CarbideError::from)?
-            .into_iter()
-            .map(|np| np.prefix.to_string())
-            .collect(),
-        None => vec![v4_prefix.prefix.to_string()],
-    };
-
-    let vpc_vni = match segment.vpc_id {
-        Some(vpc_id) => {
-            let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(vpc_id))
-                .await
-                .map_err(CarbideError::from)?;
-            if vpcs.is_empty() {
-                return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
-            }
-            match vpcs[0].vni {
-                Some(vpc_vni) => vpc_vni as u32,
-                None => 0,
-            }
-        }
-        None => 0,
-    };
-
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
 
     Ok(rpc::FlatInterfaceConfig {
@@ -274,7 +245,7 @@ pub async fn tenant_network(
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
         interface_prefix: interface_prefix.to_string(),
-        vpc_prefixes,
+        vpc_prefixes: vpc_prefixes.to_vec(),
         prefix: v4_prefix.prefix.to_string(),
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
         // user's provided fqdn later.

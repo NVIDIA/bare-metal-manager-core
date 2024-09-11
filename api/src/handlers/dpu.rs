@@ -25,6 +25,7 @@ use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::Instance;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::managed_host::LoadSnapshotOptions;
+use crate::db::network_prefix::NetworkPrefix;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
 };
@@ -109,32 +110,49 @@ pub(crate) async fn get_managed_host_network_config(
     )
     .await?;
 
-    let mut vpc_vni = None;
+    let (tenant_interfaces, vpc_vni, network_virtualization_type) = match &snapshot.instance {
+        None => {
+            // TODO(chet): This can eventually go away once we rely fully on the
+            // database config (and not the runtime config), but for now, keep the
+            // existing logic (where we set either ETV or ETV w/ NVUE depending
+            // on `nvue_enabled` being set), and then, if there's an instance,
+            // go into the complete matching logic.
+            let network_virtualization_type = Some(if api.runtime_config.nvue_enabled {
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+            } else {
+                rpc::VpcVirtualizationType::EthernetVirtualizer
+            } as i32);
 
-    // TODO(chet): This can eventually go away, but for now, keep the
-    // existing logic (where we set either ETV or ETV w/ NVUE depending
-    // on `nvue_enabled` being set), and then, if there's an instance,
-    // go into the complete matching logic.
-    let mut network_virtualization_type = Some(if api.runtime_config.nvue_enabled {
-        rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
-    } else {
-        rpc::VpcVirtualizationType::EthernetVirtualizer
-    } as i32);
-
-    let tenant_interfaces = match &snapshot.instance {
-        None => vec![],
+            (vec![], None, network_virtualization_type)
+        }
         Some(instance) => {
             let interfaces = &instance.config.network.interfaces;
+
+            // Even though an instance can have multiple network interfaces,
+            // all such interfaces will be in the same VPC (so there's no need
+            // to get the VPC for each `interfaces` when we go to populate
+            // `FlatInterfaceConfig` messages for each.
             let vpc = Vpc::find_by_segment(&mut txn, interfaces[0].network_segment_id)
                 .await
                 .map_err(CarbideError::from)?;
+
+            // FIXME(drew): Ideally, we would like the containing prefix that is assigned
+            // to the tenant/VPC, but only the cloud tracks that information. Instead, we
+            // have to collect all of the smaller prefixes that were created from it and
+            // are attached to our VPC at the moment.
+            let vpc_prefixes: Vec<String> = NetworkPrefix::find_by_vpc(&mut txn, vpc.id)
+                .await
+                .map_err(CarbideError::from)?
+                .into_iter()
+                .map(|np| np.prefix.to_string())
+                .collect();
 
             // So the network_virtualization_type historically didn't come from the VPC table,
             // even though the value was being set there, and we're in the process of changing
             // that. If it's Fnn*, then set it accordingly. If it is EXPLICITLY ETV w/ NVUE,
             // then set it accordingly. If it's ETV, then check the runtime config to see if
             // nvue_enabled is true.
-            network_virtualization_type = Some(match vpc.network_virtualization_type {
+            let network_virtualization_type = Some(match vpc.network_virtualization_type {
                 VpcVirtualizationType::FnnClassic => rpc::VpcVirtualizationType::FnnClassic,
                 VpcVirtualizationType::FnnL3 => rpc::VpcVirtualizationType::FnnL3,
                 VpcVirtualizationType::EthernetVirtualizerWithNvue => {
@@ -148,10 +166,6 @@ pub(crate) async fn get_managed_host_network_config(
                     }
                 }
             } as i32);
-
-            vpc_vni = vpc.vni;
-
-            let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
             //Get Physical interface
             let physical_iface = interfaces.iter().find(|x| {
@@ -206,32 +220,28 @@ pub(crate) async fn get_managed_host_network_config(
                 None => "unknowndomain".to_string(),
             };
 
-            //Set FQDN
-            let instance_hostname = &instance.config.tenant.hostname;
-            let fqdn: String;
-            if let Some(hostname) = instance_hostname.clone() {
-                fqdn = format!("{}.{}", hostname.clone(), domain);
-            } else {
-                let dashed_ip: String = physical_ip
-                    .to_string()
-                    .split('.')
-                    .collect::<Vec<&str>>()
-                    .join("-");
-                fqdn = format!("{}.{}", dashed_ip, domain);
-            }
-
+            let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
             for iface in interfaces {
                 tenant_interfaces.push(
                     ethernet_virtualization::tenant_network(
                         &mut txn,
+                        match vpc.vni {
+                            Some(vpc_vni) => vpc_vni as u32,
+                            None => 0,
+                        },
+                        &vpc_prefixes,
                         instance.id,
                         iface,
-                        fqdn.clone(),
+                        instance_hostname_to_fqdn(
+                            &instance.config.tenant.hostname,
+                            domain.clone(),
+                            physical_ip,
+                        ),
                     )
                     .await?,
                 );
             }
-            tenant_interfaces
+            (tenant_interfaces, vpc.vni, network_virtualization_type)
         }
     };
 
@@ -944,4 +954,24 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     })?;
 
     Ok(Response::new(()))
+}
+
+/// instance_hostname_to_fqdn takes an instance hostname and,
+/// combined with the domain and physical IP, will return a
+/// hostname to use for the instance interface.
+fn instance_hostname_to_fqdn(
+    instance_hostname: &Option<String>,
+    domain: String,
+    physical_ip: IpAddr,
+) -> String {
+    if let Some(hostname) = instance_hostname.clone() {
+        format!("{}.{}", hostname.clone(), domain)
+    } else {
+        let dashed_ip: String = physical_ip
+            .to_string()
+            .split('.')
+            .collect::<Vec<&str>>()
+            .join("-");
+        format!("{}.{}", dashed_ip, domain)
+    }
 }
