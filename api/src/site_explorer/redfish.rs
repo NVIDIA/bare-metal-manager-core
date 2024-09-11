@@ -311,7 +311,13 @@ async fn fetch_system(
     }
 
     let base_mac = if is_dpu {
-        client.get_base_mac_address().await?
+        match client.get_base_mac_address().await {
+            Ok(base_mac) => base_mac,
+            Err(error) => {
+                tracing::warn!("Could not use new method to retreive base mac address for DPU (serial number {:#?}): {error}", system.serial_number);
+                None
+            }
+        }
     } else {
         None
     };
