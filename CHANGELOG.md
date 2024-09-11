@@ -4,6 +4,8 @@
 
 ### Added
 
+- The preingestion state of an ExploredEndpoint is shown in the overview table on `/admin/explored-endpoint`
+
 ### Changed
 
 ### Fixed
