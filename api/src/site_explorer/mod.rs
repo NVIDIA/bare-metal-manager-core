@@ -1554,6 +1554,8 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
         .first()
         .and_then(|s| s.base_mac.clone())
     {
+        // strip " from the string
+        base_mac = base_mac.replace('"', "");
         validate_and_add_colons_to_mac_address(&mut base_mac)?;
         return MacAddress::from_str(base_mac.as_str())
             .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()));
