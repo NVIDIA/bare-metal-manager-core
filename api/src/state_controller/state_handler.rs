@@ -174,6 +174,9 @@ pub enum StateHandlerError {
 
     #[error("State will not be advanced due to health probe alert")]
     HealthProbeAlert,
+
+    #[error("The object is in the state for longer than defined by the SLA. Handler outcome: {handler_outcome}")]
+    TimeInStateAboveSla { handler_outcome: String },
 }
 
 impl StateHandlerError {
@@ -204,6 +207,7 @@ impl StateHandlerError {
             StateHandlerError::ManualInterventionRequired(_) => "manual_intervention_required",
             StateHandlerError::MissingDpuFromState(_) => "missing_dpu_from_managedhost_state",
             StateHandlerError::HealthProbeAlert => "health_probe_alert",
+            StateHandlerError::TimeInStateAboveSla { .. } => "time_in_state_above_sla",
         }
     }
 }
