@@ -308,8 +308,10 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 .signed_duration_since(controller_state.version.timestamp())
                                 .to_std()
                                 .unwrap_or(Duration::from_secs(60 * 60 * 24));
-                            metrics.common.time_in_state_above_sla =
+
+                            let time_in_state_above_sla =
                                 IO::time_in_state_above_sla(&controller_state);
+                            metrics.common.time_in_state_above_sla = time_in_state_above_sla;
 
                             let mut ctx = StateHandlerContext {
                                 services: &services,
@@ -338,6 +340,26 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 )
                                 .await?;
                             }
+
+                            // If the state handler neither transitioned nor returned no error,
+                            // but the object is stuck in the state for longer than the defined SLA,
+                            // then transform the outcome into an error
+                            let handler_outcome = match handler_outcome {
+                                Ok(StateHandlerOutcome::Wait(wait_condition))
+                                    if time_in_state_above_sla =>
+                                {
+                                    Err(StateHandlerError::TimeInStateAboveSla {
+                                        handler_outcome: format!("Wait({wait_condition})"),
+                                    })
+                                }
+                                Ok(StateHandlerOutcome::DoNothing) if time_in_state_above_sla => {
+                                    Err(StateHandlerError::TimeInStateAboveSla {
+                                        handler_outcome: "DoNothing".to_string(),
+                                    })
+                                }
+                                _ => handler_outcome,
+                            };
+
                             if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
                                 let db_outcome = handler_outcome.as_ref().into();
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;

@@ -5,6 +5,9 @@
 ### Added
 
 - The preingestion state of an ExploredEndpoint is shown in the overview table on `/admin/explored-endpoint`
+- When objects are staying in a state longer than defined by the SLA
+  - The `state_reason` field in the objects API will be updated to indicate an `ERROR`. This error will also be rendered in the `State machine is blocked` field in the carbide web UI
+  - The metrics which indicate state handler errors (e.g. `forge_machines_with_state_handling_errors_per_state`) will indicate a `time_in_state_above_sla` error.
 
 ### Changed
 
