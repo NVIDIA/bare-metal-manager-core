@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Fix link in carbide-web from ManagedHost overview page to DPU ExploredEndpoint page
+
 ### Removed
 
 ## [v2024.08.30-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc1-0...v2024.08.30-rc2-0)

@@ -204,7 +204,7 @@ impl ManagedHostRowDisplay {
                 .iter()
                 .map(|d| {
                     format!(
-                        "<a href=\"/admin/explored_endpoint/{}\">{}</a>",
+                        "<a href=\"/admin/explored-endpoint/{}\">{}</a>",
                         d.bmc_ip, d.bmc_ip
                     )
                 })
