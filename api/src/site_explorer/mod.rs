@@ -54,6 +54,7 @@ use crate::{
     resource_pool::common::CommonPools,
     CarbideError, CarbideResult,
 };
+use forge_network::sanitized_mac;
 use forge_uuid::machine::{MachineId, MachineType};
 
 mod endpoint_explorer;
@@ -1500,6 +1501,40 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
         .ok_or("Missing DPU_SYS_IMAGE version".to_string())
 }
 
+/// get_base_mac_from_sys_image_version returns a base MAC address
+/// for a given sys image version/ See comments below about how the
+/// DPU derives a MAC from a DPU_SYS_IMAGE, but ultimately, a
+/// DPU_SYS_IMAGE of a088:c203:0046:0c68 means you just take out
+/// chars 6-10, and you get a MAC of a0:88:c2:46:0c:68.
+fn get_base_mac_from_sys_image_version(sys_image_version: String) -> Result<String, String> {
+    // The DPU_SYS_IMAGE is always 19 characters long. Well, until
+    // it isn't, but for now, the DPU_SYS_IMAGE is 19 characters
+    // long.
+    if sys_image_version.len() != 19 {
+        return Err(format!(
+            "Invalid sys_image_version length: {} ({})",
+            sys_image_version.len(),
+            sys_image_version,
+        ));
+    }
+
+    // First, strip out the colons, and make sure we're
+    // left with 16 [what should be hex-friendly] characters.
+    let mut base_mac = sys_image_version.replace(':', "");
+    if base_mac.len() != 16 {
+        return Err(format!(
+            "Invalid base_mac length from sys_image_version after removing ':': {}",
+            base_mac.len()
+        ));
+    }
+
+    // And now drop range 6-10, leaving us with what
+    // should be the 12 characters for the MAC address.
+    base_mac.replace_range(6..10, "");
+
+    Ok(base_mac)
+}
+
 /// Identifies the MAC address that is used by the pf0 interface that
 /// the DPU exposes to the host.
 ///
@@ -1548,60 +1583,38 @@ pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
-    if let Some(mut base_mac) = dpu_ep
+    // First, try to grab a MAC from explored Redfish data,
+    // which lives under ComputerSystem. Otherwise, just fall
+    // back to the legacy method via get_sys_image_version.
+    //
+    // This returns the source MAC for the given source type,
+    // as well as String for the "source type", making it a
+    // little easier to debug in the event something fails.
+    let (source_mac, source_type) = if let Some(system_mac) = dpu_ep
         .report
         .systems
         .first()
         .and_then(|s| s.base_mac.clone())
     {
-        // strip " from the string
-        base_mac = base_mac.replace('"', "");
-        validate_and_add_colons_to_mac_address(&mut base_mac)?;
-        return MacAddress::from_str(base_mac.as_str())
-            .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()));
-    }
+        (system_mac, "explored/computer-system".to_string())
+    } else {
+        (
+            get_base_mac_from_sys_image_version(get_sys_image_version(
+                dpu_ep.report.service.as_ref(),
+            )?)?,
+            "legacy/service".to_string(),
+        )
+    };
 
-    // Legacy mechanism
-    let mut base_mac = get_sys_image_version(dpu_ep.report.service.as_ref())?;
-    if base_mac.len() != 19 {
-        return Err(format!(
-            "Invalid base_mac length from get_sys_image_version: {} ({base_mac})",
-            base_mac.len()
-        ));
-    }
-
-    // Remove colons
-    base_mac = base_mac.replace(':', "");
-    if base_mac.len() != 16 {
-        return Err(format!(
-            "Invalid base_mac length after removing ':': {}",
-            base_mac.len()
-        ));
-    }
-
-    base_mac.replace_range(6..10, "");
-
-    validate_and_add_colons_to_mac_address(&mut base_mac)?;
-    MacAddress::from_str(base_mac.as_str())
-        .map_err(|e| format!("Invalid MAC address format ({base_mac}): {e}"))
-}
-
-const MAC_ADDRESS_LENGTH_NO_COLONS: usize = 12;
-
-fn validate_and_add_colons_to_mac_address(base_mac: &mut String) -> Result<(), String> {
-    if base_mac.len() != MAC_ADDRESS_LENGTH_NO_COLONS {
-        return Err(format!(
-            "Invalid base_mac length: {} ({base_mac})",
-            base_mac.len()
-        ));
-    }
-
-    base_mac.insert(10, ':');
-    base_mac.insert(8, ':');
-    base_mac.insert(6, ':');
-    base_mac.insert(4, ':');
-    base_mac.insert(2, ':');
-    Ok(())
+    // Once we've got a some unsanitized MAC value, from whatever source,
+    // sanitize it (stripping out garbage like spaces, double quotes, etc),
+    // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
+    sanitized_mac(source_mac.clone()).map_err(|e| {
+        format!(
+            "Failed to build sanitized MAC from {} MAC: {} (source_mac: {})",
+            source_type, e, source_mac
+        )
+    })
 }
 
 #[cfg(test)]
@@ -1675,7 +1688,7 @@ mod tests {
         inv.version = Some("b83f:d203:0090:95fz".to_string());
         assert_eq!(
             find_host_pf_mac_address(&ep1),
-            Err("Invalid MAC address format (b8:3f:d2:90:95:fz): invalid digit".to_string())
+            Err("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string())
         );
 
         // Invalid DPU_SYS_IMAGE field
@@ -1694,7 +1707,7 @@ mod tests {
         inv.version = Some("abc".to_string());
         assert_eq!(
             find_host_pf_mac_address(&ep1),
-            Err("Invalid base_mac length from get_sys_image_version: 3 (abc)".to_string())
+            Err("Invalid sys_image_version length: 3 (abc)".to_string())
         );
 
         // Missing DPU_SYS_IMAGE field

@@ -14,8 +14,9 @@ use std::fs;
 use std::path::Path;
 
 use eyre::WrapErr;
-use forge_network::virtualization::VpcVirtualizationType;
+use forge_network::{sanitized_mac, virtualization::VpcVirtualizationType};
 use gtmpl_derive::Gtmpl;
+use mac_address::MacAddress;
 use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
@@ -46,7 +47,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }];
 
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
+
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
+        let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
         port_configs.push(TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
@@ -54,7 +57,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IP: network.gateway_cidr.clone(),
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
-            SviMAC: vni_to_svimac(network.vni.unwrap_or(0)),
+            SviMAC: svi_mac,
             VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
             VpcPrefixes: network
                 .vpc_prefixes
@@ -259,17 +262,8 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
 ///
 /// e.g, an L2VNI of 1637817 would result in an SviMAC of 00:00:01:63:78:17
 /// for all DPUs in the VPC.
-fn vni_to_svimac(vni: u32) -> String {
-    format!("{:012}", vni)
-        .chars()
-        .enumerate()
-        .fold(String::new(), |mut svi_mac, (index, char)| {
-            if index > 0 && index % 2 == 0 {
-                svi_mac.push(':');
-            }
-            svi_mac.push(char);
-            svi_mac
-        })
+fn vni_to_svi_mac(vni: u32) -> eyre::Result<MacAddress> {
+    sanitized_mac(format!("{:012}", vni))
 }
 
 // What we need to configure NVUE
