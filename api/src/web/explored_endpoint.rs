@@ -130,6 +130,7 @@ struct ExploredEndpointDisplay {
     last_exploration_error: String,
     vendor: String,
     bmc_mac_addrs: Vec<String>,
+    power_states: Vec<String>,
     machine_id: String,
     preingestion_state: String,
     serial_numbers: Vec<String>,
@@ -172,6 +173,15 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                         .systems
                         .iter()
                         .map(|s| s.serial_number().to_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            power_states: report_ref
+                .map(|report| {
+                    report
+                        .systems
+                        .iter()
+                        .map(|s| format!("{:?}", s.power_state()))
                         .collect()
                 })
                 .unwrap_or_default(),

@@ -20,7 +20,7 @@ use carbide::{
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
-            ExploredManagedHost, Inventory, Manager, NicMode, Service,
+            ExploredManagedHost, Inventory, Manager, NicMode, PowerState, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
@@ -122,6 +122,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),

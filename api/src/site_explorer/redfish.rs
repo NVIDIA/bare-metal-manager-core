@@ -23,7 +23,7 @@ use regex::Regex;
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
-    NicMode, PCIeDevice, Service, SystemStatus,
+    NicMode, PCIeDevice, PowerState, Service, SystemStatus,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -358,6 +358,7 @@ async fn fetch_system(
         },
         pcie_devices,
         base_mac,
+        power_state: system.power_state.into(),
     })
 }
 
@@ -562,6 +563,18 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
+}
+
+impl From<libredfish::PowerState> for PowerState {
+    fn from(state: libredfish::PowerState) -> Self {
+        match state {
+            libredfish::PowerState::Off => PowerState::Off,
+            libredfish::PowerState::On => PowerState::On,
+            libredfish::PowerState::PoweringOff => PowerState::PoweringOff,
+            libredfish::PowerState::PoweringOn => PowerState::PoweringOn,
+            libredfish::PowerState::Paused => PowerState::Paused,
+        }
+    }
 }
 
 impl From<libredfish::PCIeDevice> for PCIeDevice {

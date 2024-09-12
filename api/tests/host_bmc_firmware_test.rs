@@ -24,7 +24,7 @@ use carbide::{
         machine::{HostReprovisionState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, Inventory, PreingestionState, Service,
+            EndpointType, Inventory, PowerState, PreingestionState, Service,
         },
     },
     preingestion_manager::PreingestionManager,
@@ -298,6 +298,7 @@ fn build_exploration_report(
             },
             pcie_devices: vec![],
             base_mac: None,
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),

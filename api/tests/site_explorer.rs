@@ -18,7 +18,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use carbide::db::explored_managed_host::DbExploredManagedHost;
 use carbide::db::ObjectFilter;
 use carbide::{
     cfg::SiteExplorerConfig,
@@ -43,6 +42,7 @@ use carbide::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideError,
 };
+use carbide::{db::explored_managed_host::DbExploredManagedHost, model::site_explorer::PowerState};
 use common::api_fixtures::TestEnv;
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use itertools::Itertools;
@@ -192,6 +192,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                     },
                     pcie_devices: vec![],
                     base_mac: Some("B83FD29097A4".to_string()),
+                    power_state: PowerState::On,
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -472,6 +473,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 attributes: ComputerSystemAttributes::default(),
                 pcie_devices: vec![],
                 base_mac: None,
+                power_state: PowerState::On,
             }],
             chassis: vec![Chassis {
                 id: "System.Embedded.1".to_string(),
@@ -781,6 +783,7 @@ async fn test_site_explorer_audit_exploration_results(
                         http_dev1_interface: None,
                     },
                     pcie_devices: vec![],
+                    power_state: PowerState::On,
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -907,6 +910,7 @@ async fn test_site_explorer_audit_exploration_results(
                     ],
                     attributes: ComputerSystemAttributes::default(),
                     pcie_devices: vec![],
+                    power_state: PowerState::On,
                 }],
                 chassis: vec![Chassis {
                     id: "System.Embedded.1".to_string(),
@@ -1018,6 +1022,7 @@ async fn test_site_explorer_audit_exploration_results(
                         http_dev1_interface: None,
                     },
                     pcie_devices: vec![],
+                    power_state: PowerState::On,
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -1376,6 +1381,7 @@ async fn test_site_explorer_reexplore(
                     },
                     pcie_devices: vec![],
                     base_mac: Some("a088c208804c".to_string()),
+                    power_state: PowerState::On,
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -1636,6 +1642,7 @@ async fn test_site_explorer_creates_managed_host(
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -2108,6 +2115,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 },
                 pcie_devices: vec![],
                 base_mac: Some("a088c208804c".to_string()),
+                power_state: PowerState::On,
             }],
             chassis: vec![Chassis {
                 id: "Card1".to_string(),
@@ -2389,6 +2397,7 @@ async fn test_site_explorer_clear_last_known_error(
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -2573,6 +2582,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -2668,6 +2678,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             attributes: ComputerSystemAttributes::default(),
             pcie_devices: vec![],
             base_mac: None,
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "1".to_string(),
@@ -2989,6 +3000,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -3181,6 +3193,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             },
             pcie_devices: vec![],
             base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),

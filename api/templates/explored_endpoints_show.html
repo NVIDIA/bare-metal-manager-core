@@ -38,6 +38,7 @@
 			<th>Vendor</th>
 			<th>Machine ID</th>
 			<th>Serial Numbers</th>
+			<th>Power State</th>
 			<th>Preingestion State</th>
 			<th>Last Exploration Error</th>
 		</tr>
@@ -51,6 +52,7 @@
 			<td>{{ ep.vendor }}</td>
 			<td>{{ ep.machine_id|machine_id_link|safe }}</td>
 			<td>{{ ep.serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+			<td>{{ ep.power_states|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.preingestion_state }}</td>
 			<td>{{ ep.last_exploration_error }}</td>
 		</tr>
@@ -59,6 +61,7 @@
   <tfoot>
     <tr>
       <th>{{ endpoints.len() }} item{% if endpoints.len() != 1 %}s{% endif %}</th>
+      <th></th>
       <th></th>
       <th></th>
       <th></th>

@@ -790,6 +790,8 @@ pub struct ComputerSystem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pcie_devices: Vec<PCIeDevice>,
     pub base_mac: Option<String>,
+    #[serde(default)]
+    pub power_state: PowerState,
 }
 
 impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
@@ -808,8 +810,31 @@ impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
                 system.attributes,
             )),
             pcie_devices: system.pcie_devices.into_iter().map(Into::into).collect(),
+            power_state: rpc::site_explorer::PowerState::from(system.power_state) as _,
         }
     }
+}
+
+impl From<PowerState> for rpc::site_explorer::PowerState {
+    fn from(state: PowerState) -> Self {
+        match state {
+            PowerState::Off => rpc::site_explorer::PowerState::Off,
+            PowerState::On => rpc::site_explorer::PowerState::On,
+            PowerState::PoweringOff => rpc::site_explorer::PowerState::PoweringOff,
+            PowerState::PoweringOn => rpc::site_explorer::PowerState::PoweringOn,
+            PowerState::Paused => rpc::site_explorer::PowerState::Paused,
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum PowerState {
+    Off,
+    #[default]
+    On,
+    PoweringOff,
+    PoweringOn,
+    Paused,
 }
 
 /// `Manager` definition. Matches redfish definition
@@ -1138,6 +1163,7 @@ mod tests {
                 },
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),
+                power_state: PowerState::On,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -1190,6 +1216,7 @@ mod tests {
                 },
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),
+                power_state: PowerState::On,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
