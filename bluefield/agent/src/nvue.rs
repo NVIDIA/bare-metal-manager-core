@@ -178,12 +178,23 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
         Err(err) => {
             tracing::error!("update_nvue post command failed: {err:#}");
 
-            // If apply failed we won't be using the new config. Move it out of the way..
-            let path_tmp = config_path.temp();
-            if let Err(err) = fs::rename(config_path, &path_tmp) {
+            // If the config apply failed, we won't be using it, so move it out
+            // of the way to an .error file for others to enjoy (while attempting
+            // to remove any previous .error file in the process).
+            let path_error = config_path.with_ext(".error");
+            if path_error.exists() {
+                if let Err(e) = fs::remove_file(path_error.clone()) {
+                    tracing::warn!(
+                        "Failed to remove previous error file ({}): {e}",
+                        path_error.display()
+                    );
+                }
+            }
+
+            if let Err(err) = fs::rename(config_path, &path_error) {
                 eyre::bail!(
                     "rename {config_path} to {} on error: {err:#}",
-                    path_tmp.display()
+                    path_error.display()
                 );
             }
             // .. and copy the old one back.

@@ -1244,7 +1244,7 @@ impl FPath {
         }
     }
 
-    fn with_ext(&self, ext: &'static str) -> PathBuf {
+    pub fn with_ext(&self, ext: &'static str) -> PathBuf {
         let mut p = self.0.clone();
         p.set_extension(ext);
         p
