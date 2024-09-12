@@ -107,7 +107,7 @@ message ExploredManagedHostList {
 enum NicMode {
     DPU = 0;
     NIC = 1;
-}  
+}
 
 message ComputerSystemAttributes {
     optional NicMode nic_mode = 1;
@@ -123,6 +123,15 @@ message ComputerSystem {
 
     repeated EthernetInterface ethernet_interfaces = 11;
     repeated PCIeDevice pcie_devices = 12;
+    PowerState power_state = 13;
+}
+
+enum PowerState {
+    On = 0;
+    Off = 1;
+    PoweringOff = 2;
+    PoweringOn = 3;
+    Paused = 4;
 }
 
 // `Manager` definition. Matches redfish definition

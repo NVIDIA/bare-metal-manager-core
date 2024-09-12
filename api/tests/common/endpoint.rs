@@ -21,7 +21,7 @@ use carbide::{
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     model::site_explorer::{
         Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-        Inventory, Service,
+        Inventory, PowerState, Service,
     },
 };
 use forge_uuid::machine::MachineId;
@@ -87,6 +87,7 @@ fn build_exploration_report(
             },
             pcie_devices: vec![],
             base_mac: None,
+            power_state: PowerState::On,
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),
