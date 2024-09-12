@@ -71,6 +71,7 @@ use utils::admin_cli::{CarbideCliError, OutputFormat};
 mod cfg;
 mod domain;
 mod dpu;
+mod expected_machines;
 mod ib_partition;
 mod instance;
 mod inventory;
@@ -864,14 +865,12 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {
-                if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-                    let expected_machine =
-                        rpc::get_expected_machine(bmc_mac_address, api_config).await?;
-                    println!("{:#?}", expected_machine);
-                } else {
-                    let expected_machines = rpc::get_all_expected_machines(api_config).await?;
-                    println!("{:#?}", expected_machines);
-                }
+                expected_machines::show_expected_machines(
+                    &expected_machine_query,
+                    api_config,
+                    config.format,
+                )
+                .await?;
             }
             cfg::carbide_options::ExpectedMachineAction::Add(expected_machine_data) => {
                 if expected_machine_data.has_duplicate_dpu_serials() {
