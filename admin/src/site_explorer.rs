@@ -396,6 +396,7 @@ fn convert_endpoints_to_nice_table(endpoints: &[ExploredEndpoint]) -> Box<Table>
         "BMC Mac Address",
         "Vendor",
         "MachineId",
+        "Preingt State",
         "Serial Number",
         "Last Exploration Error",
     ];
@@ -443,6 +444,23 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
         .collect::<Vec<String>>()
         .join("\n");
 
+    let state = endpoint
+        .preingestion_state
+        .split_once(" ")
+        .map(|(x, y)| {
+            format!(
+                "{}\n{}",
+                x,
+                y.chars()
+                    .collect::<Vec<char>>()
+                    .chunks(17)
+                    .map(|x| x.iter().collect::<String>())
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            )
+        })
+        .unwrap_or(endpoint.preingestion_state.clone());
+
     Row::new(vec![
         Cell::new(endpoint.address.as_str()),
         Cell::new(
@@ -454,6 +472,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
         Cell::new(bmc_macs.join("\n").as_str()),
         Cell::new(report.as_ref().map(|x| x.vendor()).unwrap_or_default()),
         Cell::new(report.as_ref().map(|x| x.machine_id()).unwrap_or_default()),
+        Cell::new(&state),
         Cell::new(
             report
                 .as_ref()
@@ -485,6 +504,7 @@ fn display_endpoint(endpoint: ExploredEndpoint) {
         "Machine ID",
         report.as_ref().map(|x| x.machine_id()).unwrap_or_default()
     ]);
+    table.add_row(row!["Preingestion State", endpoint.preingestion_state]);
     let last_error = report
         .as_ref()
         .map(|x| x.last_exploration_error())

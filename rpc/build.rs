@@ -256,6 +256,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("MachineValidationResult", "#[derive(serde::Serialize)]")
         .type_attribute("MachineValidationRunList", "#[derive(serde::Serialize)]")
         .type_attribute("MachineValidationRun", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedMachineList", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

@@ -1500,6 +1500,25 @@ pub async fn get_machines_by_ids(
     .await
 }
 
+pub async fn get_machines_ids_by_bmc_ips(
+    api_config: &ApiConfig<'_>,
+    bmc_ips: &[String],
+) -> CarbideCliResult<rpc::MachineIdBmcIpPairs> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::BmcIpList {
+            bmc_ips: Vec::from(bmc_ips),
+        });
+        let machine_details = client
+            .find_machine_ids_by_bmc_ips(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(machine_details)
+    })
+    .await
+}
+
 pub async fn set_dynamic_config(
     api_config: &ApiConfig<'_>,
     feature: rpc::ConfigSetting,
