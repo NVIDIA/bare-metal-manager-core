@@ -1569,11 +1569,13 @@ pub async fn get_all_expected_machines(
 }
 
 pub async fn get_expected_machine(
-    bmc_mac_address: String,
+    bmc_mac_address: MacAddress,
     api_config: &ApiConfig<'_>,
 ) -> Result<rpc::ExpectedMachine, CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachineRequest { bmc_mac_address });
+        let request = tonic::Request::new(rpc::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+        });
 
         client
             .get_expected_machine(request)
@@ -1585,11 +1587,13 @@ pub async fn get_expected_machine(
 }
 
 pub async fn delete_expected_machine(
-    bmc_mac_address: String,
+    bmc_mac_address: MacAddress,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachineRequest { bmc_mac_address });
+        let request = tonic::Request::new(rpc::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+        });
 
         client
             .delete_expected_machine(request)
@@ -1601,7 +1605,7 @@ pub async fn delete_expected_machine(
 }
 
 pub async fn add_expected_machine(
-    bmc_mac_address: String,
+    bmc_mac_address: MacAddress,
     bmc_username: String,
     bmc_password: String,
     chassis_serial_number: String,
@@ -1610,7 +1614,7 @@ pub async fn add_expected_machine(
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ExpectedMachine {
-            bmc_mac_address,
+            bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username,
             bmc_password,
             chassis_serial_number,
@@ -1627,17 +1631,17 @@ pub async fn add_expected_machine(
 }
 
 pub async fn update_expected_machine(
-    bmc_mac_address: String,
+    bmc_mac_address: MacAddress,
     bmc_username: Option<String>,
     bmc_password: Option<String>,
     chassis_serial_number: Option<String>,
     fallback_dpu_serial_numbers: Option<Vec<String>>,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
-    let expected_machine = get_expected_machine(bmc_mac_address.clone(), api_config).await?;
+    let expected_machine = get_expected_machine(bmc_mac_address, api_config).await?;
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ExpectedMachine {
-            bmc_mac_address,
+            bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
             bmc_password: bmc_password.unwrap_or(expected_machine.bmc_password),
             chassis_serial_number: chassis_serial_number
@@ -1664,7 +1668,7 @@ pub async fn replace_all_expected_machines(
             expected_machines: expected_machine_list
                 .into_iter()
                 .map(|machine| rpc::ExpectedMachine {
-                    bmc_mac_address: machine.bmc_mac_address,
+                    bmc_mac_address: machine.bmc_mac_address.to_string(),
                     bmc_username: machine.bmc_username,
                     bmc_password: machine.bmc_password,
                     chassis_serial_number: machine.chassis_serial_number,

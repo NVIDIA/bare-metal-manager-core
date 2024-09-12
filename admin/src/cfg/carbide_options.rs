@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, ValueEnum};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
@@ -294,11 +295,11 @@ pub enum HostAction {
 #[derive(Parser, Debug)]
 pub enum ExpectedMachineAction {
     #[clap(about = "Show expected machine data")]
-    Show(ExpectedMachineQuery),
+    Show(ShowExpectedMachineQuery),
     #[clap(about = "Add expected machine")]
     Add(ExpectedMachine),
     #[clap(about = "Delete expected machine")]
-    Delete(ExpectedMachineQuery),
+    Delete(DeleteExpectedMachine),
     #[clap(about = "Update expected machine")]
     Update(UpdateExpectedMachine),
     /// Replace all entries in the expected machines table with the entries from an inputted json file.
@@ -331,7 +332,7 @@ pub enum ExpectedMachineAction {
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct ExpectedMachine {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
-    pub bmc_mac_address: String,
+    pub bmc_mac_address: MacAddress,
     #[clap(short = 'u', long, help = "BMC username of the expected machine")]
     pub bmc_username: String,
     #[clap(short = 'p', long, help = "BMC password of the expected machine")]
@@ -374,7 +375,7 @@ pub struct UpdateExpectedMachine {
         long,
         help = "BMC MAC Address of the expected machine"
     )]
-    pub bmc_mac_address: String,
+    pub bmc_mac_address: MacAddress,
     #[clap(
         short = 'u',
         long,
@@ -429,9 +430,18 @@ impl UpdateExpectedMachine {
 }
 
 #[derive(Parser, Debug)]
-pub struct ExpectedMachineQuery {
-    #[clap(default_value(""), help = "BMC MAC Address of the expected machine")]
-    pub bmc_mac_address: String,
+pub struct DeleteExpectedMachine {
+    #[clap(help = "BMC MAC address of the expected machine to delete.")]
+    pub bmc_mac_address: MacAddress,
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowExpectedMachineQuery {
+    #[clap(
+        default_value(None),
+        help = "BMC MAC address of the expected machine to show. Leave unset for all."
+    )]
+    pub bmc_mac_address: Option<MacAddress>,
 }
 
 #[derive(Parser, Debug)]
@@ -1321,7 +1331,7 @@ pub struct AddBMCredential {
     #[clap(long, help = "The username of BMC")]
     pub username: Option<String>,
     #[clap(long, help = "The MAC address of the BMC")]
-    pub mac_address: Option<String>,
+    pub mac_address: Option<MacAddress>,
 }
 
 #[derive(Parser, Debug)]
@@ -1334,7 +1344,7 @@ pub struct DeleteBMCredential {
     )]
     pub kind: BmcCredentialType,
     #[clap(long, help = "The MAC address of the BMC")]
-    pub mac_address: Option<String>,
+    pub mac_address: Option<MacAddress>,
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone)]
