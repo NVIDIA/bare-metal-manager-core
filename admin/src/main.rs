@@ -698,7 +698,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: c.username,
                     password,
-                    mac_address: c.mac_address,
+                    mac_address: c.mac_address.map(|mac| mac.to_string()),
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
@@ -707,7 +707,7 @@ async fn main() -> color_eyre::Result<()> {
                 let req = forgerpc::CredentialDeletionRequest {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: None,
-                    mac_address: c.mac_address,
+                    mac_address: c.mac_address.map(|mac| mac.to_string()),
                 };
                 rpc::delete_credential(api_config, req).await?;
             }
@@ -864,19 +864,13 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {
-                if expected_machine_query.bmc_mac_address.is_empty()
-                    || expected_machine_query.bmc_mac_address == "all"
-                    || expected_machine_query.bmc_mac_address == "*"
-                {
+                if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
+                    let expected_machine =
+                        rpc::get_expected_machine(bmc_mac_address, api_config).await?;
+                    println!("{:#?}", expected_machine);
+                } else {
                     let expected_machines = rpc::get_all_expected_machines(api_config).await?;
                     println!("{:#?}", expected_machines);
-                } else {
-                    let expected_machine = rpc::get_expected_machine(
-                        expected_machine_query.bmc_mac_address,
-                        api_config,
-                    )
-                    .await?;
-                    println!("{:#?}", expected_machine);
                 }
             }
             cfg::carbide_options::ExpectedMachineAction::Add(expected_machine_data) => {
@@ -1429,7 +1423,7 @@ mod tests {
                 "expected-machine",
                 "update",
                 "--bmc-mac-address",
-                "<BMC_MAC_ADDRESS>",
+                "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
                 "<DPU_SERIAL_NUMBER>",
             ])
@@ -1444,7 +1438,7 @@ mod tests {
                 "expected-machine",
                 "update",
                 "--bmc-mac-address",
-                "<BMC_MAC_ADDRESS>",
+                "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
                 "<DPU_SERIAL_NUMBER_1>",
                 "-d",
@@ -1459,7 +1453,7 @@ mod tests {
             "expected-machine",
             "update",
             "--bmc-mac-address",
-            "<BMC_MAC_ADDRESS>",
+            "00:00:00:00:00:00",
             "--fallback-dpu-serial-number",
         ])
         .is_err());
@@ -1472,7 +1466,7 @@ mod tests {
                 "expected-machine",
                 "update",
                 "--bmc-mac-address",
-                "<BMC_MAC_ADDRESS>",
+                "00:00:00:00:00:00",
                 "--fallback-dpu-serial-number",
                 "dpu1",
                 "-d",
@@ -1495,7 +1489,7 @@ mod tests {
             "expected-machine",
             "update",
             "--bmc-mac-address",
-            "<BMC_MAC_ADDRESS>",
+            "00:00:00:00:00:00",
             "--bmc-username",
             "<BMC_USERNAME>",
             "--bmc-password",
@@ -1509,7 +1503,7 @@ mod tests {
                 "expected-machine",
                 "update",
                 "--bmc-mac-address",
-                "<BMC_MAC_ADDRESS>",
+                "00:00:00:00:00:00",
                 "--bmc-username",
                 "ssss",
                 "--bmc-password",
@@ -1529,7 +1523,7 @@ mod tests {
             "expected-machine",
             "update",
             "--bmc-mac-address",
-            "<BMC_MAC_ADDRESS>",
+            "00:00:00:00:00:00",
             "--bmc-username",
             "ssss",
         ])
@@ -1540,7 +1534,7 @@ mod tests {
             "expected-machine",
             "update",
             "--bmc-mac-address",
-            "<BMC_MAC_ADDRESS>",
+            "00:00:00:00:00:00",
             "--bmc-password",
             "ssss",
         ])
