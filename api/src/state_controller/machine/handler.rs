@@ -2087,7 +2087,6 @@ async fn handle_dpu_reprovision(
                 services
                     .ipmi_tool
                     .bmc_cold_reset(
-                        &state.host_snapshot.machine_id,
                         bmc_ip_address,
                         CredentialKey::BmcCredentials {
                             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },

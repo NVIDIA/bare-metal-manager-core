@@ -24,7 +24,6 @@ use forge_uuid::machine::MachineId;
 pub trait IPMITool: Send + Sync + 'static {
     async fn bmc_cold_reset(
         &self,
-        machine_id: &MachineId,
         bmc_ip: IpAddr,
         credential_key: CredentialKey,
     ) -> Result<(), eyre::Report>;
@@ -60,18 +59,17 @@ impl IPMIToolImpl {
 impl IPMITool for IPMIToolImpl {
     async fn bmc_cold_reset(
         &self,
-        machine_id: &MachineId,
         bmc_ip: IpAddr,
         credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
             .credential_provider
-            .get_credentials(credential_key)
+            .get_credentials(credential_key.clone())
             .await
             .map_err(|e| {
                 eyre!(
-                    "Error getting credentials for machine {}: {}",
-                    machine_id.clone(),
+                    "Error getting credentials for key {:#?}: {}",
+                    credential_key,
                     e
                 )
             })?;
@@ -189,7 +187,6 @@ impl IPMITool for IPMIToolTestImpl {
 
     async fn bmc_cold_reset(
         &self,
-        _machine_id: &MachineId,
         _bmc_ip: IpAddr,
         _credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {

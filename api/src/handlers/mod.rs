@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod bmc_endpoint_explorer;
 pub mod bmc_metadata;
 pub mod boot_override;
 pub mod credential;
@@ -24,7 +25,6 @@ pub mod instance;
 pub mod machine_validation;
 pub mod network_segment;
 pub mod pxe;
-pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
 pub mod site_explorer;

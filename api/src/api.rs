@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use ::rpc::forge as rpc;
+use ::rpc::forge::BmcEndpointRequest;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use ::rpc::protos::forge::{
     EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
@@ -25,9 +26,7 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
@@ -65,6 +64,7 @@ use crate::model::machine::{
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
+use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
@@ -104,6 +104,7 @@ pub struct Api {
     pub(crate) runtime_config: Arc<CarbideConfig>,
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: dynamic_settings::DynamicSettings,
+    pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
 }
 
 #[tonic::async_trait]
@@ -1335,129 +1336,6 @@ impl Forge for Api {
     ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
         crate::handlers::dpu::get_all_managed_host_network_status(self, request).await
     }
-
-    async fn admin_reboot(
-        &self,
-        request: Request<rpc::AdminRebootRequest>,
-    ) -> Result<Response<rpc::AdminRebootResponse>, Status> {
-        log_request_data(&request);
-
-        let req = request.into_inner();
-        let (user, password) = match (req.user, req.password, req.machine_id) {
-            // User provided username and password
-            (Some(u), Some(p), _) => (u, p),
-
-            // User provided machine_id
-            (_, _, Some(machine_id)) => {
-                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
-                })?;
-                log_machine_id(&machine_id);
-
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "begin admin_reboot",
-                        e,
-                    ))
-                })?;
-
-                let mut topologies =
-                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
-                        .await
-                        .map_err(CarbideError::from)?;
-
-                txn.commit().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "commit admin_reboot",
-                        e,
-                    ))
-                })?;
-
-                let topology =
-                    topologies
-                        .remove(&machine_id)
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "machine_topology",
-                            id: machine_id.to_string(),
-                        })?;
-
-                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "bmc_mac",
-                        id: machine_id.to_string(),
-                    }
-                })?;
-
-                let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
-
-                // Load credentials from Vault
-                let credentials = self
-                    .credential_provider
-                    .get_credentials(CredentialKey::BmcCredentials {
-                        credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                    })
-                    .await
-                    .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                        Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
-                            CarbideError::GenericError(format!(
-                                "Vault key not found: bmc-metadata-items for machine_id {}",
-                                machine_id
-                            ))
-                        }
-                        Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
-                        Err(err) => CarbideError::GenericError(format!(
-                            "Error getting credentials for BMC: {:?}",
-                            err
-                        )),
-                    })?;
-                let (username, password) = match credentials {
-                    Credentials::UsernamePassword { username, password } => (username, password),
-                };
-                (username, password)
-            }
-
-            _ => {
-                return Err(Status::invalid_argument(
-                    "Please provider either machine_id, or both user and password",
-                ));
-            }
-        };
-
-        let endpoint = libredfish::Endpoint {
-            user: Some(user),
-            password: Some(password),
-            host: req.ip.clone(),
-            // Option<u32> -> Option<u16> because no uint16 in protobuf
-            port: req.port.map(|p| p as u16),
-        };
-
-        let pool = libredfish::RedfishClientPool::builder()
-            .build()
-            .map_err(CarbideError::from)?;
-        let redfish = pool
-            .create_client(endpoint)
-            .await
-            .map_err(CarbideError::from)?;
-
-        // Lenovo does not have BMC lockdown, so a user could switch the boot order. We need
-        // to switch it back. On other vendors the call will fail so ignore errors.
-        tracing::info!(ip = req.ip, "Switching boot order");
-        let _ = redfish.boot_once(libredfish::Boot::Pxe).await;
-
-        tracing::info!(ip = req.ip, "Force restarting");
-        redfish
-            .power(libredfish::SystemPowerControl::ForceRestart)
-            .await
-            .map_err(CarbideError::from)?;
-        tracing::info!(ip = req.ip, "Reboot request succeeded");
-
-        Ok(Response::new(rpc::AdminRebootResponse {}))
-    }
-
     async fn get_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataGetRequest>,
@@ -1500,6 +1378,13 @@ impl Forge for Api {
         request: Request<rpc::ClearSiteExplorationErrorRequest>,
     ) -> Result<Response<()>, tonic::Status> {
         crate::handlers::site_explorer::clear_site_exploration_error(self, request).await
+    }
+
+    async fn is_bmc_in_managed_host(
+        &self,
+        request: Request<rpc::BmcEndpointRequest>,
+    ) -> Result<Response<rpc::IsBmcInManagedHostResponse>, tonic::Status> {
+        crate::handlers::site_explorer::is_bmc_in_managed_host(self, request).await
     }
 
     async fn re_explore_endpoint(
@@ -1548,9 +1433,9 @@ impl Forge for Api {
     // Ad-hoc BMC exploration
     async fn explore(
         &self,
-        request: tonic::Request<::rpc::forge::ExploreRequest>,
+        request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
     ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
-        crate::handlers::site_explorer::explore(self, request).await
+        crate::handlers::bmc_endpoint_explorer::explore(self, request).await
     }
 
     #[allow(rustdoc::invalid_html_tags)]
@@ -2411,12 +2296,12 @@ impl Forge for Api {
         log_request_data(&request);
 
         let req = request.into_inner();
-        let (user, password) = match (req.user, req.password, req.machine_id) {
+        let bmc_endpoint_request = match (req.bmc_endpoint_request, req.machine_id) {
             // User provided username and password
-            (Some(u), Some(p), _) => (u, p),
+            (Some(bmc_endpoint_request), _) => bmc_endpoint_request,
 
             // User provided machine_id
-            (_, _, Some(machine_id)) => {
+            (_, Some(machine_id)) => {
                 let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
                     CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
                 })?;
@@ -2453,6 +2338,13 @@ impl Forge for Api {
                             id: machine_id.to_string(),
                         })?;
 
+                let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "bmc_ip",
+                        id: machine_id.to_string(),
+                    }
+                })?;
+
                 let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
                     CarbideError::NotFoundError {
                         kind: "bmc_mac",
@@ -2460,57 +2352,44 @@ impl Forge for Api {
                     }
                 })?;
 
-                let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
-
-                // Load credentials from Vault
-                let credentials = self
-                    .credential_provider
-                    .get_credentials(CredentialKey::BmcCredentials {
-                        credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                    })
-                    .await
-                    .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                        Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
-                            CarbideError::GenericError(format!(
-                                "Vault key not found: bmc-metadata-items for machine_id {machine_id}"
-                            ))
-                        }
-                        Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
-                        Err(err) => CarbideError::GenericError(format!(
-                            "Error getting credentials for BMC: {err:?}"
-                        )),
-                    })?;
-                let (username, password) = match credentials {
-                    Credentials::UsernamePassword { username, password } => (username, password),
-                };
-                (username, password)
+                BmcEndpointRequest {
+                    ip_address: bmc_ip.to_string(),
+                    mac_address: Some(bmc_mac.to_string()),
+                }
             }
 
             _ => {
                 return Err(Status::invalid_argument(
-                    "Please provider either machine_id, or both user and password",
+                    "Please provider either machine_id, or a bmc endpoint request",
                 ));
             }
         };
 
-        let endpoint = libredfish::Endpoint {
-            user: Some(user),
-            password: Some(password),
-            host: req.ip.clone(),
-            // Option<u32> -> Option<u16> because no uint16 in protobuf
-            port: req.port.map(|p| p as u16),
-        };
+        tracing::info!(
+            "Resetting BMC (ipmi tool: {}): {}",
+            req.use_ipmitool,
+            bmc_endpoint_request.ip_address
+        );
 
-        let pool = libredfish::RedfishClientPool::builder()
-            .build()
-            .map_err(CarbideError::from)?;
-        let redfish = pool
-            .create_client(endpoint)
-            .await
-            .map_err(CarbideError::from)?;
-        tracing::info!(ip = req.ip, "BMC reseting");
-        redfish.bmc_reset().await.map_err(CarbideError::from)?;
-        tracing::info!(ip = req.ip, "Reset request succeeded");
+        if req.use_ipmitool {
+            crate::handlers::bmc_endpoint_explorer::ipmitool_reset_bmc(
+                self,
+                bmc_endpoint_request.clone(),
+            )
+            .await?;
+        } else {
+            crate::handlers::bmc_endpoint_explorer::redfish_reset_bmc(
+                self,
+                bmc_endpoint_request.clone(),
+            )
+            .await?;
+        }
+
+        tracing::info!(
+            "BMC Reset (ipmi tool: {}) request succeeded to {}",
+            req.use_ipmitool,
+            bmc_endpoint_request.ip_address
+        );
 
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
     }
@@ -3847,19 +3726,6 @@ impl Forge for Api {
     ) -> Result<tonic::Response<()>, Status> {
         add_update_machine_validation_external_config(self, request).await
     }
-    async fn redfish_power_control(
-        &self,
-        request: tonic::Request<rpc::RedfishPowerControlRequest>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::redfish::redfish_power_control(self, request).await
-    }
-
-    async fn get_redfish_job_state(
-        &self,
-        request: tonic::Request<rpc::GetRedfishJobStateRequest>,
-    ) -> Result<Response<rpc::GetRedfishJobStateResponse>, Status> {
-        crate::handlers::redfish::get_redfish_job_state(self, request).await
-    }
 
     async fn import_storage_cluster(
         &self,
@@ -4006,6 +3872,110 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::MachineValidationRunList>, Status> {
         get_machine_validation_runs(self, request).await
     }
+
+    async fn admin_power_control(
+        &self,
+        request: tonic::Request<rpc::AdminPowerControlRequest>,
+    ) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+        let bmc_endpoint_request = match (req.bmc_endpoint_request.clone(), req.machine_id.clone())
+        {
+            // User provided username and password
+            (Some(bmc_endpoint_request), _) => bmc_endpoint_request,
+
+            // User provided machine_id
+            (_, Some(machine_id)) => {
+                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                })?;
+                log_machine_id(&machine_id);
+
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "begin admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let mut topologies =
+                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
+                        .await
+                        .map_err(CarbideError::from)?;
+
+                txn.commit().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "commit admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let topology =
+                    topologies
+                        .remove(&machine_id)
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "machine_topology",
+                            id: machine_id.to_string(),
+                        })?;
+
+                let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "bmc_ip",
+                        id: machine_id.to_string(),
+                    }
+                })?;
+
+                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "bmc_mac",
+                        id: machine_id.to_string(),
+                    }
+                })?;
+
+                BmcEndpointRequest {
+                    ip_address: bmc_ip.to_string(),
+                    mac_address: Some(bmc_mac.to_string()),
+                }
+            }
+
+            _ => {
+                return Err(Status::invalid_argument(
+                    "Please provider either machine_id, or a bmc endpoint request",
+                ));
+            }
+        };
+
+        let action = match req.action() {
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::On => {
+                libredfish::SystemPowerControl::On
+            }
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::GracefulShutdown => {
+                libredfish::SystemPowerControl::GracefulShutdown
+            }
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff => {
+                libredfish::SystemPowerControl::ForceOff
+            }
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::GracefulRestart => {
+                libredfish::SystemPowerControl::GracefulRestart
+            }
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart => {
+                libredfish::SystemPowerControl::ForceRestart
+            }
+        };
+
+        crate::handlers::bmc_endpoint_explorer::redfish_power_control(
+            self,
+            bmc_endpoint_request,
+            action,
+        )
+        .await?;
+
+        Ok(Response::new(rpc::AdminPowerControlResponse {}))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -4047,6 +4017,7 @@ impl Api {
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
         dynamic_settings: dynamic_settings::DynamicSettings,
+        endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> Self {
         Self {
             database_connection,
@@ -4063,6 +4034,7 @@ impl Api {
                 std::time::Duration::from_secs(60 * 60),
             ),
             dynamic_settings,
+            endpoint_explorer,
         }
     }
 

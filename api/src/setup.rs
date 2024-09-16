@@ -48,7 +48,7 @@ use crate::{
     preingestion_manager::PreingestionManager,
     redfish::RedfishClientPool,
     resource_pool::{self, common::CommonPools},
-    site_explorer::{RedfishEndpointExplorer, SiteExplorer},
+    site_explorer::{BmcEndpointExplorer, SiteExplorer},
     state_controller::{
         controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
@@ -327,6 +327,12 @@ pub async fn start_api(
         admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
     };
 
+    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+        shared_redfish_pool.clone(),
+        ipmi_tool.clone(),
+        vault_client.clone(),
+    ));
+
     let api_service = Arc::new(Api::new(
         carbide_config.clone(),
         vault_client.clone(),
@@ -338,6 +344,7 @@ pub async fn start_api(
         common_pools.clone(),
         ib_fabric_manager.clone(),
         dynamic_settings,
+        bmc_explorer.clone(),
     ));
 
     if let Some(networks) = carbide_config.networks.as_ref() {
@@ -438,10 +445,7 @@ pub async fn start_api(
         db_pool.clone(),
         carbide_config.site_explorer.clone(),
         meter.clone(),
-        Arc::new(RedfishEndpointExplorer::new(
-            shared_redfish_pool.clone(),
-            vault_client.clone(),
-        )),
+        bmc_explorer.clone(),
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
     );

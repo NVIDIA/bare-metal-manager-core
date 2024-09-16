@@ -23,7 +23,8 @@ use regex::Regex;
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
-    NicMode, PCIeDevice, PowerState, Service, SystemStatus,
+    NicMode, PCIeDevice, PowerState, Service, SystemStatus, DPU_BIOS_ATTRIBUTES_MISSING,
+    HOST_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -249,9 +250,11 @@ impl RedfishClient {
         let manager = fetch_manager(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let system = fetch_system(client.as_ref(), vendor)
-            .await
-            .map_err(map_redfish_error)?;
+        let system = fetch_system(client.as_ref(), vendor).await?;
+
+        // TODO (spyda): once we test the BMC reset logic, we can enhance our logic here
+        // to detect cases where the host's BMC is returning invalid (empty) chassis information, even though
+        // an error is not returned.
         let chassis = fetch_chassis(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
@@ -271,6 +274,38 @@ impl RedfishClient {
             versions: HashMap::default(),
             model: None,
         })
+    }
+
+    pub async fn reset_bmc(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.bmc_reset().await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
+    pub async fn power(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.power(action).await.map_err(map_redfish_error)?;
+        Ok(())
     }
 }
 
@@ -292,21 +327,21 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 async fn fetch_system(
     client: &dyn Redfish,
     vendor: Option<BMCVendor>,
-) -> Result<ComputerSystem, RedfishError> {
-    let mut system = client.get_system().await?;
+) -> Result<ComputerSystem, EndpointExplorationError> {
+    let mut system = client.get_system().await.map_err(map_redfish_error)?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu)
         .await
-        .or_else(|err| match err {
-            RedfishError::NotSupported(_) => Ok(vec![]),
-            _ => Err(err),
-        })?;
+        .map_err(map_redfish_error)?;
 
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
     // 2. format serial_number data using the same rules as in fetch_chassis()
     if is_dpu && system.serial_number.is_none() {
-        let chassis = client.get_chassis("Card1").await?;
+        let chassis = client
+            .get_chassis("Card1")
+            .await
+            .map_err(map_redfish_error)?;
         system.serial_number = chassis.serial_number;
     }
 
@@ -324,24 +359,46 @@ async fn fetch_system(
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
-    let bios_attributes = match client.bios().await {
-        Ok(attributes) => attributes,
-        Err(error) => {
-            tracing::warn!("Could not retreive BIOS attributes: {error}");
-            HashMap::default()
-        }
-    };
+    let bios = client.bios().await.map_err(map_redfish_error)?;
+    let bios_attributes = match bios.get("Attributes") {
+        Some(attributes) => Ok(attributes.clone()),
+        None => {
+            let details = if is_dpu {
+                DPU_BIOS_ATTRIBUTES_MISSING
+            } else {
+                HOST_BIOS_ATTRIBUTES_MISSING
+            };
 
-    let pcie_devices = fetch_pcie_devices(client).await.or_else(|err| match err {
-        RedfishError::NotSupported(_) => Ok(vec![]),
-        _ => Err(err),
-    })?;
+            Err(EndpointExplorationError::RedfishError {
+                details: details.to_owned(),
+            })
+        }
+    }?;
+
+    let pcie_devices = fetch_pcie_devices(client)
+        .await
+        .map_err(map_redfish_error)?;
 
     let nic_mode: Option<NicMode> = if is_dpu {
         bios_attributes
-            .get("Attributes")
-            .and_then(|v| v.get("NicMode"))
+            .get("NicMode")
             .and_then(|v| v.as_str().and_then(|v| NicMode::from_str(v).ok()))
+    } else {
+        None
+    };
+
+    let http_dev1_interface = if vendor.unwrap_or_default().is_dell() {
+        Some(
+            bios_attributes
+                .get("HttpDev1Interface")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| RedfishError::MissingKey {
+                    key: "HttpDev1Interface".to_string(),
+                    url: "Bios attributes".to_string(),
+                })
+                .map_err(map_redfish_error)?
+                .to_string(),
+        )
     } else {
         None
     };
@@ -354,53 +411,12 @@ async fn fetch_system(
         serial_number: system.serial_number,
         attributes: ComputerSystemAttributes {
             nic_mode,
-            http_dev1_interface: get_bios_attribute(&bios_attributes, vendor, "HttpDev1Interface")?,
+            http_dev1_interface,
         },
         pcie_devices,
         base_mac,
         power_state: system.power_state.into(),
     })
-}
-
-pub fn get_bios_attribute(
-    bios_params: &HashMap<String, serde_json::Value>,
-    vendor: Option<BMCVendor>,
-    attribute: &str,
-) -> Result<Option<String>, RedfishError> {
-    let mut http_dev1_interface = None;
-    if let Some(vendor) = vendor {
-        if vendor.is_dell() {
-            let attribute_value = bios_params
-                .get("Attributes")
-                .ok_or_else(|| RedfishError::MissingKey {
-                    key: "Attribute".to_string(),
-                    url: "Bios attributes".to_string(),
-                })?
-                .clone();
-
-            let attributes: HashMap<String, serde_json::Value> =
-                serde_json::from_value(attribute_value).map_err(|e| {
-                    RedfishError::InvalidValue {
-                        url: "Bios/Attribute".to_string(),
-                        field: "Attribute".to_string(),
-                        err: libredfish::model::InvalidValueError(e.to_string()),
-                    }
-                })?;
-
-            http_dev1_interface = Some(
-                attributes
-                    .get(attribute)
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| RedfishError::MissingKey {
-                        key: attribute.to_string(),
-                        url: "Bios attributes".to_string(),
-                    })?
-                    .to_string(),
-            );
-        }
-    }
-
-    Ok(http_dev1_interface)
 }
 
 async fn fetch_ethernet_interfaces(

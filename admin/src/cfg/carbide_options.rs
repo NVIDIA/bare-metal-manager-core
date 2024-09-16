@@ -136,7 +136,7 @@ pub enum CarbideCommand {
         subcommand,
         visible_alias = "bmc"
     )]
-    BmcMachine(BmcMachine),
+    BmcMachine(BmcAction),
     #[clap(about = "Credential related handling", subcommand, visible_alias = "c")]
     Credential(CredentialAction),
     #[clap(about = "Route server handling", subcommand)]
@@ -877,20 +877,8 @@ pub enum ManagedHost {
 
 #[derive(Parser, Debug)]
 pub struct BMCConfigForReboot {
-    #[clap(long, help = "Hostname or IP of machine BMC")]
-    pub address: String,
-
-    #[clap(long, help = "Port of machine BMC. [443]")]
-    pub port: Option<u32>,
-
-    #[clap(long, help = "Username for machine BMC")]
-    pub username: Option<String>,
-
-    #[clap(long, help = "Password for machine BMC")]
-    pub password: Option<String>,
-
     #[clap(long, help = "ID of the machine to reboot")]
-    pub machine: Option<String>,
+    pub machine: String,
 }
 
 #[derive(Parser, Debug)]
@@ -899,7 +887,51 @@ pub struct BMCIdentify {
     pub address: String,
 }
 
-pub type BMCConfigForReset = BMCConfigForReboot;
+#[derive(Parser, Debug)]
+pub struct BmcResetArgs {
+    #[clap(long, help = "ID of the machine to reboot")]
+    pub machine: String,
+    pub use_ipmitool: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct AdminPowerControlArgs {
+    #[clap(long, help = "ID of the machine to reboot")]
+    pub machine: String,
+    #[clap(long, help = "Power control action")]
+    pub action: AdminPowerControlAction,
+}
+
+#[derive(ValueEnum, Parser, Debug, Clone)]
+pub enum AdminPowerControlAction {
+    On,
+    GracefulShutdown,
+    ForceOff,
+    GracefulRestart,
+    ForceRestart,
+}
+
+impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
+    fn from(c_type: AdminPowerControlAction) -> Self {
+        match c_type {
+            AdminPowerControlAction::On => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::On
+            }
+            AdminPowerControlAction::GracefulShutdown => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulShutdown
+            }
+            AdminPowerControlAction::ForceOff => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff
+            }
+            AdminPowerControlAction::GracefulRestart => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulRestart
+            }
+            AdminPowerControlAction::ForceRestart => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart
+            }
+        }
+    }
+}
 
 #[derive(Parser, Debug, Clone)]
 pub struct MachineQuery {
@@ -1254,11 +1286,13 @@ pub struct ResourcePoolDefinition {
 }
 
 #[derive(Parser, Debug)]
-pub enum BmcMachine {
-    #[clap(about = "Reset a BMC machine")]
-    Reset(BMCConfigForReset),
+pub enum BmcAction {
+    #[clap(about = "Reset BMC")]
+    BmcReset(BmcResetArgs),
     #[clap(about = "Identify a BMC vendor by the TLS certificate issuer")]
     Identify(BMCIdentify),
+    #[clap(about = "Redfish Power Control")]
+    AdminPowerControl(AdminPowerControlArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -1447,6 +1481,14 @@ pub enum SiteExplorer {
         about = "Clear the last known error for the BMC in the latest site exploration report."
     )]
     ClearError(ExploreOptions),
+    IsBmcInManagedHost(ExploreOptions),
+}
+
+#[derive(Parser, Debug)]
+pub enum BmcEndpointExplorer {
+    #[clap(about = "Reset the BMC for an endpoint.")]
+    ResetBMC(ExploreOptions),
+    RedfishForceRestartBmc(ExploreOptions),
 }
 
 #[derive(Parser, Debug, PartialEq)]

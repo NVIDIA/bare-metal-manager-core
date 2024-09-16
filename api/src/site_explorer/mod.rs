@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
 };
 
+use chrono::Utc;
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -47,8 +48,9 @@ use crate::{
             MachineInterfaceSnapshot, ManagedHostState,
         },
         site_explorer::{
-            EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
-            ExploredManagedHost, MachineExpectation, NicMode, PreingestionState, Service,
+            EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
+            ExploredEndpoint, ExploredManagedHost, MachineExpectation, NicMode, PreingestionState,
+            Service,
         },
     },
     resource_pool::common::CommonPools,
@@ -62,21 +64,25 @@ pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
 mod metrics;
 pub use metrics::SiteExplorationMetrics;
+mod bmc_endpoint_explorer;
 mod redfish;
-mod redfish_endpoint_explorer;
-pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
+pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 mod identify;
+use crate::model::hardware_info::NetworkInterface;
 pub use identify::{identify_bmc, IdentifyError};
 
-use crate::model::hardware_info::NetworkInterface;
-
 mod managed_host;
+pub use managed_host::is_endpoint_in_managed_host;
 
 use self::metrics::exploration_error_to_metric_label;
 
-struct Endpoint {
+#[derive(Debug, Clone)]
+pub struct Endpoint {
     address: IpAddr,
     iface: MachineInterfaceSnapshot,
+    last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     pub(crate) expected: Option<ExpectedMachine>,
 }
@@ -91,11 +97,17 @@ impl Endpoint {
     fn new(
         address: IpAddr,
         iface: MachineInterfaceSnapshot,
+        last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+        last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+        last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
         old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     ) -> Self {
         Self {
             address,
             iface,
+            last_redfish_bmc_reset,
+            last_ipmitool_bmc_reset,
+            last_redfish_reboot,
             old_report,
             expected: None,
         }
@@ -871,6 +883,9 @@ impl SiteExplorer {
             explore_endpoint_data.push(Endpoint::new(
                 *address,
                 (*iface).clone(),
+                endpoint.last_redfish_bmc_reset,
+                endpoint.last_ipmitool_bmc_reset,
+                endpoint.last_redfish_reboot,
                 Some((endpoint.report_version, endpoint.report.clone())),
             ));
         }
@@ -881,7 +896,14 @@ impl SiteExplorer {
             .iter()
             .take(remaining_explore_endpoints)
         {
-            explore_endpoint_data.push(Endpoint::new(*address, (*iface).clone(), None))
+            explore_endpoint_data.push(Endpoint::new(
+                *address,
+                (*iface).clone(),
+                None,
+                None,
+                None,
+                None,
+            ))
         }
 
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
@@ -897,6 +919,9 @@ impl SiteExplorer {
                 explore_endpoint_data.push(Endpoint::new(
                     *address,
                     (*iface).clone(),
+                    endpoint.last_redfish_bmc_reset,
+                    endpoint.last_ipmitool_bmc_reset,
+                    endpoint.last_redfish_reboot,
                     Some((endpoint.report_version, endpoint.report.clone())),
                 ));
             }
@@ -982,12 +1007,7 @@ impl SiteExplorer {
                         report.model = report.model();
                     }
 
-                    (
-                        endpoint.address,
-                        endpoint.old_report,
-                        result,
-                        start.elapsed(),
-                    )
+                    (endpoint, result, start.elapsed())
                 }
                 .in_current_span(),
             );
@@ -1018,9 +1038,9 @@ impl SiteExplorer {
             DatabaseError::new(file!(), line!(), "begin update endpoint information", e)
         })?;
 
-        for (address, old_endpoint_report, result, exploration_duration) in
-            exploration_results.into_iter()
-        {
+        for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
+            let address = endpoint.address;
+
             metrics.endpoint_explorations += 1;
             metrics
                 .endpoint_exploration_duration
@@ -1032,10 +1052,14 @@ impl SiteExplorer {
                         .endpoint_explorations_failures_by_type
                         .entry(exploration_error_to_metric_label(e))
                         .or_default() += 1;
+
+                    if e.is_redfish() {
+                        self.handle_redfish_error(endpoint.clone(), e).await;
+                    }
                 }
             }
 
-            match old_endpoint_report {
+            match endpoint.old_report {
                 Some((old_version, mut old_report)) => {
                     match result {
                         Ok(report) => {
@@ -1480,6 +1504,218 @@ impl SiteExplorer {
 
         Ok(())
     }
+
+    pub async fn handle_redfish_error(&self, endpoint: Endpoint, error: &EndpointExplorationError) {
+        // Dont let site explorer issue either a force-restart or bmc-reset more than once every 6 hours.
+        let rate_limit_hours = 6;
+        let min_time_since_last_action_mins = 20;
+        let start = Utc::now();
+        let time_since_redfish_reboot =
+            start.signed_duration_since(endpoint.last_redfish_reboot.unwrap_or_default());
+        let time_since_redfish_bmc_reset =
+            start.signed_duration_since(endpoint.last_redfish_bmc_reset.unwrap_or_default());
+        let time_since_ipmitool_bmc_reset =
+            start.signed_duration_since(endpoint.last_ipmitool_bmc_reset.unwrap_or_default());
+
+        if time_since_redfish_reboot.num_minutes() < min_time_since_last_action_mins
+            || time_since_redfish_bmc_reset.num_minutes() < min_time_since_last_action_mins
+            || time_since_ipmitool_bmc_reset.num_minutes() < min_time_since_last_action_mins
+        {
+            tracing::info!("waiting to remediate error {error} for {endpoint}; time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
+            return;
+        }
+
+        let is_managed_host_created_for_endpoint = match self
+            .is_managed_host_created_for_endpoint(&endpoint)
+            .await
+        {
+            Ok(managed_host_exists) => managed_host_exists,
+            Err(e) => {
+                tracing::error!(%e, "failed to retrieve whether managed host was created for endpoint: {endpoint}");
+                // return true by default
+                true
+            }
+        };
+
+        // If the endpoint is a DPU, and the error is that the BIOS attributes are coming up as empty for this DPU,
+        // reboot the DPU as our first course of action. This is the official workaround from the DPU redfish team to mitigate empty UEFI attributes
+        // until https://redmine.mellanox.com/issues/3746477 is fixed.
+        //
+        // If this fails, and we continue seeing the BIOS attributes come up as empty after twenty minutes (providing plenty of time)
+        // for the DPU to come back up after the reboot, lets try resetting the BMC to see if it helps.
+        if error.is_dpu_missing_bios_attributes()
+            && time_since_redfish_reboot.num_hours() > rate_limit_hours
+            && !is_managed_host_created_for_endpoint
+            && self
+                .force_restart(&endpoint)
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Site Explorer failed to reboot {}: {}",
+                        endpoint.address,
+                        err
+                    )
+                })
+                .is_ok()
+        {
+            return;
+        }
+
+        if time_since_redfish_bmc_reset.num_hours() > rate_limit_hours
+            && self
+                .redfish_reset_bmc(&endpoint)
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Site Explorer failed to reset BMC {} through redfish: {}",
+                        endpoint.address,
+                        err
+                    )
+                })
+                .is_ok()
+        {
+            return;
+        }
+
+        if time_since_ipmitool_bmc_reset.num_hours() > rate_limit_hours {
+            let _ = self.ipmitool_reset_bmc(&endpoint).await.map_err(|err| {
+                tracing::error!(
+                    "Site Explorer failed to reset BMC {} through ipmitool: {}",
+                    endpoint.address,
+                    err
+                )
+            });
+        }
+    }
+
+    pub async fn ipmitool_reset_bmc(&self, endpoint: &Endpoint) -> CarbideResult<()> {
+        tracing::info!(
+            "SiteExplorer is initiating a cold BMC reset through IPMI to IP {}",
+            endpoint.address
+        );
+
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+        match self
+            .endpoint_explorer
+            .ipmitool_reset_bmc(bmc_target_addr, &endpoint.iface)
+            .await
+        {
+            Ok(_) => {
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "begin set_last_ipmitool_bmc_reset", e)
+                })?;
+
+                DbExploredEndpoint::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn).await?;
+
+                txn.commit().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "end set_last_ipmitool_bmc_reset", e)
+                })?;
+
+                Ok(())
+            }
+            Err(e) => Err(CarbideError::GenericError(format!(
+                "site-explorer failed to cold reset bmc through ipmitool {}: {:#?}",
+                endpoint.address, e
+            ))),
+        }
+    }
+
+    pub async fn redfish_reset_bmc(&self, endpoint: &Endpoint) -> CarbideResult<()> {
+        tracing::info!(
+            "SiteExplorer is initiating a BMC reset through Redfish to IP {}",
+            endpoint.address
+        );
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+        match self
+            .endpoint_explorer
+            .redfish_reset_bmc(bmc_target_addr, &endpoint.iface)
+            .await
+        {
+            Ok(_) => {
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "begin set_last_redfish_bmc_reset", e)
+                })?;
+
+                DbExploredEndpoint::set_last_redfish_bmc_reset(endpoint.address, &mut txn).await?;
+
+                txn.commit().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "end set_last_redfish_bmc_reset", e)
+                })?;
+
+                Ok(())
+            }
+            Err(e) => Err(CarbideError::GenericError(format!(
+                "site-explorer failed to reset bmc through redfish {}: {:#?}",
+                endpoint.address, e
+            ))),
+        }
+    }
+
+    pub async fn force_restart(&self, endpoint: &Endpoint) -> CarbideResult<()> {
+        tracing::info!(
+            "SiteExplorer is initiating a reboot through Redfish to IP {}",
+            endpoint.address
+        );
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+        match self
+            .endpoint_explorer
+            .redfish_power_control(
+                bmc_target_addr,
+                &endpoint.iface,
+                libredfish::SystemPowerControl::ForceRestart,
+            )
+            .await
+        {
+            Ok(()) => {
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "begin set_last_redfish_reboot", e)
+                })?;
+
+                DbExploredEndpoint::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
+
+                txn.commit().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "end set_last_redfish_reboot", e)
+                })?;
+
+                Ok(())
+            }
+            Err(e) => Err(CarbideError::GenericError(format!(
+                "site-explorer failed to reboot {}: {:#?}",
+                endpoint.address, e
+            ))),
+        }
+    }
+
+    async fn is_managed_host_created_for_endpoint(
+        &self,
+        endpoint: &Endpoint,
+    ) -> CarbideResult<bool> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "begin is_managed_host_created_for_endpoint",
+                e,
+            )
+        })?;
+
+        let is_endpoint_in_managed_host =
+            is_endpoint_in_managed_host(endpoint.address, &mut txn).await?;
+
+        txn.commit().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "end is_managed_host_created_for_endpoint",
+                e,
+            )
+        })?;
+
+        Ok(is_endpoint_in_managed_host)
+    }
 }
 
 pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
@@ -1665,6 +1901,9 @@ mod tests {
             preingestion_state: PreingestionState::Initial,
             waiting_for_explorer_refresh: false,
             exploration_requested: false,
+            last_redfish_bmc_reset: None,
+            last_ipmitool_bmc_reset: None,
+            last_redfish_reboot: None,
         };
 
         assert_eq!(

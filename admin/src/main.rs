@@ -33,7 +33,7 @@ use ::rpc::CredentialType;
 use ::rpc::Uuid;
 use cfg::carbide_options::AgentUpgrade;
 use cfg::carbide_options::AgentUpgradePolicyChoice;
-use cfg::carbide_options::BmcMachine;
+use cfg::carbide_options::BmcAction;
 use cfg::carbide_options::BootOverrideAction;
 use cfg::carbide_options::CredentialAction;
 use cfg::carbide_options::DpuAction;
@@ -278,15 +278,13 @@ async fn main() -> color_eyre::Result<()> {
                 machine::handle_override(command, config.format, api_config).await?;
             }
             Machine::Reboot(c) => {
-                let bmc_auth = match (c.username, c.password, c.machine) {
-                    (Some(user), Some(password), _) => rpc::RebootAuth::Direct { user, password },
-                    (_, _, Some(machine_id)) => rpc::RebootAuth::Indirect { machine_id },
-                    _ => {
-                        eprintln!("Provide either --machine-id or both --username and --password");
-                        return Ok(());
-                    }
-                };
-                rpc::reboot(api_config, c.address, c.port, bmc_auth).await?;
+                rpc::admin_power_control(
+                    api_config,
+                    None,
+                    Some(c.machine),
+                    ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
+                )
+                .await?;
             }
             Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
             Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, api_config).await?,
@@ -648,24 +646,20 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CarbideCommand::BmcMachine(bmc_machine) => match bmc_machine {
-            BmcMachine::Reset(c) => {
-                let bmc_auth = match (c.username, c.password, c.machine) {
-                    (Some(user), Some(password), _) => rpc::ResetAuth::Direct { user, password },
-                    (_, _, Some(machine_id)) => rpc::ResetAuth::Indirect { machine_id },
-                    _ => {
-                        eprintln!("Provide either --machine-id or both --username and --password");
-                        return Ok(());
-                    }
-                };
-                rpc::bmc_reset(api_config, c.address, c.port, bmc_auth).await?;
+            BmcAction::BmcReset(args) => {
+                rpc::bmc_reset(api_config, None, Some(args.machine), args.use_ipmitool).await?;
             }
-            BmcMachine::Identify(args) => {
+            BmcAction::Identify(args) => {
                 let resp = rpc::identify_bmc(api_config, args.address).await?;
                 if !resp.known_vendor.is_empty() {
                     println!("{}", resp.known_vendor);
                 } else {
                     println!("Unknown: {}", resp.raw_vendor);
                 }
+            }
+            BmcAction::AdminPowerControl(args) => {
+                rpc::admin_power_control(api_config, None, Some(args.machine), args.action.into())
+                    .await?;
             }
         },
         CarbideCommand::Inventory(action) => {
@@ -779,6 +773,9 @@ async fn main() -> color_eyre::Result<()> {
             }
             SiteExplorer::ClearError(opts) => {
                 rpc::clear_site_explorer_last_known_error(api_config, opts.address).await?;
+            }
+            SiteExplorer::IsBmcInManagedHost(opts) => {
+                rpc::is_bmc_in_managed_host(api_config, &opts.address, opts.mac).await?;
             }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {

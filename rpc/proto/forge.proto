@@ -174,9 +174,11 @@ service Forge {
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
   // Clear the last known error for the BMC
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
+  // IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
+  rpc IsBmcInManagedHost(BmcEndpointRequest) returns (IsBmcInManagedHostResponse);
   // Explore an individual BMC and show the report
   // The results of this exploration call will not be persisted in the database
-  rpc Explore(ExploreRequest) returns (site_explorer.EndpointExplorationReport);
+  rpc Explore(BmcEndpointRequest) returns (site_explorer.EndpointExplorationReport);
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
@@ -200,9 +202,6 @@ service Forge {
   // AdminForceDeleteMachine is a lower level admin tool for cases where there is no
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
-
-  // Reboot a machine and boot into PXE
-  rpc AdminReboot(AdminRebootRequest) returns (AdminRebootResponse);
 
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
@@ -231,9 +230,6 @@ service Forge {
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
   rpc FindNetworkDevicesByDeviceIds(NetworkDeviceIdList) returns (NetworkTopologyData);
 
-  // Reset a BMC
-  rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
-
   // Create Credential in Vault
   rpc CreateCredential(CredentialCreationRequest) returns (CredentialCreationResult);
 
@@ -255,9 +251,6 @@ service Forge {
   // Set Host UEFI password
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
-  rpc RedfishPowerControl(RedfishPowerControlRequest) returns (google.protobuf.Empty); 
-  rpc GetRedfishJobState(GetRedfishJobStateRequest) returns (GetRedfishJobStateResponse); 
-
 
   // Identify the vendor of a BMC without logging into it
   rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
@@ -393,6 +386,11 @@ service Forge {
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
 
+  // Bmc Endpoint Explorer Actions
+  // Reset a BMC
+  rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
+  // Admin Power Control
+  rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
 }
 
 message BindRequest{
@@ -1775,9 +1773,9 @@ message ReExploreEndpointRequest {
   optional string if_version_match = 2;
 }
 
-message ExploreRequest {
-  // IP address of the BMC to explore
-  string address = 1;
+message BmcEndpointRequest {
+  // IP address of the BMC to act on
+  string ip_address = 1;
   // The MAC the host DHCPed from
   optional string mac_address = 2;
 }
@@ -2028,24 +2026,19 @@ message AdminForceDeleteMachineResponse {
 
 }
 
-// Must provide either machine_id or user/password pair
+// Must provide either machine_id or ip/mac pair
 message AdminRebootRequest {
-    string ip = 1;
-    optional uint32 port = 2;
-    optional string user = 3;
-    optional string password = 4;
-    optional string machine_id = 5;
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
 }
 
 message AdminRebootResponse {}
 
-// Must provide either machine_id or user/password pair
+// Must provide either machine_id or ip/mac pair
 message AdminBmcResetRequest {
-  string ip = 1;
-  optional uint32 port = 2;
-  optional string user = 3;
-  optional string password = 4;
-  optional string machine_id = 5;
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  bool use_ipmitool = 3;
 }
 
 message AdminBmcResetResponse {}
@@ -3210,7 +3203,7 @@ message  GetMachineValidationExternalConfigResponse {
 message AddUpdateMachineValidationExternalConfigRequest {
     MachineValidationExternalConfig config = 1;
 }
-message RedfishPowerControlRequest {
+message AdminPowerControlRequest {
   enum SystemPowerControl {
     // Power on a machine
     On = 0;
@@ -3223,9 +3216,12 @@ message RedfishPowerControlRequest {
     // Force restart. This is equivalent to pressing the reset button on the front panel.
     ForceRestart = 4;
   }
-  common.MachineId machine_id = 1;
-  SystemPowerControl action = 2;
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  SystemPowerControl action = 3;
 }
+
+message AdminPowerControlResponse {}
 
 message GetRedfishJobStateRequest {
   common.MachineId machine_id = 1;
@@ -3250,4 +3246,8 @@ message MachineValidationRunList {
 message MachineValidationRunListGetRequest {
   common.MachineId machine_id = 1;
   bool include_history = 2;
+}
+
+message IsBmcInManagedHostResponse {
+  bool in_managed_host = 1;
 }

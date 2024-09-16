@@ -36,6 +36,12 @@ pub struct DbExploredEndpoint {
     waiting_for_explorer_refresh: bool,
     /// Whether the endpoint will be explored in the next site-explorer run
     exploration_requested: bool,
+    /// The last time site explorer issued a redfish call to reset this BMC
+    last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    /// The last time site explorer issued a ipmitool call to reset this BMC
+    last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    /// The last time site explorer issued a redfish call to reboot this endpoint
+    last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -46,6 +52,9 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             row.try_get("preingestion_state")?;
         let waiting_for_explorer_refresh = row.try_get("waiting_for_explorer_refresh")?;
         let exploration_requested = row.try_get("exploration_requested")?;
+        let last_redfish_bmc_reset = row.try_get("last_redfish_bmc_reset")?;
+        let last_ipmitool_bmc_reset = row.try_get("last_ipmitool_bmc_reset")?;
+        let last_redfish_reboot = row.try_get("last_redfish_reboot")?;
 
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
@@ -54,6 +63,9 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             preingestion_state: preingestion_state.0,
             waiting_for_explorer_refresh,
             exploration_requested,
+            last_redfish_bmc_reset,
+            last_ipmitool_bmc_reset,
+            last_redfish_reboot,
         })
     }
 }
@@ -67,6 +79,9 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             preingestion_state: endpoint.preingestion_state,
             waiting_for_explorer_refresh: endpoint.waiting_for_explorer_refresh,
             exploration_requested: endpoint.exploration_requested,
+            last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
+            last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
+            last_redfish_reboot: endpoint.last_redfish_reboot,
         }
     }
 }
@@ -446,5 +461,46 @@ WHERE address = $3 AND version=$4";
                     e,
                 )
             })
+    }
+
+    pub async fn set_last_redfish_bmc_reset(
+        address: IpAddr,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE explored_endpoints SET last_redfish_bmc_reset=NOW() WHERE address = $1;";
+        sqlx::query(query)
+            .bind(address)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn set_last_ipmitool_bmc_reset(
+        address: IpAddr,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE explored_endpoints SET last_ipmitool_bmc_reset=NOW() WHERE address = $1;";
+        sqlx::query(query)
+            .bind(address)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn set_last_redfish_reboot(
+        address: IpAddr,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE explored_endpoints SET last_redfish_reboot=NOW() WHERE address = $1;";
+        sqlx::query(query)
+            .bind(address)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 }
