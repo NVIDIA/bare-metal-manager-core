@@ -31,7 +31,6 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::instance::InstanceId;
-use mac_address::MacAddress;
 use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
@@ -517,17 +516,15 @@ pub(crate) async fn invoke_power(
         return Ok(Response::new(rpc::InstancePowerResult {}));
     }
 
-    let bmc_mac = snapshot
-        .host_snapshot
-        .bmc_info
-        .mac
-        .as_ref()
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "bmc_mac",
-            id: machine_id.to_string(),
-        })?;
-
-    let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+    let bmc_mac_address =
+        snapshot
+            .host_snapshot
+            .bmc_info
+            .mac
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "bmc_mac",
+                id: machine_id.to_string(),
+            })?;
 
     // TODO: The API call should maybe not directly trigger the reboot
     // but instead queue it for the state handler. That will avoid racing

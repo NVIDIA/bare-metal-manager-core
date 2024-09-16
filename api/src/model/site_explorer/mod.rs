@@ -114,8 +114,7 @@ impl EndpointExplorationReport {
         self.systems
             .iter()
             .flat_map(|s| s.ethernet_interfaces.as_slice())
-            .filter_map(|e| e.mac_address.as_ref())
-            .filter_map(|s| MacAddress::from_str(s).ok())
+            .filter_map(|e| e.mac_address)
             .collect()
     }
 }
@@ -197,7 +196,7 @@ impl ExploredEndpoint {
 }
 
 impl EndpointExplorationReport {
-    pub fn fetch_host_primary_interface_mac(&self) -> Option<String> {
+    pub fn fetch_host_primary_interface_mac(&self) -> Option<MacAddress> {
         if self.vendor?.is_dell() {
             // For Dell hosts, HttpDev1Interface field in Bios provides bootable interface details.
             let system = self.systems.first()?;
@@ -211,7 +210,7 @@ impl EndpointExplorationReport {
             // If we know the bootable interface name, find the MAC address associated with it.
             let mac_address = system.ethernet_interfaces.iter().find_map(|x| {
                 if x.id.clone().unwrap_or_default() == interface_name {
-                    x.mac_address.clone()
+                    x.mac_address
                 } else {
                     None
                 }
@@ -356,11 +355,11 @@ impl ExploredDpu {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
             ip: Some(self.bmc_ip.to_string()),
-            mac: self.report.managers.first().and_then(|m| {
-                m.ethernet_interfaces
-                    .first()
-                    .and_then(|e| e.mac_address.clone())
-            }),
+            mac: self
+                .report
+                .managers
+                .first()
+                .and_then(|m| m.ethernet_interfaces.first().and_then(|e| e.mac_address)),
             firmware_version: self.bmc_firmware_version(),
             ..Default::default()
         }
@@ -889,7 +888,7 @@ pub struct EthernetInterface {
     pub id: Option<String>,
     pub interface_enabled: Option<bool>,
     #[serde(rename = "MACAddress")]
-    pub mac_address: Option<String>,
+    pub mac_address: Option<MacAddress>,
 }
 
 impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
@@ -898,7 +897,7 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
             id: interface.id,
             description: interface.description,
             interface_enabled: interface.interface_enabled,
-            mac_address: interface.mac_address,
+            mac_address: interface.mac_address.map(|mac| mac.to_string()),
         }
     }
 }

@@ -23,6 +23,7 @@ use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::hardware_enumeration::enumerate_hardware;
 use forge_host_support::registration::register_machine;
 use forge_tls::client_config::ClientCert;
+use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
 
 use crate::frr::FrrVlanConfig;
@@ -118,12 +119,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 // Dev / test override
                 Some(id) => Registration {
                     machine_id: id.to_string(),
-                    factory_mac_address: "11:22:33:44:55:66".to_string(),
+                    factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
             main_loop::run(
                 &machine_id,
-                &factory_mac_address,
+                factory_mac_address,
                 forge_client_config,
                 agent,
                 options,
@@ -319,7 +320,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
 struct Registration {
     machine_id: String,
-    factory_mac_address: String,
+    factory_mac_address: MacAddress,
 }
 
 /// Discover hardware, register DPU with carbide-api, and return machine id
@@ -333,8 +334,14 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         tracing::debug!("Successfully injected fake DPU data");
     }
 
-    let factory_mac_address = match hardware_info.dpu_info.as_ref() {
-        Some(dpu_info) => dpu_info.factory_mac_address.clone(),
+    let factory_mac_address: MacAddress = match hardware_info.dpu_info.as_ref() {
+        Some(dpu_info) => dpu_info.factory_mac_address.parse().map_err(|e| {
+            eyre::eyre!(
+                "Failed to parse factory MAC address from DPU info: {} (err: {})",
+                dpu_info.factory_mac_address,
+                e
+            )
+        })?,
         None => eyre::bail!("Missing DPU info, should be impossible"),
     };
 

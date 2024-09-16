@@ -679,10 +679,13 @@ pub async fn create_host_machine_non_dpu_interface_proactively(
         return Err(CarbideError::AdminNetworkNotConfigured);
     };
 
-    let host_mac = MacAddress::from_str(network_interface.mac_address.as_str())?;
-
-    let machine_interface =
-        find_or_create_machine_interface(txn, Some(machine_id.clone()), host_mac, gateway).await?;
+    let machine_interface = find_or_create_machine_interface(
+        txn,
+        Some(machine_id.clone()),
+        network_interface.mac_address,
+        gateway,
+    )
+    .await?;
     associate_interface_with_machine(&machine_interface.id, machine_id, txn).await?;
 
     Ok(machine_interface)

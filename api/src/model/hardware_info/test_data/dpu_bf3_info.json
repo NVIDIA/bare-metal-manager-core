@@ -130,7 +130,7 @@
       }
     },
     {
-      "mac_address": "ch: 64",
+      "mac_address": "00:00:00:00:00:64",
       "pci_properties": {
         "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/en3f0pf0sf0",
         "device": "0xa2d6",
@@ -150,7 +150,7 @@
       }
     },
     {
-      "mac_address": "ch: 64",
+      "mac_address": "00:00:00:00:00:64",
       "pci_properties": {
         "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/pf0hpf",
         "device": "0xa2d6",
@@ -160,7 +160,7 @@
       }
     },
     {
-      "mac_address": "02:f2:ac: 5c:9e:dc",
+      "mac_address": "02:f2:ac:5c:9e:dc",
       "pci_properties": {
         "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/mlx5_core.sf.3/net/enp3s0f1s0",
         "device": "0xa2d6",
@@ -170,7 +170,7 @@
       }
     },
     {
-      "mac_address": "ch: 64",
+      "mac_address": "00:00:00:00:00:64",
       "pci_properties": {
         "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/en3f1pf1sf0",
         "device": "0xa2d6",
@@ -190,7 +190,7 @@
       }
     },
     {
-      "mac_address": "ch: 64",
+      "mac_address": "00:00:00:00:00:64",
       "pci_properties": {
         "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/pf1hpf",
         "device": "0xa2d6",

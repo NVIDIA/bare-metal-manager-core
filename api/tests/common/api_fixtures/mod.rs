@@ -87,6 +87,7 @@ use forge_secrets::credentials::{
 use forge_uuid::machine::MachineId;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
 use regex::Regex;
 use rpc::forge::{
     forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
@@ -851,14 +852,14 @@ pub async fn update_bmc_metadata(
     machine_id: rpc::common::MachineId,
     bmc_ip_address: &str,
     admin_user: String,
-    bmc_mac_address: String,
+    bmc_mac_address: MacAddress,
     bmc_version: String,
     bmc_firmware_version: String,
 ) {
     let bmc_info = rpc::forge::BmcInfo {
         ip: Some(bmc_ip_address.to_owned()),
         port: None,
-        mac: Some(bmc_mac_address.to_owned()),
+        mac: Some(bmc_mac_address.to_string()),
         version: Some(bmc_version),
         firmware_version: Some(bmc_firmware_version),
     };

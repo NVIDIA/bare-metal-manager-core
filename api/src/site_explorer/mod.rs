@@ -14,7 +14,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     net::{IpAddr, SocketAddr},
-    str::FromStr,
     sync::Arc,
 };
 
@@ -686,13 +685,9 @@ impl SiteExplorer {
             // primary interface.
             let mut is_sorted = false;
             if let Some(mac_address) = ep.report.fetch_host_primary_interface_mac() {
-                let primary_dpu_position = dpus_explored_for_host.iter().position(|x| {
-                    x.host_pf_mac_address
-                        .map(|x| x.to_string())
-                        .unwrap_or_default()
-                        .to_lowercase()
-                        == mac_address.to_lowercase()
-                });
+                let primary_dpu_position = dpus_explored_for_host
+                    .iter()
+                    .position(|x| x.host_pf_mac_address.unwrap_or_default() == mac_address);
 
                 if let Some(primary_dpu_position) = primary_dpu_position {
                     if primary_dpu_position != 0 {
@@ -1219,12 +1214,12 @@ impl SiteExplorer {
             .map(|s| s.ethernet_interfaces.as_slice())
             .unwrap_or_default()
         {
-            let Some(mac_address) = iface.mac_address.as_ref() else {
+            let Some(mac_address) = iface.mac_address else {
                 continue;
             };
 
             let network_interface = NetworkInterface {
-                mac_address: mac_address.clone(),
+                mac_address,
                 pci_properties: None,
             };
             db::machine_interface::create_host_machine_non_dpu_interface_proactively(
@@ -1250,7 +1245,7 @@ impl SiteExplorer {
         let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
             x.ethernet_interfaces.iter().find_map(|x| {
                 if x.id == Some("oob_net0".to_string()) {
-                    x.mac_address.clone()
+                    x.mac_address
                 } else {
                     None
                 }
@@ -1259,8 +1254,7 @@ impl SiteExplorer {
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
-            let mac_address = MacAddress::from_str(&oob_net0_mac)?;
-            let mi = db::machine_interface::find_by_mac_address(txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(txn, oob_net0_mac).await?;
 
             if let Some(interface) = mi.first() {
                 if interface.machine_id.is_none() {

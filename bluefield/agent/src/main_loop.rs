@@ -27,6 +27,7 @@ use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
 use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
 use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
@@ -55,7 +56,7 @@ use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTU
 // Main loop when running in daemon mode
 pub async fn run(
     machine_id: &str,
-    mac_address: &str,
+    mac_address: MacAddress,
     forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: AgentConfig,
     options: command_line::RunOptions,

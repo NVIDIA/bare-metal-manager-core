@@ -440,7 +440,7 @@ impl MachineStateMachine {
                     .collect(),
                 product_serial: self.machine_info.product_serial(),
                 chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
-                host_mac_address: self.machine_info.host_mac_address().map(|m| m.to_string()),
+                host_mac_address: self.machine_info.host_mac_address(),
             },
         )
         .await?;

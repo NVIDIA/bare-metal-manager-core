@@ -71,7 +71,7 @@ fn setup() {
 
 #[derive(Clone, Debug)]
 struct FakeMachine {
-    pub mac: String,
+    pub mac: MacAddress,
     pub dhcp_vendor: String,
     pub segment: NetworkSegmentId,
     pub ip: String,
@@ -91,28 +91,28 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
         FakeMachine {
-            mac: "B8:3F:D2:90:97:A6".to_string(),
+            mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // machines[1] has 1 dpu (machines[0])
         FakeMachine {
-            mac: "AA:AB:AC:AD:AA:02".to_string(),
+            mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
             dhcp_vendor: "Vendor2".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // machines[2] has no DPUs
         FakeMachine {
-            mac: "AA:AB:AC:AD:AA:03".to_string(),
+            mac: "AA:AB:AC:AD:AA:03".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // machines[3] is not on the underlay network and should not be searched.
         FakeMachine {
-            mac: "AA:AB:AC:AD:BB:01".to_string(),
+            mac: "AA:AB:AC:AD:BB:01".parse().unwrap(),
             dhcp_vendor: "VendorInvalidSegment".to_string(),
             segment: admin_segment,
             ip: String::new(),
@@ -123,7 +123,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         let response = env
             .api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.clone(),
+                mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
                     s if s == underlay_segment => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
@@ -177,7 +177,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                         id: Some("eth0".to_string()),
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+                        mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -442,7 +442,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                     id: Some("NIC.1".to_string()),
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
-                    mac_address: Some("c8:4b:d6:7a:dc:bc".to_string()),
+                    mac_address: Some("c8:4b:d6:7a:dc:bc".parse().unwrap()),
                 }],
             }],
             systems: vec![ComputerSystem {
@@ -455,19 +455,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                         id: Some("NIC.Embedded.2-1-1".to_string()),
                         description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("c8:4b:d6:7b:ab:93".to_string()),
+                        mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
                     },
                     EthernetInterface {
                         id: Some("NIC.Embedded.1-1-1".to_string()),
                         description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                         interface_enabled: Some(false),
-                        mac_address: Some("c8:4b:d6:7b:ab:92".to_string()),
+                        mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
                     },
                     EthernetInterface {
                         id: Some("NIC.Slot.5-1".to_string()),
                         description: Some("NIC in Slot 5 Port 1".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                        mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
                     },
                 ],
                 attributes: ComputerSystemAttributes::default(),
@@ -665,28 +665,28 @@ async fn test_site_explorer_audit_exploration_results(
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
         FakeMachine {
-            mac: "5a:5b:5c:5d:5e:5f".to_string(),
+            mac: "5a:5b:5c:5d:5e:5f".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // This will be expected but unauthorized, and the serial is mismatched
         FakeMachine {
-            mac: "0a:0b:0c:0d:0e:0f".to_string(),
+            mac: "0a:0b:0c:0d:0e:0f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // This host will be expected but missing credentials, and the serial is mismatched
         FakeMachine {
-            mac: "1a:1b:1c:1d:1e:1f".to_string(),
+            mac: "1a:1b:1c:1d:1e:1f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // This host will be expected, but the serial number will be mismatched.
         FakeMachine {
-            mac: "2a:2b:2c:2d:2e:2f".to_string(),
+            mac: "2a:2b:2c:2d:2e:2f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
@@ -694,21 +694,21 @@ async fn test_site_explorer_audit_exploration_results(
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
         FakeMachine {
-            mac: "3a:3b:3c:3d:3e:3f".to_string(),
+            mac: "3a:3b:3c:3d:3e:3f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // This host is not expected.
         FakeMachine {
-            mac: "ab:cd:ef:ab:cd:ef".to_string(),
+            mac: "ab:cd:ef:ab:cd:ef".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         // This DPU is really not expected. (i.e. no DB entry)
         FakeMachine {
-            mac: "ef:cd:ab:ef:cd:ab".to_string(),
+            mac: "ef:cd:ab:ef:cd:ab".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
             segment: underlay_segment,
             ip: String::new(),
@@ -719,7 +719,7 @@ async fn test_site_explorer_audit_exploration_results(
         let response = env
             .api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.clone(),
+                mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
                     s if s == underlay_segment => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
@@ -768,7 +768,7 @@ async fn test_site_explorer_audit_exploration_results(
                         id: Some("eth0".to_string()),
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("5a:5b:5c:5d:5e:5f".to_string()),
+                        mac_address: Some("5a:5b:5c:5d:5e:5f".parse().unwrap()),
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -879,7 +879,7 @@ async fn test_site_explorer_audit_exploration_results(
                         id: Some("NIC.1".to_string()),
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some(machines[4].mac.to_string()),
+                        mac_address: Some(machines[4].mac),
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -893,19 +893,19 @@ async fn test_site_explorer_audit_exploration_results(
                             id: Some("NIC.Embedded.2-1-1".to_string()),
                             description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                             interface_enabled: Some(true),
-                            mac_address: Some("c8:4b:d6:7b:ab:93".to_string()),
+                            mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
                         },
                         EthernetInterface {
                             id: Some("NIC.Embedded.1-1-1".to_string()),
                             description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                             interface_enabled: Some(false),
-                            mac_address: Some("c8:4b:d6:7b:ab:92".to_string()),
+                            mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
                         },
                         EthernetInterface {
                             id: Some("NIC.Slot.5-1".to_string()),
                             description: Some("NIC in Slot 5 Port 1".to_string()),
                             interface_enabled: Some(true),
-                            mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                            mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
                         },
                     ],
                     attributes: ComputerSystemAttributes::default(),
@@ -1007,7 +1007,7 @@ async fn test_site_explorer_audit_exploration_results(
                         id: Some("eth0".to_string()),
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("ef:cd:ab:ef:cd:ab".to_string()),
+                        mac_address: Some("ef:cd:ab:ef:cd:ab".parse().unwrap()),
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -1309,13 +1309,13 @@ async fn test_site_explorer_reexplore(
 
     let mut machines = vec![
         FakeMachine {
-            mac: "B8:3F:D2:90:97:A6".to_string(),
+            mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
             segment: underlay_segment,
             ip: String::new(),
         },
         FakeMachine {
-            mac: "AA:AB:AC:AD:AA:02".to_string(),
+            mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
             dhcp_vendor: "Vendor2".to_string(),
             segment: underlay_segment,
             ip: String::new(),
@@ -1326,7 +1326,7 @@ async fn test_site_explorer_reexplore(
         let response = env
             .api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.clone(),
+                mac_address: machine.mac.to_string(),
                 relay_address: "192.0.1.1".to_string(),
                 link_address: None,
                 vendor_string: Some(machine.dhcp_vendor.clone()),
@@ -1366,7 +1366,7 @@ async fn test_site_explorer_reexplore(
                         id: Some("eth0".to_string()),
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
-                        mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+                        mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -1622,7 +1622,7 @@ async fn test_site_explorer_creates_managed_host(
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+                mac_address: Some("a0:88:c2:08:80:97".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -1631,7 +1631,7 @@ async fn test_site_explorer_creates_managed_host(
                 id: Some("oob_net0".to_string()),
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some(oob_mac.to_string()),
+                mac_address: Some(oob_mac),
             }],
             manufacturer: None,
             model: None,
@@ -2096,7 +2096,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                     id: Some("eth0".to_string()),
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
-                    mac_address: Some(format!("a0:88:c2:08:80:9{}", i).to_string()),
+                    mac_address: Some(format!("a0:88:c2:08:80:9{}", i).parse().unwrap()),
                 }],
             }],
             systems: vec![ComputerSystem {
@@ -2378,7 +2378,7 @@ async fn test_site_explorer_clear_last_known_error(
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+                mac_address: Some("a0:88:c2:08:80:97".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2539,14 +2539,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
     let mut host1_dpu = FakeMachine {
-        mac: HOST1_DPU_MAC.to_string(),
+        mac: HOST1_DPU_MAC.parse().unwrap(),
         dhcp_vendor: "Vendor1".to_string(),
         segment: underlay_segment,
         ip: String::new(),
     };
 
     let mut host1 = FakeMachine {
-        mac: HOST1_MAC.to_string(),
+        mac: HOST1_MAC.parse().unwrap(),
         dhcp_vendor: "Vendor2".to_string(),
         segment: underlay_segment,
         ip: String::new(),
@@ -2563,7 +2563,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+                mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2643,7 +2643,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 id: Some("NIC.1".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("c8:4b:d6:7a:dc:bc".to_string()),
+                mac_address: Some("c8:4b:d6:7a:dc:bc".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2656,19 +2656,19 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                     id: Some("NIC.Embedded.2-1-1".to_string()),
                     description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                     interface_enabled: Some(true),
-                    mac_address: Some("c8:4b:d6:7b:ab:93".to_string()),
+                    mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
                 },
                 EthernetInterface {
                     id: Some("NIC.Embedded.1-1-1".to_string()),
                     description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                     interface_enabled: Some(false),
-                    mac_address: Some("c8:4b:d6:7b:ab:92".to_string()),
+                    mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
                 },
                 EthernetInterface {
                     id: Some("NIC.Slot.5-1".to_string()),
                     description: Some("NIC in Slot 5 Port 1".to_string()),
                     interface_enabled: Some(true),
-                    mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                    mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
                 },
             ],
             attributes: ComputerSystemAttributes::default(),
@@ -2765,7 +2765,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         let response = env
             .api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.clone(),
+                mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
                     s if s == underlay_segment => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
@@ -2972,13 +2972,13 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
-    let oob_mac = "b8:3f:d2:90:97:a6".to_string();
+    let oob_mac: MacAddress = "b8:3f:d2:90:97:a6".parse().unwrap();
 
     // Create mi now.
     let _response = env
         .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: oob_mac.clone(),
+            mac_address: oob_mac.to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
             vendor_string: Some("bluefield".to_string()),
@@ -3001,7 +3001,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("a0:88:c2:08:80:90".to_string()),
+                mac_address: Some("a0:88:c2:08:80:90".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -3010,7 +3010,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
                 id: Some("oob_net0".to_string()),
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some(oob_mac.clone()),
+                mac_address: Some(oob_mac),
             }],
             manufacturer: None,
             model: None,
@@ -3145,8 +3145,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     // Machine interface should not have any machine id associated with it right now.
     let mut txn = env.pool.begin().await?;
-    let macaddr = MacAddress::from_str(&oob_mac)?;
-    let mi = db::machine_interface::find_by_mac_address(&mut txn, macaddr).await?;
+    let mi = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_none());
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
@@ -3164,8 +3163,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
-    let macaddr = MacAddress::from_str(&oob_mac)?;
-    let mi = db::machine_interface::find_by_mac_address(&mut txn, macaddr).await?;
+    let mi = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_some());
     assert!(mi[0].machine_id.is_some());
     txn.rollback().await?;
@@ -3180,7 +3178,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
-    let oob_mac = "b8:3f:d2:90:97:a6".to_string();
+    let oob_mac: MacAddress = "b8:3f:d2:90:97:a6".parse().unwrap();
     let serial_number = "MT2328XZ180R".to_string();
 
     let mut dpu_report = EndpointExplorationReport {
@@ -3194,7 +3192,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("a0:88:c2:08:80:90".to_string()),
+                mac_address: Some("a0:88:c2:08:80:90".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -3203,7 +3201,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
                 id: Some("oob_net0".to_string()),
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some(oob_mac.clone()),
+                mac_address: Some(oob_mac),
             }],
             manufacturer: None,
             model: None,
@@ -3380,7 +3378,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let _response = env
         .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: oob_mac.clone(),
+            mac_address: oob_mac.to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
             vendor_string: Some("bluefield".to_string()),

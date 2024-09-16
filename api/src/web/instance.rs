@@ -17,11 +17,12 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use hyper::http::StatusCode;
+use mac_address::MacAddress;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
 use super::filters;
-use crate::api::Api;
+use crate::{api::Api, CarbideError, CarbideResult};
 
 #[derive(Template)]
 #[template(path = "instance_show.html")]
@@ -182,7 +183,7 @@ struct InstanceInterface {
     function_type: String,
     vf_id: String,
     segment_id: String,
-    mac_address: String,
+    mac_address: MacAddress,
     addresses: String,
     gateways: String,
 }
@@ -200,8 +201,10 @@ struct InstanceIbInterface {
     lid: u32,
 }
 
-impl From<forgerpc::Instance> for InstanceDetail {
-    fn from(instance: forgerpc::Instance) -> Self {
+impl TryFrom<forgerpc::Instance> for InstanceDetail {
+    type Error = CarbideError;
+
+    fn try_from(instance: forgerpc::Instance) -> CarbideResult<Self> {
         let mut interfaces = Vec::new();
         let if_configs = instance
             .config
@@ -218,6 +221,8 @@ impl From<forgerpc::Instance> for InstanceDetail {
         if if_configs.len() == if_status.len() {
             for (i, interface) in if_configs.iter().enumerate() {
                 let status = &if_status[i];
+                let mac_address: MacAddress =
+                    status.mac_address.clone().unwrap_or_default().parse()?;
                 interfaces.push(InstanceInterface {
                     function_type: forgerpc::InterfaceFunctionType::try_from(
                         interface.function_type,
@@ -234,7 +239,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         .clone()
                         .unwrap_or_else(super::default_uuid)
                         .to_string(),
-                    mac_address: status.mac_address.clone().unwrap_or_default(),
+                    mac_address,
                     addresses: status.addresses.clone().join(", "),
                     gateways: status.gateways.clone().join(", "),
                 });
@@ -306,7 +311,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             .map(|tenant| tenant.tenant_keyset_ids.clone())
             .unwrap_or_default();
 
-        Self {
+        Ok(Self {
             id: instance.id.clone().unwrap_or_default().value,
             machine_id: instance.machine_id.clone().unwrap_or_default().id,
             tenant_org: instance
@@ -348,7 +353,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             interfaces,
             ib_interfaces,
             keysets,
-        }
+        })
     }
 }
 
@@ -387,6 +392,14 @@ pub async fn detail(
     }
 
     let instance = instances.instances.pop().unwrap(); // safe, we checked above
-    let display: InstanceDetail = instance.into();
-    (StatusCode::OK, Html(display.render().unwrap())).into_response()
+    let tried: CarbideResult<InstanceDetail> = instance.try_into();
+    if let Ok(instance_detail) = tried {
+        (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to render InstanceDetail from Instance",
+        )
+            .into_response()
+    }
 }

@@ -27,6 +27,7 @@ use crate::model::site_explorer::{
     HOST_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use mac_address::MacAddress;
 
 const NOT_FOUND: u16 = 404;
 
@@ -455,11 +456,21 @@ async fn fetch_ethernet_interfaces(
             true => client.get_system_ethernet_interface(iface_id).await,
         }?;
 
+        let mac_address = if let Some(iface_mac_address) = iface.mac_address {
+            Some(MacAddress::from_str(&iface_mac_address).map_err(|e| {
+                RedfishError::GenericError {
+                    error: format!("MAC address not valid: {} (err: {})", iface_mac_address, e),
+                }
+            })?)
+        } else {
+            None
+        };
+
         let iface = EthernetInterface {
             description: iface.description,
             id: iface.id,
             interface_enabled: iface.interface_enabled,
-            mac_address: iface.mac_address.map(|m| m.to_lowercase()),
+            mac_address,
         };
 
         eth_ifs.push(iface);
@@ -500,15 +511,25 @@ async fn get_oob_interface(
                 mac_pattern.captures(boot_option.uefi_device_path.unwrap().as_str())
             {
                 let mac_addr_str = captures.name("mac").unwrap().as_str();
-                let mut mac_addr = String::new();
+                let mut mac_addr_builder = String::new();
 
                 // Transform B83FD2909582 -> B8:3F:D2:90:95:82
                 for (i, c) in mac_addr_str.chars().enumerate() {
-                    mac_addr.push(c);
+                    mac_addr_builder.push(c);
                     if ((i + 1) % 2 == 0) && ((i + 1) < mac_addr_str.len()) {
-                        mac_addr.push(':');
+                        mac_addr_builder.push(':');
                     }
                 }
+
+                let mac_addr: MacAddress =
+                    mac_addr_builder
+                        .parse()
+                        .map_err(|e| RedfishError::GenericError {
+                            error: format!(
+                                "MAC address not valid: {} (err: {})",
+                                mac_addr_builder, e
+                            ),
+                        })?;
 
                 return Ok(Some(EthernetInterface {
                     description: Some("1G DPU OOB network interface".to_string()),

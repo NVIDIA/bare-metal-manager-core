@@ -1,6 +1,8 @@
 use ::rpc::forge as rpc;
 
+use crate::{CarbideError, CarbideResult};
 use eyre::{eyre, Report};
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -14,7 +16,7 @@ use std::net::IpAddr;
 pub struct BmcInfo {
     pub ip: Option<String>,
     pub port: Option<u16>,
-    pub mac: Option<String>,
+    pub mac: Option<MacAddress>,
     pub version: Option<String>,
     pub firmware_version: Option<String>,
 }
@@ -29,15 +31,22 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
     }
 }
 
-impl From<rpc::BmcInfo> for BmcInfo {
-    fn from(value: rpc::BmcInfo) -> Self {
-        BmcInfo {
+impl TryFrom<rpc::BmcInfo> for BmcInfo {
+    type Error = CarbideError;
+    fn try_from(value: rpc::BmcInfo) -> CarbideResult<Self> {
+        let mac: Option<MacAddress> = if let Some(mac_address) = value.mac {
+            Some(mac_address.parse()?)
+        } else {
+            None
+        };
+
+        Ok(BmcInfo {
             ip: value.ip,
             port: value.port.map(|p| p as u16),
-            mac: value.mac,
+            mac,
             version: value.version,
             firmware_version: value.firmware_version,
-        }
+        })
     }
 }
 
@@ -58,7 +67,7 @@ impl From<BmcInfo> for rpc::BmcInfo {
         rpc::BmcInfo {
             ip: value.ip,
             port: value.port.map(|p| p as u32),
-            mac: value.mac,
+            mac: value.mac.map(|mac| mac.to_string()),
             version: value.version,
             firmware_version: value.firmware_version,
         }

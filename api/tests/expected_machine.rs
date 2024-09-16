@@ -15,6 +15,7 @@ use carbide::{
     CarbideError,
 };
 use common::api_fixtures::create_test_env;
+use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::Postgres;
 use std::default::Default;
@@ -149,9 +150,9 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 #[sqlx::test()]
 async fn test_add_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "3A:3B:3C:3D:3E:3F".into();
+    let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
     let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),
@@ -163,7 +164,9 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected machine ");
 
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest { bmc_mac_address };
+    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: bmc_mac_address.to_string(),
+    };
 
     let retrieved_expected_machine = env
         .api
@@ -212,9 +215,9 @@ async fn test_delete_expected_machine(pool: sqlx::PgPool) {
 #[sqlx::test()]
 async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "2A:2B:2C:2D:2E:2F".into();
+    let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine_request = rpc::forge::ExpectedMachineRequest {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
     };
 
     let err = env
@@ -227,7 +230,7 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
         err.message().to_string(),
         CarbideError::NotFoundError {
             kind: "expected_machine",
-            id: bmc_mac_address,
+            id: bmc_mac_address.to_string(),
         }
         .to_string()
     );
@@ -236,9 +239,9 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_expected_machine"))]
 async fn test_update_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "2A:2B:2C:2D:2E:2F".into();
+    let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
         chassis_serial_number: "VVG121GI".into(),
@@ -254,7 +257,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
     let retrieved_expected_machine = env
         .api
         .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
-            bmc_mac_address,
+            bmc_mac_address: bmc_mac_address.to_string(),
         }))
         .await
         .expect("unable to delete expected machine ")
@@ -266,9 +269,9 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
 #[sqlx::test()]
 async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "2A:2B:2C:2D:2E:2F".into();
+    let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
         chassis_serial_number: "VVG121GI".into(),
@@ -285,7 +288,7 @@ async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
         err.message().to_string(),
         CarbideError::NotFoundError {
             kind: "expected_machine",
-            id: bmc_mac_address,
+            id: bmc_mac_address.to_string(),
         }
         .to_string()
     );
@@ -386,9 +389,9 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
 #[sqlx::test()]
 async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "2A:2B:2C:2D:2E:2F".into();
+    let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_machine_query = rpc::forge::ExpectedMachineRequest {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
     };
 
     let err = env
@@ -401,7 +404,7 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
         err.message().to_string(),
         CarbideError::NotFoundError {
             kind: "expected_machine",
-            id: bmc_mac_address,
+            id: bmc_mac_address.to_string(),
         }
         .to_string()
     );
@@ -498,9 +501,9 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
 #[sqlx::test()]
 async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "3A:3B:3C:3D:3E:3F".into();
+    let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
     let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),
@@ -512,7 +515,9 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         .await
         .expect("unable to add expected machine ");
 
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest { bmc_mac_address };
+    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+        bmc_mac_address: bmc_mac_address.to_string(),
+    };
 
     let retrieved_expected_machine = env
         .api
@@ -565,9 +570,9 @@ async fn test_with_dpu_serial_numbers(
 #[sqlx::test()]
 async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: String = "3A:3B:3C:3D:3E:3F".into();
+    let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
     let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),

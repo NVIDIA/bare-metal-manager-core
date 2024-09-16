@@ -68,7 +68,7 @@ pub async fn version(app_context: &MachineATronContext) -> ClientApiResult<rpc::
 
 pub async fn discover_dhcp(
     app_context: &MachineATronContext,
-    mac_address: String,
+    mac_address: MacAddress,
     template_dir: String,
     relay_address: String,
     circuit_id: Option<String>,
@@ -87,7 +87,7 @@ pub async fn discover_dhcp(
 
     with_forge_client(app_context, |mut client| async move {
         let dhcp_discovery = rpc::forge::DhcpDiscovery {
-            mac_address,
+            mac_address: mac_address.to_string(),
             circuit_id,
             relay_address,
             ..default_data
@@ -110,7 +110,7 @@ pub struct MockDiscoveryData {
     pub network_interface_macs: Vec<String>,
     pub product_serial: Option<String>,
     pub chassis_serial: Option<String>,
-    pub host_mac_address: Option<String>,
+    pub host_mac_address: Option<MacAddress>,
 }
 
 pub async fn discover_machine(
@@ -163,7 +163,7 @@ pub async fn discover_machine(
         discovery_data.dpu_info = None;
     } else if let Some(ref mut dpu_info) = discovery_data.dpu_info {
         if let Some(host_mac_address) = host_mac_address {
-            dpu_info.factory_mac_address = host_mac_address;
+            dpu_info.factory_mac_address = host_mac_address.to_string();
         }
     }
     discovery_data.network_interfaces = network_interface_macs

@@ -68,8 +68,7 @@ pub(crate) async fn get(
         .await?;
 
     match bmc_info.bmc_info.mac {
-        Some(mac) => {
-            let bmc_mac_address = mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+        Some(bmc_mac_address) => {
             let (username, password) = get_bmc_credentials(api, bmc_mac_address)
                 .await
                 .map_err(|e| CarbideError::GenericError(e.to_string()))?;
@@ -86,7 +85,7 @@ pub(crate) async fn get(
             Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
                 ip: bmc_info.bmc_info.ip.unwrap_or_default(),
                 port: bmc_info.bmc_info.port.map(|p| p as u32),
-                mac,
+                mac: bmc_mac_address.to_string(),
                 user: username,
                 password,
             }))
