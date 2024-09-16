@@ -42,4 +42,25 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError>;
+
+    // redfish_reset_bmc issues a BMC reset through redfish.
+    async fn redfish_reset_bmc(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
+
+    // ipmitool_reset_bmc issues a cold BMC reset through ipmitool.
+    async fn ipmitool_reset_bmc(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn redfish_power_control(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError>;
 }

@@ -15,10 +15,9 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
 
-use ::rpc::forge::redfish_power_control_request::SystemPowerControl;
 use ::rpc::forge::{
-    self as rpc, MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
-    NetworkSegmentSearchConfig, VpcVirtualizationType,
+    self as rpc, BmcEndpointRequest, MachineBootOverride, MachineSearchConfig, MachineType,
+    NetworkDeviceIdList, NetworkSegmentSearchConfig, VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -804,86 +803,6 @@ pub async fn clear_host_uefi_password(
     .await
 }
 
-pub async fn force_reboot_machine(
-    query: MachineQuery,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::RedfishPowerControlRequest {
-            machine_id: Some(::rpc::MachineId { id: query.query }),
-            action: SystemPowerControl::ForceRestart.into(),
-        });
-
-        client
-            .redfish_power_control(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(())
-    })
-    .await
-}
-
-pub async fn get_redfish_job_state(
-    query: MachineQuery,
-    job_id: String,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::GetRedfishJobStateResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::GetRedfishJobStateRequest {
-            machine_id: Some(::rpc::MachineId { id: query.query }),
-            job_id,
-        });
-        let response = client
-            .get_redfish_job_state(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(response)
-    })
-    .await
-}
-
-// How will we find the BMC credentials to perform the reboot?
-pub enum RebootAuth {
-    // User provided them directly on command line
-    Direct { user: String, password: String },
-    // Carbide should look them up in Vault
-    Indirect { machine_id: String },
-}
-
-pub type ResetAuth = RebootAuth;
-
-pub async fn reboot(
-    api_config: &ApiConfig<'_>,
-    ip: String,
-    port: Option<u32>,
-    auth: RebootAuth,
-) -> CarbideCliResult<rpc::AdminRebootResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let (user, password, machine_id) = match auth {
-            RebootAuth::Direct { user, password } => (Some(user), Some(password), None),
-            RebootAuth::Indirect { machine_id } => (None, None, Some(machine_id)),
-        };
-        let request = tonic::Request::new(rpc::AdminRebootRequest {
-            ip,
-            port,
-            user,
-            password,
-            machine_id,
-        });
-        let out = client
-            .admin_reboot(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
 pub async fn grow_resource_pool(
     req: rpc::GrowResourcePoolRequest,
     api_config: &ApiConfig<'_>,
@@ -1071,24 +990,40 @@ pub async fn clear_boot_override(
 
 pub async fn bmc_reset(
     api_config: &ApiConfig<'_>,
-    ip: String,
-    port: Option<u32>,
-    auth: ResetAuth,
+    bmc_endpoint_request: Option<BmcEndpointRequest>,
+    machine_id: Option<String>,
+    use_ipmitool: bool,
 ) -> CarbideCliResult<rpc::AdminBmcResetResponse> {
     with_forge_client(api_config, |mut client| async move {
-        let (user, password, machine_id) = match auth {
-            ResetAuth::Direct { user, password } => (Some(user), Some(password), None),
-            ResetAuth::Indirect { machine_id } => (None, None, Some(machine_id)),
-        };
         let request = tonic::Request::new(rpc::AdminBmcResetRequest {
-            ip,
-            port,
-            user,
-            password,
+            bmc_endpoint_request,
             machine_id,
+            use_ipmitool,
         });
         let out = client
             .admin_bmc_reset(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}
+
+pub async fn admin_power_control(
+    api_config: &ApiConfig<'_>,
+    bmc_endpoint_request: Option<BmcEndpointRequest>,
+    machine_id: Option<String>,
+    action: ::rpc::forge::admin_power_control_request::SystemPowerControl,
+) -> CarbideCliResult<rpc::AdminPowerControlResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::AdminPowerControlRequest {
+            bmc_endpoint_request,
+            machine_id,
+            action: action.into(),
+        });
+        let out = client
+            .admin_power_control(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
@@ -1403,8 +1338,8 @@ pub async fn explore(
     mac_address: Option<String>,
 ) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExploreRequest {
-            address: address.to_string(),
+        let request = tonic::Request::new(rpc::BmcEndpointRequest {
+            ip_address: address.to_string(),
             mac_address,
         });
         Ok(client
@@ -1443,6 +1378,26 @@ pub async fn clear_site_explorer_last_known_error(
         let request = tonic::Request::new(rpc::ClearSiteExplorationErrorRequest { ip_address });
         client
             .clear_site_exploration_error(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+        Ok(())
+    })
+    .await
+}
+
+pub async fn is_bmc_in_managed_host(
+    api_config: &ApiConfig<'_>,
+    address: &str,
+    mac_address: Option<String>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::BmcEndpointRequest {
+            ip_address: address.to_string(),
+            mac_address,
+        });
+        client
+            .is_bmc_in_managed_host(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .into_inner();

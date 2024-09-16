@@ -2934,6 +2934,31 @@ impl EndpointExplorer for FakeEndpointExplorer {
         let res = guard.get(&bmc_ip_address.ip()).unwrap();
         res.clone()
     }
+
+    async fn redfish_reset_bmc(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn ipmitool_reset_bmc(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn redfish_power_control(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
 }
 
 async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExplorationReport {

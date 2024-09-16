@@ -17,10 +17,11 @@ use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 
-use super::credentials::CredentialClient;
+use super::credentials::{get_bmc_root_credential_key, CredentialClient};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
 use crate::db::expected_machine::ExpectedMachine;
+use crate::ipmitool::IPMITool;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
@@ -29,18 +30,21 @@ use crate::{
 };
 
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
-pub struct RedfishEndpointExplorer {
+pub struct BmcEndpointExplorer {
     redfish_client: RedfishClient,
+    ipmi_tool: Arc<dyn IPMITool>,
     credential_client: CredentialClient,
 }
 
-impl RedfishEndpointExplorer {
+impl BmcEndpointExplorer {
     pub fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
+        ipmi_tool: Arc<dyn IPMITool>,
         credential_provider: Arc<dyn CredentialProvider>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool),
+            ipmi_tool,
             credential_client: CredentialClient::new(credential_provider),
         }
     }
@@ -231,10 +235,39 @@ impl RedfishEndpointExplorer {
 
         Ok(report)
     }
+
+    pub async fn redfish_reset_bmc(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .reset_bmc(bmc_ip_address, username, password)
+            .await
+    }
+
+    pub async fn redfish_power_control(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .power(bmc_ip_address, username, password, action)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
-impl EndpointExplorer for RedfishEndpointExplorer {
+impl EndpointExplorer for BmcEndpointExplorer {
     async fn check_preconditions(
         &self,
         metrics: &mut SiteExplorationMetrics,
@@ -315,6 +348,65 @@ impl EndpointExplorer for RedfishEndpointExplorer {
                         _ => Err(e),
                     },
                 }
+            }
+        }
+    }
+
+    async fn redfish_reset_bmc(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.redfish_reset_bmc(bmc_ip_address, credentials).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "Site explorer does not support resetting the BMCs that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn ipmitool_reset_bmc(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+        let credential_key = get_bmc_root_credential_key(bmc_mac_address);
+        self.ipmi_tool
+            .bmc_cold_reset(bmc_ip_address.ip(), credential_key)
+            .await
+            .map_err(|err| EndpointExplorationError::Other {
+                details: format!("ipmi_tool failed against {bmc_ip_address} failed: {err}"),
+            })
+    }
+
+    async fn redfish_power_control(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.redfish_power_control(bmc_ip_address, credentials, action)
+                    .await
+            }
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "Site explorer does not support rebooting the endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
             }
         }
     }

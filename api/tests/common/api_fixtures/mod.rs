@@ -31,7 +31,6 @@ use crate::common::{
     test_meter::TestMeter,
 };
 use arc_swap::ArcSwap;
-use carbide::cfg::SiteExplorerConfig;
 use carbide::storage::{NvmeshClientPool, NvmeshSimClient};
 use carbide::{
     api::Api,
@@ -70,6 +69,7 @@ use carbide::{
         state_handler::{StateHandler, StateHandlerServices},
     },
 };
+use carbide::{cfg::SiteExplorerConfig, site_explorer::BmcEndpointExplorer};
 use chrono::Duration;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
@@ -671,6 +671,14 @@ pub async fn create_test_env_with_config(
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
     };
 
+    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+
+    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+        redfish_sim.clone(),
+        ipmi_tool.clone(),
+        credential_provider.clone(),
+    ));
+
     let api = Arc::new(Api::new(
         config.clone(),
         credential_provider.clone(),
@@ -682,6 +690,7 @@ pub async fn create_test_env_with_config(
         common_pools.clone(),
         ib_fabric_manager.clone(),
         dyn_settings,
+        bmc_explorer,
     ));
 
     let attestation_enabled = false;
@@ -697,7 +706,7 @@ pub async fn create_test_env_with_config(
         redfish_sim,
         nvmesh_sim,
         ib_fabric_manager,
-        ipmi_tool: Arc::new(IPMIToolTestImpl {}),
+        ipmi_tool: ipmi_tool.clone(),
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {

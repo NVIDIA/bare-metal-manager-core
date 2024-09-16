@@ -10,19 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
-use mac_address::MacAddress;
 use std::{net::IpAddr, str::FromStr};
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::db::explored_managed_host::DbExploredManagedHost;
-use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     api::{log_request_data, Api},
     db::{self, explored_endpoints::DbExploredEndpoint, DatabaseError},
-    site_explorer::EndpointExplorer,
     CarbideError,
 };
 
@@ -210,51 +207,6 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
-// Ad-hoc BMC exploration
-pub(crate) async fn explore(
-    api: &Api,
-    request: tonic::Request<::rpc::forge::ExploreRequest>,
-) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
-    log_request_data(&request);
-    let req = request.into_inner();
-    let address = if req.address.contains(':') {
-        req.address.clone()
-    } else {
-        format!("{}:443", req.address)
-    };
-
-    let mut addrs = lookup_host(address).await?;
-    let Some(bmc_addr) = addrs.next() else {
-        return Err(tonic::Status::invalid_argument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
-            req.address
-        )));
-    };
-
-    let bmc_mac_address: MacAddress;
-    if let Some(mac_str) = req.mac_address {
-        bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
-    } else {
-        return Err(tonic::Status::invalid_argument(format!(
-            "request did not specify mac address: {req:#?}"
-        )));
-    };
-
-    let explorer = crate::site_explorer::RedfishEndpointExplorer::new(
-        api.redfish_pool.clone(),
-        api.credential_provider.clone(),
-    );
-    let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    let report = explorer
-        .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)
-        .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-
-    Ok(tonic::Response::new(report.into()))
-}
-
 pub(crate) async fn clear_site_exploration_error(
     api: &Api,
     request: Request<rpc::ClearSiteExplorationErrorRequest>,
@@ -353,4 +305,52 @@ pub(crate) async fn re_explore_endpoint(
     })?;
 
     Ok(Response::new(()))
+}
+
+pub(crate) async fn is_bmc_in_managed_host(
+    api: &Api,
+    request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+) -> Result<Response<IsBmcInManagedHostResponse>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let address = if req.ip_address.contains(':') {
+        req.ip_address.clone()
+    } else {
+        format!("{}:443", req.ip_address)
+    };
+
+    let mut addrs = lookup_host(address).await?;
+    let Some(bmc_addr) = addrs.next() else {
+        return Err(tonic::Status::invalid_argument(format!(
+            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+            req.ip_address
+        )));
+    };
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin site_exporter::is_endpoint_in_managed_host",
+            e,
+        ))
+    })?;
+
+    let in_managed_host =
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut txn)
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit site_exporter::is_endpoint_in_managed_host",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(IsBmcInManagedHostResponse {
+        in_managed_host,
+    }))
 }

@@ -1,3 +1,7 @@
+use std::net::IpAddr;
+
+use crate::db::explored_managed_host::DbExploredManagedHost;
+use crate::db::DatabaseError;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -35,4 +39,11 @@ impl ManagedHost {
             machine_id: None,
         }
     }
+}
+
+pub async fn is_endpoint_in_managed_host(
+    endpoint: IpAddr,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<bool, DatabaseError> {
+    DbExploredManagedHost::is_managed_host_created_for_endpoint(txn, endpoint).await
 }

@@ -153,6 +153,12 @@ pub struct ExploredEndpoint {
     pub waiting_for_explorer_refresh: bool,
     /// Whether the endpoint will be explored in the next site-explorer run
     pub exploration_requested: bool,
+    /// Last BMC Reset issued through redfish
+    pub last_redfish_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last BMC Reset issued through ipmitool
+    pub last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last Reboot issued through redfish
+    pub last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Display for ExploredEndpoint {
@@ -722,10 +728,26 @@ pub enum EndpointExplorationError {
     Other { details: String },
 }
 
+pub const DPU_BIOS_ATTRIBUTES_MISSING: &str = "DPU has an empty BIOS attributes";
+pub const HOST_BIOS_ATTRIBUTES_MISSING: &str = "Host has an empty BIOS attributes";
+
 impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { details: _ })
             || matches!(self, EndpointExplorationError::AvoidLockout)
+    }
+
+    pub fn is_redfish(&self) -> bool {
+        matches!(self, EndpointExplorationError::RedfishError { .. })
+    }
+
+    pub fn is_dpu_missing_bios_attributes(&self) -> bool {
+        match self {
+            EndpointExplorationError::RedfishError { details } => {
+                details == DPU_BIOS_ATTRIBUTES_MISSING
+            }
+            _ => false,
+        }
     }
 }
 

@@ -132,4 +132,19 @@ impl DbExploredManagedHost {
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    pub async fn is_managed_host_created_for_endpoint(
+        txn: &mut Transaction<'_, Postgres>,
+        bmc_ip: IpAddr,
+    ) -> Result<bool, DatabaseError> {
+        let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
+            WHERE value->>'BmcIp'=$1 or host_bmc_ip=$1;"#;
+        let (count,): (i64,) = sqlx::query_as(query)
+            .bind(bmc_ip)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+
+        Ok(count > 0)
+    }
 }
