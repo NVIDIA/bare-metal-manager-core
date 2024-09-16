@@ -22,6 +22,7 @@ use std::{fmt, fs, io, net::Ipv4Addr};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse};
 use eyre::WrapErr;
+use mac_address::MacAddress;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -561,7 +562,7 @@ pub async fn update_dhcp(
 /// Interfaces to report back to server
 pub async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
-    factory_mac_address: &str,
+    factory_mac_address: MacAddress,
 ) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
     let mut interfaces = vec![];
     if network_config.use_admin_network {

@@ -13,6 +13,7 @@ use crate::{
     CarbideError,
 };
 use forge_uuid::machine::MachineInterfaceId;
+use mac_address::MacAddress;
 
 pub struct PxeInstructions;
 
@@ -68,7 +69,7 @@ impl PxeInstructions {
     fn get_pxe_instruction_for_arch(
         arch: rpc::MachineArchitecture,
         machine_interface_id: MachineInterfaceId,
-        mac_address: String,
+        mac_address: MacAddress,
         console: &str,
     ) -> String {
         match arch {
@@ -120,13 +121,12 @@ exit ||
             }
         }
 
-        let mac = interface.mac_address.to_string();
         let machine_id = match interface.machine_id {
             None => {
                 return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                     arch,
                     interface_id,
-                    mac,
+                    interface.mac_address,
                     console,
                 ));
             }
@@ -159,7 +159,7 @@ exit ||
                     return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                         arch,
                         interface_id,
-                        mac,
+                        interface.mac_address,
                         console,
                     ));
                 }
@@ -176,7 +176,7 @@ exit ||
                             return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                                 arch,
                                 interface_id,
-                                mac,
+                                interface.mac_address,
                                 console,
                             ));
                         }
@@ -218,9 +218,12 @@ exit ||
                     },
                 ..
             }
-            | ManagedHostState::WaitingForCleanup { .. } => {
-                Self::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
-            }
+            | ManagedHostState::WaitingForCleanup { .. } => Self::get_pxe_instruction_for_arch(
+                arch,
+                interface_id,
+                interface.mac_address,
+                console,
+            ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
                     let instance = Instance::find_by_machine_id(txn, &machine_id)
@@ -255,7 +258,12 @@ exit ||
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { .. } => {
-                    PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
+                    PxeInstructions::get_pxe_instruction_for_arch(
+                        arch,
+                        interface_id,
+                        interface.mac_address,
+                        console,
+                    )
                 }
 
                 _ => error_instructions(&machine.current_state()),
@@ -264,5 +272,20 @@ exit ||
         };
 
         Ok(pxe_script)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mac_address::MacAddress;
+
+    #[test]
+    /// test_formatted_mac_for_instruction_generator makes sure the MAC address
+    /// does what we want/expect as part of how we pass it to the instruction
+    /// generator.
+    fn test_formatted_mac_for_instruction_generator() {
+        // also confirm lower -> upper while we're at it
+        let mac_address: MacAddress = "aa:bb:cc:dd:ee:ff".parse().unwrap();
+        assert_eq!("AA:BB:CC:DD:EE:FF".to_string(), format!("{mac_address}"));
     }
 }

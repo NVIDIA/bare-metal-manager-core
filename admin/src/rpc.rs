@@ -1335,12 +1335,12 @@ pub async fn get_explored_managed_host_by_ids(
 pub async fn explore(
     api_config: &ApiConfig<'_>,
     address: &str,
-    mac_address: Option<String>,
+    mac_address: Option<MacAddress>,
 ) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
-            mac_address,
+            mac_address: mac_address.map(|mac| mac.to_string()),
         });
         Ok(client
             .explore(request)
@@ -1389,12 +1389,12 @@ pub async fn clear_site_explorer_last_known_error(
 pub async fn is_bmc_in_managed_host(
     api_config: &ApiConfig<'_>,
     address: &str,
-    mac_address: Option<String>,
+    mac_address: Option<MacAddress>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
-            mac_address,
+            mac_address: mac_address.map(|mac| mac.to_string()),
         });
         client
             .is_bmc_in_managed_host(request)

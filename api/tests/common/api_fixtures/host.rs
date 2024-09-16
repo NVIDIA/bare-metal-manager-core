@@ -188,7 +188,7 @@ pub async fn create_host_machine(
         host_rpc_machine_id.clone(),
         &host_bmc_ip.to_string(),
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.host_bmc_mac_address.to_string(),
+        host_config.host_bmc_mac_address,
         FIXTURE_HOST_BMC_VERSION.to_owned(),
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
@@ -394,7 +394,7 @@ pub async fn create_host_with_machine_validation(
         host_rpc_machine_id.clone(),
         &host_bmc_ip.to_string(),
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.host_bmc_mac_address.to_string(),
+        host_config.host_bmc_mac_address,
         FIXTURE_HOST_BMC_VERSION.to_owned(),
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )

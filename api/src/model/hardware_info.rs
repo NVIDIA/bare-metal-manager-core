@@ -50,7 +50,7 @@ pub struct HardwareInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
-    pub mac_address: String,
+    pub mac_address: MacAddress,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
 }
@@ -428,8 +428,13 @@ impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
             None => None,
         };
 
+        let mac_address: MacAddress = iface
+            .mac_address
+            .parse()
+            .map_err(|_| RpcDataConversionError::InvalidMacAddress(iface.mac_address.clone()))?;
+
         Ok(Self {
-            mac_address: iface.mac_address,
+            mac_address,
             pci_properties,
         })
     }
@@ -449,7 +454,7 @@ impl TryFrom<NetworkInterface> for rpc::machine_discovery::NetworkInterface {
         };
 
         Ok(Self {
-            mac_address: iface.mac_address,
+            mac_address: iface.mac_address.to_string(),
             pci_properties,
         })
     }
@@ -694,8 +699,7 @@ impl HardwareInfo {
     pub fn all_mac_addresses(&self) -> Vec<MacAddress> {
         self.network_interfaces
             .iter()
-            .map(|i| i.mac_address.as_str())
-            .filter_map(|s| MacAddress::from_str(s).ok())
+            .map(|i| i.mac_address)
             .collect()
     }
 }

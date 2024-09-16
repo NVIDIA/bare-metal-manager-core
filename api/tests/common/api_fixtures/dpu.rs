@@ -169,7 +169,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         dpu_rpc_machine_id.clone(),
         &dpu_bmc_ip.to_string(),
         FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.dpu_bmc_mac_address.to_string(),
+        host_config.dpu_bmc_mac_address,
         FIXTURE_DPU_BMC_VERSION.to_owned(),
         FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
     )

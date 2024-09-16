@@ -1546,7 +1546,7 @@ pub struct ExploreOptions {
     #[clap(help = "BMC IP address or hostname with optional port")]
     pub address: String,
     #[clap(long, help = "The MAC address the BMC sent DHCP from")]
-    pub mac: Option<String>,
+    pub mac: Option<MacAddress>,
 }
 
 #[derive(Parser, Debug)]

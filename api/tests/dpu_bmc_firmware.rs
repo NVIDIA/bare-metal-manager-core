@@ -102,7 +102,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 id: Some("eth0".to_string()),
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+                mac_address: Some("a0:88:c2:08:80:97".parse().unwrap()),
             }],
         }],
         systems: vec![ComputerSystem {
@@ -111,7 +111,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 id: Some("oob_net0".to_string()),
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
-                mac_address: Some(oob_mac.to_string()),
+                mac_address: Some(oob_mac),
             }],
             manufacturer: None,
             model: None,

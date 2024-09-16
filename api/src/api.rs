@@ -29,7 +29,6 @@ use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
-use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 #[cfg(feature = "tss-esapi")]
@@ -1336,6 +1335,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
         crate::handlers::dpu::get_all_managed_host_network_status(self, request).await
     }
+
     async fn get_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataGetRequest>,
@@ -1773,8 +1773,7 @@ impl Forge for Api {
 
         if let Some(machine) = &host_machine {
             if let Some(ip) = machine.bmc_info().ip.as_deref() {
-                if let Some(mac) = machine.bmc_info().mac.as_deref() {
-                    let bmc_mac_address = mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+                if let Some(bmc_mac_address) = machine.bmc_info().mac {
                     tracing::info!(
                         ip,
                         machine_id = %machine.id(),
@@ -2345,7 +2344,7 @@ impl Forge for Api {
                     }
                 })?;
 
-                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
+                let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
                     CarbideError::NotFoundError {
                         kind: "bmc_mac",
                         id: machine_id.to_string(),
@@ -2354,7 +2353,7 @@ impl Forge for Api {
 
                 BmcEndpointRequest {
                     ip_address: bmc_ip.to_string(),
-                    mac_address: Some(bmc_mac.to_string()),
+                    mac_address: Some(bmc_mac_address.to_string()),
                 }
             }
 
@@ -4160,16 +4159,15 @@ impl Api {
     }
 
     async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {
-        if let Some(mac_str) = machine.bmc_info().mac.clone() {
+        if let Some(mac_address) = machine.bmc_info().mac {
             tracing::info!(
-                "Cleaning up BMC credentials in vault at {mac_str} for machine {}",
+                "Cleaning up BMC credentials in vault at {} for machine {}",
+                mac_address,
                 machine.id()
             );
-            if let Ok(mac_address) = mac_str.parse::<MacAddress>() {
-                crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
+            crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
+                .await
+                .map_err(CarbideError::from)?;
         }
 
         Ok(())

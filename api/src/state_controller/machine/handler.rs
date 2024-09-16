@@ -24,7 +24,6 @@ use libredfish::{
     model::task::{Task, TaskState},
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
-use mac_address::MacAddress;
 use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
@@ -2050,22 +2049,12 @@ async fn handle_dpu_reprovision(
                     state.host_snapshot.machine_id
                 );
 
-                let bmc_mac_address = state
-                    .host_snapshot
-                    .bmc_info
-                    .mac
-                    .clone()
-                    .ok_or_else(|| StateHandlerError::MissingData {
+                let bmc_mac_address = state.host_snapshot.bmc_info.mac.ok_or_else(|| {
+                    StateHandlerError::MissingData {
                         object_id: state.host_snapshot.machine_id.to_string(),
                         missing: "bmc_mac",
-                    })?
-                    .parse::<MacAddress>()
-                    .map_err(|e| {
-                        StateHandlerError::GenericError(eyre!(
-                            "parsing the host's BMC mac address failed: {}",
-                            e
-                        ))
-                    })?;
+                    }
+                })?;
 
                 let bmc_ip_address = state
                     .host_snapshot

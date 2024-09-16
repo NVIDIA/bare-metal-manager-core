@@ -239,7 +239,7 @@ impl DhcpRelayService {
 
         let dhcp_record = api_client::discover_dhcp(
             &self.app_context,
-            request_info.mac_address.to_string(),
+            request_info.mac_address,
             request_info.template_dir.clone(),
             request_info.relay_address.to_string(),
             None,

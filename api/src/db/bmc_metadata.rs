@@ -138,7 +138,7 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
                 }
             },
             bmc_metadata: BmcMetaDataInfo {
-                bmc_info: request.bmc_info.unwrap_or_default().into(),
+                bmc_info: request.bmc_info.unwrap_or_default().try_into()?,
             },
         })
     }
@@ -234,7 +234,7 @@ impl BmcMetaDataInfo {
                     machine_id,
                     bmc_machine_interface.mac_address,
                 );
-                self.bmc_info.mac = Some(bmc_mac_address.to_string());
+                self.bmc_info.mac = Some(bmc_mac_address);
                 if persist {
                     BmcMetaDataUpdateRequest {
                         machine_id: machine_id.clone(),
