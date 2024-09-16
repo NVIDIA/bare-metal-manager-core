@@ -223,9 +223,9 @@ async fn test_network_segment_max_history_length(
         env.common_pools.ethernet.pool_vni.clone(),
     );
 
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
-    env.run_network_segment_controller_iteration(state_handler)
+    env.build_and_run_network_segment_controller_iteration(state_handler)
         .await;
 
     assert_eq!(
@@ -386,18 +386,18 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         }))
         .await?;
     // Ready
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // DrainAllocatedIPs
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // Wait for the drain period
     tokio::time::sleep(Duration::from_secs(1)).await;
     // Deleting
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // DBDelete
-    env.run_network_segment_controller_iteration(state_handler)
+    env.build_and_run_network_segment_controller_iteration(state_handler)
         .await;
 
     // Value is free
@@ -642,10 +642,10 @@ async fn test_network_segment_metrics(
         env.common_pools.ethernet.pool_vni.clone(),
     );
 
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
 
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
 
     assert_eq!(
@@ -724,10 +724,10 @@ async fn test_network_segment_metrics(
         .await?;
 
     // Ready
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // DrainAllocatedIPs
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
 
     // Check to make sure we are returning stats even when the network segment

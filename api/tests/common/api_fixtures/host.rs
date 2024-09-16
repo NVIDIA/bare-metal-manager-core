@@ -22,7 +22,6 @@ use carbide::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, ManagedHostState},
     },
-    state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
 use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
@@ -174,11 +173,6 @@ pub async fn create_host_machine(
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .hardware_models(env.config.get_firmware_config())
-        .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
@@ -197,7 +191,6 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         4,
         &mut txn,
         ManagedHostState::HostInit {
@@ -221,18 +214,11 @@ pub async fn create_host_machine(
 
     discovery_completed(env, host_rpc_machine_id.clone()).await;
 
-    host_uefi_setup(
-        env,
-        &host_machine_id,
-        handler.clone(),
-        host_rpc_machine_id.clone(),
-    )
-    .await;
+    host_uefi_setup(env, &host_machine_id, host_rpc_machine_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         2,
         &mut txn,
         ManagedHostState::HostInit {
@@ -254,7 +240,6 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -274,7 +259,6 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -296,7 +280,6 @@ pub async fn create_host_machine(
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
-            handler.clone(),
             3,
             &mut txn,
             ManagedHostState::Measuring {
@@ -312,7 +295,6 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler,
         1,
         &mut txn,
         ManagedHostState::Ready,
@@ -326,7 +308,6 @@ pub async fn create_host_machine(
 pub async fn host_uefi_setup(
     env: &TestEnv,
     host_machine_id: &MachineId,
-    handler: MachineStateHandler,
     host_rpc_machine_id: ::rpc::common::MachineId,
 ) {
     for state in UefiSetupState::iter() {
@@ -338,7 +319,6 @@ pub async fn host_uefi_setup(
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             host_machine_id,
-            handler.clone(),
             1,
             &mut txn,
             ManagedHostState::HostInit {
@@ -380,11 +360,6 @@ pub async fn create_host_with_machine_validation(
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .hardware_models(env.config.get_firmware_config())
-        .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
@@ -404,7 +379,6 @@ pub async fn create_host_with_machine_validation(
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         4,
         &mut txn,
         ManagedHostState::HostInit {
@@ -419,18 +393,11 @@ pub async fn create_host_with_machine_validation(
 
     discovery_completed(env, host_rpc_machine_id.clone()).await;
 
-    host_uefi_setup(
-        env,
-        &host_machine_id,
-        handler.clone(),
-        host_rpc_machine_id.clone(),
-    )
-    .await;
+    host_uefi_setup(env, &host_machine_id, host_rpc_machine_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         2,
         &mut txn,
         ManagedHostState::HostInit {
@@ -452,7 +419,6 @@ pub async fn create_host_with_machine_validation(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -477,7 +443,7 @@ pub async fn create_host_with_machine_validation(
 
     machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
     if error.is_some() {
-        env.run_machine_state_controller_iteration(handler).await;
+        env.run_machine_state_controller_iteration().await;
 
         let mut txn = env.pool.begin().await.unwrap();
         let machine = Machine::find_one(
@@ -501,7 +467,6 @@ pub async fn create_host_with_machine_validation(
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
-            handler.clone(),
             3,
             &mut txn,
             ManagedHostState::HostInit {
@@ -516,7 +481,6 @@ pub async fn create_host_with_machine_validation(
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
-            handler,
             1,
             &mut txn,
             ManagedHostState::Ready,
@@ -527,7 +491,6 @@ pub async fn create_host_with_machine_validation(
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
-            handler,
             1,
             &mut txn,
             ManagedHostState::Failed {

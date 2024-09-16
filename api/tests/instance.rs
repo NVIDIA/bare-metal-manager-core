@@ -37,7 +37,6 @@ use carbide::{
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
         metadata::Metadata,
     },
-    state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use chrono::Utc;
 use common::api_fixtures::{
@@ -463,7 +462,6 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
 async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let api = &env.api;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let network = Some(rpc::InstanceNetworkConfig {
@@ -505,7 +503,8 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .into_inner();
 
     //DNS record domain always uses IP Address (for now)
-    let dns_record = api
+    let dns_record = env
+        .api
         .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
             q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
             q_type: Some(1),
@@ -528,7 +527,6 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
 async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let api = &env.api;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     //Create instance with no hostname set
@@ -563,7 +561,8 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .into_inner();
 
     //DNS record domain always uses dashed IP (for now)
-    let dns_record = api
+    let dns_record = env
+        .api
         .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
             q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
             q_type: Some(1),
@@ -1648,16 +1647,9 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .await
         .expect("Delete instance failed.");
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::Assigned {
@@ -1688,7 +1680,6 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::Assigned {
@@ -1710,7 +1701,6 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        handler,
     )
     .await;
 

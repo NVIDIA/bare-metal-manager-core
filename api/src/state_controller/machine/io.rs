@@ -40,7 +40,9 @@ pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
 
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
-pub struct MachineStateControllerIO {}
+pub struct MachineStateControllerIO {
+    pub hardware_health: HardwareHealthReportsConfig,
+}
 
 #[async_trait::async_trait]
 impl StateControllerIO for MachineStateControllerIO {
@@ -83,7 +85,7 @@ impl StateControllerIO for MachineStateControllerIO {
             db::managed_host::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
-                hardware_health: HardwareHealthReportsConfig::default(),
+                hardware_health: self.hardware_health,
             },
         )
         .await

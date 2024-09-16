@@ -389,6 +389,9 @@ pub async fn start_api(
                 .upload_limiter(upload_limiter.clone())
                 .build(),
         ))
+        .io(Arc::new(MachineStateControllerIO {
+            hardware_health: carbide_config.host_health.hardware_health_reports,
+        }))
         .ipmi_tool(ipmi_tool.clone())
         .site_config(carbide_config.clone())
         .build_and_spawn()

@@ -76,9 +76,9 @@ async fn test_network_segment_lifecycle_impl(
         env.common_pools.ethernet.pool_vni.clone(),
     );
 
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
 
     assert_eq!(
@@ -131,16 +131,16 @@ async fn test_network_segment_lifecycle_impl(
         .expect("expect deletion to succeed");
 
     // Make the controller aware about termination too
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
 
     // Wait for the drain period
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // delete the segment
-    env.run_network_segment_controller_iteration(state_handler.clone())
+    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
         .await;
-    env.run_network_segment_controller_iteration(state_handler)
+    env.build_and_run_network_segment_controller_iteration(state_handler)
         .await;
 
     let segments = env

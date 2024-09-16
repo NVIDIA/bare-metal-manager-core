@@ -70,13 +70,18 @@ pub(crate) async fn get_managed_host_network_config(
         ))
     })?;
 
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, Default::default())
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: dpu_machine_id.to_string(),
-        })?;
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &dpu_machine_id,
+        LoadSnapshotOptions::default()
+            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: dpu_machine_id.to_string(),
+    })?;
 
     let dpu_snapshot = match snapshot
         .dpu_snapshots

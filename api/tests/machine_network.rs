@@ -20,7 +20,7 @@ use rpc::forge::forge_server::Forge;
 
 pub mod common;
 use common::api_fixtures::{
-    self, dpu, instance, network_configured_with_health,
+    self, create_managed_host, dpu, instance, network_configured_with_health,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 #[ctor::ctor]
@@ -93,7 +93,7 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Add an instance
     let instance_network = Some(rpc::InstanceNetworkConfig {
@@ -183,7 +183,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let response = env
         .api
@@ -277,7 +277,7 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let hs = NetworkHealth {
         is_healthy: true,

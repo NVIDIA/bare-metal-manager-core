@@ -1854,8 +1854,8 @@ async fn test_site_explorer_creates_managed_host(
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.override_machine_state_controller_handler(handler).await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
@@ -1874,8 +1874,7 @@ async fn test_site_explorer_creates_managed_host(
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
@@ -1894,8 +1893,7 @@ async fn test_site_explorer_creates_managed_host(
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
@@ -1914,8 +1912,7 @@ async fn test_site_explorer_creates_managed_host(
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
         .unwrap()
@@ -1933,8 +1930,7 @@ async fn test_site_explorer_creates_managed_host(
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await

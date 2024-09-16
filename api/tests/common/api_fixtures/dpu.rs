@@ -23,7 +23,6 @@ use carbide::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, DpuInitState, MachineState, ManagedHostState},
     },
-    state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use forge_uuid::machine::MachineId;
 use rpc::{
@@ -69,12 +68,6 @@ pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
 ///
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) -> rpc::MachineId {
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(env, host_config).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
@@ -89,7 +82,6 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         4,
         &mut txn,
         ManagedHostState::DPUInit {
@@ -109,7 +101,6 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler,
         4,
         &mut txn,
         ManagedHostState::HostInit {
@@ -140,12 +131,6 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     let machine_interface_id =
         dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
     let dpu_rpc_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
-
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
@@ -187,7 +172,6 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler,
         4,
         &mut txn,
         ManagedHostState::DPUInit {

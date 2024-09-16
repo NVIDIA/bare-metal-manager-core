@@ -15,7 +15,6 @@ use std::time::SystemTime;
 use carbide::{
     db::machine::Machine,
     model::{machine::CleanupState, machine::MachineState, machine::ManagedHostState},
-    state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};
@@ -205,26 +204,24 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: InstanceId,
 ) -> rpc::Instance {
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
     // - first run: state controller moves state to WaitingForNetworkConfig
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     // - second run: state controller sets use_admin_network to false
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     // - forge-dpu-agent gets an instance network to configure, reports it configured
     super::network_configured(env, dpu_machine_id).await;
+    // - simulate that the host's hardware is reported healthy
+    super::simulate_hardware_health_report(
+        env,
+        host_machine_id,
+        health_report::HealthReport::empty("hardware-health".to_string()),
+    )
+    .await;
 
     // - third run: state controller runs again, advances state to Ready
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler,
         2,
         &mut txn,
         ManagedHostState::Assigned {
@@ -279,16 +276,9 @@ pub async fn delete_instance(
         rpc::TenantState::Terminating
     );
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::Assigned {
@@ -299,8 +289,7 @@ pub async fn delete_instance(
     )
     .await;
     txn.commit().await.unwrap();
-    handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_id, host_machine_id, handler)
-        .await;
+    handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_id, host_machine_id).await;
 
     assert!(env
         .find_instances(Some(instance_id.into()))
@@ -313,7 +302,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
-    handler: MachineStateHandler,
 ) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
@@ -336,7 +324,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler.clone(),
         2,
         &mut txn,
         ManagedHostState::Assigned {
@@ -352,7 +339,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
@@ -381,7 +367,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -433,7 +418,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -461,7 +445,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        handler,
         3,
         &mut txn,
         ManagedHostState::Ready,
