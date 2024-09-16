@@ -349,7 +349,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     if time_in_state_above_sla =>
                                 {
                                     Err(StateHandlerError::TimeInStateAboveSla {
-                                        handler_outcome: format!("Wait({wait_condition})"),
+                                        handler_outcome: format!("Wait(\"{wait_condition}\")"),
                                     })
                                 }
                                 Ok(StateHandlerOutcome::DoNothing) if time_in_state_above_sla => {
