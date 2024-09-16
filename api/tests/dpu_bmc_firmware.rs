@@ -271,6 +271,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+    env.override_machine_state_controller_handler(handler).await;
 
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
         .await?
@@ -287,8 +288,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -311,8 +311,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -340,8 +339,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -369,8 +367,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,

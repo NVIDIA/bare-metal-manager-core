@@ -13,6 +13,7 @@
 //! Contains fixtures that use the Carbide API for setting up
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
@@ -31,7 +32,6 @@ use crate::common::{
     test_meter::TestMeter,
 };
 use arc_swap::ArcSwap;
-use carbide::storage::{NvmeshClientPool, NvmeshSimClient};
 use carbide::{
     api::Api,
     cfg::{
@@ -69,7 +69,17 @@ use carbide::{
         state_handler::{StateHandler, StateHandlerServices},
     },
 };
-use carbide::{cfg::SiteExplorerConfig, site_explorer::BmcEndpointExplorer};
+use carbide::{
+    cfg::{HardwareHealthReportsConfig, SiteExplorerConfig},
+    site_explorer::BmcEndpointExplorer,
+    state_controller::machine::handler::MachineStateHandlerBuilder,
+};
+use carbide::{
+    state_controller::state_handler::{
+        StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    },
+    storage::{NvmeshClientPool, NvmeshSimClient},
+};
 use chrono::Duration;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
@@ -83,6 +93,7 @@ use rpc::forge::{
     RemoveHealthReportOverrideRequest,
 };
 use sqlx::{postgres::PgConnectOptions, PgPool};
+use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
@@ -126,7 +137,8 @@ pub struct TestEnv {
     pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
-    pub machine_state_controller_io: MachineStateControllerIO,
+    machine_state_controller: RefCell<StateController<MachineStateControllerIO>>,
+    pub machine_state_handler: SwapHandler,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
     pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
@@ -236,18 +248,19 @@ impl TestEnv {
 
     /// Runs one iteration of the machine state controller handler with the services
     /// in this test environment
+    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
         host_machine_id: &MachineId,
-        handler: MachineStateHandler,
         max_iterations: u32,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
     ) {
-        let mut controller = self.build_machine_state_controller(handler);
-
         for _ in 0..max_iterations {
-            controller.run_single_iteration().await;
+            self.machine_state_controller
+                .borrow_mut()
+                .run_single_iteration()
+                .await;
 
             let machine = Machine::find_one(
                 txn,
@@ -286,6 +299,7 @@ impl TestEnv {
         &self,
         object_type_for_metrics: &str,
         handler: H,
+        io: Option<Arc<IO>>,
     ) -> StateController<IO>
     where
         H: StateHandler<
@@ -295,7 +309,7 @@ impl TestEnv {
             ObjectId = IO::ObjectId,
         >,
     {
-        StateController::<IO>::builder()
+        let mut builder = StateController::<IO>::builder()
             .database(self.pool.clone())
             .meter(object_type_for_metrics, self.test_meter.meter())
             .redfish_client_pool(self.redfish_sim.clone())
@@ -304,17 +318,13 @@ impl TestEnv {
             .forge_api(self.api.clone())
             .ipmi_tool(self.ipmi_tool.clone())
             .site_config(self.config.clone())
-            .state_handler(Arc::new(handler))
+            .state_handler(Arc::new(handler));
+        if let Some(io) = io {
+            builder = builder.io(io);
+        }
+        builder
             .build_for_manual_iterations()
             .expect("Unable to build state controller")
-    }
-
-    /// Builds a Machine State Controller that executes a specific handler for unit-testing purposes
-    pub fn build_machine_state_controller(
-        &self,
-        handler: MachineStateHandler,
-    ) -> StateController<MachineStateControllerIO> {
-        self.build_state_controller("forge_machines", handler)
     }
 
     /// Builds a Network Segment State Controller that executes a specific handler for unit-testing purposes
@@ -322,7 +332,7 @@ impl TestEnv {
         &self,
         handler: NetworkSegmentStateHandler,
     ) -> StateController<NetworkSegmentStateControllerIO> {
-        self.build_state_controller("forge_network_segments", handler)
+        self.build_state_controller("forge_network_segments", handler, None)
     }
 
     /// Builds a InfiniBand Partition State Controller that executes a specific handler for unit-testing purposes
@@ -330,52 +340,41 @@ impl TestEnv {
         &self,
         handler: IBPartitionStateHandler,
     ) -> StateController<IBPartitionStateControllerIO> {
-        self.build_state_controller("forge_ib_partitions", handler)
+        self.build_state_controller("forge_ib_partitions", handler, None)
     }
 
-    /// Runs a single state controller iteration for any kind of state controller
-    pub async fn run_state_controller_iteration<IO: StateControllerIO>(
-        &self,
-        object_type_for_metrics: &str,
-        handler: impl StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ObjectId = IO::ObjectId,
-            ContextObjects = IO::ContextObjects,
-        >,
-    ) {
-        let mut controller = self.build_state_controller::<IO, _>(object_type_for_metrics, handler);
-        controller.run_single_iteration().await;
-    }
-
-    /// Runs one iteration of the machine state controller handler with the services
-    /// in this test environment
-    pub async fn run_machine_state_controller_iteration(&self, handler: MachineStateHandler) {
-        self.run_state_controller_iteration::<MachineStateControllerIO>("forge_machines", handler)
-            .await
+    /// Runs one iteration of the machine state controller handler
+    //// with the services in this test environment
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_machine_state_controller_iteration(&self) {
+        self.machine_state_controller
+            .borrow_mut()
+            .run_single_iteration()
+            .await;
     }
 
     /// Runs one iteration of the network state controller handler with the services
     /// in this test environment
-    pub async fn run_network_segment_controller_iteration(
+    pub async fn build_and_run_network_segment_controller_iteration(
         &self,
         handler: NetworkSegmentStateHandler,
     ) {
-        self.run_state_controller_iteration::<NetworkSegmentStateControllerIO>(
-            "forge_network_segments",
-            handler,
-        )
-        .await
+        let mut controller = self.build_network_segment_state_controller(handler);
+        controller.run_single_iteration().await;
     }
 
     /// Runs one iteration of the IB partition state controller handler with the services
     /// in this test environment
-    pub async fn run_ib_partition_controller_iteration(&self, handler: IBPartitionStateHandler) {
-        self.run_state_controller_iteration::<IBPartitionStateControllerIO>(
-            "forge_ib_partitions",
-            handler,
-        )
-        .await
+    pub async fn build_and_run_ib_partition_controller_iteration(
+        &self,
+        handler: IBPartitionStateHandler,
+    ) {
+        let mut controller = self.build_ib_partition_state_controller(handler);
+        controller.run_single_iteration().await;
+    }
+
+    pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
+        *self.machine_state_handler.inner.lock().await = handler;
     }
 
     // Returns all machines using FindMachines call.
@@ -679,6 +678,12 @@ pub async fn create_test_env_with_config(
         credential_provider.clone(),
     ));
 
+    let reachability_params = ReachabilityParams {
+        dpu_wait_time: Duration::seconds(0),
+        power_down_wait: Duration::seconds(0),
+        failure_retry_time: Duration::seconds(0),
+    };
+
     let api = Arc::new(Api::new(
         config.clone(),
         credential_provider.clone(),
@@ -693,7 +698,33 @@ pub async fn create_test_env_with_config(
         bmc_explorer,
     ));
 
-    let attestation_enabled = false;
+    let attestation_enabled = config.attestation_enabled;
+    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(config.get_firmware_config())
+        .reachability_params(reachability_params)
+        .attestation_enabled(attestation_enabled)
+        .build();
+    let swap = SwapHandler {
+        inner: Arc::new(Mutex::new(handler)),
+    };
+
+    let controller = StateController::<MachineStateControllerIO>::builder()
+        .database(db_pool.clone())
+        .meter("forge_machines", test_meter.meter())
+        .redfish_client_pool(redfish_sim.clone())
+        .nvmesh_client_pool(nvmesh_sim.clone())
+        .ib_fabric_manager(ib_fabric_manager.clone())
+        .forge_api(api.clone())
+        .ipmi_tool(ipmi_tool.clone())
+        .site_config(config.clone())
+        .state_handler(Arc::new(swap.clone()))
+        .io(Arc::new(MachineStateControllerIO {
+            hardware_health: HardwareHealthReportsConfig::Enabled,
+        }))
+        .build_for_manual_iterations()
+        .expect("Unable to build state controller");
 
     TestEnv {
         api,
@@ -706,14 +737,11 @@ pub async fn create_test_env_with_config(
         redfish_sim,
         nvmesh_sim,
         ib_fabric_manager,
-        ipmi_tool: ipmi_tool.clone(),
-        machine_state_controller_io: MachineStateControllerIO::default(),
+        ipmi_tool,
+        machine_state_controller: RefCell::new(controller),
+        machine_state_handler: swap,
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
-        reachability_params: ReachabilityParams {
-            dpu_wait_time: Duration::seconds(0),
-            power_down_wait: Duration::seconds(0),
-            failure_retry_time: Duration::seconds(0),
-        },
+        reachability_params,
         attestation_enabled,
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         test_meter,
@@ -1225,4 +1253,35 @@ pub async fn get_machine_validation_results(
         .await
         .unwrap()
         .into_inner()
+}
+
+/// A hot swappable machine state handler.
+/// Allows modifying the handler behavior without reconstructing the machine
+/// state controller (which leads to stale metrics being saved).
+#[derive(Debug, Clone)]
+pub struct SwapHandler {
+    inner: Arc<Mutex<MachineStateHandler>>,
+}
+
+#[async_trait::async_trait]
+impl StateHandler for SwapHandler {
+    type ObjectId = <MachineStateHandler as StateHandler>::ObjectId;
+    type State = <MachineStateHandler as StateHandler>::State;
+    type ControllerState = <MachineStateHandler as StateHandler>::ControllerState;
+    type ContextObjects = <MachineStateHandler as StateHandler>::ContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        object_id: &Self::ObjectId,
+        state: &mut Self::State,
+        controller_state: &Self::ControllerState,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        self.inner
+            .lock()
+            .await
+            .handle_object_state(object_id, state, controller_state, txn, ctx)
+            .await
+    }
 }

@@ -58,6 +58,7 @@ pub struct Builder<IO: StateControllerIO> {
     iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
     meter: Option<Meter>,
+    io: Option<Arc<IO>>,
     state_handler: Arc<
         dyn StateHandler<
             State = IO::State,
@@ -81,6 +82,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             nvmesh_client_pool: None,
             ib_fabric_manager: None,
             iteration_config: IterationConfig::default(),
+            io: None,
             state_handler: Arc::new(NoopStateHandler::<
                 IO::ObjectId,
                 IO::State,
@@ -220,7 +222,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             iteration_config: self.iteration_config,
             lock_query: create_lock_query(IO::DB_LOCK_NAME),
             handler_services,
-            io: Arc::new(IO::default()),
+            io: self.io.unwrap_or_default(),
             state_handler: self.state_handler.clone(),
             metric_holder,
         };
@@ -284,6 +286,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures how the state controller performs iterations
     pub fn iteration_config(mut self, config: IterationConfig) -> Self {
         self.iteration_config = config;
+        self
+    }
+
+    /// Sets the IO handler configuration
+    pub fn io(mut self, io: Arc<IO>) -> Self {
+        self.io = Some(io);
         self
     }
 

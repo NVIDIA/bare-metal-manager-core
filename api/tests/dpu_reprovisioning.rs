@@ -177,13 +177,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -225,8 +219,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -245,8 +238,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -261,8 +253,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
             },
         }
     );
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -302,8 +293,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -335,8 +325,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -376,8 +365,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -395,8 +383,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -415,8 +402,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -433,8 +419,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -543,15 +528,8 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         "AdminCli"
     );
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -591,8 +569,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -615,8 +592,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -637,8 +613,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     txn.commit().await.unwrap();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     let _ = network_configured(&env, &dpu_machine_id).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -656,8 +631,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -675,8 +649,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -694,8 +667,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -766,14 +738,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -792,8 +757,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -832,8 +796,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -854,8 +817,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -873,8 +835,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -916,8 +877,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -951,8 +911,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -994,8 +953,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1018,8 +976,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1039,8 +996,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1145,14 +1101,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1203,8 +1152,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1248,8 +1196,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1283,8 +1230,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1325,8 +1271,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1349,8 +1294,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1370,8 +1314,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1519,14 +1462,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1555,8 +1491,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     // no reboots should be forced during firmware update
     for _ in 1..5 {
         update_time_params(&env.pool, &dpu, 1).await;
-        env.run_machine_state_controller_iteration(handler.clone())
-            .await;
+        env.run_machine_state_controller_iteration().await;
 
         let mut txn = env.pool.begin().await.unwrap();
         let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1585,8 +1520,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     )
     .await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1610,8 +1544,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     update_time_params(&env.pool, &dpu, 1).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1632,8 +1565,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     update_time_params(&env.pool, &dpu, 1).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1657,8 +1589,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // Retry 1
     update_time_params(&env.pool, &dpu, 1).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1685,8 +1616,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         MachineLastRebootRequestedMode::Reboot
     ));
     txn.commit().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1705,8 +1635,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // Retry 3
     update_time_params(&env.pool, &dpu, 3).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1721,8 +1650,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // Retry 4
     update_time_params(&env.pool, &dpu, 4).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1737,8 +1665,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // Retry 5
     update_time_params(&env.pool, &dpu, 5).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1753,8 +1680,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // Retry 6
     update_time_params(&env.pool, &dpu, 5).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1812,9 +1738,9 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+    env.override_machine_state_controller_handler(handler).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1842,8 +1768,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     for _ in 1..6 {
-        env.run_machine_state_controller_iteration(handler.clone())
-            .await;
+        env.run_machine_state_controller_iteration().await;
         let mut txn = env.pool.begin().await.unwrap();
         let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
             .await
@@ -1883,8 +1808,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     )
     .await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -2011,11 +1935,6 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
 async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
 
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
@@ -2030,7 +1949,6 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        handler.clone(),
         4,
         &mut txn,
         ManagedHostState::DPUInit {
@@ -2088,14 +2006,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -2122,8 +2033,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     trigger_dpu_reprovisioning(&env, host_machine_id.to_string(), Mode::Restart, true).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -2147,8 +2057,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     // change the mode
     trigger_dpu_reprovisioning(&env, host_machine_id.to_string(), Mode::Restart, false).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -2227,13 +2136,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2278,8 +2181,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2298,8 +2200,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2317,8 +2218,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
             },
         }
     );
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2364,8 +2264,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2400,8 +2299,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2448,8 +2346,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     let _ = network_configured(&env, &dpu_machine_id_1).await;
     let _ = network_configured(&env, &dpu_machine_id_2).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
@@ -2470,8 +2367,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
@@ -2493,8 +2389,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2511,8 +2406,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2573,13 +2467,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2625,8 +2513,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     discovery_completed(&env, dpu_rpc_id_1.clone()).await;
     discovery_completed(&env, dpu_rpc_id_2.clone()).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2645,8 +2532,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2664,8 +2550,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
             },
         }
     );
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2712,8 +2597,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     discovery_completed(&env, dpu_rpc_id_2.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2748,8 +2632,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2796,8 +2679,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     let _ = network_configured(&env, &dpu_machine_id_1).await;
     let _ = network_configured(&env, &dpu_machine_id_2).await;
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
@@ -2818,8 +2700,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
@@ -2841,8 +2722,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2859,8 +2739,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2959,14 +2838,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3017,8 +2889,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3062,8 +2933,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3097,8 +2967,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3159,8 +3028,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -3201,8 +3069,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .await
         .is_ok());
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -3247,8 +3114,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3282,8 +3148,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit".to_string());
 
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -3324,8 +3189,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
     let _ = network_configured(&env, &dpu_machine_id).await;
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -3348,8 +3212,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -3369,8 +3232,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     );
 
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())

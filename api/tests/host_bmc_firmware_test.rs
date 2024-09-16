@@ -28,10 +28,11 @@ use carbide::{
         },
     },
     preingestion_manager::PreingestionManager,
-    state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideResult,
 };
-use common::api_fixtures::{network_segment::create_admin_network_segment, TestEnv};
+use common::api_fixtures::{
+    create_test_env_with_config, get_config, network_segment::create_admin_network_segment, TestEnv,
+};
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::DhcpDiscovery;
@@ -40,7 +41,6 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
-    sync::Arc,
 };
 
 #[ctor::ctor]
@@ -424,14 +424,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Get the state handler started and make sure we're in the ready state
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .build();
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -458,8 +451,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Now we want a tick of the state machine
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     // It should have "started" a UEFI upgrade
     let mut txn = env.pool.begin().await.unwrap();
@@ -480,8 +472,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // The faked Redfish task will immediately show as completed, but we won't proceed further because "site explorer" (ie us) has not re-reported the info.
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -497,8 +488,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -528,8 +518,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -545,8 +534,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     // It should have "started" a BMC upgrade now
     let mut txn = env.pool.begin().await.unwrap();
@@ -567,8 +555,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -597,8 +584,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     .await?;
     txn.commit().await.unwrap();
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -613,8 +599,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
@@ -631,8 +616,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     // Now we should be back waiting for lockdown to resolve
     let mut txn = env.pool.begin().await.unwrap();
@@ -646,8 +630,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     txn.commit().await.unwrap();
 
     // Step until we reach ready
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
+    env.run_machine_state_controller_iteration().await;
 
     // Now let update manager run again, it should not put us back to reprovisioning.
     update_manager.run_single_iteration().await?;
@@ -753,10 +736,9 @@ async fn test_host_fw_upgrade_enabledisable_generic(
     global_enabled: bool,
 ) -> CarbideResult<(TestEnv, MachineId)> {
     // Create an environment with one managed host in the ready state.  Tweak the default config to enable or disable firmware global autoupdate.
-    let mut env = create_test_env(pool).await;
-    let mut config = (*env.config).clone();
+    let mut config = get_config();
     config.firmware_global.autoupdate = global_enabled;
-    env.config = Arc::new(config);
+    let env = create_test_env_with_config(pool, Some(config)).await;
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();

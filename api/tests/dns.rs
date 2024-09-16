@@ -93,6 +93,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     // records for the Host and DPU are created + end up in the
     // dns_records view.
     let (host_id, dpu_id) = create_managed_host(&env).await;
+    let api = &env.api;
 
     // And now check to make sure the DNS records exist and,
     // of course, that they are correct.

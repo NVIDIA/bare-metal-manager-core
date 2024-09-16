@@ -84,7 +84,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     let state_handler = IBPartitionStateHandler::default();
 
-    env.run_ib_partition_controller_iteration(state_handler.clone())
+    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
         .await;
 
     // After 1 controller iterations, the partition should be ready
@@ -93,7 +93,7 @@ async fn test_ib_partition_lifecycle_impl(
         TenantState::Ready
     );
 
-    env.run_ib_partition_controller_iteration(state_handler.clone())
+    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
         .await;
     // After another controller iterations, the partition should still be ready even the
     // controller can not find the partition.
@@ -124,9 +124,9 @@ async fn test_ib_partition_lifecycle_impl(
         .expect("expect deletion to succeed");
 
     // Make the controller aware about termination too
-    env.run_ib_partition_controller_iteration(state_handler.clone())
+    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
         .await;
-    env.run_ib_partition_controller_iteration(state_handler)
+    env.build_and_run_ib_partition_controller_iteration(state_handler)
         .await;
 
     let segments = env
