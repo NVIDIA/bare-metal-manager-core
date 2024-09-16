@@ -184,7 +184,7 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
             // If the config apply failed, we won't be using it, so move it out
             // of the way to an .error file for others to enjoy (while attempting
             // to remove any previous .error file in the process).
-            let path_error = config_path.with_ext(".error");
+            let path_error = config_path.with_ext("error");
             if path_error.exists() {
                 if let Err(e) = fs::remove_file(path_error.clone()) {
                     tracing::warn!(
