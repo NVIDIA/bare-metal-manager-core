@@ -79,6 +79,10 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
                 "/explored-endpoint/:endpoint_ip/reexplore",
                 post(explored_endpoint::re_explore),
             )
+            .route(
+                "/explored-endpoint/:endpoint_ip/power-control",
+                post(explored_endpoint::power_control),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
@@ -151,6 +155,18 @@ pub async fn auth_basic<T>(req: Request<T>, next: Next<T>) -> Result<Response, S
             }
         }
     };
+
+    let mut peer = String::new();
+    if let Some(conn) = req
+        .extensions()
+        .get::<Arc<crate::listener::ConnectionAttributes>>()
+    {
+        peer = conn.peer_address().ip().to_string();
+    }
+    let path = req.uri().path();
+    let at = format!("{:?}", chrono::Utc::now());
+    tracing::info!(client_ip=%peer, path=%path, at=%at, "carbide-web_authorized_request");
+
     Ok(next.run(req).await)
 }
 

@@ -36,6 +36,13 @@
 	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
 	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
 	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
+	
+	<tr>
+		<th>Power Control</th>
+		<td>
+			{% include "power_control.html" %}
+		</td>				
+	</tr>
 </table>
 
 <h3>Health</h3>

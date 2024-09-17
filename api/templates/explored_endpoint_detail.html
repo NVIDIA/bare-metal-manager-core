@@ -17,7 +17,7 @@
 	<tr><th>Preingestion State</th><td>{{ endpoint.preingestion_state }}</td></tr>
 	<tr><th>Report Version</th><td>{{ endpoint.report_version|config_version|safe }}</td></tr>
 	<tr>
-		<th>Exploration requested</th>
+		<th>Exploration Requested</th>
 		<td>
 			{{ endpoint.exploration_requested }}
 			{% if !endpoint.exploration_requested %}
@@ -28,6 +28,19 @@
 				</form>
 			{% endif %}
 		</td>
+	</tr>
+	<tr>
+		<th>Power Control</th>
+		<td>
+		{% match bmc_interface %}
+		{% when Some with (iface) %}
+		{% set bmc_mac = iface.mac_address.clone() %}
+		{% set bmc_ip = endpoint.address.clone() %}
+		{% include "power_control.html" %}
+		{% else %}
+			Power control is currently unavailable.
+		{% endmatch %}
+		</td>				
 	</tr>
 </table>
 

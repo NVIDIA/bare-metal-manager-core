@@ -33,6 +33,14 @@
 			</form>
 		</td>
 	</tr>
+	<tr>
+		<th>Power Control</th>
+		<td>
+			{% set bmc_ip = host_bmc_ip.clone() %}
+			{% set bmc_mac = host_bmc_mac.clone() %}
+			{% include "power_control.html" %}
+		</td>				
+	</tr>
 </table>
 
 <h2>Health</h2>
@@ -80,6 +88,14 @@
 	<tr><th>BMC Firmware Version</th><td>{{ host_bmc_firmware_version }}</td></tr>
 	<tr><th>BMC IP</th><td><a href="/admin/explored-endpoint/{{ host_bmc_ip }}">{{ host_bmc_ip }}</a></td></tr>
 	<tr><th>BMC MAC</th><td>{{ host_bmc_mac }}</td></tr>
+	<tr>
+		<th>Power Control</th>
+		<td>
+			{% set bmc_ip = host_bmc_ip.clone() %}
+			{% set bmc_mac = host_bmc_mac.clone() %}
+			{% include "power_control.html" %}
+		</td>				
+	</tr>
 </table>
 
 {% for dpu in dpus %}
@@ -111,6 +127,14 @@
 	<tr><th>BMC Firmware Version</th><td>{{ dpu.bmc_firmware_version }}</td></tr>
 	<tr><th>BMC IP</th><td><a href="/admin/explored-endpoint/{{ dpu.bmc_ip }}">{{ dpu.bmc_ip }}</a></td></tr>
 	<tr><th>BMC MAC</th><td>{{ dpu.bmc_mac }}</td></tr>
+	<tr>
+		<th>Power Control</th>
+		<td>
+			{% set bmc_ip = dpu.bmc_ip.clone() %}
+			{% set bmc_mac = dpu.bmc_mac.clone() %}
+			{% include "power_control.html" %}
+		</td>				
+	</tr>
 	<tr><th>Switch Connections</th><td>{{ dpu.switch_connection_details() }}</td></tr>
 </table>
 {% endfor %}

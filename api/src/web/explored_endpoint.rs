@@ -18,8 +18,8 @@ use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{self as forgerpc, admin_power_control_request, BmcEndpointRequest};
 use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
 use serde::Deserialize;
 
@@ -346,12 +346,7 @@ async fn fetch_explored_endpoints(api: Arc<Api>) -> Result<SiteExplorationReport
 #[template(path = "explored_endpoint_detail.html")]
 struct ExploredEndpointDetail {
     endpoint: ExploredEndpoint,
-}
-
-impl From<ExploredEndpoint> for ExploredEndpointDetail {
-    fn from(endpoint: ExploredEndpoint) -> Self {
-        Self { endpoint }
-    }
+    bmc_interface: Option<forgerpc::MachineInterface>,
 }
 
 /// View details of an explored endpoint
@@ -386,6 +381,24 @@ pub async fn detail(
                 .into_response();
         }
     };
+
+    let req = tonic::Request::new(forgerpc::InterfaceSearchQuery {
+        id: None,
+        ip: Some(endpoint_ip.clone()),
+    });
+
+    let bmc_interface = match state.find_interfaces(req).await {
+        Ok(res) => res.into_inner().interfaces.first().cloned(),
+        Err(err) => {
+            tracing::error!(%err, "find_interfaces");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error find_interfaces for searching by IP {}", endpoint_ip),
+            )
+                .into_response();
+        }
+    };
+
     // Site Explorer doesn't link Host Explored Endpoints with their machine, only DPUs.
     // So do it here.
     if let Some(ref mut report) = endpoint.report {
@@ -418,7 +431,10 @@ pub async fn detail(
         }
     }
 
-    let display = ExploredEndpointDetail::from(endpoint);
+    let display = ExploredEndpointDetail {
+        endpoint,
+        bmc_interface,
+    };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -476,4 +492,53 @@ fn query_filter_for(
         Box::new(|_| true)
     };
     Box::new(move |x| vf(x) && ef(x))
+}
+
+pub async fn power_control(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<PowerControlEndpointAction>,
+) -> Response {
+    let view_url = format!("/explored-endpoint/{endpoint_ip}");
+
+    let Some(action) = form.action else {
+        return Redirect::to(&view_url).into_response();
+    };
+
+    let Some(act) = admin_power_control_request::SystemPowerControl::from_str_name(&action) else {
+        tracing::error!(endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint invalid action");
+        return (StatusCode::BAD_REQUEST, "invalid action requested").into_response();
+    };
+
+    let Some(mac_address) = form.bmc_mac else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "missing BMC MAC address in request",
+        )
+            .into_response();
+    };
+
+    if let Err(err) = state
+        .admin_power_control(tonic::Request::new(rpc::forge::AdminPowerControlRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: Some(mac_address),
+            }),
+            action: act.into(),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PowerControlEndpointAction {
+    bmc_mac: Option<String>,
+    action: Option<String>,
 }
