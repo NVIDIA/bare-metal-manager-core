@@ -11,7 +11,6 @@
  */
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,6 +34,7 @@ use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::MeterProvider;
 use prometheus::{Encoder, TextEncoder};
+use rpc::Machine;
 use tracing::error;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -224,26 +224,24 @@ pub async fn serve_metrics(
             let mut buffer = vec![];
             let encoder = TextEncoder::new();
             let metric_families = state.registry.gather();
-            encoder.encode(&metric_families, &mut buffer).unwrap();
-
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, encoder.format_type())
-                .header(CONTENT_LENGTH, buffer.len())
-                .body(Body::from(buffer))
-                .unwrap()
+            match encoder.encode(&metric_families, &mut buffer) {
+                Ok(_) => Response::builder()
+                    .status(200)
+                    .header(CONTENT_TYPE, encoder.format_type())
+                    .header(CONTENT_LENGTH, buffer.len())
+                    .body(Body::from(buffer)),
+                Err(e) => Response::builder()
+                    .status(500)
+                    .body(Body::from(format!("Encoding error: {e}"))),
+            }
         }
-        (&Method::GET, "/") => Response::builder()
-            .status(200)
-            .body(Body::from("/metrics"))
-            .unwrap(),
+        (&Method::GET, "/") => Response::builder().status(200).body(Body::from("/metrics")),
         _ => Response::builder()
             .status(404)
-            .body(Body::from("Invalid URL"))
-            .unwrap(),
+            .body(Body::from("Invalid URL")),
     };
 
-    Ok(response)
+    Ok(response.expect("BUG: Response::builder error"))
 }
 
 // setup the /metrics prometheus endpoint, adapted from:
@@ -306,67 +304,50 @@ pub async fn scrape_machines_health(
             .collect();
         machines_hash.retain(|id, _| active_ids.contains(id));
 
-        for machine in machines.machines.iter() {
-            if machine.id.is_none() {
+        for machine in machines.machines {
+            let Some(id) = machine.id.as_ref() else {
                 continue;
-            }
-            let id = machine.id.clone().unwrap();
-            let machine_id: Box<String> = Box::from(id.clone().id);
-            if machine.interfaces.is_empty() {
-                continue;
-            }
-
-            let dpu_id = machine.interfaces[0]
-                .attached_dpu_machine_id
-                .clone()
-                .unwrap();
-
-            let mut last_updated = match machines_hash.get_mut(machine_id.as_str()) {
-                Some(x) => x.deref().to_owned(),
-                None => {
-                    let initial_hash = HealthHashData {
-                        description: "".to_string(),
-                        firmware_digest: "".to_string(),
-                        sel_count: 0,
-                        last_polled_ts: 0,
-                        last_recorded_ts: 0,
-                        last_host_error_ts: 0,
-                        last_dpu_error_ts: 0,
-                        host_error_count: 0,
-                        dpu_error_count: 0,
-                        host: "".to_string(),
-                        dpu: "".to_string(),
-                        port: 0,
-                        dpu_port: 0,
-                        user: "".to_string(),
-                        dpu_user: "".to_string(),
-                        password: "".to_string(),
-                        dpu_password: "".to_string(),
-                    };
-
-                    // insert into hash on first enumeration of the machine
-                    let _ = machines_hash.insert(machine_id.to_string(), initial_hash.clone());
-                    initial_hash
-                }
             };
+            let machine_id = id.id.as_str();
+            let health_data = machines_hash.entry(machine_id.to_owned()).or_insert_with(||
+                // insert into hash on first enumeration of the machine
+                HealthHashData {
+                    description: "".to_string(),
+                    firmware_digest: "".to_string(),
+                    sel_count: 0,
+                    last_polled_ts: 0,
+                    last_recorded_ts: 0,
+                    last_host_error_ts: 0,
+                    last_dpu_error_ts: 0,
+                    host_error_count: 0,
+                    dpu_error_count: 0,
+                    host: "".to_string(),
+                    dpu: "".to_string(),
+                    port: 0,
+                    dpu_port: 0,
+                    user: "".to_string(),
+                    dpu_user: "".to_string(),
+                    password: "".to_string(),
+                    dpu_password: "".to_string(),
+            });
 
             let mut scrape_machine = true;
             // check if a host had errors and back off querying appropriately
-            if last_updated.host_error_count > 0 {
+            if health_data.host_error_count > 0 {
                 let now: DateTime<Utc> = Utc::now();
-                if last_updated.host_error_count < 24 {
+                if health_data.host_error_count < 24 {
                     // try every 30 minutes for 12 hours
-                    if (now.timestamp() - last_updated.last_host_error_ts) < (30 * 60) {
+                    if (now.timestamp() - health_data.last_host_error_ts) < (30 * 60) {
                         scrape_machine = false;
                     }
-                } else if last_updated.host_error_count < 36 {
+                } else if health_data.host_error_count < 36 {
                     // try every 60 minutes for next 12 hours
-                    if (now.timestamp() - last_updated.last_host_error_ts) < (60 * 60) {
+                    if (now.timestamp() - health_data.last_host_error_ts) < (60 * 60) {
                         scrape_machine = false;
                     }
                 } else {
                     // try once a day
-                    if (now.timestamp() - last_updated.last_host_error_ts) < (24 * 60 * 60) {
+                    if (now.timestamp() - health_data.last_host_error_ts) < (24 * 60 * 60) {
                         scrape_machine = false;
                     }
                 }
@@ -375,18 +356,12 @@ pub async fn scrape_machines_health(
                 continue;
             }
 
-            if last_updated.host.is_empty() {
+            if health_data.host.is_empty() {
                 // initial empty hash, get host bmc creds from api-server
-                let endpoint = match get_machine(&mut grpc_client, &id, &api_gauge_2).await {
+                let endpoint = match get_machine(&mut grpc_client, id, &api_gauge_2).await {
                     Ok(x) => {
-                        machines_hash
-                            .get_mut(machine_id.as_str())
-                            .unwrap()
-                            .last_host_error_ts = 0;
-                        machines_hash
-                            .get_mut(machine_id.as_str())
-                            .unwrap()
-                            .host_error_count = 0;
+                        health_data.last_host_error_ts = 0;
+                        health_data.host_error_count = 0;
                         x
                     }
                     Err(e) => {
@@ -394,100 +369,73 @@ pub async fn scrape_machines_health(
                         error!(error=%e, %machine_id, "grpc error getting machine bmc metadata");
                         // back off for grpc / vault errors for a host
                         let now: DateTime<Utc> = Utc::now();
-                        machines_hash
-                            .get_mut(machine_id.as_str())
-                            .unwrap()
-                            .last_host_error_ts = now.timestamp();
-                        machines_hash
-                            .get_mut(machine_id.as_str())
-                            .unwrap()
-                            .host_error_count += 1;
+                        health_data.last_host_error_ts = now.timestamp();
+                        health_data.host_error_count += 1;
                         continue;
                     }
                 };
-                let mut description = String::new();
-                if machine.discovery_info.is_some()
-                    && machine.discovery_info.clone().unwrap().dmi_data.is_some()
+                if let Some(dmi_data) = machine
+                    .discovery_info
+                    .as_ref()
+                    .and_then(|i| i.dmi_data.as_ref())
                 {
-                    description = format!(
+                    health_data.description = format!(
                         "{} {} SN: {}",
-                        machine
-                            .discovery_info
-                            .clone()
-                            .unwrap()
-                            .dmi_data
-                            .unwrap()
-                            .sys_vendor,
-                        machine
-                            .discovery_info
-                            .clone()
-                            .unwrap()
-                            .dmi_data
-                            .unwrap()
-                            .product_name,
-                        machine
-                            .discovery_info
-                            .clone()
-                            .unwrap()
-                            .dmi_data
-                            .unwrap()
-                            .product_serial
+                        dmi_data.sys_vendor, dmi_data.product_name, dmi_data.product_serial
                     )
                     .to_string();
                 }
-                last_updated.description = description;
-                last_updated.host = endpoint.host;
-                last_updated.port = endpoint.port.unwrap_or(0);
-                last_updated.user = endpoint.user.unwrap_or("".to_string());
-                last_updated.password = endpoint.password.unwrap_or("".to_string());
+                health_data.host = endpoint.host;
+                health_data.port = endpoint.port.unwrap_or(0);
+                health_data.user = endpoint.user.unwrap_or("".to_string());
+                health_data.password = endpoint.password.unwrap_or("".to_string());
             }
 
-            if last_updated.dpu.is_empty() {
+            if health_data.dpu.is_empty() {
                 // dpu bmc creds
                 let now: DateTime<Utc> = Utc::now();
                 let mut scrape_dpu = true;
-                if last_updated.dpu_error_count < 24 {
+                if health_data.dpu_error_count < 24 {
                     // try every 30 minutes for 12 hours
-                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (30 * 60) {
+                    if (now.timestamp() - health_data.last_dpu_error_ts) < (30 * 60) {
                         scrape_dpu = false;
                     }
-                } else if last_updated.dpu_error_count < 36 {
+                } else if health_data.dpu_error_count < 36 {
                     // try every 60 minutes for next 12 hours
-                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (60 * 60) {
+                    if (now.timestamp() - health_data.last_dpu_error_ts) < (60 * 60) {
                         scrape_dpu = false;
                     }
                 } else {
                     // try once a day
-                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (24 * 60 * 60) {
+                    if (now.timestamp() - health_data.last_dpu_error_ts) < (24 * 60 * 60) {
                         scrape_dpu = false;
                     }
                 }
-                if scrape_dpu {
+                if let (Some(dpu_id), true) = (
+                    attached_dpu_machine_id_for_primary_interface(&machine),
+                    scrape_dpu,
+                ) {
                     let dpu_endpoint =
-                        match get_machine(&mut grpc_client, &dpu_id, &api_gauge_2).await {
+                        match get_machine(&mut grpc_client, dpu_id, &api_gauge_2).await {
                             Ok(x) => {
-                                last_updated.last_dpu_error_ts = 0;
-                                last_updated.dpu_error_count = 0;
+                                health_data.last_dpu_error_ts = 0;
+                                health_data.dpu_error_count = 0;
                                 Some(x)
                             }
                             Err(e) => {
                                 error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
                                 let now: DateTime<Utc> = Utc::now();
-                                last_updated.last_dpu_error_ts = now.timestamp();
-                                last_updated.dpu_error_count += 1;
+                                health_data.last_dpu_error_ts = now.timestamp();
+                                health_data.dpu_error_count += 1;
                                 None
                             }
                         };
-                    if dpu_endpoint.is_some() {
-                        last_updated.dpu = dpu_endpoint.clone().unwrap().host;
-                        last_updated.dpu_port = dpu_endpoint.clone().unwrap().port.unwrap_or(0);
-                        last_updated.dpu_user =
-                            dpu_endpoint.clone().unwrap().user.unwrap_or("".to_string());
-                        last_updated.dpu_password = dpu_endpoint
-                            .clone()
-                            .unwrap()
-                            .password
-                            .unwrap_or("".to_string());
+                    if let Some(dpu_endpoint) = dpu_endpoint {
+                        health_data.dpu = dpu_endpoint.host.clone();
+                        health_data.dpu_port = dpu_endpoint.port.unwrap_or(0);
+                        health_data.dpu_user = dpu_endpoint.user.clone().unwrap_or("".to_string());
+                        health_data.dpu_password =
+                            dpu_endpoint.password.clone().unwrap_or("".to_string());
                     }
                 }
             }
@@ -496,8 +444,8 @@ pub async fn scrape_machines_health(
                 &mut grpc_client,
                 provider.clone(),
                 box_logger.clone(),
-                machine_id.as_str(),
-                last_updated,
+                machine_id,
+                health_data,
             )
             .await
             {
@@ -509,36 +457,34 @@ pub async fn scrape_machines_health(
                     dpu_reachable,
                     dpu_attempted,
                 )) => {
-                    let update_hash = machines_hash.get_mut(machine_id.as_str()).unwrap();
                     if !firmware_digest.is_empty() {
-                        update_hash.firmware_digest = firmware_digest.to_string();
+                        health_data.firmware_digest = firmware_digest.to_string();
                     }
                     if sel_count > 0 {
-                        update_hash.sel_count = sel_count;
+                        health_data.sel_count = sel_count;
                     }
                     if last_polled_ts > 0 {
-                        update_hash.last_polled_ts = last_polled_ts;
+                        health_data.last_polled_ts = last_polled_ts;
                     }
                     if last_recorded_ts > 0 {
-                        update_hash.last_recorded_ts = last_recorded_ts;
+                        health_data.last_recorded_ts = last_recorded_ts;
                     }
                     if dpu_reachable {
-                        update_hash.last_dpu_error_ts = 0;
-                        update_hash.dpu_error_count = 0;
+                        health_data.last_dpu_error_ts = 0;
+                        health_data.dpu_error_count = 0;
                     } else if dpu_attempted {
                         let now: DateTime<Utc> = Utc::now();
-                        update_hash.last_dpu_error_ts = now.timestamp();
-                        update_hash.dpu_error_count += 1;
+                        health_data.last_dpu_error_ts = now.timestamp();
+                        health_data.dpu_error_count += 1;
                     }
-                    update_hash.last_host_error_ts = 0;
-                    update_hash.host_error_count = 0;
+                    health_data.last_host_error_ts = 0;
+                    health_data.host_error_count = 0;
                 }
                 Err(e) => {
                     error!(error=%e, %machine_id, "failed to scrape metrics");
-                    let update_hash = machines_hash.get_mut(machine_id.as_str()).unwrap();
                     let now: DateTime<Utc> = Utc::now();
-                    update_hash.last_host_error_ts = now.timestamp();
-                    update_hash.host_error_count += 1;
+                    health_data.last_host_error_ts = now.timestamp();
+                    health_data.host_error_count += 1;
                     continue;
                 }
             };
@@ -587,8 +533,7 @@ async fn main() -> Result<(), HealthError> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::Layer::default().compact())
         .with(env_filter)
-        .try_init()
-        .unwrap();
+        .init();
 
     let state = Arc::new(HealthMetricsState { registry });
 
@@ -612,4 +557,23 @@ async fn main() -> Result<(), HealthError> {
     );
 
     Ok(())
+}
+
+fn attached_dpu_machine_id_for_primary_interface(machine: &Machine) -> Option<&MachineId> {
+    let machine_id = machine
+        .id
+        .as_ref()
+        .map(|id| id.id.as_str())
+        .unwrap_or("<unknown>");
+    let Some(primary_interface) = machine.interfaces.iter().find(|i| i.primary_interface) else {
+        tracing::warn!(%machine_id, interfaces = ?machine.interfaces, "machine has no primary interface, health data will not include DPU info.");
+        return None;
+    };
+
+    let Some(dpu_id) = primary_interface.attached_dpu_machine_id.as_ref() else {
+        tracing::warn!(%machine_id, interfaces = ?machine.interfaces, "machine's primary interface is not a DPU, health data will not include DPU info.");
+        return None;
+    };
+
+    Some(dpu_id)
 }
