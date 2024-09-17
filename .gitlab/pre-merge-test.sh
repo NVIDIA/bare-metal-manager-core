@@ -31,9 +31,9 @@ echo 'export PATH="$PATH:$FORGED_DIRECTORY/.binaries/"' >> .local_envrc
 echo "export CONTEXT=k3s" >> .local_envrc
 direnv allow && eval "$(direnv export bash)"
 
-# Conditionally build the PXE boot-artifacts (if the current branch has changes to the relevant files)
+# Conditionally build the PXE boot-artifacts (if the current branch has changes to the relevant files, or if branch is trunk)
 directories_pattern="pxe/*|scout/*"
-if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}"; then
+if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" || [[ "$(git branch --show-current)" = "trunk" ]]; then
   # Sequentially run cargo make commands in the background, and wait for completion at the end
   {
   # Run the x86_64 build
