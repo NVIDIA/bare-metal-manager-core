@@ -16,8 +16,9 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::{
-    self as rpc, BmcEndpointRequest, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSegmentSearchConfig, VpcVirtualizationType,
+    self as rpc, BmcEndpointRequest, IsBmcInManagedHostResponse, MachineBootOverride,
+    MachineSearchConfig, MachineType, NetworkDeviceIdList, NetworkSegmentSearchConfig,
+    VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -1390,18 +1391,18 @@ pub async fn is_bmc_in_managed_host(
     api_config: &ApiConfig<'_>,
     address: &str,
     mac_address: Option<MacAddress>,
-) -> CarbideCliResult<()> {
+) -> CarbideCliResult<IsBmcInManagedHostResponse> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
         });
-        client
+        let is_bmc_in_managed_host = client
             .is_bmc_in_managed_host(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .into_inner();
-        Ok(())
+        Ok(is_bmc_in_managed_host)
     })
     .await
 }
