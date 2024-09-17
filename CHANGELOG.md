@@ -9,6 +9,8 @@
   - The `state_reason` field in the objects API will be updated to indicate an `ERROR`. This error will also be rendered in the `State machine is blocked` field in the carbide web UI
   - The metrics which indicate state handler errors (e.g. `forge_machines_with_state_handling_errors_per_state`) will indicate a `time_in_state_above_sla` error.
 - Site Explorer now shows the `ComputerSystem`s `PowerState`
+- Machine Validation updates a Machines aggregates Health.
+  If a validation test fails, a health alert with probe ID `FailedValidationTest` and a target that contains the validation tests `name` will be raised. The alert will be shown as part of the aggregate machine health.
 
 ### Changed
 

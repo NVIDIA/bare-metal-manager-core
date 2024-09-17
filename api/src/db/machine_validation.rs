@@ -132,6 +132,11 @@ impl MachineValidation {
             column_name = "cleanup_machine_validation_id".to_string();
         }
         Machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
+
+        // Reset machine validation health report into initial state
+        let health_report = health_report::HealthReport::empty("machine-validation".to_string());
+        Machine::update_machine_validation_health_report(txn, machine_id, &health_report).await?;
+
         Ok(id)
     }
     pub async fn find_by_machine_id(
@@ -178,16 +183,16 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
 #[derive(Debug, Clone)]
 pub struct MachineValidationResult {
     pub validation_id: Uuid,
-    name: String,
-    description: String,
-    stdout: String,
-    stderr: String,
-    command: String,
-    args: String,
+    pub name: String,
+    pub description: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub command: String,
+    pub args: String,
     pub context: String,
-    exit_code: i32,
-    start_time: DateTime<Utc>,
-    end_time: DateTime<Utc>,
+    pub exit_code: i32,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidationResult {

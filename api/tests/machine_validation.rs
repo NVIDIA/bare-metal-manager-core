@@ -45,7 +45,7 @@ async fn test_machine_validation_complete_with_error(
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let _ = create_host_with_machine_validation(
+    let host_machine_id = create_host_with_machine_validation(
         &env,
         &host_sim.config,
         &dpu_machine_id,
@@ -84,6 +84,30 @@ async fn test_machine_validation_complete_with_error(
             panic!("Incorrect state: {}", s);
         }
     }
+
+    let machine = env
+        .find_machines(Some(host_machine_id), None, false)
+        .await
+        .machines
+        .remove(0);
+    let health = machine.health.as_ref().unwrap();
+    assert_eq!(health.alerts.len(), 1);
+    let mut alert = health.alerts[0].clone();
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        alert,
+        health_report::HealthProbeAlert {
+            id: "FailedValidationTestCompletion".parse().unwrap(),
+            target: None,
+            in_alert_since: None,
+            message: "Validation test failed to run to completion:\nTest Error".to_string(),
+            tenant_message: None,
+            classifications: vec![health_report::HealthAlertClassification::prevent_allocations()],
+        }
+        .into()
+    );
+
     Ok(())
 }
 
@@ -111,7 +135,7 @@ async fn test_machine_validation_with_error(
         end_time: Some(Timestamp::from(SystemTime::now())),
     };
 
-    let _ = create_host_with_machine_validation(
+    let host_machine_id = create_host_with_machine_validation(
         &env,
         &host_sim.config,
         &dpu_machine_id,
@@ -152,6 +176,30 @@ async fn test_machine_validation_with_error(
             panic!("Incorrect state: {}", s);
         }
     }
+
+    let machine = env
+        .find_machines(Some(host_machine_id), None, false)
+        .await
+        .machines
+        .remove(0);
+    let health = machine.health.as_ref().unwrap();
+    assert_eq!(health.alerts.len(), 1);
+    let mut alert = health.alerts[0].clone();
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        alert,
+        health_report::HealthProbeAlert {
+            id: "FailedValidationTest".parse().unwrap(),
+            target: Some("test1".to_string()),
+            in_alert_since: None,
+            message: "Failed validation test:\nName:test1\nCommand:echo\nArgs:test".to_string(),
+            tenant_message: None,
+            classifications: vec![health_report::HealthAlertClassification::prevent_allocations()],
+        }
+        .into()
+    );
+
     Ok(())
 }
 
@@ -177,7 +225,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         end_time: Some(Timestamp::from(SystemTime::now())),
     };
 
-    let _ = create_host_with_machine_validation(
+    let host_machine_id = create_host_with_machine_validation(
         &env,
         &host_sim.config,
         &dpu_machine_id,
@@ -203,6 +251,14 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             panic!("Incorrect state: {}", s);
         }
     }
+
+    let machine = env
+        .find_machines(Some(host_machine_id), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+
     Ok(())
 }
 
@@ -257,6 +313,14 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
+
+    let machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+
     Ok(())
 }
 
