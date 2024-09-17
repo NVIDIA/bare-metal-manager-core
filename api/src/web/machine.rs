@@ -30,7 +30,7 @@ struct MachineShow {
     machines: Vec<MachineRowDisplay>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq)]
 struct MachineRowDisplay {
     id: String,
     hostname: String,
@@ -45,8 +45,21 @@ struct MachineRowDisplay {
     is_host: bool,
     num_gpus: usize,
     num_ib_ifs: usize,
-    health_probe_alerts: usize,
+    health_probe_alerts: Vec<health_report::HealthProbeAlert>,
     override_mode_counts: String,
+}
+
+impl PartialOrd for MachineRowDisplay {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MachineRowDisplay {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Since Machine IDs are unique, we don't have to compare by anything else
+        self.id.cmp(&other.id)
+    }
 }
 
 impl From<forgerpc::Machine> for MachineRowDisplay {
@@ -85,6 +98,16 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             .iter()
             .filter(|o| o.mode() == OverrideMode::Merge)
             .count();
+
+        let health = m
+            .health
+            .as_ref()
+            .map(|h| {
+                health_report::HealthReport::try_from(h.clone())
+                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+            })
+            .unwrap_or_else(health_report::HealthReport::missing_report);
+
         MachineRowDisplay {
             hostname,
             id: m.id.unwrap_or_default().id,
@@ -106,10 +129,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             product_serial,
             num_gpus,
             num_ib_ifs,
-            health_probe_alerts: m
-                .health
-                .map(|health| health.alerts.len())
-                .unwrap_or_default(),
+            health_probe_alerts: health.alerts.clone(),
             override_mode_counts: format!(
                 "{}",
                 if override_count > 0 {

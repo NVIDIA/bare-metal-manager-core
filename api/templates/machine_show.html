@@ -11,7 +11,7 @@
 	<tr>
 		<th>ID</th>
 		<th>State</th>
-		<th>Health Alerts #</th>
+		<th>Health Alerts</th>
 		<th>Health Overrides #</th>
 		<th>Associated DPU/Host</th>
 		<th>Hostname</th>
@@ -33,8 +33,10 @@
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }} {% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}</td>
 			<td>
-				{% if m.health_probe_alerts == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-					<a href="/admin/machine/health/{{ m.id }}">{{ m.health_probe_alerts }}</a>
+				{% if m.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
+					<a href="/admin/machine/health/{{ m.id }}">
+						{{ m.health_probe_alerts|health_alerts_fmt(false)|safe }}
+					</a>
 				</div>
 			</td>
 			<td><a href="/admin/machine/health/{{ m.id }}">{{ m.override_mode_counts }}</a></td>
