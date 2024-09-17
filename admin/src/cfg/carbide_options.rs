@@ -311,13 +311,13 @@ pub enum ExpectedMachineAction {
     ///            {
     ///                "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
     ///                "bmc_username": "user",
-    ///                "bmc_username": "pass",
+    ///                "bmc_password": "pass",
     ///                "chassis_serial_number": "sample_serial-1"
     ///            },
     ///            {
     ///                "bmc_mac_address": "2a:2b:2c:2d:2e:2f",
     ///                "bmc_username": "user",
-    ///                "bmc_username": "pass",
+    ///                "bmc_password": "pass",
     ///                "chassis_serial_number": "sample_serial-2",
     ///                "fallback_dpu_serial_numbers": ["MT020100000003"]
     ///            }

@@ -775,7 +775,12 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::clear_site_explorer_last_known_error(api_config, opts.address).await?;
             }
             SiteExplorer::IsBmcInManagedHost(opts) => {
-                rpc::is_bmc_in_managed_host(api_config, &opts.address, opts.mac).await?;
+                let is_bmc_in_managed_host =
+                    rpc::is_bmc_in_managed_host(api_config, &opts.address, opts.mac).await?;
+                println!(
+                    "Is {} in a managed host?: {}",
+                    opts.address, is_bmc_in_managed_host.in_managed_host
+                );
             }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
