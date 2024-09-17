@@ -55,6 +55,11 @@
 - [Baby Forge](babyforge.md)
 - [Hot Fix Process](hotfix.md)
 
+# Testing
+
+- [Scheduled Testing](testing/scheduled.md)
+- [Pre-Merge Testing](testing/pre-merge.md)
+
 # Kubernetes
 
 - [Helm](kubernetes/helm.md)
