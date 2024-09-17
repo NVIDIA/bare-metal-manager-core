@@ -261,6 +261,8 @@ struct MachineDetail {
     inventory: Vec<MachineInventorySoftwareComponent>,
     health: health_report::HealthReport,
     health_overrides: Vec<String>,
+    bmc_ip: String,
+    bmc_mac: String,
 }
 
 struct MachineHistoryDisplay {
@@ -364,6 +366,11 @@ impl From<forgerpc::Machine> for MachineDetail {
             inventory.extend(inv.components.iter().cloned());
         }
 
+        let (bmc_ip, bmc_mac) = match m.bmc_info {
+            Some(ref bi) => (bi.ip().to_string(), bi.mac().to_string()),
+            _ => (String::new(), String::new()),
+        };
+
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
             id: machine_id.clone(),
@@ -378,6 +385,8 @@ impl From<forgerpc::Machine> for MachineDetail {
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
+            bmc_ip,
+            bmc_mac,
             history,
             bios_version,
             board_version,
