@@ -138,12 +138,13 @@ impl DbExploredManagedHost {
         bmc_ip: IpAddr,
     ) -> Result<bool, DatabaseError> {
         let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
-            WHERE value->>'BmcIp'=$1 or host_bmc_ip=$1;"#;
+            WHERE value->>'BmcIp'=$1 or host_bmc_ip=$2;"#;
         let (count,): (i64,) = sqlx::query_as(query)
+            .bind(bmc_ip.to_string())
             .bind(bmc_ip)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(count > 0)
     }
