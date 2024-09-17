@@ -13,6 +13,7 @@ echo "Current working directory is: $(pwd)"
 
 # Merge trunk into branch to improve test reliability
 echo "Merging 'trunk' into current branch to ensure it's up-to-date..."
+git config user.email "dummy@example.com" && git config user.name "Pre-Merge Test User"
 git fetch origin trunk
 if ! git merge origin/trunk; then
   echo "Merge conflict detected. This must be resolved before the pre-merge test can run. Exiting..."
