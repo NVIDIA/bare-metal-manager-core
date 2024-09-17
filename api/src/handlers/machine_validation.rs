@@ -60,6 +60,24 @@ pub(crate) async fn mark_machine_validation_complete(
         ))
     })?;
 
+    let machine = match Machine::find_by_validation_id(&mut txn, &uuid)
+        .await
+        .map_err(CarbideError::from)?
+    {
+        Some(machine) => machine,
+        None => {
+            tracing::error!(%uuid, "validation id not found");
+            return Err(Status::invalid_argument("wrong validation ID"));
+        }
+    };
+
+    if *machine.id() != machine_id {
+        tracing::error!(validation_id = %uuid, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
+        return Err(Status::invalid_argument(
+            "Validation ID does not belong to provided Machine ID",
+        ));
+    }
+
     Machine::update_machine_validation_time(&machine_id, &mut txn)
         .await
         .map_err(CarbideError::from)?;
@@ -82,6 +100,35 @@ pub(crate) async fn mark_machine_validation_complete(
             )
             .await
             .map_err(CarbideError::from)?;
+
+            // Update the Machine validation health report to include that the
+            // validation failed
+            let mut updated_validation_health_report =
+                machine.machine_validation_health_report().clone();
+            updated_validation_health_report.observed_at = Some(chrono::Utc::now());
+            updated_validation_health_report
+                .alerts
+                .push(health_report::HealthProbeAlert {
+                    id: "FailedValidationTestCompletion".parse().unwrap(),
+                    target: None,
+                    in_alert_since: Some(chrono::Utc::now()),
+                    message: format!(
+                        "Validation test failed to run to completion:\n{machine_validation_error}"
+                    ),
+                    tenant_message: None,
+                    classifications: vec![
+                        health_report::HealthAlertClassification::prevent_allocations(),
+                    ],
+                });
+
+            Machine::update_machine_validation_health_report(
+                &mut txn,
+                machine.id(),
+                &updated_validation_health_report,
+            )
+            .await
+            .map_err(CarbideError::from)?;
+
             machine_validation_error
         }
         None => "Success".to_owned(),
@@ -175,6 +222,35 @@ pub(crate) async fn persist_validation_result(
             return Err(Status::invalid_argument("wrong host machine state"));
         }
     }
+
+    // Update the Machine validation health report based on the result
+    let mut updated_validation_health_report = machine.machine_validation_health_report().clone();
+    updated_validation_health_report.observed_at = Some(chrono::Utc::now());
+    if !validation_result.stderr.is_empty() && validation_result.exit_code != 0 {
+        updated_validation_health_report
+            .alerts
+            .push(health_report::HealthProbeAlert {
+                id: "FailedValidationTest".parse().unwrap(),
+                target: Some(validation_result.name.clone()),
+                in_alert_since: Some(chrono::Utc::now()),
+                message: format!(
+                    "Failed validation test:\nName:{}\nCommand:{}\nArgs:{}",
+                    validation_result.name, validation_result.command, validation_result.args
+                ),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            });
+    }
+
+    Machine::update_machine_validation_health_report(
+        &mut txn,
+        machine.id(),
+        &updated_validation_health_report,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     validation_result.create(&mut txn).await?;
     txn.commit().await.unwrap();
