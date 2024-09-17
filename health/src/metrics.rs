@@ -503,17 +503,17 @@ pub async fn scrape_machine_health(
     provider: MeterProvider,
     logger: Arc<Box<dyn Logger + Send + Sync>>,
     machine_id: &str,
-    health_hash: HealthHashData,
+    health_hash: &HealthHashData,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     let pool = RedfishClientPool::builder().build()?;
     let endpoint = libredfish::Endpoint {
-        host: health_hash.host,
+        host: health_hash.host.clone(),
         port: match health_hash.port {
             0 => None,
             x => Some(x),
         },
-        user: Some(health_hash.user),
-        password: Some(health_hash.password),
+        user: Some(health_hash.user.clone()),
+        password: Some(health_hash.password.clone()),
     };
     let redfish = pool.create_client(endpoint.clone()).await?;
     let health = get_metrics(redfish, health_hash.last_polled_ts).await?;
@@ -541,13 +541,13 @@ pub async fn scrape_machine_health(
     }
     let dpu_health = if scrape_dpu {
         let dpu_endpoint = libredfish::Endpoint {
-            host: health_hash.dpu,
+            host: health_hash.dpu.clone(),
             port: match health_hash.dpu_port {
                 0 => None,
                 x => Some(x),
             },
-            user: Some(health_hash.dpu_user),
-            password: Some(health_hash.dpu_password),
+            user: Some(health_hash.dpu_user.clone()),
+            password: Some(health_hash.dpu_password.clone()),
         };
 
         let dpu_redfish = pool.create_client(dpu_endpoint.clone()).await?;
@@ -578,10 +578,10 @@ pub async fn scrape_machine_health(
         logger,
         health,
         dpu_health,
-        health_hash.firmware_digest,
+        health_hash.firmware_digest.clone(),
         health_hash.sel_count,
         health_hash.last_recorded_ts,
-        health_hash.description,
+        health_hash.description.clone(),
         machine_id,
     )
     .await
