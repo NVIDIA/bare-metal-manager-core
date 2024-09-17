@@ -18,22 +18,12 @@ use std::str::FromStr;
 
 use base64::prelude::*;
 use mac_address::{MacAddress, MacParseError};
-use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::model::try_convert_vec;
 use ::rpc::errors::RpcDataConversionError;
-
-/// MELLANOX_SF_VF_MAC_ADDRESS_IN exists to really make it obvious
-/// that the MAC address reported to topology data for SFs and VFs
-/// comes in as ch:64.
-const MELLANOX_SF_VF_MAC_ADDRESS_IN: &str = "ch:64";
-
-/// MELLANOX_SF_VF_MAC_ADDRESS_OUT exists to really make it obvious
-/// that we take MELLANOX_SF_VF_MAC_ADDRESS_IN and rewrite it out
-/// as this.
-const MELLANOX_SF_VF_MAC_ADDRESS_OUT: &str = "00:00:00:00:00:64";
+use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HardwareInfo {
@@ -61,7 +51,7 @@ pub struct HardwareInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
-    #[serde(deserialize_with = "deserialize_ch_64")]
+    #[serde(deserialize_with = "forge_network::deserialize_mlx_mac")]
     pub mac_address: MacAddress,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
@@ -788,52 +778,6 @@ impl From<MachineInventory> for rpc::forge::MachineInventory {
                 .collect(),
         }
     }
-}
-
-/// deserialize_ch_64 exists due to an interesting behavior
-/// of Mellanox cards -- SFs and VFs (i.e. interfaces that aren't
-/// the physical interface) report a MAC address of "ch:64",
-/// which isn't a real MAC address. Unfortnuately, this breaks
-/// MAC address validation + serialization for everyone else for
-/// this field.
-///
-/// So, instead of doing away with validation entirely, this
-/// custom deserialization function exists to rewrite ch:64 as
-/// 00:::::64 -- this is used for both ingestion (as in, when
-/// topology data is sent to us as JSON), and for reading legacy
-/// data from the database; at this point, serialization out to
-/// the database will ALWAYS be a valid MAC, since the field is
-/// a MacAddress now, so we just care about deserialization.
-///
-/// Fwiw, we obviously don't use ch:64 as an actual MAC
-/// address, but still want us some insight in topology
-/// data that its a special case, while still meeting the
-/// requirements of being a valid MAC address.
-///
-/// Over time, due to new ingestion + deserialize_ch_64 slowly
-/// fixing all of them, this will eventually no longer be needed,
-/// but for the time being it needs to exist.
-///
-/// TODO(chet): Look into dropping this in September 2025. :P
-fn deserialize_ch_64<'a, D>(deserializer: D) -> Result<MacAddress, D::Error>
-where
-    D: Deserializer<'a>,
-{
-    let input_value = String::deserialize(deserializer)?;
-    let mac_string = if input_value == MELLANOX_SF_VF_MAC_ADDRESS_IN {
-        MELLANOX_SF_VF_MAC_ADDRESS_OUT.to_string()
-    } else {
-        input_value
-    };
-
-    let mac_address: MacAddress = mac_string.parse().map_err(|e| {
-        serde::de::Error::custom(format!(
-            "failed to parse mac_address({}): {}",
-            mac_string, e
-        ))
-    })?;
-
-    Ok(mac_address)
 }
 
 #[cfg(test)]

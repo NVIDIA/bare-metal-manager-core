@@ -887,7 +887,15 @@ pub struct EthernetInterface {
     pub description: Option<String>,
     pub id: Option<String>,
     pub interface_enabled: Option<bool>,
-    #[serde(rename = "MACAddress")]
+    // We want to store as MACAddress in topology data (tbh I don't actually
+    // know why, maybe it's fine if we store it as MacAddress), but there are
+    // cases where the input data is MacAddress, so we'll allow MacAddress
+    // as or MACAddress as inputs, but always serialize out to MACAddress.
+    #[serde(
+        rename = "MACAddress",
+        alias = "MacAddress",
+        deserialize_with = "forge_network::deserialize_optional_mlx_mac"
+    )]
     pub mac_address: Option<MacAddress>,
 }
 
