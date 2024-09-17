@@ -262,8 +262,6 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    tracing::error!("finished create managed host");
-
     let mut txn = env.pool.begin().await.unwrap();
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy

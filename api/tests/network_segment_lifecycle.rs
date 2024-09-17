@@ -12,10 +12,7 @@
 
 use std::time::Duration;
 
-use carbide::{
-    db::network_segment::NetworkSegment,
-    state_controller::network_segment::handler::NetworkSegmentStateHandler,
-};
+use carbide::db::network_segment::NetworkSegment;
 
 pub mod common;
 use common::{
@@ -70,16 +67,8 @@ async fn test_network_segment_lifecycle_impl(
         rpc::forge::TenantState::Provisioning
     );
 
-    let state_handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
-
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -131,17 +120,14 @@ async fn test_network_segment_lifecycle_impl(
         .expect("expect deletion to succeed");
 
     // Make the controller aware about termination too
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
 
     // Wait for the drain period
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // delete the segment
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
-    env.build_and_run_network_segment_controller_iteration(state_handler)
-        .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
 
     let segments = env
         .api
