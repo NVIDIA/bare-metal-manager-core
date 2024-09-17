@@ -58,7 +58,6 @@ use carbide::{
     state_controller::{
         controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        io::StateControllerIO,
         machine::{
             handler::{MachineStateHandler, ReachabilityParams},
             io::MachineStateControllerIO,
@@ -138,10 +137,14 @@ pub struct TestEnv {
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
     machine_state_controller: RefCell<StateController<MachineStateControllerIO>>,
-    pub machine_state_handler: SwapHandler,
-    pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
+    pub machine_state_handler: SwapHandler<MachineStateHandler>,
+    network_segment_controller: RefCell<StateController<NetworkSegmentStateControllerIO>>,
+    pub network_segment_handler: SwapHandler<NetworkSegmentStateHandler>,
+    ib_partition_controller: RefCell<StateController<IBPartitionStateControllerIO>>,
+    pub ib_partition_handler: SwapHandler<IBPartitionStateHandler>,
+    network_segment_state_controller_io: NetworkSegmentStateControllerIO,
+    ib_partition_state_controller_io: IBPartitionStateControllerIO,
     pub reachability_params: ReachabilityParams,
-    pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
 }
@@ -294,55 +297,6 @@ impl TestEnv {
         );
     }
 
-    /// Builds a State Controller that executes a specific handler for unit-testing purposes
-    pub fn build_state_controller<IO: StateControllerIO, H>(
-        &self,
-        object_type_for_metrics: &str,
-        handler: H,
-        io: Option<Arc<IO>>,
-    ) -> StateController<IO>
-    where
-        H: StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ContextObjects = IO::ContextObjects,
-            ObjectId = IO::ObjectId,
-        >,
-    {
-        let mut builder = StateController::<IO>::builder()
-            .database(self.pool.clone())
-            .meter(object_type_for_metrics, self.test_meter.meter())
-            .redfish_client_pool(self.redfish_sim.clone())
-            .nvmesh_client_pool(self.nvmesh_sim.clone())
-            .ib_fabric_manager(self.ib_fabric_manager.clone())
-            .forge_api(self.api.clone())
-            .ipmi_tool(self.ipmi_tool.clone())
-            .site_config(self.config.clone())
-            .state_handler(Arc::new(handler));
-        if let Some(io) = io {
-            builder = builder.io(io);
-        }
-        builder
-            .build_for_manual_iterations()
-            .expect("Unable to build state controller")
-    }
-
-    /// Builds a Network Segment State Controller that executes a specific handler for unit-testing purposes
-    pub fn build_network_segment_state_controller(
-        &self,
-        handler: NetworkSegmentStateHandler,
-    ) -> StateController<NetworkSegmentStateControllerIO> {
-        self.build_state_controller("forge_network_segments", handler, None)
-    }
-
-    /// Builds a InfiniBand Partition State Controller that executes a specific handler for unit-testing purposes
-    pub fn build_ib_partition_state_controller(
-        &self,
-        handler: IBPartitionStateHandler,
-    ) -> StateController<IBPartitionStateControllerIO> {
-        self.build_state_controller("forge_ib_partitions", handler, None)
-    }
-
     /// Runs one iteration of the machine state controller handler
     //// with the services in this test environment
     #[allow(clippy::await_holding_refcell_ref)]
@@ -355,22 +309,22 @@ impl TestEnv {
 
     /// Runs one iteration of the network state controller handler with the services
     /// in this test environment
-    pub async fn build_and_run_network_segment_controller_iteration(
-        &self,
-        handler: NetworkSegmentStateHandler,
-    ) {
-        let mut controller = self.build_network_segment_state_controller(handler);
-        controller.run_single_iteration().await;
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_network_segment_controller_iteration(&self) {
+        self.network_segment_controller
+            .borrow_mut()
+            .run_single_iteration()
+            .await;
     }
 
     /// Runs one iteration of the IB partition state controller handler with the services
     /// in this test environment
-    pub async fn build_and_run_ib_partition_controller_iteration(
-        &self,
-        handler: IBPartitionStateHandler,
-    ) {
-        let mut controller = self.build_ib_partition_state_controller(handler);
-        controller.run_single_iteration().await;
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_ib_partition_controller_iteration(&self) {
+        self.ib_partition_controller
+            .borrow_mut()
+            .run_single_iteration()
+            .await;
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
@@ -701,16 +655,17 @@ pub async fn create_test_env_with_config(
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});
 
-    let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(config.get_firmware_config())
-        .reachability_params(reachability_params)
-        .attestation_enabled(attestation_enabled)
-        .build();
-    let swap = SwapHandler {
-        inner: Arc::new(Mutex::new(handler)),
+    let machine_swap = SwapHandler {
+        inner: Arc::new(Mutex::new(
+            MachineStateHandlerBuilder::builder()
+                .hardware_models(config.get_firmware_config())
+                .reachability_params(reachability_params)
+                .attestation_enabled(attestation_enabled)
+                .build(),
+        )),
     };
 
-    let controller = StateController::<MachineStateControllerIO>::builder()
+    let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
         .redfish_client_pool(redfish_sim.clone())
@@ -719,10 +674,48 @@ pub async fn create_test_env_with_config(
         .forge_api(api.clone())
         .ipmi_tool(ipmi_tool.clone())
         .site_config(config.clone())
-        .state_handler(Arc::new(swap.clone()))
+        .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
             hardware_health: HardwareHealthReportsConfig::Enabled,
         }))
+        .build_for_manual_iterations()
+        .expect("Unable to build state controller");
+
+    let ib_swap = SwapHandler {
+        inner: Arc::new(Mutex::new(IBPartitionStateHandler::default())),
+    };
+
+    let ib_controller = StateController::builder()
+        .database(db_pool.clone())
+        .meter("forge_machines", test_meter.meter())
+        .redfish_client_pool(redfish_sim.clone())
+        .nvmesh_client_pool(nvmesh_sim.clone())
+        .ib_fabric_manager(ib_fabric_manager.clone())
+        .forge_api(api.clone())
+        .ipmi_tool(ipmi_tool.clone())
+        .site_config(config.clone())
+        .state_handler(Arc::new(ib_swap.clone()))
+        .build_for_manual_iterations()
+        .expect("Unable to build state controller");
+
+    let network_swap = SwapHandler {
+        inner: Arc::new(Mutex::new(NetworkSegmentStateHandler::new(
+            chrono::Duration::milliseconds(500),
+            common_pools.ethernet.pool_vlan_id.clone(),
+            common_pools.ethernet.pool_vni.clone(),
+        ))),
+    };
+
+    let network_controller = StateController::builder()
+        .database(db_pool.clone())
+        .meter("forge_machines", test_meter.meter())
+        .redfish_client_pool(redfish_sim.clone())
+        .nvmesh_client_pool(nvmesh_sim.clone())
+        .ib_fabric_manager(ib_fabric_manager.clone())
+        .forge_api(api.clone())
+        .ipmi_tool(ipmi_tool.clone())
+        .site_config(config.clone())
+        .state_handler(Arc::new(network_swap.clone()))
         .build_for_manual_iterations()
         .expect("Unable to build state controller");
 
@@ -738,8 +731,12 @@ pub async fn create_test_env_with_config(
         nvmesh_sim,
         ib_fabric_manager,
         ipmi_tool,
-        machine_state_controller: RefCell::new(controller),
-        machine_state_handler: swap,
+        machine_state_controller: RefCell::new(machine_controller),
+        machine_state_handler: machine_swap,
+        ib_partition_controller: RefCell::new(ib_controller),
+        ib_partition_handler: ib_swap,
+        network_segment_controller: RefCell::new(network_controller),
+        network_segment_handler: network_swap,
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params,
         attestation_enabled,
@@ -1259,16 +1256,22 @@ pub async fn get_machine_validation_results(
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).
 #[derive(Debug, Clone)]
-pub struct SwapHandler {
-    inner: Arc<Mutex<MachineStateHandler>>,
+pub struct SwapHandler<H: StateHandler> {
+    inner: Arc<Mutex<H>>,
 }
 
 #[async_trait::async_trait]
-impl StateHandler for SwapHandler {
-    type ObjectId = <MachineStateHandler as StateHandler>::ObjectId;
-    type State = <MachineStateHandler as StateHandler>::State;
-    type ControllerState = <MachineStateHandler as StateHandler>::ControllerState;
-    type ContextObjects = <MachineStateHandler as StateHandler>::ContextObjects;
+impl<H: StateHandler> StateHandler for SwapHandler<H>
+where
+    H::ObjectId: Send + Sync,
+    H::State: Send + Sync,
+    H::ControllerState: Send + Sync,
+    H::ContextObjects: Send + Sync,
+{
+    type ObjectId = H::ObjectId;
+    type State = H::State;
+    type ControllerState = H::ControllerState;
+    type ContextObjects = H::ContextObjects;
 
     async fn handle_object_state(
         &self,

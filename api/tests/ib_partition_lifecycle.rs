@@ -19,7 +19,6 @@ use carbide::{
         types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
     },
-    state_controller::ib_partition::handler::IBPartitionStateHandler,
 };
 
 pub mod common;
@@ -82,10 +81,7 @@ async fn test_ib_partition_lifecycle_impl(
         TenantState::Provisioning
     );
 
-    let state_handler = IBPartitionStateHandler::default();
-
-    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
-        .await;
+    env.run_ib_partition_controller_iteration().await;
 
     // After 1 controller iterations, the partition should be ready
     assert_eq!(
@@ -93,8 +89,7 @@ async fn test_ib_partition_lifecycle_impl(
         TenantState::Ready
     );
 
-    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
-        .await;
+    env.run_ib_partition_controller_iteration().await;
     // After another controller iterations, the partition should still be ready even the
     // controller can not find the partition.
     assert_eq!(
@@ -124,10 +119,8 @@ async fn test_ib_partition_lifecycle_impl(
         .expect("expect deletion to succeed");
 
     // Make the controller aware about termination too
-    env.build_and_run_ib_partition_controller_iteration(state_handler.clone())
-        .await;
-    env.build_and_run_ib_partition_controller_iteration(state_handler)
-        .await;
+    env.run_ib_partition_controller_iteration().await;
+    env.run_ib_partition_controller_iteration().await;
 
     let segments = env
         .api

@@ -27,7 +27,6 @@ use carbide::model::network_segment::{
 };
 use carbide::resource_pool::common::VLANID;
 use carbide::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
-use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use common::api_fixtures::create_test_env;
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
@@ -217,16 +216,8 @@ async fn test_network_segment_max_history_length(
     .await;
     let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
 
-    let state_handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
-
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
-    env.build_and_run_network_segment_controller_iteration(state_handler)
-        .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -340,12 +331,6 @@ async fn test_network_segment_max_history_length(
 async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
-    let state_handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
-
     // create_test_env makes a vlan-id pool, so clean that up first
     let mut txn = db_pool.begin().await?;
     sqlx::query("DELETE FROM resource_pool WHERE name = $1")
@@ -386,19 +371,15 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         }))
         .await?;
     // Ready
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
     // DrainAllocatedIPs
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
     // Wait for the drain period
     tokio::time::sleep(Duration::from_secs(1)).await;
     // Deleting
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
     // DBDelete
-    env.build_and_run_network_segment_controller_iteration(state_handler)
-        .await;
+    env.run_network_segment_controller_iteration().await;
 
     // Value is free
     let mut txn = db_pool.begin().await?;
@@ -636,17 +617,9 @@ async fn test_network_segment_metrics(
     let segment = create_network_segment_with_api(&env.api, true, true, None, seg_type, 1).await;
     let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
 
-    let state_handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
+    env.run_network_segment_controller_iteration().await;
 
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
-
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -724,11 +697,9 @@ async fn test_network_segment_metrics(
         .await?;
 
     // Ready
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
     // DrainAllocatedIPs
-    env.build_and_run_network_segment_controller_iteration(state_handler.clone())
-        .await;
+    env.run_network_segment_controller_iteration().await;
 
     // Check to make sure we are returning stats even when the network segment
     // is not in the Ready state.

@@ -14,7 +14,6 @@
 // in the fixtures folder. This file just contains the UUID references
 // for those.
 
-use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 use forge_uuid::network::NetworkSegmentId;
 
 use crate::common::network_segment::FIXTURE_CREATED_DOMAIN_UUID;
@@ -95,15 +94,8 @@ pub async fn create_network_segment(
     let segment_id: NetworkSegmentId = response.id.unwrap().try_into().unwrap();
 
     // Get the segment into ready state
-    let handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
-    env.build_and_run_network_segment_controller_iteration(handler.clone())
-        .await;
-    env.build_and_run_network_segment_controller_iteration(handler)
-        .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
 
     segment_id
 }

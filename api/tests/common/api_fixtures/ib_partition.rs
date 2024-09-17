@@ -11,11 +11,8 @@
  */
 
 use super::TestEnv;
-use carbide::{
-    api::rpc::{
-        forge_server::Forge, IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig,
-    },
-    state_controller::ib_partition::handler::IBPartitionStateHandler,
+use carbide::api::rpc::{
+    forge_server::Forge, IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use tonic::Request;
@@ -43,10 +40,7 @@ pub async fn create_ib_partition(
     let ib_partition_id =
         IBPartitionId::try_from(ib_partition.id.clone().expect("Missing ib partition ID")).unwrap();
 
-    let state_handler = IBPartitionStateHandler::default();
-    env.build_ib_partition_state_controller(state_handler)
-        .run_single_iteration()
-        .await;
+    env.run_ib_partition_controller_iteration().await;
 
     let ib_partition = env
         .api
