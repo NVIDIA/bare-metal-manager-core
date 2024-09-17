@@ -996,7 +996,7 @@ build-machine-lifecycle-test-container:
 scheduled-test:prepare:
   stage: .pre
   rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "schedule" && ($AUTO_DEPLOY == "true" || $RUN_TESTS == "true")
   retry:
     when:
       - runner_system_failure
@@ -1238,8 +1238,7 @@ pre-merge-test:
   tags:
     - dev-env-carbide
   rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $DEV_ENV_TEST == "true"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - '.skaffold/**/*'
