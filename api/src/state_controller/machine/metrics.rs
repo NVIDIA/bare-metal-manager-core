@@ -34,8 +34,7 @@ pub struct MachineMetrics {
     pub dpu_health_probe_alerts: HashMap<(health_report::HealthProbeId, Option<String>), usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
     pub machine_inventory_component_versions: HashMap<MachineInventorySoftwareComponent, usize>,
-    pub client_certificate_expiry: Option<i64>,
-    pub machine_id: Option<String>,
+    pub client_certificate_expiry: HashMap<String, Option<i64>>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
     pub available_gpus: usize,
@@ -307,13 +306,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += count;
         }
 
-        if let Some(time) = object_metrics.client_certificate_expiry {
-            if let Some(machine_id) = object_metrics.machine_id.as_ref() {
+        for (machine_id, maybe_time) in object_metrics.client_certificate_expiry.iter() {
+            if let Some(time) = maybe_time {
                 iteration_metrics
                     .client_certificate_expiration_times
                     .entry(machine_id.clone())
-                    .and_modify(|entry| *entry = time)
-                    .or_insert(time);
+                    .and_modify(|entry| *entry = *time)
+                    .or_insert(*time);
             }
         }
     }
@@ -525,8 +524,7 @@ mod tests {
                 )]),
                 dpu_firmware_versions: HashMap::new(),
                 machine_inventory_component_versions: HashMap::new(),
-                client_certificate_expiry: Some(1),
-                machine_id: Some("machine a".to_string()),
+                client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(1))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
                 health_probe_alerts: HashSet::new(),
@@ -551,8 +549,7 @@ mod tests {
                     },
                     1,
                 )]),
-                client_certificate_expiry: Some(2),
-                machine_id: Some("machine a".to_string()),
+                client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(2))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
                 health_probe_alerts: HashSet::new(),
@@ -574,8 +571,7 @@ mod tests {
                     },
                     1,
                 )]),
-                client_certificate_expiry: Some(3),
-                machine_id: Some("machine b".to_string()),
+                client_certificate_expiry: HashMap::from_iter([("machine b".to_string(), Some(3))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
                 health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
@@ -612,8 +608,7 @@ mod tests {
                         1,
                     ),
                 ]),
-                client_certificate_expiry: None,
-                machine_id: Some("machine b".to_string()),
+                client_certificate_expiry: HashMap::from_iter([("machine b".to_string(), None)]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
                 health_probe_alerts: HashSet::new(),
@@ -651,8 +646,7 @@ mod tests {
                         1,
                     ),
                 ]),
-                client_certificate_expiry: Some(55),
-                machine_id: None,
+                client_certificate_expiry: HashMap::default(),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
                 health_probe_alerts: [
@@ -700,8 +694,7 @@ mod tests {
                         2,
                     ),
                 ]),
-                client_certificate_expiry: Some(55),
-                machine_id: None,
+                client_certificate_expiry: HashMap::default(),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
                 health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
