@@ -10,16 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
-use bmc_mock::ListenerOrAddress;
-use futures::future::join_all;
-use futures::FutureExt;
-use grpcurl::grpcurl;
-use host::machine_validation_completed;
-use itertools::Itertools;
-use sqlx::{Postgres, Row};
 use std::future::Future;
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -30,8 +20,20 @@ use std::{
     path::{self, PathBuf},
     time::{self, Duration},
 };
+
+use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
+use ::utils::HostPortPair;
+use bmc_mock::ListenerOrAddress;
+use futures::future::join_all;
+use futures::FutureExt;
+use grpcurl::grpcurl;
+use host::machine_validation_completed;
+use itertools::Itertools;
+use sqlx::{Postgres, Row};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+
+use crate::utils::IntegrationTestEnvironment;
 
 mod api_server;
 mod dpu;
@@ -63,8 +65,9 @@ async fn test_integration() -> eyre::Result<()> {
         root_dir,
         carbide_metrics_addr,
         db_pool,
+        metrics: _,
         db_url: _,
-        telemetry_setup: _,
+        logging_setup: _,
     } = test_env.clone();
 
     // Run bmc-mock
@@ -146,6 +149,7 @@ async fn test_integration() -> eyre::Result<()> {
     let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
 
     // Create instance with phone_home enabled
+
     let instance_id = instance::create(
         carbide_api_addr,
         &host_machine_id,
