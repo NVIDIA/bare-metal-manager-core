@@ -908,7 +908,7 @@ pub enum DpuModel {
 
 impl From<String> for DpuModel {
     fn from(model: String) -> Self {
-        match model.to_lowercase() {
+        match model.to_lowercase().replace("-", " ") {
             value if value.contains("bluefield 2") => DpuModel::BlueField2,
             value if value.contains("bluefield 3") => DpuModel::BlueField3,
             _ => DpuModel::Unknown,

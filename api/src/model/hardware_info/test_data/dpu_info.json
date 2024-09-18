@@ -205,7 +205,7 @@
     "firmware_date": "24.11.2022",
     "product_version": "24.35.2000",
     "firmware_version": "24.35.2000",
-    "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
+    "part_description": "NVIDIA BlueField-3 B3220 P-Series FHHL DPU; 200GbE (default mode) / NDR200 IB; Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled",
     "factory_mac_address": "03:11:21:31:41:52 REPLACED BY TEST",
     "switches": [
       {
