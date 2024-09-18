@@ -422,10 +422,11 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct RedfishSimState {
     _hosts: HashMap<String, RedfishSimHostState>,
     users: HashMap<String, String>,
+    fw_version: Arc<String>,
 }
 
 #[derive(Debug, Default)]
@@ -433,12 +434,11 @@ struct RedfishSimHostState {
     power: PowerState,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RedfishSim {
     state: Arc<Mutex<RedfishSimState>>,
 }
 
-#[derive(Debug)]
 struct RedfishSimClient {
     state: Arc<Mutex<RedfishSimState>>,
     _host: String,
@@ -578,6 +578,7 @@ impl Redfish for RedfishSimClient {
         &self,
         _id: &str,
     ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
+        let state = self.state.lock().unwrap();
         Ok(serde_json::from_str(
             "{
             \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware\",
@@ -586,9 +587,11 @@ impl Redfish for RedfishSimClient {
             \"Id\": \"BMC_Firmware\",
             \"Name\": \"Software Inventory\",
             \"Updateable\": true,
-            \"Version\": \"BF-23.07-3\",
+            \"Version\": \"BF-FW-VERSION\",
             \"WriteProtected\": false
-          }",
+          }"
+            .replace("FW-VERSION", state.fw_version.as_str())
+            .as_str(),
         )
         .unwrap())
     }
@@ -597,6 +600,8 @@ impl Redfish for RedfishSimClient {
         &self,
         _firmware: tokio::fs::File,
     ) -> Result<libredfish::model::task::Task, RedfishError> {
+        let mut state = self.state.lock().unwrap();
+        state.fw_version = Arc::new("23.10".to_string());
         Ok(serde_json::from_str(
             "{
             \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
@@ -1102,6 +1107,9 @@ impl RedfishClientPool for RedfishSim {
                 .or_insert(RedfishSimHostState {
                     power: PowerState::On,
                 });
+            if self.state.clone().lock().unwrap().fw_version.is_empty() {
+                self.state.clone().lock().unwrap().fw_version = Arc::new("23.07".to_string());
+            }
         }
         Ok(Box::new(RedfishSimClient {
             state: self.state.clone(),

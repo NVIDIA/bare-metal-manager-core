@@ -153,7 +153,6 @@ impl StateControllerIO for MachineStateControllerIO {
             match discovering_state {
                 DpuDiscoveringState::Initializing => "dpuinitializing",
                 DpuDiscoveringState::Configuring => "dpuconfiguring",
-                DpuDiscoveringState::BmcFirmwareUpdate { .. } => "dpubmcfirmwareupdate",
                 DpuDiscoveringState::DisableSecureBoot { .. } => "disablesecureboot",
                 DpuDiscoveringState::SetUefiHttpBoot { .. } => "setuefihttpboot",
                 DpuDiscoveringState::RebootAllDPUS => "rebootalldpus",
@@ -249,9 +248,6 @@ impl StateControllerIO for MachineStateControllerIO {
                     | DpuDiscoveringState::DisableSecureBoot { .. }
                     | DpuDiscoveringState::SetUefiHttpBoot
                     | DpuDiscoveringState::RebootAllDPUS => {
-                        time_in_state > std::time::Duration::from_secs(30 * 60)
-                    }
-                    DpuDiscoveringState::BmcFirmwareUpdate { .. } => {
                         time_in_state > std::time::Duration::from_secs(30 * 60)
                     }
                 }

@@ -621,6 +621,9 @@ impl ManagedHostState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
+    BmcFirmwareUpgrade {
+        substate: BmcFirmwareUpgradeSubstate,
+    },
     FirmwareUpgrade,
     PoweringOffHost,
     PowerDown,
@@ -763,6 +766,53 @@ impl ReprovisionState {
             )),
         }
     }
+
+    pub fn next_bmc_updrade_step(
+        &self,
+        current_state: &ManagedHostStateSnapshot,
+        dpu_snapshot: &MachineSnapshot,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let dpu_machine_id = &dpu_snapshot.machine_id;
+        match current_state.managed_state.clone() {
+            ManagedHostState::DPUReprovision { dpu_states } => {
+                let mut states = dpu_states.states.clone();
+                states.insert(dpu_machine_id.clone(), self.clone());
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states },
+                })
+            }
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision { dpu_states },
+            } => match self {
+                ReprovisionState::BmcFirmwareUpgrade {
+                    substate: BmcFirmwareUpgradeSubstate::Failed { failure_details },
+                } => Ok(ManagedHostState::Assigned {
+                    instance_state: InstanceState::Failed {
+                        details: FailureDetails {
+                            cause: FailureCause::Reprovisioning {
+                                err: failure_details.clone(),
+                            },
+                            failed_at: chrono::Utc::now(),
+                            source: FailureSource::StateMachine,
+                        },
+                        machine_id: dpu_machine_id.clone(),
+                    },
+                }),
+                _ => {
+                    let mut states = dpu_states.states.clone();
+                    states.insert(dpu_machine_id.clone(), self.clone());
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::DPUReprovision {
+                            dpu_states: DpuReprovisionStates { states },
+                        },
+                    })
+                }
+            },
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to Reprovision::next_bmc_updrade_step.".to_string(),
+            )),
+        }
+    }
 }
 
 /// MeasuringState contains states used for host attestion (or
@@ -814,6 +864,7 @@ pub enum FailureCause {
     NoError,
     NVMECleanFailed { err: String },
     Discovery { err: String },
+    Reprovisioning { err: String },
     MachineValidation { err: String },
     UnhandledState { err: String },
 
@@ -863,13 +914,17 @@ pub struct FailureDetails {
 // Since order is derived, Enum members must be in initial to last state sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "bmcfirmwareupdatesubstate", rename_all = "lowercase")]
-pub enum BmcFirmwareUpdateSubstate {
+pub enum BmcFirmwareUpgradeSubstate {
+    CheckFwVersion,
     WaitForUpdateCompletion {
         firmware_type: FirmwareComponentType,
         task_id: String,
     },
     Reboot {
         count: u32,
+    },
+    Failed {
+        failure_details: String,
     },
 }
 
@@ -878,9 +933,6 @@ pub enum BmcFirmwareUpdateSubstate {
 pub enum DpuDiscoveringState {
     /// Dpu discovery via redfish states
     Initializing,
-    BmcFirmwareUpdate {
-        substate: BmcFirmwareUpdateSubstate,
-    },
     Configuring,
     RebootAllDPUS,
     DisableSecureBoot {
@@ -1201,6 +1253,7 @@ impl Display for FailureCause {
             FailureCause::NVMECleanFailed { .. } => write!(f, "NVMECleanFailed"),
             FailureCause::NoError => write!(f, "NoError"),
             FailureCause::Discovery { .. } => write!(f, "Discovery"),
+            FailureCause::Reprovisioning { .. } => write!(f, "Reprovisioning"),
             FailureCause::UnhandledState { .. } => write!(f, "UnknownState"),
             FailureCause::MeasurementsFailedSignatureCheck { .. } => {
                 write!(f, "MeasurementsFailedSignatureCheck")

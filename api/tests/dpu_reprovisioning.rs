@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use carbide::cfg::FirmwareComponentType;
+use forge_uuid::machine::MachineId;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,8 +14,8 @@ use std::collections::HashMap;
  * its affiliates is strictly prohibited.
  */
 use carbide::model::machine::{
-    DpuInitState, InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState,
-    ReprovisionState,
+    DpuInitState, FailureDetails, InstanceState, MachineLastRebootRequestedMode, MachineState,
+    ManagedHostState, ReprovisionState,
 };
 use carbide::state_controller::machine::handler::MachineStateHandlerBuilder;
 use carbide::{
@@ -21,7 +23,7 @@ use carbide::{
         self,
         machine::{Machine, MachineSearchConfig},
     },
-    model::machine::FailureDetails,
+    model::machine::BmcFirmwareUpgradeSubstate,
 };
 use chrono::Utc;
 use common::api_fixtures::managed_host::create_managed_host_multi_dpu;
@@ -29,6 +31,7 @@ use common::api_fixtures::{create_test_env, reboot_completed};
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::MachineArchitecture;
+use sqlx::{Postgres, Transaction};
 
 pub mod common;
 
@@ -107,7 +110,7 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
     assert!(dpu.reprovisioning_requested().is_none(),);
 }
 
-async fn trigger_dpu_reprovisioning(
+pub async fn trigger_dpu_reprovisioning(
     env: &TestEnv,
     machine_id: String,
     mode: Mode,
@@ -127,6 +130,77 @@ async fn trigger_dpu_reprovisioning(
         ))
         .await
         .unwrap();
+}
+
+pub async fn trigger_bmc_fw_update(
+    txn: &mut Transaction<'_, Postgres>,
+    dpu_machine_id: &MachineId,
+    env: &TestEnv,
+) {
+    let dpu = Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
+                    }
+                )]),
+            },
+        }
+    );
+    env.run_machine_state_controller_iteration().await;
+    let dpu = Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu.id().clone(),
+                    carbide::model::machine::ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
+                            firmware_type: FirmwareComponentType::Bmc,
+                            task_id: "0".to_string()
+                        }
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    carbide::model::machine::ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 }
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    env.run_machine_state_controller_iteration().await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
@@ -189,13 +263,20 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
+    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
     assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: carbide::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
                     dpu_machine_id.clone(),
-                    ReprovisionState::FirmwareUpgrade
+                    carbide::model::machine::ReprovisionState::FirmwareUpgrade
                 )]),
             },
         }
@@ -771,7 +852,81 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
                 dpu_states: carbide::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
                         dpu_machine_id.clone(),
-                        ReprovisionState::FirmwareUpgrade
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
+                        }
+                    )]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu.id().clone(),
+                        carbide::model::machine::ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
+                                firmware_type: FirmwareComponentType::Bmc,
+                                task_id: "0".to_string()
+                            }
+                        }
+                    )]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        carbide::model::machine::ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 }
+                        }
+                    )]),
+                },
+            }
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        carbide::model::machine::ReprovisionState::FirmwareUpgrade
                     )]),
                 },
             }
@@ -1474,6 +1629,13 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
+    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
     assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
@@ -1732,6 +1894,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
     let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_firmware_config())
         .dpu_up_threshold(chrono::Duration::minutes(5))
         .dpu_nic_firmware_initial_update_enabled(true)
         .dpu_nic_firmware_reprovision_update_enabled(true)
@@ -1751,6 +1914,13 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         dpu.last_reboot_requested().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
+
+    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         dpu.current_state(),
@@ -2009,6 +2179,8 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
+
+    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -2147,6 +2319,39 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         dpu.last_reboot_requested().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (
+                        dpu_machine_id_1.clone(),
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
+                        }
+                    ),
+                    (
+                        dpu_machine_id_2.clone(),
+                        ReprovisionState::NotUnderReprovision
+                    )
+                ]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await; // CheckFwVersion -> UpdateBmcFw
+
+    env.run_machine_state_controller_iteration().await; // UpdateBmcFw -> Reboot
+
+    env.run_machine_state_controller_iteration().await; // Reboot -> CheckFwVersion
+
+    env.run_machine_state_controller_iteration().await; // CheckFwVersion -> FirmwareUpgrade
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         dpu.current_state(),
@@ -2478,6 +2683,43 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         dpu.last_reboot_requested().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (
+                        dpu_machine_id_1.clone(),
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
+                        }
+                    ),
+                    (
+                        dpu_machine_id_2.clone(),
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
+                        }
+                    )
+                ]),
+            },
+        }
+    );
+
+    for _dpu in 0..2 {
+        env.run_machine_state_controller_iteration().await; // CheckFwVersion -> UpdateBmcFw
+
+        env.run_machine_state_controller_iteration().await; // UpdateBmcFw -> Reboot
+
+        env.run_machine_state_controller_iteration().await; // Reboot -> CheckFwVersion
+
+        env.run_machine_state_controller_iteration().await; // CheckFwVersion -> FirmwareUpgrade
+    }
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         dpu.current_state(),

@@ -39,7 +39,7 @@ use crate::{
     },
     model::{
         machine::{
-            all_equal, get_display_ids, BmcFirmwareUpdateSubstate, CleanupState,
+            all_equal, get_display_ids, BmcFirmwareUpgradeSubstate, CleanupState,
             DpuDiscoveringState, DpuInitState, FailureCause, FailureDetails, FailureSource,
             HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
@@ -203,12 +203,12 @@ impl MachineStateHandler {
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 builder.dpu_nic_firmware_initial_update_enabled,
-                builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.dpu_nic_firmware_reprovision_update_enabled,
                 builder.reachability_params,
+                builder.hardware_models.clone().unwrap_or_default(),
             ),
             reachability_params: builder.reachability_params,
             parsed_hosts: Arc::new(builder.hardware_models.unwrap_or_default()),
@@ -487,7 +487,9 @@ impl MachineStateHandler {
                     });
 
                     let reprov_state = if is_firmware_upgrade_needed {
-                        ReprovisionState::FirmwareUpgrade
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+                        }
                     } else {
                         set_managed_host_topology_update_needed(
                             txn,
@@ -801,6 +803,7 @@ impl MachineStateHandler {
                         txn,
                         &MachineNextStateResolver,
                         dpu_snapshot,
+                        self.parsed_hosts.clone().as_ref(),
                     )
                     .await?
                     {
@@ -869,7 +872,9 @@ impl MachineStateHandler {
                 .instance_handler
                 .dpu_nic_firmware_reprovision_update_enabled
         {
-            ReprovisionState::FirmwareUpgrade
+            ReprovisionState::BmcFirmwareUpgrade {
+                substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+            }
         } else {
             set_managed_host_topology_update_needed(txn, &state.host_snapshot, dpus_for_reprov)
                 .await?;
@@ -922,7 +927,9 @@ impl MachineStateHandler {
             }
             ManagedHostState::DPUReprovision { .. } => {
                 let next_reprov_state = if upgrade_firmware {
-                    ReprovisionState::FirmwareUpgrade
+                    ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+                    }
                 } else {
                     set_managed_host_topology_update_needed(
                         txn,
@@ -1853,6 +1860,281 @@ async fn get_measurement_failure_cause(
     Ok(failure_cause)
 }
 
+/// Return `DpuModel` if the explored endpoint is a DPU
+pub fn identify_dpu(dpu_snapshot: &MachineSnapshot) -> DpuModel {
+    let model = dpu_snapshot
+        .hardware_info
+        .as_ref()
+        .and_then(|hi| {
+            hi.dpu_info
+                .as_ref()
+                .map(|di| di.part_description.to_string())
+        })
+        .unwrap_or("".to_string());
+    model.into()
+}
+
+async fn component_update(
+    redfish: &dyn Redfish,
+    component: FirmwareComponentType,
+    component_value: &FirmwareEntry,
+) -> Result<Option<Task>, StateHandlerError> {
+    let redfish_component_name = match component {
+        // Note: DPU uses different name for BMC Firmware as
+        // BF2: 6d53cf4d_BMC_Firmware
+        // BF3: BMC_Firmware
+        FirmwareComponentType::Bfb => "DPU_OS",
+        FirmwareComponentType::Bmc => "BMC_Firmware",
+        FirmwareComponentType::Uefi => "DPU_UEFI",
+        FirmwareComponentType::Cec => "Bluefield_FW_ERoT",
+        FirmwareComponentType::Unknown => "Unknown",
+    };
+    let inventories =
+        redfish
+            .get_software_inventories()
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "get_software_inventories",
+                error: e,
+            })?;
+
+    let inventory_id = inventories
+        .iter()
+        .find(|i| i.contains(redfish_component_name))
+        .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
+            "No inventory found that matches: {}",
+            redfish_component_name
+        )))?;
+
+    let inventory = match redfish.get_firmware(inventory_id).await {
+        Ok(inventory) => inventory,
+        Err(e) => {
+            tracing::error!("redfish command get_firmware error {}", e.to_string());
+            return Err(StateHandlerError::RedfishError {
+                operation: "get_firmware",
+                error: e,
+            });
+        }
+    };
+
+    if inventory.version.is_none() {
+        let msg = format!("Unknown {:?} version", component);
+        tracing::error!(msg);
+        return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
+    };
+
+    let cur_version = inventory.version.unwrap_or("0".to_string());
+    let update_version = &component_value.version;
+
+    match version_compare::compare_to(
+        cur_version.clone(),
+        update_version,
+        version_compare::Cmp::Ge,
+    ) {
+        Ok(update_is_not_needed) => {
+            if update_is_not_needed {
+                return Ok(None);
+            }
+        }
+        Err(e) => {
+            return Err(StateHandlerError::FirmwareUpdateError(eyre!(
+                    "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
+                )));
+        }
+    };
+
+    let update_path = component_value.filename.as_ref().unwrap();
+    let update_file = File::open(update_path).await.map_err(|e| {
+        StateHandlerError::FirmwareUpdateError(eyre!(
+            "Failed to open {:?} path {} with error {}",
+            component,
+            update_path,
+            e.to_string()
+        ))
+    })?;
+
+    tracing::info!("Updating {redfish_component_name} from {cur_version} to {update_version}");
+    match redfish.update_firmware(update_file).await {
+        Ok(task) => Ok(Some(task)),
+        Err(e) => {
+            tracing::error!("redfish command update_firmware error {}", e.to_string());
+            Err(StateHandlerError::RedfishError {
+                operation: "update_firmware",
+                error: e,
+            })
+        }
+    }
+}
+
+async fn handle_dpu_reprovision_bmc_firmware_upgrade(
+    state: &ManagedHostStateSnapshot,
+    substate: &BmcFirmwareUpgradeSubstate,
+    dpu_snapshot: &MachineSnapshot,
+    hardware_models: &FirmwareConfig,
+    services: &StateHandlerServices,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match substate {
+        BmcFirmwareUpgradeSubstate::Failed { .. } => Ok(StateHandlerOutcome::DoNothing),
+        BmcFirmwareUpgradeSubstate::CheckFwVersion => {
+            let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
+                dpu_snapshot.bmc_addr(),
+                &services.redfish_client_pool,
+                txn,
+            )
+            .await;
+
+            let dpu_redfish_client = match dpu_redfish_client_result {
+                Ok(redfish_client) => redfish_client,
+                Err(e) => {
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "Waiting for RedFish to become available: {:?}",
+                        e
+                    )))
+                }
+            };
+
+            let model = identify_dpu(dpu_snapshot);
+            if let Some(dpu_desc) =
+                hardware_models.find(bmc_vendor::BMCVendor::Nvidia, model.to_string())
+            {
+                let mut ordering = dpu_desc.ordering.clone();
+                if ordering.is_empty() {
+                    ordering.push(FirmwareComponentType::Bmc);
+                    ordering.push(FirmwareComponentType::Cec);
+                }
+
+                for dpu_component in ordering {
+                    if let Some(dpu_component_value) = dpu_desc.components.get(&dpu_component) {
+                        if !dpu_component_value.known_firmware.is_empty() {
+                            let task = component_update(
+                                &*dpu_redfish_client,
+                                dpu_component,
+                                &dpu_component_value.known_firmware[0],
+                            )
+                            .await?;
+                            if task.is_some() {
+                                let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                                    substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
+                                        firmware_type: dpu_component,
+                                        task_id: task.unwrap().id,
+                                    },
+                                }
+                                .next_bmc_updrade_step(state, dpu_snapshot)?;
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            };
+                        }
+                    }
+                }
+            }
+
+            Ok(StateHandlerOutcome::Transition(
+                ReprovisionState::FirmwareUpgrade.next_bmc_updrade_step(state, dpu_snapshot)?,
+            ))
+        }
+        BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
+            firmware_type,
+            task_id,
+        } => {
+            let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+                dpu_snapshot.bmc_addr(),
+                &services.redfish_client_pool,
+                txn,
+            )
+            .await?;
+
+            let task = dpu_redfish_client.get_task(task_id).await.map_err(|e| {
+                StateHandlerError::RedfishError {
+                    operation: "get_task",
+                    error: e,
+                }
+            })?;
+
+            tracing::info!("{:?} FW update task: {:#?}", firmware_type, task);
+
+            match task.task_state {
+                Some(TaskState::Completed) => {
+                    if *firmware_type == FirmwareComponentType::Cec {
+                        dpu_redfish_client
+                            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "chassis_reset",
+                                error: e,
+                            })?;
+                    }
+
+                    dpu_redfish_client.bmc_reset().await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "bmc_reset",
+                            error: e,
+                        }
+                    })?;
+
+                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 },
+                    }
+                    .next_bmc_updrade_step(state, dpu_snapshot)?;
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                Some(TaskState::Exception) => {
+                    let msg = format!(
+                        "Failed to update FW:  {:#?}",
+                        task.messages
+                            .last()
+                            .map_or("".to_string(), |m| m.message.clone())
+                    );
+
+                    tracing::error!(msg);
+                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::Failed {
+                            failure_details: msg,
+                        },
+                    }
+                    .next_bmc_updrade_step(state, dpu_snapshot)?;
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                Some(_) => {
+                    // TODO: Are any of these states an error? Or we're waiting for something
+                    Ok(StateHandlerOutcome::DoNothing)
+                }
+                None => Err(StateHandlerError::GenericError(eyre!(
+                    "No task state field in task: {:#?}",
+                    task
+                ))),
+            }
+        }
+        BmcFirmwareUpgradeSubstate::Reboot { count } => {
+            match build_redfish_client_from_bmc_ip(
+                dpu_snapshot.bmc_addr(),
+                &services.redfish_client_pool,
+                txn,
+            )
+            .await
+            {
+                Ok(_client) => {
+                    // Go again to CheckFvVersion- if all BMC FW is up to date - it'll transition to NicFwUpdate
+                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+                    }
+                    .next_bmc_updrade_step(state, dpu_snapshot)?;
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                Err(_e) => {
+                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: count + 1 },
+                    }
+                    .next_bmc_updrade_step(state, dpu_snapshot)?;
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+            }
+        }
+    }
+}
+
 /// Handle workflow of DPU reprovision
 async fn handle_dpu_reprovision(
     state: &ManagedHostStateSnapshot,
@@ -1861,6 +2143,7 @@ async fn handle_dpu_reprovision(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     next_state_resolver: &impl NextReprovisionState,
     dpu_snapshot: &MachineSnapshot,
+    hardware_models: &FirmwareConfig,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.machine_id;
     let reprovision_state = state
@@ -1869,6 +2152,17 @@ async fn handle_dpu_reprovision(
         .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?;
 
     match reprovision_state {
+        ReprovisionState::BmcFirmwareUpgrade { substate } => {
+            handle_dpu_reprovision_bmc_firmware_upgrade(
+                state,
+                substate,
+                dpu_snapshot,
+                hardware_models,
+                services,
+                txn,
+            )
+            .await
+        }
         ReprovisionState::FirmwareUpgrade => {
             // Firmware upgrade is going on. Lets wait for it to over.
             let dpus_snapshots_for_reprov = &state
@@ -2187,140 +2481,17 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 #[derive(Debug, Clone)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
-    hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
 }
 
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
-        hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
-            hardware_models,
             reachability_params,
-        }
-    }
-
-    /// Return `DpuModel` if the explored endpoint is a DPU
-    pub fn identify_dpu(&self, dpu_snapshot: &MachineSnapshot) -> DpuModel {
-        let model = dpu_snapshot
-            .hardware_info
-            .as_ref()
-            .and_then(|hi| {
-                hi.dpu_info
-                    .as_ref()
-                    .map(|di| di.part_description.to_string())
-            })
-            .unwrap_or("".to_string());
-        model.into()
-    }
-
-    async fn component_update(
-        &self,
-        redfish: &dyn Redfish,
-        component: FirmwareComponentType,
-        component_value: &FirmwareEntry,
-    ) -> Result<Option<Task>, StateHandlerError> {
-        let redfish_component_name = match component {
-            // Note: DPU uses different name for BMC Firmware as
-            // BF2: 6d53cf4d_BMC_Firmware
-            // BF3: BMC_Firmware
-            FirmwareComponentType::Bfb => "DPU_OS",
-            FirmwareComponentType::Bmc => "BMC_Firmware",
-            FirmwareComponentType::Uefi => "DPU_UEFI",
-            FirmwareComponentType::Cec => "Bluefield_FW_ERoT",
-            FirmwareComponentType::Unknown => "Unknown",
-        };
-        let inventories = redfish.get_software_inventories().await.map_err(|e| {
-            StateHandlerError::RedfishError {
-                operation: "get_software_inventories",
-                error: e,
-            }
-        })?;
-
-        let inventory_id = inventories
-            .iter()
-            .find(|i| i.contains(redfish_component_name))
-            .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
-                "No inventory found that matches: {}",
-                redfish_component_name
-            )))?;
-
-        let inventory = match redfish.get_firmware(inventory_id).await {
-            Ok(inventory) => inventory,
-            Err(e) => {
-                tracing::error!("redfish command get_firmware error {}", e.to_string());
-                return Err(StateHandlerError::RedfishError {
-                    operation: "get_firmware",
-                    error: e,
-                });
-            }
-        };
-
-        if inventory.version.is_none() {
-            let msg = format!("Unknown {:?} version", component);
-            tracing::error!(msg);
-            return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
-        };
-
-        let cur_version = inventory.version.unwrap_or("0".to_string());
-        let update_version = &component_value.version;
-
-        match version_compare::compare_to(
-            cur_version.clone(),
-            update_version,
-            version_compare::Cmp::Ge,
-        ) {
-            Ok(update_is_not_needed) => {
-                if update_is_not_needed {
-                    return Ok(None);
-                }
-            }
-            Err(e) => {
-                return Err(StateHandlerError::FirmwareUpdateError(eyre!(
-                        "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
-                    )));
-            }
-        };
-
-        let update_path = component_value.filename.as_ref().unwrap();
-        let update_file = File::open(update_path).await.map_err(|e| {
-            StateHandlerError::FirmwareUpdateError(eyre!(
-                "Failed to open {:?} path {} with error {}",
-                component,
-                update_path,
-                e.to_string()
-            ))
-        })?;
-
-        tracing::info!("Updating {redfish_component_name} from {cur_version} to {update_version}");
-        match redfish.update_firmware(update_file).await {
-            Ok(task) => Ok(Some(task)),
-            Err(e) => {
-                tracing::error!("redfish command update_firmware error {}", e.to_string());
-                Err(StateHandlerError::RedfishError {
-                    operation: "update_firmware",
-                    error: e,
-                })
-            }
-        }
-    }
-
-    fn get_discovery_failure(&self, msg: String, machine_id: &MachineId) -> ManagedHostState {
-        tracing::error!(msg);
-        let failure_details = FailureDetails {
-            cause: FailureCause::Discovery { err: msg },
-            failed_at: chrono::Utc::now(),
-            source: FailureSource::StateMachine,
-        };
-
-        ManagedHostState::Failed {
-            details: failure_details,
-            machine_id: machine_id.clone(),
-            retry_count: 0,
         }
     }
 
@@ -2430,154 +2601,7 @@ impl DpuMachineStateHandler {
                     .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            DpuDiscoveringState::BmcFirmwareUpdate {
-                substate:
-                    BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                        firmware_type,
-                        task_id,
-                    },
-            } => {
-                let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await?;
-
-                let task = dpu_redfish_client.get_task(task_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_task",
-                        error: e,
-                    }
-                })?;
-
-                tracing::info!("{:?} FW update task: {:#?}", firmware_type, task);
-
-                match task.task_state {
-                    Some(TaskState::Completed) => {
-                        if *firmware_type == FirmwareComponentType::Cec {
-                            dpu_redfish_client
-                                .chassis_reset(
-                                    "Bluefield_ERoT",
-                                    SystemPowerControl::GracefulRestart,
-                                )
-                                .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "chassis_reset",
-                                    error: e,
-                                })?;
-                        }
-                        dpu_redfish_client.bmc_reset().await.map_err(|e| {
-                            StateHandlerError::RedfishError {
-                                operation: "bmc_reset",
-                                error: e,
-                            }
-                        })?;
-                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                            substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
-                        }
-                        .next_state(&state.managed_state, dpu_machine_id)?;
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
-                    Some(TaskState::Exception) => {
-                        let msg = format!(
-                            "Failed to update FW:  {:#?}",
-                            task.messages
-                                .last()
-                                .map_or("".to_string(), |m| m.message.clone())
-                        );
-                        let next_state = self.get_discovery_failure(msg, dpu_machine_id);
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
-                    Some(_) => {
-                        // TODO: Are any of these states an error? Or we're waiting for something
-                        Ok(StateHandlerOutcome::DoNothing)
-                    }
-                    None => Err(StateHandlerError::GenericError(eyre!(
-                        "No task state field in task: {:#?}",
-                        task
-                    ))),
-                }
-            }
-            DpuDiscoveringState::BmcFirmwareUpdate {
-                substate: BmcFirmwareUpdateSubstate::Reboot { count },
-            } => {
-                match build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await
-                {
-                    Ok(_client) => {
-                        let next_state = DpuDiscoveringState::Configuring
-                            .next_state(&state.managed_state, dpu_machine_id)?;
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
-                    Err(_e) => {
-                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                            substate: BmcFirmwareUpdateSubstate::Reboot { count: count + 1 },
-                        }
-                        .next_state(&state.managed_state, dpu_machine_id)?;
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
-                }
-            }
             DpuDiscoveringState::Configuring => {
-                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await;
-
-                let dpu_redfish_client = match dpu_redfish_client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Waiting for RedFish to become available: {:?}",
-                            e
-                        )))
-                    }
-                };
-
-                let model = self.identify_dpu(dpu_snapshot);
-                if let Some(dpu_desc) = self
-                    .hardware_models
-                    .find(bmc_vendor::BMCVendor::Nvidia, model.to_string())
-                {
-                    let mut ordering = dpu_desc.ordering.clone();
-                    if ordering.is_empty() {
-                        ordering.push(FirmwareComponentType::Bmc);
-                        ordering.push(FirmwareComponentType::Cec);
-                    }
-
-                    for dpu_component in ordering {
-                        if let Some(dpu_component_value) = dpu_desc.components.get(&dpu_component) {
-                            if !dpu_component_value.known_firmware.is_empty() {
-                                let task = self
-                                    .component_update(
-                                        &*dpu_redfish_client,
-                                        dpu_component,
-                                        &dpu_component_value.known_firmware[0],
-                                    )
-                                    .await?;
-                                if task.is_some() {
-                                    let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
-                                        substate:
-                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                firmware_type: dpu_component,
-                                                task_id: task.unwrap().id,
-                                            },
-                                    }
-                                    .next_state(&state.managed_state, dpu_machine_id)?;
-                                    return Ok(StateHandlerOutcome::Transition(next_state));
-                                };
-                            }
-                        }
-                    }
-                }
-
                 let next_state = DpuDiscoveringState::DisableSecureBoot { count: 0 }
                     .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
@@ -3761,16 +3785,19 @@ impl StateHandler for HostMachineStateHandler {
 pub struct InstanceStateHandler {
     dpu_nic_firmware_reprovision_update_enabled: bool,
     reachability_params: ReachabilityParams,
+    hardware_models: FirmwareConfig,
 }
 
 impl InstanceStateHandler {
     pub fn new(
         dpu_nic_firmware_reprovision_update_enabled: bool,
         reachability_params: ReachabilityParams,
+        hardware_models: FirmwareConfig,
     ) -> Self {
         InstanceStateHandler {
             dpu_nic_firmware_reprovision_update_enabled,
             reachability_params,
+            hardware_models,
         }
     }
 }
@@ -4091,7 +4118,9 @@ impl StateHandler for InstanceStateHandler {
                         let reprovision_state = if is_firmware_upgrade_needed
                             && self.dpu_nic_firmware_reprovision_update_enabled
                         {
-                            ReprovisionState::FirmwareUpgrade
+                            ReprovisionState::BmcFirmwareUpgrade {
+                                substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+                            }
                         } else {
                             set_managed_host_topology_update_needed(
                                 txn,
@@ -4184,6 +4213,7 @@ impl StateHandler for InstanceStateHandler {
                             txn,
                             &InstanceNextStateResolver,
                             dpu_snapshot,
+                            &self.hardware_models,
                         )
                         .await?
                         {
