@@ -9,21 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::api_server::StartArgs;
-use crate::{api_server, find_prerequisites, vault, vault::Vault};
-use carbide::logging::setup::{setup_telemetry, TelemetrySetup};
-use carbide::logging::sqlx_query_tracing;
-use carbide::setup;
-use eyre::{Report, WrapErr};
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use lazy_static::lazy_static;
-use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
 use std::{
     env,
     net::{SocketAddr, TcpListener},
     path::PathBuf,
     time::Duration,
 };
+
+use carbide::logging::setup::{create_metrics, setup_logging, Logging, Metrics};
+use carbide::logging::sqlx_query_tracing;
+use carbide::setup;
+use eyre::{Report, WrapErr};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use lazy_static::lazy_static;
+use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
 use tokio::sync::oneshot::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -34,6 +33,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use utils::HostPortPair;
+
+use crate::api_server::StartArgs;
+use crate::{api_server, find_prerequisites, vault, vault::Vault};
 
 lazy_static! {
     // Note: We can only initialize logging once in a process, or else we get an error:
@@ -46,9 +48,9 @@ lazy_static! {
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
     //
-    // So we pass a TelemetrySetup object to carbide-api so it can avoid initializing it itself, and
+    // So we pass a LoggingSetup object to carbide-api so it can avoid initializing it itself, and
     // we re-use this object for multiple tests.
-    static ref TELEMETRY_SETUP: Mutex<Option<TelemetrySetup>> = Mutex::new(None);
+    static ref LOGGING_SETUP: Mutex<Option<Logging>> = Mutex::new(None);
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +60,8 @@ pub struct IntegrationTestEnvironment {
     pub carbide_metrics_addr: SocketAddr,
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
-    pub telemetry_setup: TelemetrySetup,
+    pub logging_setup: Logging,
+    pub metrics: Metrics,
 }
 
 impl IntegrationTestEnvironment {
@@ -81,16 +84,16 @@ impl IntegrationTestEnvironment {
         // TODO: Also pick a free port for metrics
         let carbide_metrics_addr: SocketAddr = "127.0.0.1:1080".parse().unwrap();
 
-        let telemetry_setup = {
-            let mut locked = TELEMETRY_SETUP.lock().await;
+        let logging_setup = {
+            let mut locked = LOGGING_SETUP.lock().await;
             match locked.as_ref() {
                 Some(t) => t.clone(),
                 None => {
-                    let telemetry_setup = setup_telemetry(0, Some(test_logging_subscriber()))
+                    let logging_setup = setup_logging(0, Some(test_logging_subscriber()))
                         .await
                         .wrap_err("try_from_environment().setup_telemetry()")?;
-                    _ = locked.insert(telemetry_setup.clone());
-                    telemetry_setup
+                    _ = locked.insert(logging_setup.clone());
+                    logging_setup
                 }
             }
         };
@@ -106,7 +109,8 @@ impl IntegrationTestEnvironment {
             carbide_metrics_addr,
             db_url,
             db_pool,
-            telemetry_setup,
+            logging_setup,              // singleton
+            metrics: create_metrics()?, // unique to each test
         }))
     }
 }
@@ -164,7 +168,8 @@ pub async fn start_api_server(
         db_url,
         root_dir,
         carbide_metrics_addr: _,
-        telemetry_setup,
+        logging_setup,
+        metrics,
     } = test_env;
 
     // We should setup logging here but:
@@ -196,7 +201,7 @@ pub async fn start_api_server(
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let telemetry_setup_clone = telemetry_setup.clone();
+    let logging_setup_clone = logging_setup.clone();
     let join_handle = tokio::spawn(async move {
         api_server::start(StartArgs {
             addr: carbide_api_addr,
@@ -204,7 +209,7 @@ pub async fn start_api_server(
             db_url,
             vault_token,
             bmc_proxy,
-            telemetry_setup: telemetry_setup_clone,
+            logging_setup: logging_setup_clone,
             site_explorer_create_machines,
             stop_channel: stop_rx,
             ready_channel: ready_tx,
@@ -216,7 +221,7 @@ pub async fn start_api_server(
     });
 
     ready_rx.await.unwrap();
-    populate_initial_vault_secrets(&telemetry_setup).await?;
+    populate_initial_vault_secrets(&metrics).await?;
 
     Ok(ApiServerHandle {
         stop_channel: Some(stop_tx),
@@ -271,10 +276,8 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
     )
 }
 
-pub async fn populate_initial_vault_secrets(
-    telemetry_setup: &TelemetrySetup,
-) -> Result<(), Report> {
-    let vault_client = setup::create_vault_client(telemetry_setup.meter.clone()).await?;
+pub async fn populate_initial_vault_secrets(metrics: &Metrics) -> Result<(), Report> {
+    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
     vault_client
         .set_credentials(
             CredentialKey::BmcCredentials {

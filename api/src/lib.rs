@@ -14,12 +14,12 @@
 //! The Carbide API server library.
 //!
 
-use crate::logging::setup::TelemetrySetup;
-use crate::logging::{
-    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-    setup::setup_telemetry,
+use std::sync::Arc;
+use std::{
+    backtrace::{Backtrace, BacktraceStatus},
+    net::IpAddr,
 };
-use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
+
 use ::rpc::errors::RpcDataConversionError;
 use config_version::{ConfigVersion, ConfigVersionParseError};
 use dhcp::allocation::DhcpError;
@@ -30,15 +30,18 @@ use model::{
     hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
     ConfigValidationError,
 };
-use std::sync::Arc;
-use std::{
-    backtrace::{Backtrace, BacktraceStatus},
-    net::IpAddr,
-};
 use tokio::sync::oneshot::{Receiver, Sender};
 use tonic::Status;
 use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
+
+use crate::logging::setup::Logging;
+use crate::logging::{
+    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    setup::create_metrics,
+    setup::setup_logging,
+};
+use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 
 pub mod api;
 #[cfg(feature = "tss-esapi")]
@@ -329,14 +332,14 @@ pub async fn run(
     config_str: String,
     site_config_str: Option<String>,
     override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
-    override_telemetry_setup: Option<TelemetrySetup>,
+    override_logging_setup: Option<Logging>,
     stop_channel: Receiver<()>,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let tconf = match override_telemetry_setup {
+    let tconf = match override_logging_setup {
         Some(t) => t,
-        None => setup_telemetry(debug, None::<NoSubscriber>)
+        None => setup_logging(debug, None::<NoSubscriber>)
             .await
             .wrap_err("setup_telemetry")?,
     };
@@ -359,6 +362,8 @@ pub async fn run(
         std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
     );
 
+    let metrics = create_metrics()?;
+
     // Spin up the webserver which servers `/metrics` requests
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         tokio::task::Builder::new()
@@ -366,7 +371,7 @@ pub async fn run(
             .spawn(async move {
                 if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
                     address: metrics_address,
-                    registry: tconf.registry,
+                    registry: metrics.registry,
                 })
                 .await
                 {
@@ -390,7 +395,7 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
+    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
     let redfish_pool = match override_redfish_pool {
         Some(pool) => {
             tracing::info!("Using override redfish client pool");
@@ -446,7 +451,7 @@ pub async fn run(
 
     setup::start_api(
         carbide_config,
-        tconf.meter,
+        metrics.meter,
         dynamic_settings,
         redfish_pool,
         vault_client,

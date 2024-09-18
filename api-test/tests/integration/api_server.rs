@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use chrono::Duration;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -20,9 +19,10 @@ use carbide::cfg::{
     SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::ib::{IBMtu, IBRateLimit, IBServiceLevel};
-use carbide::logging::setup::TelemetrySetup;
+use carbide::logging::setup::Logging;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
+use chrono::Duration;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
@@ -35,7 +35,7 @@ pub struct StartArgs {
     pub db_url: String,
     pub vault_token: String,
     pub bmc_proxy: Option<HostPortPair>,
-    pub telemetry_setup: TelemetrySetup,
+    pub logging_setup: Logging,
     pub site_explorer_create_machines: bool,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
@@ -48,7 +48,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         db_url,
         vault_token,
         bmc_proxy,
-        telemetry_setup,
+        logging_setup,
         site_explorer_create_machines,
         stop_channel,
         ready_channel,
@@ -257,7 +257,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         carbide_config_str,
         None,
         None,
-        Some(telemetry_setup),
+        Some(logging_setup),
         stop_channel,
         ready_channel,
     )

@@ -25,16 +25,20 @@ use super::level_filter::ActiveLevel;
 use crate::logging::sqlx_query_tracing;
 
 #[derive(Debug, Clone)]
-pub struct TelemetrySetup {
-    pub registry: prometheus::Registry,
-    pub meter: Meter,
+pub struct Logging {
     pub filter: Arc<ArcSwap<ActiveLevel>>,
 }
 
-pub async fn setup_telemetry(
+#[derive(Debug, Clone)]
+pub struct Metrics {
+    pub registry: prometheus::Registry,
+    pub meter: Meter,
+}
+
+pub async fn setup_logging(
     debug: u8,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
-) -> eyre::Result<TelemetrySetup> {
+) -> eyre::Result<Logging> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
 
@@ -84,12 +88,6 @@ pub async fn setup_telemetry(
         Filter::enabled(&dyn_filter_c.load().current, metadata, context)
     });
 
-    // This defines attributes that are set on the exported logs **and** metrics
-    let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
-        semcov::resource::SERVICE_NAME.string("carbide-api"),
-        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
-    ]);
-
     let logfmt_stdout_formatter = logfmt::layer();
 
     if let Some(logging_subscriber) = override_logging_subscriber {
@@ -117,10 +115,18 @@ pub async fn setup_telemetry(
             .wrap_err("new tracing subscriber try_init()")?;
     };
 
+    Ok(Logging { filter: dyn_filter })
+}
+
+pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError> {
     // This sets the global meter provider
     // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
     // for tracking milliseconds
     // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
+    let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
+        semcov::resource::SERVICE_NAME.string("carbide-api"),
+        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
+    ]);
     let prometheus_registry = prometheus::Registry::new();
     let metrics_exporter = opentelemetry_prometheus::exporter()
         .with_registry(prometheus_registry.clone())
@@ -136,10 +142,9 @@ pub async fn setup_telemetry(
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
 
-    Ok(TelemetrySetup {
+    Ok(Metrics {
         registry: prometheus_registry,
         meter: meter_provider.meter("carbide-api"),
-        filter: dyn_filter,
     })
 }
 
