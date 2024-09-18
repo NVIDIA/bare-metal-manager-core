@@ -280,9 +280,10 @@ impl MachineStateHandler {
                     ctx.metrics.dpus_up += 1;
                 }
 
-                // TODO: The last DPU wins here. We don't take all DPUs into account
-                ctx.metrics.machine_id = Some(observation.machine_id.clone());
-                ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
+                *ctx.metrics
+                    .client_certificate_expiry
+                    .entry(observation.machine_id.clone())
+                    .or_default() = observation.client_certificate_expiry;
             }
         }
 
