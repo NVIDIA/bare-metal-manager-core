@@ -627,6 +627,29 @@ async fn export_health_report(
         }),
     }
 
+    match &health.power_state {
+        Ok(power_state) => {
+            if *power_state != libredfish::PowerState::On {
+                report.alerts.push(HealthProbeAlert {
+                    id: HealthCheck::PoweredOff.to_stable_id(),
+                    target: None,
+                    in_alert_since: None,
+                    message: format!("System power state is {}", power_state),
+                    tenant_message: None,
+                    classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+                })
+            }
+        }
+        Err(e) => report.alerts.push(HealthProbeAlert {
+            id: HealthCheck::PoweredOff.to_stable_id(),
+            in_alert_since: None,
+            message: format!("Can not read power state: {e}"),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+            target: None,
+        }),
+    }
+
     match health.power {
         Ok(ref power) => {
             if let Some(voltages) = &power.voltages {
@@ -736,6 +759,7 @@ mod report {
         Temperature,
         FanSpeed,
         PowerSupply,
+        PoweredOff,
     }
 
     impl HealthCheck {
@@ -747,6 +771,7 @@ mod report {
                 Self::Temperature => "Temperature",
                 Self::FanSpeed => "FanSpeed",
                 Self::PowerSupply => "PowerSupply",
+                Self::PoweredOff => "PoweredOff",
             })
             .unwrap()
         }
@@ -759,6 +784,7 @@ mod report {
                 Self::Temperature => "Temperature out of bounds",
                 Self::FanSpeed => "Fan speed out of bounds",
                 Self::PowerSupply => "Power supply issue",
+                Self::PoweredOff => "System is powered off",
             }
         }
     }
