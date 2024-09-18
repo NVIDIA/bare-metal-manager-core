@@ -38,12 +38,12 @@ use std::time::SystemTime;
 use crate::HealthError;
 
 pub struct HardwareHealth {
-    thermal: Thermal,
-    power: Power,
-    power_state: PowerState,
-    gpu_sensors: Option<Vec<GPUSensors>>,
-    logs: Vec<LogEntry>,
-    firmware: Vec<SoftwareInventory>,
+    thermal: Result<Thermal, HealthError>,
+    power: Result<Power, HealthError>,
+    power_state: Result<PowerState, HealthError>,
+    gpu_sensors: Result<Option<Vec<GPUSensors>>, HealthError>,
+    logs: Result<Vec<LogEntry>, HealthError>,
+    firmware: Result<Vec<SoftwareInventory>, HealthError>,
 }
 
 pub struct DpuHealth {
@@ -75,43 +75,45 @@ pub struct HealthHashData {
 
 /// get all the metrics we want from the bmc
 // none of these are a patch/post and will not affect the bmc doing other patch/post ops
-pub async fn get_metrics(
-    redfish: Box<dyn Redfish>,
-    last_polled_ts: i64,
-) -> Result<HardwareHealth, HealthError> {
+pub async fn get_metrics(redfish: Box<dyn Redfish>, last_polled_ts: i64) -> HardwareHealth {
     // get the temperature, fans, voltages, power supplies, gpu sensors data from the bmc
-    let thermal = redfish.get_thermal_metrics().await?;
-    let power = redfish.get_power_metrics().await?;
-    let power_state = redfish.get_power_state().await?;
+    let thermal = redfish.get_thermal_metrics().await;
+    let power = redfish.get_power_metrics().await;
+    let power_state = redfish.get_power_state().await;
     let gpu_sensors = match redfish.get_gpu_sensors().await {
-        Ok(v) => Some(v),
-        Err(RedfishError::NotSupported(_)) => None,
-        Err(e) => return Err(e.into()),
+        Ok(v) => Ok(Some(v)),
+        Err(RedfishError::NotSupported(_)) => Ok(None),
+        Err(e) => Err(e),
     };
 
     // get the system/hardware event log
-    let mut logs: Vec<LogEntry> = Vec::new();
-    let mut firmware: Vec<SoftwareInventory> = Vec::new();
+    let mut logs = Ok(Vec::new());
+    let mut firmware = Ok(Vec::new());
     let now: DateTime<Utc> = Utc::now();
     // poll every 30 minutes for firmware versions and sel logs
     if (now.timestamp() - last_polled_ts) > (30 * 60) {
-        logs = redfish.get_system_event_log().await?;
+        logs = redfish.get_system_event_log().await;
         // get system firmware components versions, such as uefi, bmc, sbios, me, etc
-        let components = redfish.get_software_inventories().await?;
-        for component in components.iter() {
-            let version = redfish.get_firmware(component.as_str()).await?;
-            firmware.push(version);
+        async fn fetch_firmware(
+            redfish: Box<dyn Redfish>,
+        ) -> Result<Vec<SoftwareInventory>, HealthError> {
+            let components = redfish.get_software_inventories().await?;
+            let mut firmware = Vec::new();
+            for component in components.iter() {
+                firmware.push(redfish.get_firmware(component.as_str()).await?);
+            }
+            Ok(firmware)
         }
+        firmware = fetch_firmware(redfish).await;
     }
-    let health = HardwareHealth {
-        thermal,
-        power,
-        power_state,
-        gpu_sensors,
-        logs,
+    HardwareHealth {
+        thermal: thermal.map_err(|e| e.into()),
+        power: power.map_err(|e| e.into()),
+        power_state: power_state.map_err(|e| e.into()),
+        gpu_sensors: gpu_sensors.map_err(|e| e.into()),
+        logs: logs.map_err(|e| e.into()),
         firmware,
-    };
-    Ok(health)
+    }
 }
 
 pub async fn get_dpu_metrics(redfish: Box<dyn Redfish>) -> Result<Thermal, HealthError> {
@@ -433,58 +435,55 @@ pub async fn export_metrics(
     let now: DateTime<Utc> = Utc::now();
     let mut polled_ts: i64 = 0;
     let mut recorded_ts: i64 = 0;
-    export_temperatures(
-        meter.clone(),
-        health.thermal.temperatures,
-        machine_id,
-        false,
-    )?;
-    export_fans(meter.clone(), health.thermal.fans, machine_id)?;
-    export_voltages(meter.clone(), health.power.voltages, machine_id)?;
-    export_power_supplies(
-        meter.clone(),
-        health.power.power_supplies,
-        health.power_state,
-        machine_id,
-    )?;
+    if let Ok(thermal) = health.thermal {
+        export_temperatures(meter.clone(), thermal.temperatures, machine_id, false)?;
+        export_fans(meter.clone(), thermal.fans, machine_id)?;
+    }
+    if let (Ok(power), Ok(power_state)) = (health.power, health.power_state) {
+        export_voltages(meter.clone(), power.voltages, machine_id)?;
+        export_power_supplies(meter.clone(), power.power_supplies, power_state, machine_id)?;
+    }
 
     if let Some(thermal) = dpu_health.thermal {
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, true)?;
     }
-    if let Some(gpu_sensors) = health.gpu_sensors {
+    if let Ok(Some(gpu_sensors)) = health.gpu_sensors {
         export_gpu_sensors(meter.clone(), gpu_sensors, machine_id)?;
     }
 
     let mut firmware_digest = String::new();
-    let mut sel_count = health.logs.len();
-    if !health.firmware.is_empty() {
-        polled_ts = now.timestamp();
-        let mut hasher = Sha256::new();
-        for firmware in health.firmware.iter() {
-            if firmware.version.is_none() {
-                continue;
+    let mut sel_count = 0;
+    if let (Ok(logs), Ok(firmware)) = (health.logs, health.firmware) {
+        sel_count = logs.len();
+        if !firmware.is_empty() {
+            polled_ts = now.timestamp();
+            let mut hasher = Sha256::new();
+            for firmware in firmware.iter() {
+                if firmware.version.is_none() {
+                    continue;
+                }
+                hasher.update(firmware.id.clone());
+                hasher.update(firmware.version.clone().unwrap());
             }
-            hasher.update(firmware.id.clone());
-            hasher.update(firmware.version.clone().unwrap());
+            let firmware_digest_bytes = hasher.finalize();
+            firmware_digest = general_purpose::STANDARD_NO_PAD.encode(firmware_digest_bytes);
         }
-        let firmware_digest_bytes = hasher.finalize();
-        firmware_digest = general_purpose::STANDARD_NO_PAD.encode(firmware_digest_bytes);
-    }
-    if (!firmware_digest.is_empty() && firmware_digest != last_firmware_digest)
-        || (sel_count > 0 && sel_count != last_sel_count)
-        || (now.timestamp() - last_recorded_ts) > (24 * 60 * 60)
-    {
-        export_otel_logs(
-            logger,
-            health.firmware.clone(),
-            health.logs.clone(),
-            machine_id,
-            &description,
-        )?;
-        recorded_ts = polled_ts;
-    } else {
-        firmware_digest.clear();
-        sel_count = 0;
+        if (!firmware_digest.is_empty() && firmware_digest != last_firmware_digest)
+            || (sel_count > 0 && sel_count != last_sel_count)
+            || (now.timestamp() - last_recorded_ts) > (24 * 60 * 60)
+        {
+            export_otel_logs(
+                logger,
+                firmware.clone(),
+                logs.clone(),
+                machine_id,
+                &description,
+            )?;
+            recorded_ts = polled_ts;
+        } else {
+            firmware_digest.clear();
+            sel_count = 0;
+        }
     }
 
     Ok((
@@ -516,7 +515,7 @@ pub async fn scrape_machine_health(
         password: Some(health_hash.password.clone()),
     };
     let redfish = pool.create_client(endpoint.clone()).await?;
-    let health = get_metrics(redfish, health_hash.last_polled_ts).await?;
+    let health = get_metrics(redfish, health_hash.last_polled_ts).await;
 
     // try dpu metrics
     let mut scrape_dpu = true;
@@ -599,57 +598,80 @@ async fn export_health_report(
         alerts: vec![],
     };
 
-    report_resources(
-        &mut report,
-        health
-            .thermal
-            .fans
-            .iter()
-            .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status.health)),
-        HealthCheck::FanSpeed,
-    );
-
-    report_resources(
-        &mut report,
-        health
-            .thermal
-            .temperatures
-            .iter()
-            .map(|r| (Some(&r.name), r.status.health)),
-        HealthCheck::Temperature,
-    );
-
-    if let Some(voltages) = &health.power.voltages {
-        report_resources(
-            &mut report,
-            voltages.iter().map(|r| (Some(&r.name), r.status.health)),
-            HealthCheck::Voltage,
-        );
+    match health.thermal {
+        Ok(ref thermal) => {
+            report_resources(
+                &mut report,
+                thermal
+                    .fans
+                    .iter()
+                    .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status.health)),
+                HealthCheck::FanSpeed,
+            );
+            report_resources(
+                &mut report,
+                thermal
+                    .temperatures
+                    .iter()
+                    .map(|r| (Some(&r.name), r.status.health)),
+                HealthCheck::Temperature,
+            );
+        }
+        Err(ref e) => report.alerts.push(HealthProbeAlert {
+            id: HealthCheck::Thermal.to_stable_id(),
+            in_alert_since: None,
+            message: format!("{}: {e}", HealthCheck::Thermal.get_message()),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+            target: None,
+        }),
     }
 
-    if let Some(power_supplies) = &health.power.power_supplies {
-        let health_check = HealthCheck::PowerSupply;
-        let id = health_check.to_stable_id();
-        for power_supply in power_supplies {
-            let Some(state) = power_supply.status.state else {
-                continue;
-            };
-            let target = Some(power_supply.name.clone());
-            match state {
-                ResourceState::Enabled => report.successes.push(HealthProbeSuccess {
-                    id: id.clone(),
-                    target,
-                }),
-                state => report.alerts.push(HealthProbeAlert {
-                    id: id.clone(),
-                    target,
-                    in_alert_since: None,
-                    message: format!("{}: {}", state, health_check.get_message()),
-                    tenant_message: None,
-                    classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
-                }),
+    match health.power {
+        Ok(ref power) => {
+            if let Some(voltages) = &power.voltages {
+                report_resources(
+                    &mut report,
+                    voltages.iter().map(|r| (Some(&r.name), r.status.health)),
+                    HealthCheck::Voltage,
+                );
+            }
+
+            if let Some(power_supplies) = &power.power_supplies {
+                let health_check = HealthCheck::PowerSupply;
+                let id = health_check.to_stable_id();
+                for power_supply in power_supplies {
+                    let Some(state) = power_supply.status.state else {
+                        continue;
+                    };
+                    let target = Some(power_supply.name.clone());
+                    match state {
+                        ResourceState::Enabled => report.successes.push(HealthProbeSuccess {
+                            id: id.clone(),
+                            target,
+                        }),
+                        state => report.alerts.push(HealthProbeAlert {
+                            id: id.clone(),
+                            target,
+                            in_alert_since: None,
+                            message: format!("{}: {}", state, health_check.get_message()),
+                            tenant_message: None,
+                            classifications: vec![
+                                HealthAlertClassification::from_str("Hardware").unwrap()
+                            ],
+                        }),
+                    }
+                }
             }
         }
+        Err(ref e) => report.alerts.push(HealthProbeAlert {
+            id: HealthCheck::Power.to_stable_id(),
+            in_alert_since: None,
+            message: format!("{}: {e}", HealthCheck::Power.get_message()),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
+            target: None,
+        }),
     }
 
     let request = tonic::Request::new(rpc::forge::HardwareHealthReport {
@@ -708,6 +730,8 @@ mod report {
     // The things we check on to ensure a machine is in good health
     #[derive(Debug, Serialize, PartialEq)]
     pub enum HealthCheck {
+        Thermal,
+        Power,
         Voltage,
         Temperature,
         FanSpeed,
@@ -717,6 +741,8 @@ mod report {
     impl HealthCheck {
         pub fn to_stable_id(&self) -> HealthProbeId {
             HealthProbeId::from_str(match self {
+                Self::Thermal => "Thermal",
+                Self::Power => "Power",
                 Self::Voltage => "Voltage",
                 Self::Temperature => "Temperature",
                 Self::FanSpeed => "FanSpeed",
@@ -727,6 +753,8 @@ mod report {
 
         pub fn get_message(&self) -> &'static str {
             match self {
+                Self::Thermal => "Missing thermal readings",
+                Self::Power => "Missing power readings",
                 Self::Voltage => "Voltage out of bounds",
                 Self::Temperature => "Temperature out of bounds",
                 Self::FanSpeed => "Fan speed out of bounds",
