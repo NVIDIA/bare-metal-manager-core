@@ -88,7 +88,8 @@ impl InstanceStatus {
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Init
                 | InstanceState::WaitingForNetworkConfig
-                | InstanceState::WaitingForStorageConfig => tenant::TenantState::Provisioning,
+                | InstanceState::WaitingForStorageConfig
+                | InstanceState::WaitingForRebootToReady => tenant::TenantState::Provisioning,
                 InstanceState::Ready => {
                     let phone_home_pending =
                         phone_home_enrolled && phone_home_last_contact.is_none();
