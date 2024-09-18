@@ -8,9 +8,7 @@ Overall machine lifecycle test flow/logic:
 - Check machine is Ready and not in maintenance mode
   - if it doesn't meet both conditions, immediately fail
 - Force delete machine
-- Reset DPU for discovery
 - Wait for state `Host/WaitingForDiscovery`
-- Power off host, sleep 60, power on host
 - Wait for state `Ready`
 - Create an instance
 - SSH to instance for confirmation
