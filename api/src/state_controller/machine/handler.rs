@@ -3936,50 +3936,7 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::Ready,
                     };
-
-                    if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
-                        // If there are no DPUs, there is no need for storage config, return ready.
-                        tracing::info!(
-                            machine_id = %host_machine_id,
-                            "Skipping storage config because machine has no DPUs"
-                        );
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    } else {
-                        let dpu_machine_id = &state.dpu_snapshots[0].machine_id;
-
-                        // attach volumes to instance
-                        storage::attach_storage_volumes(
-                            ctx.services,
-                            txn,
-                            instance.id,
-                            dpu_machine_id,
-                            instance.config.storage.clone(),
-                            false,
-                        )
-                        .await?;
-
-                        storage::record_storage_status_observation(
-                            ctx.services,
-                            txn,
-                            instance,
-                            instance.config.storage.clone(),
-                        )
-                        .await?;
-
-                        // Reboot host
-                        handler_host_power_control(
-                            state,
-                            ctx.services,
-                            SystemPowerControl::ForceRestart,
-                            txn,
-                        )
-                        .await?;
-
-                        // Instance is ready.
-                        // We can not determine if machine is rebooted successfully or not. Just leave
-                        // it like this and declare Instance Ready.
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    }
+                    Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
