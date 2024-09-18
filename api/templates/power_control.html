@@ -1,6 +1,5 @@
 
 	<form id="powercontrol_action" method="POST" action="/admin/explored-endpoint/{{ bmc_ip }}/power-control">
-		<input type="hidden" name="bmc_mac" value="{{ bmc_mac }}" />
 		<select name="action" id="power_action">
 		  <option title="Turn the power on." value="On">On</option>
 		  <option title="Shut down gracefully and power off." value="GracefulShutdown">Graceful Shutdown</option>

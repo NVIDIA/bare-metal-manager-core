@@ -2296,9 +2296,37 @@ impl Forge for Api {
 
         let req = request.into_inner();
         let bmc_endpoint_request = match (req.bmc_endpoint_request, req.machine_id) {
-            // User provided username and password
-            (Some(bmc_endpoint_request), _) => bmc_endpoint_request,
+            // User provided IP and (optional) BMC MAC
+            (Some(bmc_endpoint_request), _) => match bmc_endpoint_request.mac_address {
+                // If there's a MAC, then the request is ready to go.
+                Some(_) => bmc_endpoint_request,
+                // If there's only an IP and no MAC, then we need to find
+                // the MAC via the associated interface.
+                None => {
+                    let req = tonic::Request::new(rpc::InterfaceSearchQuery {
+                        id: None,
+                        ip: Some(bmc_endpoint_request.ip_address.clone()),
+                    });
 
+                    let bmc_mac = self
+                        .find_interfaces(req)
+                        .await?
+                        .into_inner()
+                        .interfaces
+                        .first()
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "interface",
+                            id: bmc_endpoint_request.ip_address.clone(),
+                        })?
+                        .mac_address
+                        .clone();
+
+                    BmcEndpointRequest {
+                        ip_address: bmc_endpoint_request.ip_address,
+                        mac_address: Some(bmc_mac),
+                    }
+                }
+            },
             // User provided machine_id
             (_, Some(machine_id)) => {
                 let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
@@ -3880,9 +3908,37 @@ impl Forge for Api {
         let req = request.into_inner();
         let bmc_endpoint_request = match (req.bmc_endpoint_request.clone(), req.machine_id.clone())
         {
-            // User provided username and password
-            (Some(bmc_endpoint_request), _) => bmc_endpoint_request,
+            // User provided IP and (optional) BMC MAC
+            (Some(bmc_endpoint_request), _) => match bmc_endpoint_request.mac_address {
+                // If there's a MAC, then the request is ready to go.
+                Some(_) => bmc_endpoint_request,
+                // If there's only an IP and no MAC, then we need to find
+                // the MAC via the associated interface.
+                None => {
+                    let req = tonic::Request::new(rpc::InterfaceSearchQuery {
+                        id: None,
+                        ip: Some(bmc_endpoint_request.ip_address.clone()),
+                    });
 
+                    let bmc_mac = self
+                        .find_interfaces(req)
+                        .await?
+                        .into_inner()
+                        .interfaces
+                        .first()
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "interface",
+                            id: bmc_endpoint_request.ip_address.clone(),
+                        })?
+                        .mac_address
+                        .clone();
+
+                    BmcEndpointRequest {
+                        ip_address: bmc_endpoint_request.ip_address,
+                        mac_address: Some(bmc_mac),
+                    }
+                }
+            },
             // User provided machine_id
             (_, Some(machine_id)) => {
                 let machine_id = MachineId::from_str(&machine_id).map_err(|_| {

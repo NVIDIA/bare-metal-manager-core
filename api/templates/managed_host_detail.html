@@ -37,8 +37,14 @@
 		<th>Power Control</th>
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
-			{% set bmc_mac = host_bmc_mac.clone() %}
 			{% include "power_control.html" %}
+		</td>				
+	</tr>
+	<tr>
+		<th>Reset BMC</th>
+		<td>
+			{% set bmc_ip = host_bmc_ip.clone() %}
+			{% include "bmc_reset.html" %}
 		</td>				
 	</tr>
 </table>
@@ -92,8 +98,14 @@
 		<th>Power Control</th>
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
-			{% set bmc_mac = host_bmc_mac.clone() %}
 			{% include "power_control.html" %}
+		</td>				
+	</tr>
+	<tr>
+		<th>Reset BMC</th>
+		<td>
+			{% set bmc_ip = host_bmc_ip.clone() %}
+			{% include "bmc_reset.html" %}
 		</td>				
 	</tr>
 </table>
@@ -131,10 +143,17 @@
 		<th>Power Control</th>
 		<td>
 			{% set bmc_ip = dpu.bmc_ip.clone() %}
-			{% set bmc_mac = dpu.bmc_mac.clone() %}
 			{% include "power_control.html" %}
 		</td>				
 	</tr>
+	<tr>
+		<th>Reset BMC</th>
+		<td>
+			{% set bmc_ip = dpu.bmc_ip.clone() %}
+			{% include "bmc_reset.html" %}
+		</td>				
+	</tr>
+
 	<tr><th>Switch Connections</th><td>{{ dpu.switch_connection_details() }}</td></tr>
 </table>
 {% endfor %}
