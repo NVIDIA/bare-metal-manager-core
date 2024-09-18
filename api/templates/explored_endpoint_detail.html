@@ -32,14 +32,15 @@
 	<tr>
 		<th>Power Control</th>
 		<td>
-		{% match bmc_interface %}
-		{% when Some with (iface) %}
-		{% set bmc_mac = iface.mac_address.clone() %}
-		{% set bmc_ip = endpoint.address.clone() %}
-		{% include "power_control.html" %}
-		{% else %}
-			Power control is currently unavailable.
-		{% endmatch %}
+			{% set bmc_ip = endpoint.address.clone() %}
+			{% include "power_control.html" %}
+		</td>				
+	</tr>
+	<tr>
+		<th>Reset BMC</th>
+		<td>
+			{% set bmc_ip = endpoint.address.clone() %}
+			{% include "bmc_reset.html" %}
 		</td>				
 	</tr>
 </table>

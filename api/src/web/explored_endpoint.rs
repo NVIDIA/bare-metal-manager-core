@@ -346,7 +346,6 @@ async fn fetch_explored_endpoints(api: Arc<Api>) -> Result<SiteExplorationReport
 #[template(path = "explored_endpoint_detail.html")]
 struct ExploredEndpointDetail {
     endpoint: ExploredEndpoint,
-    bmc_interface: Option<forgerpc::MachineInterface>,
 }
 
 /// View details of an explored endpoint
@@ -377,23 +376,6 @@ pub async fn detail(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Could not find matching endpoint exploration report",
-            )
-                .into_response();
-        }
-    };
-
-    let req = tonic::Request::new(forgerpc::InterfaceSearchQuery {
-        id: None,
-        ip: Some(endpoint_ip.clone()),
-    });
-
-    let bmc_interface = match state.find_interfaces(req).await {
-        Ok(res) => res.into_inner().interfaces.first().cloned(),
-        Err(err) => {
-            tracing::error!(%err, "find_interfaces");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Error find_interfaces for searching by IP {}", endpoint_ip),
             )
                 .into_response();
         }
@@ -431,10 +413,7 @@ pub async fn detail(
         }
     }
 
-    let display = ExploredEndpointDetail {
-        endpoint,
-        bmc_interface,
-    };
+    let display = ExploredEndpointDetail { endpoint };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -510,20 +489,12 @@ pub async fn power_control(
         return (StatusCode::BAD_REQUEST, "invalid action requested").into_response();
     };
 
-    let Some(mac_address) = form.bmc_mac else {
-        return (
-            StatusCode::BAD_REQUEST,
-            "missing BMC MAC address in request",
-        )
-            .into_response();
-    };
-
     if let Err(err) = state
         .admin_power_control(tonic::Request::new(rpc::forge::AdminPowerControlRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
-                mac_address: Some(mac_address),
+                mac_address: None,
             }),
             action: act.into(),
         }))
@@ -539,6 +510,44 @@ pub async fn power_control(
 
 #[derive(Deserialize, Debug)]
 pub struct PowerControlEndpointAction {
-    bmc_mac: Option<String>,
     action: Option<String>,
+}
+
+pub async fn bmc_reset(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<BmcResetEndpointAction>,
+) -> Response {
+    let view_url = format!("/explored-endpoint/{endpoint_ip}");
+
+    let use_ipmi = match form.use_ipmi {
+        Some(i) => match i.parse::<bool>() {
+            Ok(b) => b,
+            _ => false,
+        },
+        _ => false,
+    };
+
+    if let Err(err) = state
+        .admin_bmc_reset(tonic::Request::new(rpc::forge::AdminBmcResetRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+            use_ipmitool: use_ipmi,
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, use_ipmi = %use_ipmi, "bmc_reset_endpoint");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BmcResetEndpointAction {
+    use_ipmi: Option<String>,
 }
