@@ -4,10 +4,7 @@ if [ "$1" != "final" ]; then
 exit 0
 fi
 
-# set -Eeux
-# Remove the 'E' and 'e' because `curl` fails writing to /etc/ssl/certs/ca-certificates.crt`. I don't know why,
-# but it doesn't prevent the install from succeeding.
-set -ux
+set -Eeux
 
 mkdir -p /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2024/02/23/59428/lnvgy_utl_lxce_onecli01t-4.4.0_linux_x86-64.tgz | tar -zxf - -C /opt/forge/xclarity
