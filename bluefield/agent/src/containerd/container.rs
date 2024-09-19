@@ -11,7 +11,7 @@ use crate::containerd::{BashCommand, Command};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainerMetadata {
     pub name: String,
-    pub attempt: u8,
+    pub attempt: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
