@@ -2884,11 +2884,20 @@ impl DpuMachineStateHandler {
                 )
                 .await
                 {
-                    tracing::error!(%e, "Failed to run forge_setup call");
-                    return Err(StateHandlerError::RedfishError {
-                        operation: "forge_setup",
-                        error: e,
-                    });
+                    tracing::warn!("redfish forge_setup failed, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", e);
+                    reboot_if_needed(
+                        state,
+                        dpu_snapshot,
+                        &self.reachability_params,
+                        ctx.services,
+                        txn,
+                    )
+                    .await?;
+
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "Waiting for DPU to reboot {}",
+                        dpu_snapshot.machine_id
+                    )));
                 }
 
                 if let Err(e) = ctx
