@@ -1,24 +1,64 @@
 # Changelog
 
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc2-0...trunk)
+
+### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2024.09.13-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc3-0...v2024.09.13-rc2-0)
 
 ### Added
 
-- The preingestion state of an ExploredEndpoint is shown in the overview table on `/admin/explored-endpoint`
-- When objects are staying in a state longer than defined by the SLA
-  - The `state_reason` field in the objects API will be updated to indicate an `ERROR`. This error will also be rendered in the `State machine is blocked` field in the carbide web UI
-  - The metrics which indicate state handler errors (e.g. `forge_machines_with_state_handling_errors_per_state`) will indicate a `time_in_state_above_sla` error.
-- Site Explorer now shows the `ComputerSystem`s `PowerState`
-- Machine Validation updates a Machines aggregates Health.
-  If a validation test fails, a health alert with probe ID `FailedValidationTest` and a target that contains the validation tests `name` will be raised. The alert will be shown as part of the aggregate machine health.
+- The preingestion state of an ExploredEndpoint is shown in the overview table on `/admin/explored-endpoint`.
+- When objects are staying in a state longer than defined by the SLA.
+  - The `state_reason` field in the objects API will be updated to indicate an `ERROR`. This error will also be rendered in the `State machine is blocked` field in the carbide web UI.
+  - The metrics which indicate state handler errors (e.g. `forge_machines_with_state_handling_errors_per_state`) will indicate a `time_in_state_above_sla` error..
+- Site Explorer now shows the `ComputerSystem`s `PowerState`.
+- Site Explorer now gets the attached DPU's "base mac address" from Redfish instead of calculating it from `FirmwareInventory`.
+- The FMDS endpoint will now include the intended BGP remote ASN at `meta-data/asn`.
+- If a machine is in a state for longer than that state's SLA, the State Handler Outcome will report that it is out of SLA directly.
+- Site Explorer will now emit time-series metrics for expected machines and missing machines (fixes: (FORGE-3353)[https://jirasw.nvidia.com/browse/FORGE-3353])
+    - `forge_endpoint_exploration_expected_machines_missing_overall_count` - reports the number of machines in expected-machines that haven't been seen.
+    - `forge_endpoint_exploration_failures_overall_count` - reports the number of explorations that have failed.
+    - `forge_endpoint_exploration_preingestions_incomplete_overall_count` - the number of outstanding pre-ingestions.
+    - `forge_endpoint_exploration_expected_serial_number_mismatches_overall_count` - the number of machine that don't match the expected serial number.
+    - `forge_endpoint_exploration_machines_explored_overall_count` - The number of overall explored machines.
+    - `forge_endpoint_exploration_identified_managed_hosts_overall_count` - The number of explored endpoints that were matched to the same `ManagedHost`
+- The Admin UI now has buttons on Site Explorer to control the Host or DPU power.
+- Added an API call to manually reset a BMC via Redfish or IPMI.
+- Hardware health montioring is included and a config change in `carbide-api-site-config.toml` is required to set its behavior.
+    - Options include:
+        - `Disabled` (Default): Ignore all metrics sent by the hardware health service.
+        - `MonitorOnly`: The aggregate health report will include reports from this service, but classifications are dropped.
+        - `Enabled`: The aggregate health report will include reports, as well as their classifications to affect state processing.
+    - Example:
+        ```
+        [host_health]
+        hardware_health_reports = "MonitorOnly"
+        ```
+- Machine Validation will now update a machine's aggregate health.
+    - If a validation test fails, a health alert with probe ID `FailedValidationTest` and a target that contains the validation tests `name` will be raised. The alert will be shown as part of the aggregate machine health.
+    - Test results can now be viewed with `forge-admin-cli machine-validation`
 
 ### Changed
 
+- `forge-admin-cli expected-machines` will now output in actual JSON instead of debug printing the internal structure.
+
 ### Fixed
 
-- Fix link in carbide-web from ManagedHost overview page to DPU ExploredEndpoint page
+- Fix link in carbide-web from ManagedHost overview page to DPU ExploredEndpoint page.
+- The OpenTelemetry Collector on the DPU will now be restarted during a DPU upgrade (fixes: [4846975](https://nvbugspro.nvidia.com/bug/4846975)) to pick up the latest configuration.
+- When machines have instances assigned to them and DPU reprovisioning fails, they will be put into an `Assigned/Failed` state vs `Failed` state (fixes: [4819135](https://nvbugspro.nvidia.com/bug/4819135)).
+- In certain situtations where BMCs are non-responsive, carbide will automatically attempt to recover the BMC.
+- Emit correct metrics if the hardware health service is enabled.
 
 ### Removed
+
+## [v2024.08.30-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc2-0...v2024.08.30-rc3-0)
+
+No user facing changes.
 
 ## [v2024.08.30-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc1-0...v2024.08.30-rc2-0)
 
