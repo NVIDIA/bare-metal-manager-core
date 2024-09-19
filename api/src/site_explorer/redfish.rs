@@ -15,6 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bmc_vendor::BMCVendor;
+use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError, RoleId};
@@ -27,7 +28,6 @@ use crate::model::site_explorer::{
     HOST_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
-use mac_address::MacAddress;
 
 const NOT_FOUND: u16 = 404;
 
@@ -457,11 +457,13 @@ async fn fetch_ethernet_interfaces(
         }?;
 
         let mac_address = if let Some(iface_mac_address) = iface.mac_address {
-            Some(MacAddress::from_str(&iface_mac_address).map_err(|e| {
+            let mac_addr = deserialize_input_mac_to_address(&iface_mac_address).map_err(|e| {
                 RedfishError::GenericError {
                     error: format!("MAC address not valid: {} (err: {})", iface_mac_address, e),
                 }
-            })?)
+            })?;
+
+            Some(mac_addr)
         } else {
             None
         };
@@ -521,15 +523,15 @@ async fn get_oob_interface(
                     }
                 }
 
-                let mac_addr: MacAddress =
-                    mac_addr_builder
-                        .parse()
-                        .map_err(|e| RedfishError::GenericError {
+                let mac_addr =
+                    deserialize_input_mac_to_address(&mac_addr_builder).map_err(|e| {
+                        RedfishError::GenericError {
                             error: format!(
                                 "MAC address not valid: {} (err: {})",
                                 mac_addr_builder, e
                             ),
-                        })?;
+                        }
+                    })?;
 
                 return Ok(Some(EthernetInterface {
                     description: Some("1G DPU OOB network interface".to_string()),
