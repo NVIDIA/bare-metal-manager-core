@@ -74,6 +74,8 @@ pub struct ExecCommand {
     description: String,
     #[serde(rename = "Contexts")]
     contexts: Vec<String>,
+    #[serde(rename = "PreCondition")]
+    pre_condition: Option<String>,
 }
 
 impl MachineValidation {
@@ -269,6 +271,57 @@ impl MachineValidation {
                     end_time: Some(end_time.into()),
                     validation_id: Some(uuid),
                 });
+            }
+        }
+        if cmd.pre_condition.is_some() {
+            match Command::new("sh")
+                .arg("-c")
+                .env("CONTEXT", in_context.clone())
+                .env("MACHINE_VALIDATION_RUN_ID", uuid.to_string())
+                .env("MACHINE_ID", machine_id)
+                .arg(cmd.pre_condition.unwrap_or("/bin/true".to_owned()))
+                .output()
+                .await
+            {
+                Ok(output) => {
+                    let exit_code = if output.status.success() { 0 } else { -1 };
+
+                    let start_time = Utc::now();
+                    let end_time = Utc::now();
+                    if exit_code != 0 {
+                        return Some(rpc::forge::MachineValidationResult {
+                            name,
+                            description: cmd.description.clone(),
+                            command: cmd.command.clone(),
+                            args: cmd.args.clone(),
+                            std_out: "Skipped : Pre condition failed".to_owned(),
+                            std_err: "".to_string(),
+                            context: in_context.clone(),
+                            exit_code: 0,
+                            start_time: Some(start_time.into()),
+                            end_time: Some(end_time.into()),
+                            validation_id: Some(uuid),
+                        });
+                    }
+                }
+                Err(e) => {
+                    let start_time = Utc::now();
+                    let end_time = Utc::now();
+
+                    return Some(rpc::forge::MachineValidationResult {
+                        name,
+                        description: cmd.description.clone(),
+                        command: cmd.command.clone(),
+                        args: cmd.args.clone(),
+                        std_out: "Skipped : Pre condition failed".to_owned(),
+                        std_err: e.to_string(),
+                        context: in_context.clone(),
+                        exit_code: 0,
+                        start_time: Some(start_time.into()),
+                        end_time: Some(end_time.into()),
+                        validation_id: Some(uuid),
+                    });
+                }
             }
         }
         if cmd.img_name.is_some() {
