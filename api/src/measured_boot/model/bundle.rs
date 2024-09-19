@@ -21,17 +21,19 @@ use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
 use crate::measured_boot::interface::bundle::{
-    delete_bundle_for_id, delete_bundle_values_for_id, get_measurement_bundle_by_id,
-    get_measurement_bundle_for_name, get_measurement_bundle_records_for_profile_id,
-    get_measurement_bundle_records_with_txn, get_measurement_bundle_values_for_bundle_id,
-    insert_measurement_bundle_record, insert_measurement_bundle_value_records,
-    rename_bundle_for_bundle_id, rename_bundle_for_bundle_name, update_state_for_bundle_id,
+    delete_bundle_for_id, delete_bundle_values_for_id, get_machines_for_bundle_id,
+    get_measurement_bundle_by_id, get_measurement_bundle_for_name,
+    get_measurement_bundle_records_for_profile_id, get_measurement_bundle_records_with_txn,
+    get_measurement_bundle_values_for_bundle_id, insert_measurement_bundle_record,
+    insert_measurement_bundle_value_records, rename_bundle_for_bundle_id,
+    rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::model::machine::{bundle_state_to_machine_state, CandidateMachine};
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use crate::{CarbideError, CarbideResult};
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
@@ -596,6 +598,17 @@ impl MeasurementBundle {
                 false
             }
         }))
+    }
+
+    /// get_machines returns a vector of MachineIds currently
+    /// associated with this bundle.
+    pub async fn get_machines(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<MachineId>> {
+        get_machines_for_bundle_id(txn, self.bundle_id)
+            .await
+            .map_err(CarbideError::from)
     }
 }
 

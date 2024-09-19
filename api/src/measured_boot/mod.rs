@@ -16,6 +16,7 @@
 
 pub mod dto;
 pub mod interface;
+pub mod metrics_collector;
 pub mod model;
 pub mod rpc;
 pub mod tests;

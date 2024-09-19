@@ -45,6 +45,7 @@ use crate::{
     listener,
     logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     machine_update_manager::MachineUpdateManager,
+    measured_boot::metrics_collector::MeasuredBootMetricsCollector,
     preingestion_manager::PreingestionManager,
     redfish::RedfishClientPool,
     resource_pool::{self, common::CommonPools},
@@ -467,6 +468,13 @@ pub async fn start_api(
         Some(upload_limiter),
     );
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;
+
+    let measured_boot_collector = MeasuredBootMetricsCollector::new(
+        db_pool.clone(),
+        carbide_config.measured_boot_collector.clone(),
+        meter.clone(),
+    );
+    let _measured_boot_collector_handle = measured_boot_collector.start()?;
 
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(

@@ -37,8 +37,9 @@ use carbide::{
     cfg::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
         FirmwareEntry, FirmwareGlobal, HostHealthConfig, IbFabricMonitorConfig,
-        IbPartitionStateControllerConfig, MachineStateControllerConfig, MultiDpuConfig,
-        NetworkSegmentStateControllerConfig, StateControllerConfig,
+        IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+        StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
@@ -527,6 +528,10 @@ pub fn get_config() -> CarbideConfig {
         dpu_network_monitor_pinger_type: None,
         host_health: HostHealthConfig::default(),
         internet_l3_vni: Some(1337),
+        measured_boot_collector: MeasuredBootMetricsCollectorConfig {
+            enabled: true,
+            run_interval: std::time::Duration::from_secs(10),
+        },
     }
 }
 

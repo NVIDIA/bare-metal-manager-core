@@ -122,7 +122,7 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpu_nic_firmware_reprovision_update_enabled: bool,
 
-    /// IbFabricMonitor related confipguration
+    /// IbFabricMonitor related configuration
     #[serde(default)]
     pub ib_fabric_monitor: IbFabricMonitorConfig,
 
@@ -204,6 +204,10 @@ pub struct CarbideConfig {
     // be able to access the Internet).
     #[serde(default)]
     pub internet_l3_vni: Option<u32>,
+
+    /// MeasuredBootMetricsCollector related configuration
+    #[serde(default)]
+    pub measured_boot_collector: MeasuredBootMetricsCollectorConfig,
 }
 
 impl CarbideConfig {
@@ -1022,6 +1026,40 @@ pub enum HardwareHealthReportsConfig {
     Enabled,
 }
 
+/// MeasuredBootMetricsCollectorConfig related configuration
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct MeasuredBootMetricsCollectorConfig {
+    #[serde(default)]
+    /// enabled controls whether the measured boot metrics
+    /// monitor is enabled. When disabled, measured boot metrics
+    /// won't be exported.
+    pub enabled: bool,
+    /// run_interval is the interval at which the monitor polls
+    /// for the latest data, in seconds.
+    /// Defaults to 60 if not specified.
+    #[serde(
+        default = "MeasuredBootMetricsCollectorConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+}
+
+impl Default for MeasuredBootMetricsCollectorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            run_interval: Self::default_run_interval(),
+        }
+    }
+}
+
+impl MeasuredBootMetricsCollectorConfig {
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -1266,6 +1304,12 @@ mod tests {
         );
         assert_eq!(config.max_find_by_ids, default_max_find_by_ids());
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
+        assert_eq!(config.measured_boot_collector, {
+            MeasuredBootMetricsCollectorConfig {
+                enabled: false,
+                run_interval: MeasuredBootMetricsCollectorConfig::default_run_interval(),
+            }
+        });
     }
 
     #[test]
@@ -1508,6 +1552,13 @@ mod tests {
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
         assert_eq!(config.max_find_by_ids, 75);
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
+        assert_eq!(
+            config.measured_boot_collector,
+            MeasuredBootMetricsCollectorConfig {
+                enabled: false,
+                run_interval: std::time::Duration::from_secs(555),
+            }
+        );
     }
 
     #[test]

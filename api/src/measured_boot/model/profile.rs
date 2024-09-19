@@ -23,14 +23,15 @@ use crate::measured_boot::dto::records::{
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::profile::{
     delete_profile_attr_records_for_id, delete_profile_record_for_id,
-    get_all_measurement_profile_records, get_measurement_profile_attrs_for_profile_id,
-    get_measurement_profile_record_by_attrs, get_measurement_profile_record_by_id,
-    get_measurement_profile_record_by_name, insert_measurement_profile_attr_records,
-    insert_measurement_profile_record, rename_profile_for_profile_id,
-    rename_profile_for_profile_name,
+    get_all_measurement_profile_records, get_machines_for_profile_id,
+    get_measurement_profile_attrs_for_profile_id, get_measurement_profile_record_by_attrs,
+    get_measurement_profile_record_by_id, get_measurement_profile_record_by_name,
+    insert_measurement_profile_attr_records, insert_measurement_profile_record,
+    rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
 use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::MeasurementSystemProfilePb;
 use serde::Serialize;
 use utils::admin_cli::ToTable;
@@ -396,6 +397,17 @@ impl MeasurementSystemProfile {
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<MeasurementSystemProfile>> {
         get_measurement_system_profiles_with_txn(txn).await
+    }
+
+    /// get_machines gets a list of all MachineIds for a given
+    /// system measurement profile.
+    pub async fn get_machines(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<MachineId>> {
+        get_machines_for_profile_id(txn, self.profile_id)
+            .await
+            .map_err(CarbideError::from)
     }
 }
 
