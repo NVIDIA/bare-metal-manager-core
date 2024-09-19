@@ -52,7 +52,7 @@ flowchart LR
 
     subgraph DPU
         DPUAGENT["forge-dpu-agent"] -- via stdout --> dpu-systemd-journal
-        dpu-systemd-journal --> DPUOTELC["OpenTelemetry collector"]
+        dpu-systemd-journal --> DPUOTELC["OpenTelemetry Collector"]
         DPUOTELC -- authenticated OTLP --> OTELC
     end    
 

@@ -29,6 +29,13 @@ flowchart LR
         SiteEnvoy -."https://grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana\nLog/Metric Query UI\nOICD auth]
         SiteEnvoy -. "https://prometheus-siteid.frg.nvidia.com" .-> Prometheus
         SiteGrafana --> Prometheus
+        OTELC["OpenTelemetry Collector"] --> Prometheus
+    end
+
+    subgraph DPU
+        DTS["DOCA Telemetry Service"] -- via Prometheus endpoint --> DPUOTELC
+        DPUAGENT["forge-dpu-agent"] -- via Prometheus endpoint --> DPUOTELC
+        DPUOTELC["OpenTelemetry Collector"] -- authenticated OTLP --> OTELC
     end
 
     subgraph Nvidia Cloud
