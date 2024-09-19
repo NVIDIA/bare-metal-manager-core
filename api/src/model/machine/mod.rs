@@ -991,10 +991,10 @@ impl DpuDiscoveringState {
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
     Init,
-    WaitingForNetworkInstall,
-    WaitingForNetworkConfig,
     WaitingForPlatformPowercycle { substate: PerformPowerOperation },
     WaitingForPlatformConfiguration,
+    WaitingForNetworkConfig,
+    WaitingForNetworkInstall, // Deprecated now, not used
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
