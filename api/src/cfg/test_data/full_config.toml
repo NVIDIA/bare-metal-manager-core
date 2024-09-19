@@ -195,3 +195,7 @@ known_firmware = [
 
 [multi_dpu]
 enabled=false
+
+[measured_boot_collector]
+enabled = false
+run_interval = "555s"

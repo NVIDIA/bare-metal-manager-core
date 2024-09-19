@@ -19,6 +19,6 @@ pub use file::{
     Firmware, FirmwareComponent, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
     FirmwareGlobal, HardwareHealthReportsConfig, HostHealthConfig, IBFabricConfig,
     IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-    MultiDpuConfig, NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig,
-    TlsConfig,
+    MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+    SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };

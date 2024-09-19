@@ -257,7 +257,9 @@ impl TryFrom<MeasurementSystemProfileAttrRecordPb> for MeasurementSystemProfileA
 /// is used for tracking the state of a measurement bundle.
 ///
 /// Impls FromStr trait.
-#[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Copy, Debug, Eq, Hash, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize,
+)]
 #[sqlx(type_name = "measurement_bundle_state", rename_all = "lowercase")]
 pub enum MeasurementBundleState {
     // Pending exists such that, when a bundle is created, it has the
@@ -776,7 +778,9 @@ impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
 /// is used for tracking the state of a machine.
 ///
 /// Impls FromStr trait.
-#[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Copy, Debug, Eq, Hash, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize,
+)]
 #[sqlx(type_name = "measurement_machine_state", rename_all = "lowercase")]
 pub enum MeasurementMachineState {
     Discovered,

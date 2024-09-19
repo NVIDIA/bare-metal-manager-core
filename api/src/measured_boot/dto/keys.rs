@@ -124,7 +124,7 @@ impl Error for UuidEmptyStringError {}
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, Eq, Hash, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementSystemProfileId(pub uuid::Uuid);
 
@@ -261,7 +261,7 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, ToTable for printing via prettytable,
 /// as well as other various trait impls as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, Eq, Hash, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementBundleId(pub uuid::Uuid);
 

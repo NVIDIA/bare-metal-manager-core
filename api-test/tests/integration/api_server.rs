@@ -15,8 +15,8 @@ use std::net::SocketAddr;
 use carbide::cfg::{
     default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
     HostHealthConfig, IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-    MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-    SiteExplorerConfig, StateControllerConfig, TlsConfig,
+    MachineStateControllerConfig, MeasuredBootMetricsCollectorConfig, MultiDpuConfig,
+    NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use carbide::logging::setup::Logging;
@@ -243,6 +243,10 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         dpu_network_monitor_pinger_type: None,
         host_health: HostHealthConfig::default(),
         internet_l3_vni: Some(1337),
+        measured_boot_collector: MeasuredBootMetricsCollectorConfig {
+            enabled: true,
+            run_interval: std::time::Duration::from_secs(10),
+        },
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

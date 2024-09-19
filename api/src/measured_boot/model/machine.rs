@@ -68,6 +68,7 @@ impl TryFrom<CandidateMachinePb> for CandidateMachine {
             return Err(UuidEmptyStringError {}.into());
         }
         let state = msg.state();
+
         Ok(Self {
             machine_id: MachineId::from_str(&msg.machine_id)?,
             state: MeasurementMachineState::from(state),
