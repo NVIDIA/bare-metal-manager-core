@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-# Used in pipeline job 'pre-merge-test'. Designed to run directly on a GitLab runner machine.
+# Used in pipeline job 'dev-env-test'. Designed to run directly on a GitLab runner machine.
 #
 # This script sets up a single-node Forge control plane kubernetes deployment (from the 'forged' repo), builds the
 # carbide images, and deploys those to the node.
@@ -12,12 +12,16 @@ set -xeuo pipefail
 echo "Current working directory is: $(pwd)"
 
 # Merge trunk into branch to improve test reliability
-echo "Merging 'trunk' into current branch to ensure it's up-to-date..."
-git config user.email "dummy@example.com" && git config user.name "Pre-Merge Test User"
-git fetch origin trunk
-if ! git merge origin/trunk; then
-  echo "Merge conflict detected. This must be resolved before the pre-merge test can run. Exiting..."
-  exit 1
+if [[ "$CI_COMMIT_REF_NAME" != "trunk" ]]; then
+  echo "Merging 'trunk' into current branch to ensure it's up-to-date..."
+  git config user.email "dummy@example.com" && git config user.name "Pre-Merge Test User"
+  git fetch origin trunk
+  if ! git merge origin/trunk; then
+    echo "Merge conflict detected. This must be resolved before the pre-merge test can run. Exiting..."
+    exit 1
+  fi
+else
+  echo "Already on 'trunk' (i.e. this is not a pre-merge job), so skipping branch update..."
 fi
 
 # Configure PATH and other environment variables
