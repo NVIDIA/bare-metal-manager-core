@@ -42,6 +42,10 @@ pub struct MachineMetrics {
     /// Health probe alerts for the aggregate host by Probe ID and Target
     pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
     pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
+    /// The amount of configured `merge` overrides
+    pub num_merge_overrides: usize,
+    /// Whether an override of type `override` is configured
+    pub override_override_enabled: bool,
 }
 
 #[derive(Debug, Default)]
@@ -64,6 +68,10 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_healthy: usize,
     pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>), usize>,
     pub unhealthy_hosts_by_classification_id: HashMap<String, usize>,
+    /// The amount of configured `merge` overrides
+    pub num_merge_overrides: usize,
+    /// The amount of configured `override` overrides
+    pub num_override_overrides: usize,
 }
 
 #[derive(Debug)]
@@ -84,6 +92,7 @@ pub struct MachineMetricsEmitter {
     client_certificate_expiration_gauge: ObservableGauge<i64>,
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
     machine_reboot_attempts_in_failed_during_discovery: Histogram<u64>,
+    hosts_health_overrides_gauge: ObservableGauge<u64>,
 }
 
 impl MachineStateControllerIterationMetrics {
@@ -130,6 +139,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let hosts_health_status_gauge = meter
             .u64_observable_gauge("forge_hosts_health_status_count")
             .with_description("The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts")
+            .init();
+        let hosts_health_overrides_gauge = meter
+            .u64_observable_gauge("forge_hosts_health_overrides_count")
+            .with_description("The amount of health overrides that are configured in the site")
             .init();
 
         let failed_dpu_healthchecks_gauge = meter
@@ -199,6 +212,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             failed_dpu_healthchecks_gauge,
             unhealthy_hosts_by_probe_id_gauge,
             unhealthy_hosts_by_classification_gauge,
+            hosts_health_overrides_gauge,
             dpu_firmware_version_gauge,
             machine_inventory_component_versions_gauge,
             client_certificate_expiration_gauge,
@@ -217,6 +231,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpus_healthy_gauge.as_any(),
             self.dpu_agent_version_gauge.as_any(),
             self.hosts_health_status_gauge.as_any(),
+            self.hosts_health_overrides_gauge.as_any(),
             self.failed_dpu_healthchecks_gauge.as_any(),
             self.unhealthy_hosts_by_probe_id_gauge.as_any(),
             self.unhealthy_hosts_by_classification_gauge.as_any(),
@@ -283,6 +298,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .unhealthy_hosts_by_classification_id
                 .entry(classification.to_string())
                 .or_default() += 1;
+        }
+        iteration_metrics.num_merge_overrides += object_metrics.num_merge_overrides;
+        if object_metrics.override_override_enabled {
+            iteration_metrics.num_override_overrides += 1;
         }
 
         for (version, count) in object_metrics.agent_versions.iter() {
@@ -432,6 +451,20 @@ impl MetricsEmitter for MachineMetricsEmitter {
             );
         }
 
+        let mut override_type_attr = attributes.to_vec();
+        override_type_attr.push(KeyValue::new("override_type", "merge".to_string()));
+        observer.observe_u64(
+            &self.hosts_health_overrides_gauge,
+            iteration_metrics.num_merge_overrides as u64,
+            &override_type_attr,
+        );
+        override_type_attr.last_mut().unwrap().value = "override".into();
+        observer.observe_u64(
+            &self.hosts_health_overrides_gauge,
+            iteration_metrics.num_override_overrides as u64,
+            &override_type_attr,
+        );
+
         let mut agent_version_attrs = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         agent_version_attrs.push(KeyValue::new("version", "".to_string()));
@@ -529,6 +562,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: None,
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
+                num_merge_overrides: 0,
+                override_override_enabled: false,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -554,6 +589,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
+                num_merge_overrides: 0,
+                override_override_enabled: false,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -581,6 +618,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                num_merge_overrides: 1,
+                override_override_enabled: true,
             },
             MachineMetrics {
                 available_gpus: 1,
@@ -613,6 +652,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
+                num_merge_overrides: 0,
+                override_override_enabled: false,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -664,6 +705,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                num_merge_overrides: 1,
+                override_override_enabled: false,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -704,6 +747,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                num_merge_overrides: 0,
+                override_override_enabled: true,
             },
         ];
 
@@ -782,6 +827,8 @@ mod tests {
                 ("Class3".parse().unwrap(), 1),
             ])
         );
+        assert_eq!(iteration_metrics.num_merge_overrides, 2);
+        assert_eq!(iteration_metrics.num_override_overrides, 2);
 
         assert_eq!(
             iteration_metrics.machine_inventory_component_versions,
