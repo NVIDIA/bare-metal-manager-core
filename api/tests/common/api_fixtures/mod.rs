@@ -70,7 +70,7 @@ use carbide::{
     },
 };
 use carbide::{
-    cfg::{HardwareHealthReportsConfig, SiteExplorerConfig},
+    cfg::{HardwareHealthReportsConfig, MachineValidationConfig, SiteExplorerConfig},
     site_explorer::BmcEndpointExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
@@ -209,6 +209,7 @@ impl TestEnv {
                         id: _,
                         completed,
                         total,
+                        is_enabled,
                     } => {
                         let mut id = machine
                             .discovery_machine_validation_id()
@@ -221,6 +222,7 @@ impl TestEnv {
                             id,
                             completed,
                             total,
+                            is_enabled,
                         }
                     }
                     carbide::model::machine::MachineState::EnableIpmiOverLan => machine_state,
@@ -532,6 +534,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),
         },
+        machine_validation_config: MachineValidationConfig { enabled: true },
     }
 }
 

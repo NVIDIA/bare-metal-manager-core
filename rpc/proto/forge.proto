@@ -528,6 +528,7 @@ message RuntimeConfig {
     bool attestation_enabled = 31;
 
     optional string dpu_network_pinger_type = 32;
+    bool machine_validation_enabled = 33;
 }
 
 message EchoRequest {

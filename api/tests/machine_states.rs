@@ -497,6 +497,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
+                is_enabled: true,
             },
         },
     )

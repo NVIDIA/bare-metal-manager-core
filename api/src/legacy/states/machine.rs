@@ -116,6 +116,7 @@ pub enum MachineState {
         id: uuid::Uuid,
         completed: usize,
         total: usize,
+        is_enabled: bool,
     },
 }
 
@@ -209,11 +210,13 @@ impl TryFrom<MachineState> for new_machine::MachineState {
                 id,
                 completed,
                 total,
+                is_enabled,
             } => new_machine::MachineState::MachineValidating {
                 context,
                 id,
                 completed,
                 total,
+                is_enabled,
             },
             _ => {
                 return Err(CarbideError::GenericError(format!(

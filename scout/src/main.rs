@@ -232,21 +232,26 @@ async fn handle_action(
             tracing::info!("Machine validation");
             let mut context = "Discovery".to_string();
             let mut id = "".to_string();
+            let mut is_enabled = false;
             for item in controller_response.data.unwrap().pair {
                 if item.key == "Context" {
                     context = item.value;
                 } else if item.key == "ValidationId" {
                     id = item.value;
+                } else if item.key == "IsEnabled" {
+                    is_enabled = item.value.parse().unwrap_or(true);
                 }
             }
-            let ret = match machine_validation::run(config, machine_id, id.clone(), context).await {
-                Ok(_) => {
-                    tracing::info!("Machine validation completed");
-                    Ok(())
-                }
-                Err(err) => Err(err),
-            };
-            //Completed message is must irrespective of error
+            let mut ret: Result<(), CarbideClientError> = Ok(());
+            if is_enabled {
+                ret = match machine_validation::run(config, machine_id, id.clone(), context).await {
+                    Ok(_) => {
+                        tracing::info!("Machine validation completed");
+                        Ok(())
+                    }
+                    Err(err) => Err(err),
+                };
+            }
             machine_validation::completed(config, machine_id, id, None).await?;
             return ret;
         }

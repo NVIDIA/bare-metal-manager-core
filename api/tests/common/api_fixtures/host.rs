@@ -248,6 +248,7 @@ pub async fn create_host_machine(
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
+                is_enabled: true,
             },
         },
     )
@@ -427,6 +428,7 @@ pub async fn create_host_with_machine_validation(
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
+                is_enabled: true,
             },
         },
     )

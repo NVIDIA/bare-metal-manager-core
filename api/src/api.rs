@@ -1491,6 +1491,7 @@ impl Forge for Api {
                             id,
                             completed: _,
                             total: _,
+                            is_enabled,
                         },
                 } => (
                     Action::MachineValidation,
@@ -1504,6 +1505,10 @@ impl Forge for Api {
                                 KeyValuePair {
                                     key: "ValidationId".to_string(),
                                     value: id.to_string(),
+                                },
+                                KeyValuePair {
+                                    key: "IsEnabled".to_string(),
+                                    value: is_enabled.to_string(),
                                 },
                             ]
                             .to_vec(),

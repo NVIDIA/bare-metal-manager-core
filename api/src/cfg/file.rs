@@ -208,6 +208,10 @@ pub struct CarbideConfig {
     /// MeasuredBootMetricsCollector related configuration
     #[serde(default)]
     pub measured_boot_collector: MeasuredBootMetricsCollectorConfig,
+
+    /// Machine Validation config to api server
+    #[serde(default)]
+    pub machine_validation_config: MachineValidationConfig,
 }
 
 impl CarbideConfig {
@@ -1060,6 +1064,14 @@ impl MeasuredBootMetricsCollectorConfig {
     }
 }
 
+/// MachineValidation related configuration
+#[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct MachineValidationConfig {
+    #[serde(default)]
+    /// Whether MachineValidation is enabled
+    pub enabled: bool,
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -1120,6 +1132,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             host_disable_autoupdate: value.firmware_global.host_disable_autoupdate,
             max_find_by_ids: value.max_find_by_ids,
             dpu_network_pinger_type: value.dpu_network_monitor_pinger_type,
+            machine_validation_enabled: value.machine_validation_config.enabled,
         }
     }
 }
