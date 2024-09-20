@@ -19,6 +19,9 @@
 
 ### Changed
 ### Fixed
+- Fixes redirect after Power Actions or BMC Reset have been issued on the carbide admin web UI.
+
+
 ### Removed
 
 ## [v2024.09.13-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc3-0...v2024.09.13-rc2-0)
