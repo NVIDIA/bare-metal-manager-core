@@ -4,6 +4,8 @@
 
 ### Added
 
+- The Hardware Health monitor will emit a `PoweredOff` alert if the systems powerstate is not `On`.
+  We already had a `PowerSupply` alert before which inspected the status of the redfish power subsystem. However most of our other code just looks at the top level power status which is encoded in the `ComputerSystem`. Therefore a separate alert is emitted for the value of this field.
 - A new metric `forge_hosts_health_overrides_count` is emitted which indicates the amount
   of health overrides that are configured on a site. That allows operators to determine
   whether any health status might be impacted by overrides or whether hosts are
