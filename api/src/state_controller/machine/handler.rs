@@ -27,7 +27,10 @@ use libredfish::{
 use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
-    cfg::{DpuModel, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry},
+    cfg::{
+        DpuModel, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
+        MachineValidationConfig,
+    },
     db::{
         explored_endpoints::DbExploredEndpoint, instance::DeleteInstance, machine::Machine,
         machine_topology::MachineTopology, machine_validation::MachineValidation,
@@ -83,6 +86,7 @@ pub struct ReachabilityParams {
 pub struct HostHandlerParams {
     pub attestation_enabled: bool,
     pub reachability_params: ReachabilityParams,
+    pub machine_validation_config: MachineValidationConfig,
 }
 
 /// The actual Machine State handler
@@ -108,6 +112,7 @@ pub struct MachineStateHandlerBuilder {
     firmware_downloader: Option<FirmwareDownloader>,
     attestation_enabled: bool,
     upload_limiter: Option<Arc<Semaphore>>,
+    machine_validation_config: MachineValidationConfig,
 }
 
 impl MachineStateHandlerBuilder {
@@ -125,6 +130,7 @@ impl MachineStateHandlerBuilder {
             firmware_downloader: None,
             attestation_enabled: false,
             upload_limiter: None,
+            machine_validation_config: MachineValidationConfig { enabled: true },
         }
     }
 
@@ -188,6 +194,15 @@ impl MachineStateHandlerBuilder {
         self.upload_limiter = Some(upload_limiter);
         self
     }
+
+    pub fn machine_validation_config(
+        mut self,
+        machine_validation_config: MachineValidationConfig,
+    ) -> Self {
+        self.machine_validation_config = machine_validation_config;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -200,6 +215,7 @@ impl MachineStateHandler {
             host_handler: HostMachineStateHandler::new(HostHandlerParams {
                 attestation_enabled: builder.attestation_enabled,
                 reachability_params: builder.reachability_params,
+                machine_validation_config: builder.machine_validation_config,
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 builder.dpu_nic_firmware_initial_update_enabled,
@@ -615,6 +631,11 @@ impl MachineStateHandler {
                                 id: validation_id,
                                 completed: 1,
                                 total: 1,
+                                is_enabled: self
+                                    .host_handler
+                                    .host_handler_params
+                                    .machine_validation_config
+                                    .enabled,
                             },
                         };
                         Ok(StateHandlerOutcome::Transition(next_state))
@@ -3681,6 +3702,10 @@ impl StateHandler for HostMachineStateHandler {
                                             id: validation_id,
                                             completed: 1,
                                             total: 1,
+                                            is_enabled: self
+                                                .host_handler_params
+                                                .machine_validation_config
+                                                .enabled,
                                         },
                                     };
                                     Ok(StateHandlerOutcome::Transition(next_state))
@@ -3728,13 +3753,15 @@ impl StateHandler for HostMachineStateHandler {
                     id,
                     completed,
                     total,
+                    is_enabled,
                 } => {
                     tracing::trace!(
-                        "context = {} id = {} completed = {} total = {}",
+                        "context = {} id = {} completed = {} total = {}, is_enabled = {}",
                         context,
                         id,
                         completed,
-                        total
+                        total,
+                        is_enabled
                     );
                     if !rebooted(&state.host_snapshot) {
                         let status = trigger_reboot_if_needed(

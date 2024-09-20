@@ -54,6 +54,10 @@ pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
         .join("/")
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {
@@ -1024,6 +1028,8 @@ pub enum MachineState {
         id: uuid::Uuid,
         completed: usize,
         total: usize,
+        #[serde(default = "default_true")]
+        is_enabled: bool,
     },
 }
 

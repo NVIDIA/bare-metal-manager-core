@@ -102,6 +102,7 @@ pub async fn handle_show_version(
         r!(table, config, nvue_enabled);
         r!(table, config, attestation_enabled);
         r!(table, config, max_find_by_ids);
+        r!(table, config, machine_validation_enabled);
 
         _ = table.print_tty(true);
     }

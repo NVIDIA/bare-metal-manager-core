@@ -388,6 +388,7 @@ pub async fn start_api(
                 .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)
                 .upload_limiter(upload_limiter.clone())
+                .machine_validation_config(carbide_config.machine_validation_config)
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
