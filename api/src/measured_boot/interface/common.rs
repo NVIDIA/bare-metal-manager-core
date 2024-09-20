@@ -213,7 +213,7 @@ pub fn generate_name() -> CarbideResult<String> {
     Ok(generate.next().unwrap())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct PcrRegisterValue {
     pub pcr_register: i16,
     pub sha256: String,

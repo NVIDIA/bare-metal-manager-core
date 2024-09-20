@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::measured_boot::dto::{
-    keys::{MeasurementBundleId, MeasurementSystemProfileId},
-    records::{MeasurementBundleState, MeasurementMachineState},
+use crate::measured_boot::{
+    dto::{
+        keys::{MeasurementBundleId, MeasurementSystemProfileId},
+        records::{MeasurementBundleState, MeasurementMachineState},
+    },
+    interface::common::PcrRegisterValue,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
@@ -44,6 +47,15 @@ pub struct MeasuredBootMetricsCollectorMetrics {
     pub num_machines_per_bundle_state: HashMap<MeasurementBundleState, usize>,
     // The number of machines per machine state.
     pub num_machines_per_machine_state: HashMap<MeasurementMachineState, usize>,
+    // The number of machines per a given PCR index value (e.g. the
+    // number of machines whose pcr_index=1 is pcr_value=xxx).
+    //
+    // The PCR values going into this map are the ones we have earmarked as
+    // golden measurement values the bundle, and NOT ALL of the measurements
+    // in a report -- we'd have really high cardinality in that case. This
+    // is intended to focus on PCR indexes we have identified as [should be]
+    // stable/low cardinality for a given hardware profile.
+    pub num_machines_per_pcr_value: HashMap<PcrRegisterValue, usize>,
 }
 
 impl MeasuredBootMetricsCollectorMetrics {
@@ -57,6 +69,7 @@ impl MeasuredBootMetricsCollectorMetrics {
             num_machines_per_bundle: HashMap::new(),
             num_machines_per_bundle_state: HashMap::new(),
             num_machines_per_machine_state: HashMap::new(),
+            num_machines_per_pcr_value: HashMap::new(),
         }
     }
 }
@@ -72,6 +85,7 @@ pub struct MeasuredBootMetricsCollectorInstruments {
     pub num_machines_per_bundle_total: ObservableGauge<u64>,
     pub num_machines_per_bundle_state_total: ObservableGauge<u64>,
     pub num_machines_per_machine_state_total: ObservableGauge<u64>,
+    pub num_machines_per_pcr_value_total: ObservableGauge<u64>,
 }
 
 impl MeasuredBootMetricsCollectorInstruments {
@@ -110,6 +124,12 @@ impl MeasuredBootMetricsCollectorInstruments {
                     "The total number of machines per a given measured boot machine state.",
                 )
                 .init(),
+            num_machines_per_pcr_value_total: meter
+                .u64_observable_gauge("forge_measured_boot_machines_per_pcr_value_total")
+                .with_description(
+                    "The total number of machines with a given PCR value at a given PCR index.",
+                )
+                .init(),
         }
     }
 
@@ -124,6 +144,7 @@ impl MeasuredBootMetricsCollectorInstruments {
             self.num_machines_per_bundle_total.as_any(),
             self.num_machines_per_bundle_state_total.as_any(),
             self.num_machines_per_machine_state_total.as_any(),
+            self.num_machines_per_pcr_value_total.as_any(),
         ]
     }
 
@@ -184,6 +205,20 @@ impl MeasuredBootMetricsCollectorInstruments {
             attrs.push(machine_state_attr);
             observer.observe_u64(
                 &self.num_machines_per_machine_state_total,
+                *total as u64,
+                &attrs,
+            );
+        }
+
+        for (pcr_register, total) in metrics.num_machines_per_pcr_value.iter() {
+            let mut attrs = attributes.to_vec();
+            attrs.push(KeyValue::new(
+                "pcr_index",
+                pcr_register.pcr_register.to_string(),
+            ));
+            attrs.push(KeyValue::new("pcr_value", pcr_register.sha256.clone()));
+            observer.observe_u64(
+                &self.num_machines_per_pcr_value_total,
                 *total as u64,
                 &attrs,
             );
