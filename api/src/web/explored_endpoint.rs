@@ -128,6 +128,7 @@ struct ExploredEndpointDisplay {
     address: String,
     endpoint_type: String,
     last_exploration_error: String,
+    has_exploration_error: bool,
     vendor: String,
     bmc_mac_addrs: Vec<String>,
     power_states: Vec<String>,
@@ -147,6 +148,9 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
                 .unwrap_or_default(),
+            has_exploration_error: report_ref
+                .and_then(|report| report.last_exploration_error.as_ref())
+                .is_some(),
             bmc_mac_addrs: report_ref
                 .map(|report| {
                     report
@@ -346,6 +350,23 @@ async fn fetch_explored_endpoints(api: Arc<Api>) -> Result<SiteExplorationReport
 #[template(path = "explored_endpoint_detail.html")]
 struct ExploredEndpointDetail {
     endpoint: ExploredEndpoint,
+    has_exploration_error: bool,
+    last_exploration_error: String,
+}
+
+impl From<ExploredEndpoint> for ExploredEndpointDetail {
+    fn from(endpoint: ExploredEndpoint) -> Self {
+        let report_ref = endpoint.report.as_ref();
+        Self {
+            last_exploration_error: report_ref
+                .and_then(|report| report.last_exploration_error.clone())
+                .unwrap_or_default(),
+            has_exploration_error: report_ref
+                .and_then(|report| report.last_exploration_error.as_ref())
+                .is_some(),
+            endpoint,
+        }
+    }
 }
 
 /// View details of an explored endpoint
@@ -413,7 +434,7 @@ pub async fn detail(
         }
     }
 
-    let display = ExploredEndpointDetail { endpoint };
+    let display = ExploredEndpointDetail::from(endpoint);
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -550,4 +571,26 @@ pub async fn bmc_reset(
 #[derive(Deserialize, Debug)]
 pub struct BmcResetEndpointAction {
     use_ipmi: Option<String>,
+}
+
+pub async fn clear_last_exploration_error(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .clear_site_exploration_error(tonic::Request::new(
+            rpc::forge::ClearSiteExplorationErrorRequest {
+                ip_address: endpoint_ip.clone(),
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "clear_last_exploration_error_endpoint");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
 }
