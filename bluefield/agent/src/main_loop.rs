@@ -26,15 +26,18 @@ use axum::Router;
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
+use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use rand::Rng;
+use tokio::process::Command as TokioCommand;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
@@ -51,7 +54,6 @@ use crate::{
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
     sysfs, systemd, upgrade, RunOptions, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
 };
-use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -62,6 +64,10 @@ pub async fn run(
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
+    tracing::info!(
+        version = forge_version::version!(),
+        "Started forge-dpu-agent"
+    );
 
     let process_start_time = SystemTime::now();
 
@@ -132,6 +138,11 @@ pub async fn run(
     let nvue_minimum_hbn_version = Version::from(NVUE_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
         "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
     ))?;
+
+    if let Err(err) = set_ovs_vswitchd_yield().await {
+        tracing::warn!(%err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
+        // We have eight cores. Letting ovs_vswitchd have one is OK.
+    };
 
     let version_check_period = Duration::from_secs(agent.period.version_check_secs);
     let main_loop_period_active = Duration::from_secs(agent.period.main_loop_active_secs);
@@ -1056,6 +1067,45 @@ async fn get_fabric_interfaces_data(
         })
         .collect();
     Ok(fabric_interface_data)
+}
+
+/// ovs-vswitchd is part of HBN. It handles network packets in user-space using DPDK
+/// (https://www.dpdk.org/). By default it uses 100% of a CPU core to poll for new packets, never
+/// yielding. Here we set it to yield the CPU for up to 100us if it's been idle recently.
+/// 100us was recommended by NBU/HBN team.
+async fn set_ovs_vswitchd_yield() -> eyre::Result<()> {
+    let mut cmd = TokioCommand::new("/usr/bin/ovs-vsctl");
+    // table: o
+    // record: .
+    // column: other_config
+    // key: pmd-sleep-max
+    // value: 100 nanoseconds
+    cmd.arg("set")
+        .arg("o")
+        .arg(".")
+        .arg("other_config:pmd-sleep-max=100")
+        .kill_on_drop(true);
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    tracing::trace!("set_ovs_vswitchd_yield running: {cmd_str}");
+
+    // It takes less than 1s, so allow up to 5
+    let out = timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .wrap_err("Timeout")?
+        .wrap_err("Error running command")?;
+    if !out.status.success() {
+        tracing::error!(
+            " STDOUT {cmd_str}: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        tracing::error!(
+            " STDERR {cmd_str}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        eyre::bail!("Failed running ovs-vsctl command. Check logs for stdout/stderr.");
+    }
+
+    Ok(())
 }
 
 const ONE_SECOND: Duration = Duration::from_secs(1);
