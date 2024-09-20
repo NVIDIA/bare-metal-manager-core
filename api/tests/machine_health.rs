@@ -185,6 +185,19 @@ async fn test_machine_health_aggregation(
     check_time(&aggregate_health);
     assert_eq!(aggregate_health.alerts, vec![]);
 
+    // we start off with no overrides
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("forge_hosts_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",override_type=\"override\"} 0".to_string()
+        ]
+    );
+
     // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
     // We use just the new format of health-reports, which should take precendence
     // over the legacy format
@@ -245,6 +258,20 @@ async fn test_machine_health_aggregation(
     );
     send_health_report_override(&env, &host_machine_id, (r#override, OverrideMode::Merge)).await;
 
+    // Override is visible in metrics - requires a statecontroller iteration to update metrics
+    env.run_machine_state_controller_iteration().await;
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("forge_hosts_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"override\"} 0".to_string()
+        ]
+    );
+
     let m = get_machine(&env, &host_machine_id).await;
     assert_eq!(
         m.health_overrides,
@@ -279,6 +306,20 @@ async fn test_machine_health_aggregation(
         (r#override.clone(), OverrideMode::Override),
     )
     .await;
+    // Override is visible in metrics - requires a statecontroller iteration to update metrics
+    env.run_machine_state_controller_iteration().await;
+    let mut override_metrics = env
+        .test_meter
+        .formatted_metrics("forge_hosts_health_overrides_count");
+    override_metrics.sort();
+    assert_eq!(
+        override_metrics,
+        vec![
+            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",override_type=\"override\"} 1".to_string()
+        ]
+    );
+
     let m = get_machine(&env, &host_machine_id).await;
     assert_eq!(
         m.health_overrides,

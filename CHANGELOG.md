@@ -3,6 +3,18 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc2-0...trunk)
 
 ### Added
+
+- A new metric `forge_hosts_health_overrides_count` is emitted which indicates the amount
+  of health overrides that are configured on a site. That allows operators to determine
+  whether any health status might be impacted by overrides or whether hosts are
+  "naturally" health or unhealthy.
+  The metric carries an attribute `override_type` which can be either `merge` or `override`.  
+  **Example:**
+  ```
+  forge_hosts_health_overrides_count{fresh="true",override_type="merge"} 1
+  forge_hosts_health_overrides_count{fresh="true",override_type="override"} 0
+  ```
+
 ### Changed
 ### Fixed
 ### Removed

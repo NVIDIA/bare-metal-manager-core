@@ -306,6 +306,13 @@ impl MachineStateHandler {
                 ctx.metrics.health_alert_classifications.insert(c.clone());
             }
         }
+
+        ctx.metrics.num_merge_overrides = state.host_snapshot.health_report_overrides.merges.len();
+        ctx.metrics.override_override_enabled = state
+            .host_snapshot
+            .health_report_overrides
+            .r#override
+            .is_some();
     }
 
     async fn attempt_state_transition(
