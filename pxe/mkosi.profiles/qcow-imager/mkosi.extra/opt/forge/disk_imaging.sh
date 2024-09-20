@@ -22,7 +22,7 @@ forge_test_pass=
 function curl_url() {
 	url=$1
 	auth=$2
-	curl --retry 5 --retry-all-errors -k -L -O $auth -C - $url 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k -L -O $auth $url 2>&1 | tee $log_output
 }
 
 function verify_sha() {
