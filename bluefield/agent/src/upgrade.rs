@@ -14,7 +14,7 @@ use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -95,6 +95,10 @@ pub async fn upgrade(
         version = forge_version::v!(build_version),
         "Upgrading myself, goodbye.",
     );
+    if let Err(err) = clear_apt_metadata_cache() {
+        tracing::warn!(%err, "Failed clearing apt metadata cache");
+        // try the upgrade anyway
+    }
     match run_upgrade_cmd(upgrade_cmd).await {
         Ok(()) => {
             // Upgrade succeeded, we need to restart. We do this by exiting and letting
@@ -213,6 +217,24 @@ async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
         tracing::error!(" STDOUT: {}", String::from_utf8_lossy(&out.stdout));
         tracing::error!(" STDERR: {}", String::from_utf8_lossy(&out.stderr));
         eyre::bail!("Failed running upgrade command. Check logs for stdout/stderr.");
+    }
+    Ok(())
+}
+
+/// There are rare but real situations, as yet undetermined, where `apt update` will not download
+/// the `Packages` file from our repo. This fixes it.
+/// It's possibly something about the `Release` file that doesn't match it's expectation.
+/// See https://nvbugspro.nvidia.com/bug/4870691
+fn clear_apt_metadata_cache() -> eyre::Result<()> {
+    const MC: [&str; 2] = [
+        "/var/lib/apt/lists/carbide-pxe.forge_public_blobs_internal_apt_dists_focal_Release",
+        "/var/lib/apt/lists/carbide-pxe.forge_public_blobs_internal_apt_dists_focal_main_binary-arm64_Packages",
+    ];
+    for filepath in MC {
+        let p = PathBuf::from(filepath);
+        if p.exists() {
+            fs::remove_file(p)?;
+        }
     }
     Ok(())
 }
