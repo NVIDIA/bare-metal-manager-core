@@ -87,6 +87,10 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
                 "/explored-endpoint/:endpoint_ip/bmc-reset",
                 post(explored_endpoint::bmc_reset),
             )
+            .route(
+                "/explored-endpoint/:endpoint_ip/clear-last-error",
+                post(explored_endpoint::clear_last_exploration_error),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
