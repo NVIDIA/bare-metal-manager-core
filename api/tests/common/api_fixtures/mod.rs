@@ -1261,6 +1261,24 @@ pub async fn get_machine_validation_results(
         .into_inner()
 }
 
+/// Emulates the `get_machine_validation_runs` request of a Host
+pub async fn get_machine_validation_runs(
+    env: &TestEnv,
+    machine_id: rpc::common::MachineId,
+    include_history: bool,
+) -> rpc::forge::MachineValidationRunList {
+    env.api
+        .get_machine_validation_runs(Request::new(
+            rpc::forge::MachineValidationRunListGetRequest {
+                machine_id: Some(machine_id),
+                include_history,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+}
+
 /// A hot swappable machine state handler.
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).

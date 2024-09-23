@@ -162,7 +162,10 @@ impl MachineValidation {
 
 impl From<MachineValidation> for rpc::forge::MachineValidationRun {
     fn from(value: MachineValidation) -> Self {
-        let end_time = Some(value.end_time.unwrap_or_default().into());
+        let mut end_time = None;
+        if value.end_time.is_some() {
+            end_time = Some(value.end_time.unwrap_or_default().into());
+        }
         let start_time = Some(value.start_time.unwrap_or_default().into());
         rpc::forge::MachineValidationRun {
             validation_id: Some(value.id.into()),

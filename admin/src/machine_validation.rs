@@ -85,11 +85,16 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
     table.set_titles(row!["Id", "MachineId", "StartTime", "EndTime",]);
 
     for run in runs.runs {
+        let end_time = if let Some(run_end_time) = run.end_time {
+            run_end_time.to_string()
+        } else {
+            "".to_string()
+        };
         table.add_row(row![
             run.validation_id.clone().unwrap_or_default(),
             run.machine_id.unwrap_or_default(),
             run.start_time.unwrap_or_default(),
-            run.end_time.unwrap_or_default(),
+            end_time,
         ]);
     }
 

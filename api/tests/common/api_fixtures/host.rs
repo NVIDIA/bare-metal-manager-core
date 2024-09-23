@@ -39,7 +39,8 @@ use crate::common::api_fixtures::{
     TestEnv,
 };
 use crate::common::api_fixtures::{
-    inject_machine_measurements, machine_validation_completed, persist_machine_validation_result,
+    get_machine_validation_runs, inject_machine_measurements, machine_validation_completed,
+    persist_machine_validation_result,
 };
 
 const TEST_DATA_DIR: &str = concat!(
@@ -442,6 +443,13 @@ pub async fn create_host_with_machine_validation(
         value: uuid.to_owned(),
     });
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
+    assert_eq!(
+        get_machine_validation_runs(env, host_rpc_machine_id.clone(), false)
+            .await
+            .runs[0]
+            .end_time,
+        None
+    );
 
     machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
     if error.is_some() {
