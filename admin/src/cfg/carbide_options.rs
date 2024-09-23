@@ -891,6 +891,7 @@ pub struct BMCIdentify {
 pub struct BmcResetArgs {
     #[clap(long, help = "ID of the machine to reboot")]
     pub machine: String,
+    #[clap(short, long, help = "Use ipmitool")]
     pub use_ipmitool: bool,
 }
 
@@ -1482,6 +1483,7 @@ pub enum SiteExplorer {
     )]
     ClearError(ExploreOptions),
     IsBmcInManagedHost(ExploreOptions),
+    HaveCredentials(ExploreOptions),
 }
 
 #[derive(Parser, Debug)]

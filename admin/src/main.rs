@@ -782,6 +782,12 @@ async fn main() -> color_eyre::Result<()> {
                     opts.address, is_bmc_in_managed_host.in_managed_host
                 );
             }
+            SiteExplorer::HaveCredentials(opts) => {
+                let have_credentials =
+                    rpc::does_site_explorer_have_credentials(api_config, &opts.address, opts.mac)
+                        .await?;
+                println!("{}", have_credentials.have_credentials);
+            }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {

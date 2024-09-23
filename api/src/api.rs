@@ -1387,6 +1387,14 @@ impl Forge for Api {
         crate::handlers::site_explorer::is_bmc_in_managed_host(self, request).await
     }
 
+    async fn does_site_explorer_have_credentials(
+        &self,
+        request: Request<rpc::BmcEndpointRequest>,
+    ) -> Result<Response<rpc::DoesSiteExplorerHaveCredentialsResponse>, tonic::Status> {
+        crate::handlers::bmc_endpoint_explorer::does_site_explorer_have_credentials(self, request)
+            .await
+    }
+
     async fn re_explore_endpoint(
         &self,
         request: Request<rpc::ReExploreEndpointRequest>,

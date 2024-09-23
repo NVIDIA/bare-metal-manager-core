@@ -2955,6 +2955,10 @@ impl EndpointExplorer for FakeEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }
+
+    async fn have_credentials(&self, _interface: &MachineInterfaceSnapshot) -> bool {
+        true
+    }
 }
 
 async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExplorationReport {

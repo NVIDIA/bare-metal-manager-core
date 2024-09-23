@@ -275,6 +275,12 @@ impl EndpointExplorer for BmcEndpointExplorer {
         self.credential_client.check_preconditions(metrics).await
     }
 
+    async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool {
+        self.get_bmc_root_credentials(interface.mac_address)
+            .await
+            .is_ok()
+    }
+
     // 1) Authenticate and set the BMC root account credentials
     // 2) Authenticate and set the BMC forge-admin account credentials (TODO)
     async fn explore_endpoint(
