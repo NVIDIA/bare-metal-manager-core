@@ -176,6 +176,8 @@ service Forge {
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
   // IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
   rpc IsBmcInManagedHost(BmcEndpointRequest) returns (IsBmcInManagedHostResponse);
+  // DoesSiteExplorerHaveCredentials returns true if site explorer has the credentials to login to this BMC
+  rpc DoesSiteExplorerHaveCredentials(BmcEndpointRequest) returns (DoesSiteExplorerHaveCredentialsResponse);
   // Explore an individual BMC and show the report
   // The results of this exploration call will not be persisted in the database
   rpc Explore(BmcEndpointRequest) returns (site_explorer.EndpointExplorationReport);
@@ -3251,4 +3253,8 @@ message MachineValidationRunListGetRequest {
 
 message IsBmcInManagedHostResponse {
   bool in_managed_host = 1;
+}
+
+message DoesSiteExplorerHaveCredentialsResponse {
+  bool have_credentials = 1;
 }

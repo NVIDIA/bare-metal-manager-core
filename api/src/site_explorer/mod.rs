@@ -1500,6 +1500,15 @@ impl SiteExplorer {
     }
 
     pub async fn handle_redfish_error(&self, endpoint: Endpoint, error: &EndpointExplorationError) {
+        // If site explorer cant log in, theres nothing we can do.
+        if !self
+            .endpoint_explorer
+            .have_credentials(&endpoint.iface)
+            .await
+        {
+            return;
+        }
+
         // Dont let site explorer issue either a force-restart or bmc-reset more than once every 6 hours.
         let rate_limit_hours = 6;
         let min_time_since_last_action_mins = 20;
@@ -1518,6 +1527,8 @@ impl SiteExplorer {
             tracing::info!("waiting to remediate error {error} for {endpoint}; time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
             return;
         }
+
+        tracing::info!("Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
 
         let is_managed_host_created_for_endpoint = match self
             .is_managed_host_created_for_endpoint(&endpoint)

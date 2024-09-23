@@ -11,6 +11,7 @@
  */
 
 use mac_address::MacAddress;
+use rpc::forge::DoesSiteExplorerHaveCredentialsResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
 
@@ -169,4 +170,31 @@ pub(crate) async fn redfish_power_control(
         .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
     Ok(Response::new(()))
+}
+
+pub(crate) async fn does_site_explorer_have_credentials(
+    api: &Api,
+    request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+) -> Result<Response<DoesSiteExplorerHaveCredentialsResponse>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let bmc_mac_address: MacAddress;
+    if let Some(mac_str) = req.mac_address {
+        bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
+    } else {
+        return Err(tonic::Status::invalid_argument(format!(
+            "request did not specify mac address: {req:#?}"
+        )));
+    };
+
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+    let have_credentials = api
+        .endpoint_explorer
+        .have_credentials(&machine_interface)
+        .await;
+
+    Ok(Response::new(DoesSiteExplorerHaveCredentialsResponse {
+        have_credentials,
+    }))
 }

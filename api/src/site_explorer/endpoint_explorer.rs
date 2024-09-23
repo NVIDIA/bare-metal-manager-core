@@ -63,4 +63,6 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
         action: libredfish::SystemPowerControl,
     ) -> Result<(), EndpointExplorationError>;
+
+    async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool;
 }
