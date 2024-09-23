@@ -105,7 +105,7 @@ docker pull "$(grep unbound: bases/unbound/deployment.yaml | awk '{print $2}')"
 
 # Bring up the base k3s resources (excludes carbide)
 echo "Bringing up the base kubernetes node..."
-.gitlab/dev-env-test.sh
+.gitlab/dev-env-test.sh  # Not to be confused with the file of the same name in this repo (i.e. this file)
 
 # Configure DNS
 eval "$(direnv export bash)"
