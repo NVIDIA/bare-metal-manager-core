@@ -62,6 +62,7 @@ use crate::model::machine::{
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::redfish::RedfishAuth;
+use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
@@ -85,7 +86,6 @@ use crate::{
     redfish::RedfishClientPool,
     CarbideError, CarbideResult,
 };
-use crate::{resource_pool, site_explorer};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
@@ -2713,36 +2713,6 @@ impl Forge for Api {
         Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
     }
 
-    /// Identify BMC vendor for given IP address
-    async fn identify_bmc(
-        &self,
-        request: tonic::Request<rpc::IdentifyBmcRequest>,
-    ) -> Result<tonic::Response<rpc::IdentifyBmcResponse>, tonic::Status> {
-        let request = request.into_inner();
-        if request.address.is_empty() {
-            return Err(Status::invalid_argument("BMC IP address is required"));
-        }
-
-        let (org, vendor) =
-            // If discovery already happened we can use scout's hardware info
-            if let Ok(Some(vendor)) = self.identify_bmc_from_db(&request.address).await {
-                ("".to_string(), vendor)
-            } else {
-                // For pre-discovery machines we use the TLS cert
-                site_explorer::identify_bmc(&request.address).await?
-            };
-
-        let resp = rpc::IdentifyBmcResponse {
-            known_vendor: if !vendor.is_unknown() {
-                vendor.to_string()
-            } else {
-                "".to_string()
-            },
-            raw_vendor: org.to_string(),
-        };
-        Ok(Response::new(resp))
-    }
-
     async fn get_expected_machine(
         &self,
         request: tonic::Request<rpc::ExpectedMachineRequest>,
@@ -4200,31 +4170,6 @@ impl Api {
 
     pub fn log_filter_string(&self) -> String {
         self.dynamic_settings.log_filter.load().to_string()
-    }
-
-    async fn identify_bmc_from_db(
-        &self,
-        address: &str,
-    ) -> Result<Option<bmc_vendor::BMCVendor>, CarbideError> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin identify_bmc_from_db ",
-                e,
-            ))
-        })?;
-
-        if let Some(machine_id) =
-            MachineTopology::find_machine_id_by_bmc_ip(&mut txn, address).await?
-        {
-            if let Some(machine) =
-                Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
-            {
-                return Ok(Some(machine.bmc_vendor()));
-            }
-        }
-        Ok(None)
     }
 
     async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {

@@ -254,9 +254,6 @@ service Forge {
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
 
-  // Identify the vendor of a BMC without logging into it
-  rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
-
   // Expected Machine Management
   // Add expected machine
   rpc AddExpectedMachine(ExpectedMachine) returns (google.protobuf.Empty);
@@ -2851,15 +2848,6 @@ message ClearHostUefiPasswordRequest {
 
 message ClearHostUefiPasswordResponse {
   optional string job_id = 1;
-}
-
-message IdentifyBMCRequest {
-  string address = 1;
-}
-
-message IdentifyBMCResponse {
-  string known_vendor = 1;
-  string raw_vendor = 2;
 }
 
 enum StorageRaidLevels {
