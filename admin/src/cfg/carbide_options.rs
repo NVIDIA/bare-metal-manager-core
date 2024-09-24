@@ -1290,8 +1290,6 @@ pub struct ResourcePoolDefinition {
 pub enum BmcAction {
     #[clap(about = "Reset BMC")]
     BmcReset(BmcResetArgs),
-    #[clap(about = "Identify a BMC vendor by the TLS certificate issuer")]
-    Identify(BMCIdentify),
     #[clap(about = "Redfish Power Control")]
     AdminPowerControl(AdminPowerControlArgs),
 }

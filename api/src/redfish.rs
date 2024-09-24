@@ -58,8 +58,6 @@ pub enum RedfishClientCreationError {
     SubtaskError(tokio::task::JoinError),
     #[error("Not implemeted")]
     NotImplemented,
-    #[error(transparent)]
-    IdentifyError(#[from] crate::site_explorer::IdentifyError),
     #[error("Invalid Header {0}")]
     InvalidHeader(String),
     #[error("Failed setting credential {key}: {cause}")]

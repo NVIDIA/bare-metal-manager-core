@@ -745,9 +745,6 @@ pub(crate) fn map_redfish_client_creation_error(
         RedfishClientCreationError::NotImplemented => EndpointExplorationError::Other {
             details: "RedfishClientCreationError::NotImplemented".to_string(),
         },
-        RedfishClientCreationError::IdentifyError(msg) => EndpointExplorationError::Other {
-            details: msg.to_string(),
-        },
         RedfishClientCreationError::InvalidHeader(original_error) => {
             EndpointExplorationError::Other {
                 details: format!("RedfishClientError::InvalidHeader: {}", original_error),

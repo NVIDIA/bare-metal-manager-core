@@ -649,14 +649,6 @@ async fn main() -> color_eyre::Result<()> {
             BmcAction::BmcReset(args) => {
                 rpc::bmc_reset(api_config, None, Some(args.machine), args.use_ipmitool).await?;
             }
-            BmcAction::Identify(args) => {
-                let resp = rpc::identify_bmc(api_config, args.address).await?;
-                if !resp.known_vendor.is_empty() {
-                    println!("{}", resp.known_vendor);
-                } else {
-                    println!("Unknown: {}", resp.raw_vendor);
-                }
-            }
             BmcAction::AdminPowerControl(args) => {
                 rpc::admin_power_control(api_config, None, Some(args.machine), args.action.into())
                     .await?;

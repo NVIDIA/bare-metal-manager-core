@@ -65,10 +65,8 @@ mod metrics;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
-pub use bmc_endpoint_explorer::BmcEndpointExplorer;
-mod identify;
 use crate::model::hardware_info::NetworkInterface;
-pub use identify::{identify_bmc, IdentifyError};
+pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
 pub use managed_host::is_endpoint_in_managed_host;
