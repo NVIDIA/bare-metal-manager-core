@@ -1084,6 +1084,10 @@ impl Redfish for RedfishSimClient {
     ) -> Result<libredfish::model::task::Task, RedfishError> {
         todo!();
     }
+
+    async fn enable_rshim_bmc(&self) -> Result<(), RedfishError> {
+        Ok(())
+    }
 }
 
 #[async_trait]
