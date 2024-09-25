@@ -1560,12 +1560,11 @@ async fn are_dpus_up_trigger_reboot_if_needed(
 ) -> bool {
     for dpu_snapshot in &state.dpu_snapshots {
         if !is_dpu_up(state, dpu_snapshot) {
-            return false;
-        } else {
             match reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn).await {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.machine_id),
             }
+            return false;
         }
     }
 
