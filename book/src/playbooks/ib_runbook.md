@@ -8,12 +8,18 @@
 
 ### Installation
 
+UFM 6.18.0-2 and up is recomended for configuring UFM in more secury mode.
+
 For the Forge product environment, the HA mode is required.
 
 * Follow the [prerequisites](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+server+software) guidance to install all required packages, including the HA part.
 * Follow the [HA installation](https://docs.nvidia.com/networking/display/ufmenterpriseqsglatest/installing+ufm+on+bare+metal+server+-+high+availability+mode) guidance to install the UFM in HA mode.
 
 ### Configuration
+After UFM is deployed, the following security features must be enabled on UFM and OpenSM to enable secure Infiniband support in a multi-tenant Forge site.
+The management key (M_Key) is used across the subnet, and the administration key (SA_key) is for services.
+
+Perform the following steps on the host that provides the NVIDIA Unified Fabric Manager (UFM) server.
 
 #### Static configurations
 
@@ -140,6 +146,11 @@ No additional steps are required to enable Infiniband in Forge.
 
 #### UFM Credential
 
+One of two options can be selected to UFM Authentification mechanism such as `token authentication` or `client authentification`.
+Follow the instructions in the section that applies to the selected option.
+
+##### Token Authentification
+
 Get the token of the admin user in UFM in above step, or get it again by following the rest api (the password of the admin user is required to get the token):
 
 ```
@@ -159,6 +170,213 @@ Create the credential for UFM client in Forge by forge-admin-cli as follows:
 
 ```
 root:/# forge-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
+```
+
+##### Client Authentification (mTLS)
+
+Mutual TLS, or mTLS for short, is a method for mutual authentication. mTLS ensures that the parties at each end of a network connection are who they claim to be by verifying that they both have the correct private key. The information within their respective TLS certificates provides additional verification.
+mTLS is often used in a Zero Trust security framework to verify users, devices, and servers within an organization. 
+Zero Trust means that no user, device, or network traffic is trusted by default, an approach that helps eliminate many security vulnerabilities.
+
+###### Configure UFM to enable mTLS according the instruction
+
+UFM Server Certificates should include UFM Host Name `<ufm host name>` into The Subject Alternative Name (SAN) extension to the X.509 specification.
+
+Note:
+- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>.frg.nvidia.com`. Where <site domain name> is taken from `initial_domain_name` carbide configuration parameter.
+```
+openssl x509 -in server.crt -text -noout | grep DNS
+                DNS:default.ufm.forge, DNS:default.ufm.az22.frg.nvidia.com
+```
+- direct IP address is not supported.
+- for UFM version less than 6.18.0-5 following patch should be applied as
+```
+--- /opt/ufm/scripts/ufm_conf_creator.py   2024-07-31 16:18:58.360497118 +0000
++++ /opt/ufm/scripts/ufm_conf_creator.py   2024-07-31 16:20:01.480677706 +0000
+@@ -213,6 +213,7 @@
+         self.fo.write('    SSLCertificateFile %s\n' % SERVER_CERT_FILE)
+         self.fo.write('    SSLCertificateKeyFile %s\n' % SERVER_CERT_KEY_FILE)
+         self.fo.write('    SSLCACertificateFile %s\n' % CA_CERT_FILE)
++        self.fo.write('    SSLVerifyClient require\n')
+         self.fo.write('</VirtualHost>\n')
+
+     def get_apache_conf_path(self):
+```
+
+**Select Client Authentification mode.**
+
+Existing carbide certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
+
+    forge-admin-cli credential add-ufm --url=<ufm host name>
+
+**Generate UFM server certificate using Vault.**
+
+Enter this command to create server UFM certificates using the vault:
+
+    forge-admin-cli credential generate-ufm-cert --fabric=default
+
+UFM Server Certificates have predefined names as `default-ufm-ca-intermediate.crt, default-ufm-server.crt, default-ufm-server.key` and stored under `/var/run/secrets` location on `carbide-api` pod.
+
+**Enter Docker UFM container.**
+```
+docker exec -it ufm /bin/bash
+```
+
+**Store server certificates at specific location.**
+
+Create UFM Server certificates using certificates generated on previous step in the UFM specific location and with predefined file names.
+```
+/opt/ufm/files/conf/webclient/ca-intermediate.crt
+/opt/ufm/files/conf/webclient/server.key
+/opt/ufm/files/conf/webclient/server.crt
+```
+
+**Assign UFM Client Host Name with UFM `admin` role.**
+It should be value from `client certificate SAN record` for example: carbide-api.forge.
+```
+/opt/ufm/scripts/manage_client_authentication.sh associate-user --san carbide-api.forge --username admin
+curl -s -k -XGET -u admin:123456 https://<client host name>/ufmRest/app/client_authentication/settings | jq
+{
+  "enable": false,
+  "client_cert_sans": [
+    {
+      "san": "<client host name>",
+      "user": "admin"
+    }
+  ],
+  "ssl_cert_hostnames": [],
+  "ssl_cert_file": "Not present",
+  "ca_intermediate_cert_file": "Not present",
+  "cert_auto_refresh": {}
+}
+```
+
+**Set UFM Server Host Name for certificate verification.**
+It should be value from `server certificate SAN record` for example: default.ufm.forge.
+```
+/opt/ufm/scripts/manage_client_authentication.sh set-ssl-cert-hostname --hostname default.ufm.forge
+curl -s -k -XGET -u admin:123456 https://<ufm host name>/ufmRest/app/client_authentication/settings | jq
+{
+  "enable": false,
+  "client_cert_sans": [
+    {
+      "san": "<client host name>",
+      "user": "admin"
+    }
+  ],
+  "ssl_cert_hostnames": [
+    "<server host name>"
+  ],
+  "ssl_cert_file": "Not present",
+  "ca_intermediate_cert_file": "Not present",
+  "cert_auto_refresh": {}
+}
+```
+
+**Enable mTLS in UFM configuration file `/opt/ufm/files/conf/gv.cfg`.**
+```
+# Whether to authenticate web client by SSL client certificate or username/password.
+client_cert_authentication = true
+```
+
+**Restart UFM.**
+```
+/etc/init.d/ufmd restart
+```
+
+**Check functionality.**
+Existing carbide certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for verification.
+```
+curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  https://<ufm host name>/ufmRest/app/ufm_version | jq
+*   Trying 192.168.121.78:443...
+* TCP_NODELAY set
+* Connected to carbide-api.forge (192.168.121.78) port 443 (#0)
+* ALPN, offering h2
+* ALPN, offering http/1.1
+* successfully set certificate verify locations:
+*   CAfile: ca.crt
+  CApath: /etc/ssl/certs
+} [5 bytes data]
+* TLSv1.3 (OUT), TLS handshake, Client hello (1):
+} [512 bytes data]
+* TLSv1.3 (IN), TLS handshake, Server hello (2):
+{ [112 bytes data]
+* TLSv1.2 (IN), TLS handshake, Certificate (11):
+{ [1232 bytes data]
+* TLSv1.2 (IN), TLS handshake, Server key exchange (12):
+{ [147 bytes data]
+* TLSv1.2 (IN), TLS handshake, Server finished (14):
+{ [4 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):
+} [37 bytes data]
+* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):
+} [1 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Finished (20):
+} [16 bytes data]
+* TLSv1.2 (IN), TLS handshake, Finished (20):
+{ [16 bytes data]
+* SSL connection using TLSv1.2 / ECDHE-ECDSA-AES256-GCM-SHA384
+* ALPN, server accepted to use http/1.1
+* Server certificate:
+*  subject: [NONE]
+*  start date: Jun 18 02:52:24 2024 GMT
+*  expire date: Jul 18 02:52:54 2024 GMT
+*  subjectAltName: host "carbide-api.forge" matched cert's "carbide-api.forge"
+*  issuer: O=NVIDIA Corporation; CN=NVIDIA Forge Intermediate CA 2023 - pdx-qa2
+*  SSL certificate verify ok.
+} [5 bytes data]
+> GET /ufmRest/app/ufm_version HTTP/1.1
+> Host: carbide-api.forge
+> User-Agent: curl/7.68.0
+> Accept: */*
+>
+{ [5 bytes data]
+* TLSv1.2 (IN), TLS handshake, Hello request (0):
+{ [4 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Client hello (1):
+} [252 bytes data]
+* TLSv1.2 (IN), TLS handshake, Server hello (2):
+{ [121 bytes data]
+* TLSv1.2 (IN), TLS handshake, Certificate (11):
+{ [1232 bytes data]
+* TLSv1.2 (IN), TLS handshake, Server key exchange (12):
+{ [147 bytes data]
+* TLSv1.2 (IN), TLS handshake, Request CERT (13):
+{ [159 bytes data]
+* TLSv1.2 (IN), TLS handshake, Server finished (14):
+{ [4 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Certificate (11):
+} [1228 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):
+} [37 bytes data]
+* TLSv1.2 (OUT), TLS handshake, CERT verify (15):
+} [111 bytes data]
+* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):
+} [1 bytes data]
+* TLSv1.2 (OUT), TLS handshake, Finished (20):
+} [16 bytes data]
+* TLSv1.2 (IN), TLS handshake, Finished (20):
+{ [16 bytes data]
+* old SSL session ID is stale, removing
+{ [5 bytes data]
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 OK
+< Date: Tue, 02 Jul 2024 11:28:57 GMT
+< Server: TwistedWeb/22.4.0
+< Content-Type: application/json
+< Content-Length: 34
+< Rest-Version: 1.6.0
+< X-Frame-Options: DENY
+< X-Content-Type-Options: nosniff
+< X-XSS-Protection: 1; mode=block
+< Content-Security-Policy: script-src 'self'
+< ClientCertAuthen: yes
+<
+{ [34 bytes data]
+* Connection #0 to host carbide-api.forge left intact
+{
+  "ufm_release_version": "6.14.5-2"
+}
 ```
 
 #### carbide-api-site-config
