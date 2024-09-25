@@ -668,7 +668,7 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
                 let username = url_validator(c.url.clone()).await?;
-                let password = password_validator(c.token.clone()).await?;
+                let password = c.token.clone();
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
@@ -686,6 +686,16 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                 };
                 rpc::delete_credential(api_config, req).await?;
+            }
+            CredentialAction::GenerateUFMCert(c) => {
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::Ufm.into(),
+                    username: None,
+                    password: "".to_string(),
+                    mac_address: None,
+                    vendor: Some(c.fabric),
+                };
+                rpc::add_credential(api_config, req).await?;
             }
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone()).await?;

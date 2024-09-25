@@ -16,15 +16,17 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use hyper::client::HttpConnector;
-use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
+use hyper::http::StatusCode;
 use hyper::{Body, Client, Method, Uri};
 use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
 use thiserror::Error;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
-use tokio_rustls::rustls::{ClientConfig, ServerName};
+use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 
+use crate::ib::ufmclient::UFMCert;
 struct NoCertificateVerification;
 
 impl ServerCertVerifier for NoCertificateVerification {
@@ -112,7 +114,20 @@ pub struct RestClient {
 
 impl RestClient {
     pub fn new(conf: &RestClientConfig) -> Result<RestClient, RestError> {
-        let auth_info = format!("Basic {}", conf.auth_info.clone().trim());
+        let mut auth_info = conf.auth_info.clone().trim().to_string();
+        let mut auto_cert: Option<UFMCert> = None;
+
+        if auth_info.chars().filter(|c| *c == '\n').count() == 2 {
+            let mut v = auth_info.split('\n');
+            auto_cert = Some(UFMCert {
+                ca_crt: v.next().unwrap_or("").to_string(),
+                tls_key: v.next().unwrap_or("").to_string(),
+                tls_crt: v.next().unwrap_or("").to_string(),
+            });
+            auth_info = "".to_string();
+        } else {
+            auth_info = format!("Basic {}", conf.auth_info.clone().trim());
+        }
 
         let base_url = match &conf.port {
             None => format!(
@@ -139,16 +154,131 @@ impl RestClient {
         http_connector.set_read_timeout(Some(REST_TIME_OUT));
         http_connector.set_write_timeout(Some(REST_TIME_OUT));
 
-        let config = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(std::sync::Arc::new(NoCertificateVerification))
-            .with_no_client_auth();
+        let config = if let Some(auto_cert) = &auto_cert {
+            // Get CA root
+            let mut roots = RootCertStore::empty();
+            let fd = match std::fs::File::open(auto_cert.ca_crt.clone()) {
+                Ok(fd) => fd,
+                Err(_) => {
+                    return Err(RestError::NotFound(format!(
+                        "Root CA file not found at '{}'",
+                        auto_cert.ca_crt.clone()
+                    )));
+                }
+            };
+            let mut buf = std::io::BufReader::new(&fd);
+            match rustls_pemfile::certs(&mut buf) {
+                Ok(certs) => roots.add_parsable_certificates(&certs),
+                Err(_) => {
+                    return Err(RestError::NotFound(format!(
+                        "Root CA file not found at '{}'",
+                        auto_cert.tls_crt.clone()
+                    )));
+                }
+            };
+
+            // Get client certificate
+            let certs = {
+                let fd = match std::fs::File::open(auto_cert.tls_crt.clone()) {
+                    Ok(fd) => fd,
+                    Err(_) => {
+                        return Err(RestError::NotFound(format!(
+                            "Client Cert file not found at '{}'",
+                            auto_cert.tls_crt.clone()
+                        )));
+                    }
+                };
+                let mut buf = std::io::BufReader::new(&fd);
+                match rustls_pemfile::certs(&mut buf) {
+                    Ok(certs) => certs.into_iter().map(Certificate).collect::<Vec<_>>(),
+                    Err(_) => {
+                        return Err(RestError::NotFound(format!(
+                            "Client Cert file not found at '{}'",
+                            auto_cert.tls_crt.clone()
+                        )));
+                    }
+                }
+            };
+
+            // Get client private key
+            let key = {
+                let fd = match std::fs::File::open(auto_cert.tls_key.clone()) {
+                    Ok(fd) => fd,
+                    Err(_) => {
+                        return Err(RestError::NotFound(format!(
+                            "Client Private Key file not found at '{}'",
+                            auto_cert.tls_key.clone()
+                        )));
+                    }
+                };
+                let mut buf = std::io::BufReader::new(&fd);
+                use rustls_pemfile::Item;
+                match rustls_pemfile::read_one(&mut buf) {
+                    Ok(Some(item)) => match item {
+                        Item::RSAKey(rsa_key) => Some(PrivateKey(rsa_key)),
+                        Item::PKCS8Key(pkcs8_key) => Some(PrivateKey(pkcs8_key)),
+                        Item::ECKey(ec_key) => Some(PrivateKey(ec_key)),
+                        Item::X509Certificate(_) => {
+                            return Err(RestError::NotFound(format!(
+                                "Expected Client Private Key but certificate is found '{}'",
+                                auto_cert.tls_key.clone()
+                            )));
+                        }
+                        Item::Crl(_) => {
+                            return Err(RestError::NotFound(format!("Expected Client Private Key but certificate revocation list is found '{}'", auto_cert.tls_key)));
+                        }
+                        _ => {
+                            return Err(RestError::NotFound(format!(
+                                "Client Private Key is corrupted '{}'",
+                                auto_cert.tls_key.clone()
+                            )));
+                        }
+                    },
+                    _ => {
+                        return Err(RestError::NotFound(format!(
+                            "Client Private Key file not found at '{}'",
+                            auto_cert.tls_key.clone()
+                        )));
+                    }
+                }
+            };
+
+            let build_no_client_auth_config = || {
+                ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(roots.clone())
+                    .with_no_client_auth()
+            };
+
+            if !certs.is_empty() && key.is_some() {
+                if let Ok(config) = ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(roots.clone())
+                    .with_client_auth_cert(certs, key.unwrap())
+                {
+                    // Use TLS flow with client authentication
+                    config
+                } else {
+                    // Client creation failure
+                    build_no_client_auth_config()
+                }
+            } else {
+                // Unable to use client cert/key pair
+                build_no_client_auth_config()
+            }
+        } else {
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_custom_certificate_verifier(std::sync::Arc::new(NoCertificateVerification))
+                .with_no_client_auth()
+        };
 
         let mut https_connector = TimeoutConnector::new(
             hyper_rustls::HttpsConnectorBuilder::new()
                 .with_tls_config(config)
-                .https_only()
+                .https_or_http()
                 .enable_http1()
+                .enable_http2()
                 .build(),
         );
         https_connector.set_connect_timeout(Some(REST_TIME_OUT));
@@ -224,19 +354,32 @@ impl RestClient {
         let req = hyper::Request::builder()
             .method(method)
             .uri(uri)
+            .header(USER_AGENT, env!("CARGO_PKG_NAME"))
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, self.auth_info.to_string())
             .body(Body::from(body))
             .map_err(|_| RestError::InvalidConfig("invalid rest request".to_string()))?;
 
         let body = match &self.scheme {
-            RestScheme::Http => self.http_client.request(req).await?,
-            RestScheme::Https => self.https_client.request(req).await?,
+            RestScheme::Http => self
+                .http_client
+                .request(req)
+                .await
+                .map_err(|e| RestError::Internal(format!("rest request failure: {:?}", e)))?,
+            RestScheme::Https => self
+                .https_client
+                .request(req)
+                .await
+                .map_err(|e| RestError::Internal(format!("rest request failure: {:?}", e)))?,
         };
 
+        let status = body.status();
         let chunk = hyper::body::to_bytes(body.into_body()).await?;
         let data = String::from_utf8(chunk.to_vec()).unwrap();
 
-        Ok(data)
+        match status {
+            StatusCode::OK => Ok(data),
+            _ => Err(RestError::Internal(data)),
+        }
     }
 }

@@ -500,9 +500,16 @@ impl CredentialProvider for ForgeVaultClient {
 }
 
 pub struct GetCertificateHelper {
+    /// Used to form URI-type SANs for this certificate
     unique_identifier: String,
     pki_mount_location: String,
     pki_role_name: String,
+    /// Alternative requested DNS-type SANs for this certificate
+    alt_names: Option<String>,
+    /// Requested expiration date of this certificate
+    /// Duration format: https://developer.hashicorp.com/vault/docs/concepts/duration-format
+    /// Accept numeric value with suffix such as  s-seconds, m-minutes, h-hours, d-days
+    ttl: Option<String>,
 }
 
 #[async_trait]
@@ -525,13 +532,15 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             trust_domain, namespace, self.unique_identifier,
         );
 
-        let ttl = {
+        let ttl = if self.ttl.is_some() {
+            self.ttl.clone().unwrap()
+        } else {
             // this is to setup a baseline skew of between 60 - 100% of 30 days,
             // so that not all boxes will renew (or expire) at the same time.
             let max_hours = 720; // 24 * 30
             let min_hours = 432; // 24 * 30 * 0.6
             let mut rng = rand::thread_rng();
-            rng.gen_range(min_hours..max_hours)
+            format!("{}h", rng.gen_range(min_hours..max_hours))
         };
 
         let mut certificate_request_builder = GenerateCertificateRequest::builder();
@@ -539,7 +548,8 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             .mount(self.pki_mount_location.clone())
             .role(self.pki_role_name.clone())
             .uri_sans(spiffe_id)
-            .ttl(format!("{ttl}h"));
+            .alt_names(self.alt_names.clone().unwrap_or_default())
+            .ttl(ttl);
 
         let time_started_vault_request = Instant::now();
         let vault_response = pki::cert::generate(
@@ -579,6 +589,24 @@ impl CertificateProvider for ForgeVaultClient {
             unique_identifier: unique_identifier.to_string(),
             pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
             pki_role_name: self.vault_client_config.pki_role_name.clone(),
+            alt_names: None,
+            ttl: None,
+        };
+        let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
+        vault_task_helper.execute(self).await
+    }
+    async fn get_certificate_ex(
+        &self,
+        unique_identifier: &str,
+        alt_names: Option<String>,
+        ttl: Option<String>,
+    ) -> Result<Certificate, eyre::Report> {
+        let get_certificate_helper = GetCertificateHelper {
+            unique_identifier: unique_identifier.to_string(),
+            pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
+            pki_role_name: self.vault_client_config.pki_role_name.clone(),
+            alt_names,
+            ttl,
         };
         let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
         vault_task_helper.execute(self).await

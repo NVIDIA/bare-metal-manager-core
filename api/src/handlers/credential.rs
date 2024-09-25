@@ -13,6 +13,8 @@
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
+use std::fs::File;
+use std::io::Write;
 use tonic::Response;
 
 use crate::api::Api;
@@ -77,6 +79,8 @@ pub(crate) async fn create_credential(
                             e
                         ))
                     })?;
+            } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
+                write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
             } else {
                 return Err(tonic::Status::invalid_argument("missing UFM Url"));
             }
@@ -444,4 +448,65 @@ async fn set_bmc_credentials(
         .map_err(|e| {
             CarbideError::GenericError(format!("Error setting credential for BMC: {:?} ", e))
         })
+}
+
+pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideError> {
+    const CERT_PATH: &str = "/var/run/secrets";
+
+    // ttl can be limited by vault, so final value can be different
+    // alternative names should match vault`s `allowed_domains` parameter
+    // See: forged:bases/argo-workflows/workflows/vault/configure-vault.yaml
+    let ttl = "365d".to_string();
+    let alt_names = if let Some(value) = &api.runtime_config.initial_domain_name {
+        format!("{fabric}.ufm.forge, {fabric}.ufm.{value}")
+    } else {
+        format!("{fabric}.ufm.forge")
+    };
+
+    let certificate = api
+        .certificate_provider
+        .get_certificate_ex(fabric.as_str(), Some(alt_names), Some(ttl))
+        .await
+        .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
+
+    let mut cert_filename = format!("{}/{}-ufm-ca-intermediate.crt", CERT_PATH, fabric);
+    let mut cert_file = File::create(cert_filename.clone()).map_err(|e| {
+        CarbideError::GenericError(format!("Could not create: {} err: {:?}", cert_filename, e))
+    })?;
+    cert_file
+        .write_all(certificate.issuing_ca.as_slice())
+        .map_err(|e| {
+            CarbideError::GenericError(format!(
+                "Failed to write certificate to: {} error: {:?}",
+                cert_filename, e
+            ))
+        })?;
+
+    cert_filename = format!("{}/{}-ufm-server.key", CERT_PATH, fabric);
+    cert_file = File::create(cert_filename.clone()).map_err(|e| {
+        CarbideError::GenericError(format!("Could not create: {} err: {:?}", cert_filename, e))
+    })?;
+    cert_file
+        .write_all(certificate.private_key.as_slice())
+        .map_err(|e| {
+            CarbideError::GenericError(format!(
+                "Failed to write certificate to: {} error: {:?}",
+                cert_filename, e
+            ))
+        })?;
+
+    cert_filename = format!("{}/{}-ufm-server.crt", CERT_PATH, fabric);
+    cert_file = File::create(cert_filename.clone()).map_err(|e| {
+        CarbideError::GenericError(format!("Could not create: {} err: {:?}", cert_filename, e))
+    })?;
+    cert_file
+        .write_all(certificate.public_key.as_slice())
+        .map_err(|e| {
+            CarbideError::GenericError(format!(
+                "Failed to write certificate to: {} error: {:?}",
+                cert_filename, e
+            ))
+        })?;
+
+    Ok(())
 }

@@ -219,11 +219,19 @@ impl From<RestError> for UFMError {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct UFMCert {
+    pub ca_crt: String,
+    pub tls_key: String,
+    pub tls_crt: String,
+}
+
 pub struct UFMConfig {
     pub address: String,
     pub username: Option<String>,
     pub password: Option<String>,
     pub token: Option<String>,
+    pub cert: Option<UFMCert>,
 }
 
 pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
@@ -235,6 +243,16 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
     )))?;
 
     let (base_path, auth_info) = match &conf.token {
+        None if conf.cert.is_some() => {
+            let auth_cert = conf.cert.unwrap().clone();
+            (
+                "/ufmRest".to_string(),
+                format!(
+                    "{}\n{}\n{}",
+                    auth_cert.ca_crt, auth_cert.tls_key, auth_cert.tls_crt
+                ),
+            )
+        }
         None => {
             let password = conf
                 .password
