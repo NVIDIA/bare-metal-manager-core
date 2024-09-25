@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
+use carbide::ib::DEFAULT_IB_FABRIC_NAME;
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -1300,6 +1301,8 @@ pub enum CredentialAction {
     AddUFM(AddUFMCredential),
     #[clap(about = "Delete UFM credential")]
     DeleteUFM(DeleteUFMCredential),
+    #[clap(about = "Generate UFM credential")]
+    GenerateUFMCert(GenerateUFMCertCredential),
     #[clap(about = "Add BMC credentials")]
     AddBMC(AddBMCredential),
     #[clap(about = "Delete BMC credentials")]
@@ -1319,7 +1322,7 @@ pub struct AddUFMCredential {
     #[clap(long, required(true), help = "The UFM url")]
     pub url: String,
 
-    #[clap(long, required(true), help = "The UFM token")]
+    #[clap(long, default_value(""), help = "The UFM token")]
     pub token: String,
 }
 
@@ -1327,6 +1330,12 @@ pub struct AddUFMCredential {
 pub struct DeleteUFMCredential {
     #[clap(long, required(true), help = "The UFM url")]
     pub url: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct GenerateUFMCertCredential {
+    #[clap(long, default_value_t = DEFAULT_IB_FABRIC_NAME.to_string(), help = "Infiniband fabric.")]
+    pub fabric: String,
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone)]

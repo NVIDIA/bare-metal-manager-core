@@ -40,4 +40,17 @@ impl CertificateProvider for TestCertificateProvider {
 
         Ok(certificate.clone())
     }
+    async fn get_certificate_ex(
+        &self,
+        unique_identifier: &str,
+        _alt_names: Option<String>,
+        _ttl: Option<String>,
+    ) -> Result<Certificate, eyre::Report> {
+        let mut certificates = self.certificates.lock().await;
+        let certificate = certificates
+            .entry(unique_identifier.to_string())
+            .or_insert(Certificate::default());
+
+        Ok(certificate.clone())
+    }
 }

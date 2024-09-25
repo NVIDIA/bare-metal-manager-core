@@ -21,4 +21,10 @@ impl From<Certificate> for MachineCertificate {
 #[async_trait]
 pub trait CertificateProvider: Send + Sync {
     async fn get_certificate(&self, unique_identifier: &str) -> Result<Certificate, eyre::Report>;
+    async fn get_certificate_ex(
+        &self,
+        unique_identifier: &str,
+        alt_names: Option<String>,
+        ttl: Option<String>,
+    ) -> Result<Certificate, eyre::Report>;
 }

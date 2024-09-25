@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 
@@ -21,7 +21,7 @@ use super::types::{
 };
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
-    UFMConfig, UFMError, Ufm,
+    UFMCert, UFMConfig, UFMError, Ufm,
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -33,12 +33,38 @@ pub struct RestIBFabric {
 const DEFAULT_INDEX0: bool = true;
 const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
-pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+    // Detect authentification method
+    // 'user token' or 'client authentification'
+    // 'client authentification' method is choosen in case empty 'auth' string or valid path in 'auth'
+    let (token, cert) = if auth.trim().is_empty() {
+        (
+            None,
+            Some(UFMCert {
+                ca_crt: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
+                tls_key: "/var/run/secrets/spiffe.io/tls.key".to_string(),
+                tls_crt: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
+            }),
+        )
+    } else if Path::new(auth).exists() {
+        (
+            None,
+            Some(UFMCert {
+                ca_crt: format!("{}/ca.crt", auth),
+                tls_key: format!("{}/tls.key", auth),
+                tls_crt: format!("{}/tls.crt", auth),
+            }),
+        )
+    } else {
+        (Some(auth.to_string()), None)
+    };
+
     let conf = UFMConfig {
         address: addr.to_string(),
         username: None,
         password: None,
-        token: Some(token.to_string()),
+        token,
+        cert,
     };
 
     let ufm = ufmclient::connect(conf).map_err(CarbideError::from)?;
