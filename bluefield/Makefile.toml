@@ -181,6 +181,10 @@ condition = { files_modified = { input = [
   "${REPO_ROOT}/bluefield/Makefile.toml",
   "${REPO_ROOT}/bluefield/otel/ocb_url.txt",
   "${REPO_ROOT}/bluefield/otel/otelcol_version.txt",
+  "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/go.mod",
+  "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/config.go",
+  "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/factory.go",
+  "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/fileresourceprocessor.go",
 ], output = [
   "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}/usr/bin/otelcol-contrib",
 ] } }
