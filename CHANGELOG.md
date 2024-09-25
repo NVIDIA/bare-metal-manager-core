@@ -24,6 +24,18 @@
 
 ### Removed
 
+## [v2024.09.13-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc4-0...v2024.09.13-rc5-0)
+
+No user facing changes.
+
+## [v2024.09.13-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc3-0...v2024.09.13-rc4-0)
+
+No user facing changes.
+
+## [v2024.09.13-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc2-0...v2024.09.13-rc3-0)
+
+No user facing changes.
+
 ## [v2024.09.13-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc3-0...v2024.09.13-rc2-0)
 
 ### Added
@@ -72,6 +84,10 @@
 - Emit correct metrics if the hardware health service is enabled.
 
 ### Removed
+
+## [v2024.08.30-rc3-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc3-0...v2024.08.30-rc3-1)
+
+No user facing changes.
 
 ## [v2024.08.30-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.30-rc2-0...v2024.08.30-rc3-0)
 
