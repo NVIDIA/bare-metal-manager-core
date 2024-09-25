@@ -23,6 +23,7 @@ extensions:
 processors:
   - gomod:
       go.opentelemetry.io/collector/processor/batchprocessor v${VERSION}
+  - gomod: fileresourceprocessor v0.0.1
   - gomod:
       go.opentelemetry.io/collector/processor/memorylimiterprocessor v${VERSION}
   - gomod:
@@ -41,3 +42,6 @@ receivers:
       github.com/open-telemetry/opentelemetry-collector-contrib/receiver/journaldreceiver v${VERSION}
   - gomod:
       github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver v${VERSION}
+
+replaces:
+  - fileresourceprocessor => ../fileresourceprocessor

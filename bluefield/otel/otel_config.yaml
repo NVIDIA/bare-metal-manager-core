@@ -124,6 +124,9 @@ processors:
   batch/metrics-disk:
     send_batch_size: 8192
     timeout: 75s
+  fileresource:
+    file_path: /run/otelcol-contrib/machine-id
+    poll_interval: 5s
   memory_limiter:
     check_interval: 1s
     limit_percentage: 50
@@ -178,6 +181,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - fileresource
         - resource/logs-journald
         - transform/journald
         - batch/logs
@@ -187,6 +191,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - fileresource
         - resource/logs-hbn
         - batch/logs
       exporters: [otlp/site]
