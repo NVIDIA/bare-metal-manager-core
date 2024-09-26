@@ -28,6 +28,7 @@ use crate::ib::types::{
 use crate::ib::IBFabricManagerConfig;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
+use crate::model::ib_partition::state_sla;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
@@ -265,6 +266,9 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
         let status = Some(rpc::IbPartitionStatus {
             state: state as i32,
             state_reason: src.controller_state_outcome.map(|r| r.into()),
+            state_sla: Some(
+                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
+            ),
             enable_sharp: Some(false),
             partition,
             pkey: src.config.pkey.map(|k| k.to_string()),

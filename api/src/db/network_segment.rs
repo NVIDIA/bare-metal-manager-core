@@ -31,7 +31,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
+use crate::model::network_segment::{state_sla, NetworkDefinition, NetworkDefinitionSegmentType};
 use crate::{
     db::{
         self,
@@ -321,6 +321,9 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             vpc_id: src.vpc_id.map(::rpc::common::Uuid::from),
             state: state as i32,
             state_reason: src.controller_state_outcome.map(|r| r.into()),
+            state_sla: Some(
+                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
+            ),
             history,
             segment_type: src.segment_type as i32,
         })

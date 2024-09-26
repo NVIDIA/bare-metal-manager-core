@@ -19,8 +19,11 @@ use crate::{
         ib_partition::{IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig},
         DatabaseError,
     },
-    model::controller_outcome::PersistentStateHandlerOutcome,
-    model::ib_partition::IBPartitionControllerState,
+    model::{
+        controller_outcome::PersistentStateHandlerOutcome,
+        ib_partition::{self, IBPartitionControllerState},
+        StateSla,
+    },
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,
         metrics::NoopMetricsEmitter,
@@ -123,21 +126,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         }
     }
 
-    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool {
-        let time_in_state = chrono::Utc::now()
-            .signed_duration_since(state.version.timestamp())
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
-
-        match &state.value {
-            IBPartitionControllerState::Provisioning => {
-                time_in_state > std::time::Duration::from_secs(15 * 60)
-            }
-            IBPartitionControllerState::Ready => false,
-            IBPartitionControllerState::Error { .. } => false,
-            IBPartitionControllerState::Deleting => {
-                time_in_state > std::time::Duration::from_secs(15 * 60)
-            }
-        }
+    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+        ib_partition::state_sla(&state.value, &state.version)
     }
 }

@@ -176,6 +176,48 @@ impl<'de> Deserialize<'de> for SerializableMacAddress {
     }
 }
 
+/// Specifies the SLA for a resource in a specific state
+#[derive(Default, Debug, Clone)]
+pub struct StateSla {
+    /// The SLA for the current state
+    /// This field will be absent if there is no SLA defined for a field
+    /// A value of 0 (instead of absent) will indicate the `time_in_state` will always
+    /// be above SLA. This can happen for certain states that should never be entered
+    /// for correct operation.
+    pub sla: ::core::option::Option<std::time::Duration>,
+    /// Whether the object has been in the state for a longer time than permitted
+    /// by the SLA.
+    pub time_in_state_above_sla: bool,
+}
+
+impl StateSla {
+    /// Creates a `StateSla` object which indicates that no SLA applies for the state
+    pub fn no_sla() -> Self {
+        Self {
+            sla: None,
+            time_in_state_above_sla: false,
+        }
+    }
+
+    /// Creates a new StateSla object with the SLA that immediately evaluates
+    /// if a certain time is above the SLA
+    pub fn with_sla(sla: std::time::Duration, time_in_state: std::time::Duration) -> Self {
+        Self {
+            time_in_state_above_sla: time_in_state > sla,
+            sla: Some(sla),
+        }
+    }
+}
+
+impl From<StateSla> for rpc::forge::StateSla {
+    fn from(value: StateSla) -> Self {
+        rpc::forge::StateSla {
+            sla: value.sla.map(|sla| sla.into()),
+            time_in_state_above_sla: value.time_in_state_above_sla,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

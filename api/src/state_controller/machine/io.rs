@@ -24,9 +24,10 @@ use crate::{
     model::{
         controller_outcome::PersistentStateHandlerOutcome,
         machine::{
-            DpuDiscoveringState, DpuInitState, InstanceState, MachineState, ManagedHostState,
-            ManagedHostStateSnapshot, MeasuringState,
+            self, DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot,
+            MeasuringState,
         },
+        StateSla,
     },
     state_controller::{
         io::StateControllerIO,
@@ -227,89 +228,7 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
-    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool {
-        let time_in_state = chrono::Utc::now()
-            .signed_duration_since(state.version.timestamp())
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
-
-        match &state.value {
-            ManagedHostState::DpuDiscoveringState { dpu_states } => {
-                // Min state indicates the least processed DPU. The state machine is blocked
-                // becasue of this.
-                let dpu_state = dpu_states.states.values().min();
-                let Some(dpu_state) = dpu_state else {
-                    return false;
-                };
-
-                match dpu_state {
-                    DpuDiscoveringState::Initializing
-                    | DpuDiscoveringState::Configuring
-                    | DpuDiscoveringState::DisableSecureBoot { .. }
-                    | DpuDiscoveringState::SetUefiHttpBoot
-                    | DpuDiscoveringState::RebootAllDPUS => {
-                        time_in_state > std::time::Duration::from_secs(30 * 60)
-                    }
-                }
-            }
-            ManagedHostState::DPUInit { dpu_states } => {
-                // Min state indicates the least processed DPU. The state machine is blocked
-                // becasue of this.
-                let dpu_state = dpu_states.states.values().min();
-                let Some(dpu_state) = dpu_state else {
-                    return false;
-                };
-
-                // Init has no SLA since starting discovery requires a manual action
-                match dpu_state {
-                    DpuInitState::Init => false,
-                    _ => time_in_state > std::time::Duration::from_secs(30 * 60),
-                }
-            }
-            ManagedHostState::HostInit { machine_state } => match machine_state {
-                MachineState::Init => false,
-                MachineState::WaitingForDiscovery => false,
-                _ => time_in_state > std::time::Duration::from_secs(30 * 60),
-            },
-            ManagedHostState::Ready => false,
-            ManagedHostState::Assigned { instance_state } => match instance_state {
-                InstanceState::Ready => false,
-                InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 0 => {
-                    // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
-                    true
-                }
-                _ => time_in_state > std::time::Duration::from_secs(30 * 60),
-            },
-            ManagedHostState::WaitingForCleanup { .. } => {
-                time_in_state > std::time::Duration::from_secs(30 * 60)
-            }
-            ManagedHostState::Created => time_in_state > std::time::Duration::from_secs(30 * 60),
-            ManagedHostState::ForceDeletion => {
-                time_in_state > std::time::Duration::from_secs(30 * 60)
-            }
-            ManagedHostState::Failed { .. } => true,
-            ManagedHostState::DPUReprovision { .. } => {
-                time_in_state > std::time::Duration::from_secs(30 * 60)
-            }
-            ManagedHostState::HostReprovision { .. } => {
-                // Multiple types of firmware may need to be updated, and in some cases it can take a while.
-                // This SHOULD be enough based on current observed behavior, but may need to be extended.
-                time_in_state > std::time::Duration::from_secs(40 * 60)
-            }
-            ManagedHostState::Measuring { measuring_state } => match measuring_state {
-                // The API shouldn't be waiting for measurements for long. As soon
-                // as it transitions into this state, Scout should get an Action::Measure
-                // action, and it should pretty quickly send measurements in (~seconds).
-                MeasuringState::WaitingForMeasurements => {
-                    time_in_state > std::time::Duration::from_secs(30 * 60)
-                }
-                // If the machine is waiting for a matching bundle, this could
-                // take a bit, since it means either auto-bundle generation OR
-                // manual bundle generation needs to happen. In the case of new
-                // turn ups, this could take hours or even days (e.g. if new gear
-                // is sitting there).
-                MeasuringState::PendingBundle => false,
-            },
-        }
+    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+        machine::state_sla(&state.value, &state.version)
     }
 }

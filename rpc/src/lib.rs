@@ -194,6 +194,109 @@ impl prost::Message for Timestamp {
     }
 }
 
+/// A wrapper around the prost Duration which allows for serde serialization
+/// and has helper methods to convert from and into std::time::Duration
+#[derive(Clone, PartialEq, Default, Debug)]
+pub struct Duration(prost_types::Duration);
+
+impl std::fmt::Display for Duration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Deref for Duration {
+    type Target = prost_types::Duration;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Duration {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<prost_types::Duration> for Duration {
+    fn from(ts: prost_types::Duration) -> Self {
+        Self(ts)
+    }
+}
+
+impl From<Duration> for prost_types::Duration {
+    fn from(ts: Duration) -> prost_types::Duration {
+        ts.0
+    }
+}
+
+impl TryFrom<Duration> for std::time::Duration {
+    type Error = prost_types::DurationError;
+
+    fn try_from(duration: Duration) -> Result<Self, Self::Error> {
+        std::time::Duration::try_from(duration.0)
+    }
+}
+
+impl From<std::time::Duration> for Duration {
+    fn from(duration: std::time::Duration) -> Self {
+        // Realistically we will never deal with a `time::Duration` that can't be
+        // natively converted. But if we do - clamp it to the maximum allowed value
+        prost_types::Duration::try_from(duration)
+            .unwrap_or(prost_types::Duration {
+                seconds: i64::MAX,
+                nanos: 999_999_999,
+            })
+            .into()
+    }
+}
+
+impl serde::Serialize for Duration {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // We serialize the timestamp as std::time::Duration string
+        match std::time::Duration::try_from(self.clone()) {
+            Ok(duration) => duration.serialize(s),
+            Err(_) => std::time::Duration::ZERO.serialize(s),
+        }
+    }
+}
+
+impl prost::Message for Duration {
+    fn encode_raw<B>(&self, buf: &mut B)
+    where
+        B: prost::bytes::BufMut,
+        Self: Sized,
+    {
+        self.0.encode_raw(buf)
+    }
+
+    fn merge_field<B>(
+        &mut self,
+        tag: u32,
+        wire_type: prost::encoding::WireType,
+        buf: &mut B,
+        ctx: prost::encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError>
+    where
+        B: prost::bytes::Buf,
+        Self: Sized,
+    {
+        self.0.merge_field(tag, wire_type, buf, ctx)
+    }
+
+    fn encoded_len(&self) -> usize {
+        self.0.encoded_len()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear()
+    }
+}
+
 impl From<uuid::Uuid> for common::Uuid {
     fn from(uuid: uuid::Uuid) -> common::Uuid {
         common::Uuid {
