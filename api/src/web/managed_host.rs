@@ -41,6 +41,7 @@ struct ManagedHostShow {
     active_vendor_filter: String,
     vendors: Vec<String>,
     active_state_filter: String,
+    active_time_in_state_above_sla_filter: String,
     states: Vec<String>,
     gpus: Vec<String>,
     active_gpu_filter: String,
@@ -68,6 +69,7 @@ struct ManagedHostRowDisplay {
     machine_id: String,
     state: String,
     time_in_state: String,
+    time_in_state_above_sla: bool,
     state_reason: String,
     health_probe_alerts: Vec<health_report::HealthProbeAlert>,
     health_overrides: Vec<String>,
@@ -246,6 +248,7 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
             state: o.state,
             time_in_state: o.time_in_state,
+            time_in_state_above_sla: o.time_in_state_above_sla,
             state_reason: o.state_reason,
             health_probe_alerts: o.health.alerts.clone(),
             health_overrides: o.health_overrides,
@@ -312,6 +315,9 @@ pub async fn show_html(
         .remove("mem-filter")
         .and_then(|ms| ms.parse::<isize>().ok())
         .unwrap_or(-1);
+    let active_time_in_state_above_sla_filter = params
+        .remove("time-in-state-above-sla-filter")
+        .unwrap_or("all".to_string());
 
     let group_by_param = params.remove("group-by").unwrap_or("none".to_string());
     let group_by = GroupingKey::params_to_vec(&group_by_param);
@@ -338,6 +344,11 @@ pub async fn show_html(
         }
         if active_state_filter != "all"
             && active_state_filter != short_state(&m.state).to_lowercase()
+        {
+            continue;
+        }
+        if active_time_in_state_above_sla_filter != "all"
+            && active_time_in_state_above_sla_filter != m.time_in_state_above_sla.to_string()
         {
             continue;
         }
@@ -402,6 +413,7 @@ pub async fn show_html(
         || active_maintenance_filter != "all"
         || active_vendor_filter != "all"
         || active_state_filter != "all"
+        || active_time_in_state_above_sla_filter != "all"
         || active_gpu_filter != "all"
         || active_ib_filter != "all"
         || active_mem_filter != -1;
@@ -415,6 +427,7 @@ pub async fn show_html(
         active_vendor_filter,
         vendors,
         active_state_filter,
+        active_time_in_state_above_sla_filter,
         states,
         gpus,
         active_gpu_filter,

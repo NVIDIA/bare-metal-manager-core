@@ -143,6 +143,7 @@ pub struct ManagedHostOutput {
     pub machine_id: Option<String>,
     pub state: String,
     pub state_version: String,
+    pub time_in_state_above_sla: bool,
     pub time_in_state: String,
     pub state_reason: String,
     pub host_serial_number: Option<String>,
@@ -183,6 +184,11 @@ impl From<&Machine> for ManagedHostOutput {
             machine_id: machine.id.as_ref().map(|i| i.to_string()),
             state: machine.state.clone(),
             time_in_state: config_version::since_state_change_humanized(&machine.state_version),
+            time_in_state_above_sla: machine
+                .state_sla
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
+                .unwrap_or_default(),
             state_reason: machine
                 .state_reason
                 .as_ref()

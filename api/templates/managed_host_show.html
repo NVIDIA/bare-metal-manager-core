@@ -51,6 +51,14 @@
 		</select>
 	</div>
 	<div>
+		<label for="time-in-state-above-sla-filter">Time in State Above SLA</label>
+		<select id="time-in-state-above-sla-filter" name="time-in-state-above-sla-filter">
+			<option value="all" {% if active_time_in_state_above_sla_filter == "all" %}selected{% endif %}>All</option>
+			<option value="true" {% if active_time_in_state_above_sla_filter == "true" %}selected{% endif %}>True</option>
+			<option value="false" {% if active_time_in_state_above_sla_filter == "false" %}selected{% endif %}>False</option>
+		</select>
+	</div>
+	<div>
 		<label for="gpu-filter"># GPUs</label>
 		<select id="gpu-filter" name="gpu-filter">
 			<option value="all">All</option>

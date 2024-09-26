@@ -28,7 +28,10 @@
 				<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
 				<td>{{ host.maintenance_start_time }}</td>
 			{% endif %}
-			<td title="{{ host.state_reason }}">{{ host.state }}</td>
+			<td title="{{ host.state_reason }}">
+				{{ host.state }}
+				{% if host.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>
 				{% if host.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
 					<a href="/admin/machine/health/{{ host.machine_id }}">
