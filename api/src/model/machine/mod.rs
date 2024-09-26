@@ -1731,7 +1731,7 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
     match state {
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
-            // becasue of this.
+            // because of this.
             let dpu_state = dpu_states.states.values().min();
             let Some(dpu_state) = dpu_state else {
                 return StateSla::no_sla();
@@ -1749,7 +1749,7 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
         }
         ManagedHostState::DPUInit { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
-            // becasue of this.
+            // because of this.
             let dpu_state = dpu_states.states.values().min();
             let Some(dpu_state) = dpu_state else {
                 return StateSla::no_sla();
