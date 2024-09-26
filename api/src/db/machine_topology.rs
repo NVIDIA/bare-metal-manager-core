@@ -190,6 +190,20 @@ impl MachineTopology {
         Ok(result)
     }
 
+    pub async fn find_latest_machine_by_bmc_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        address: &str,
+    ) -> Result<Option<(MachineId, Self)>, DatabaseError> {
+        let query = "SELECT * FROM machine_topologies WHERE topology->'bmc_info'->>'ip'=$1 ORDER BY created DESC LIMIT 1";
+        let m: Result<Option<Self>, DatabaseError> = sqlx::query_as(query)
+            .bind(address)
+            .fetch_optional(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
+
+        m.map(|ot| ot.map(|t| (t.machine_id.clone(), t)))
+    }
+
     pub async fn find_machine_id_by_bmc_ip(
         txn: &mut Transaction<'_, Postgres>,
         address: &str,

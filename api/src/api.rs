@@ -29,6 +29,7 @@ use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
+use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 #[cfg(feature = "tss-esapi")]
@@ -2308,127 +2309,52 @@ impl Forge for Api {
         log_request_data(&request);
 
         let req = request.into_inner();
-        let bmc_endpoint_request = match (req.bmc_endpoint_request, req.machine_id) {
-            // User provided IP and (optional) BMC MAC
-            (Some(bmc_endpoint_request), _) => match bmc_endpoint_request.mac_address {
-                // If there's a MAC, then the request is ready to go.
-                Some(_) => bmc_endpoint_request,
-                // If there's only an IP and no MAC, then we need to find
-                // the MAC via the associated interface.
-                None => {
-                    let req = tonic::Request::new(rpc::InterfaceSearchQuery {
-                        id: None,
-                        ip: Some(bmc_endpoint_request.ip_address.clone()),
-                    });
 
-                    let bmc_mac = self
-                        .find_interfaces(req)
-                        .await?
-                        .into_inner()
-                        .interfaces
-                        .first()
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "interface",
-                            id: bmc_endpoint_request.ip_address.clone(),
-                        })?
-                        .mac_address
-                        .clone();
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin admin_bmc_reset",
+                e,
+            ))
+        })?;
 
-                    BmcEndpointRequest {
-                        ip_address: bmc_endpoint_request.ip_address,
-                        mac_address: Some(bmc_mac),
-                    }
-                }
-            },
-            // User provided machine_id
-            (_, Some(machine_id)) => {
-                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
-                })?;
-                log_machine_id(&machine_id);
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
 
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "begin admin_reboot",
-                        e,
-                    ))
-                })?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit admin_bmc_reset",
+                e,
+            ))
+        })?;
 
-                let mut topologies =
-                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
-                        .await
-                        .map_err(CarbideError::from)?;
-
-                txn.commit().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "commit admin_reboot",
-                        e,
-                    ))
-                })?;
-
-                let topology =
-                    topologies
-                        .remove(&machine_id)
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "machine_topology",
-                            id: machine_id.to_string(),
-                        })?;
-
-                let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "bmc_ip",
-                        id: machine_id.to_string(),
-                    }
-                })?;
-
-                let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "bmc_mac",
-                        id: machine_id.to_string(),
-                    }
-                })?;
-
-                BmcEndpointRequest {
-                    ip_address: bmc_ip.to_string(),
-                    mac_address: Some(bmc_mac_address.to_string()),
-                }
-            }
-
-            _ => {
-                return Err(Status::invalid_argument(
-                    "Please provider either machine_id, or a bmc endpoint request",
-                ));
-            }
-        };
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
         tracing::info!(
             "Resetting BMC (ipmi tool: {}): {}",
             req.use_ipmitool,
-            bmc_endpoint_request.ip_address
+            endpoint_address
         );
 
         if req.use_ipmitool {
-            crate::handlers::bmc_endpoint_explorer::ipmitool_reset_bmc(
-                self,
-                bmc_endpoint_request.clone(),
-            )
-            .await?;
+            crate::handlers::bmc_endpoint_explorer::ipmitool_reset_bmc(self, bmc_endpoint_request)
+                .await?;
         } else {
-            crate::handlers::bmc_endpoint_explorer::redfish_reset_bmc(
-                self,
-                bmc_endpoint_request.clone(),
-            )
-            .await?;
+            crate::handlers::bmc_endpoint_explorer::redfish_reset_bmc(self, bmc_endpoint_request)
+                .await?;
         }
 
         tracing::info!(
             "BMC Reset (ipmi tool: {}) request succeeded to {}",
             req.use_ipmitool,
-            bmc_endpoint_request.ip_address
+            endpoint_address
         );
 
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
@@ -3889,105 +3815,35 @@ impl Forge for Api {
     ) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
-        let bmc_endpoint_request = match (req.bmc_endpoint_request.clone(), req.machine_id.clone())
-        {
-            // User provided IP and (optional) BMC MAC
-            (Some(bmc_endpoint_request), _) => match bmc_endpoint_request.mac_address {
-                // If there's a MAC, then the request is ready to go.
-                Some(_) => bmc_endpoint_request,
-                // If there's only an IP and no MAC, then we need to find
-                // the MAC via the associated interface.
-                None => {
-                    let req = tonic::Request::new(rpc::InterfaceSearchQuery {
-                        id: None,
-                        ip: Some(bmc_endpoint_request.ip_address.clone()),
-                    });
 
-                    let bmc_mac = self
-                        .find_interfaces(req)
-                        .await?
-                        .into_inner()
-                        .interfaces
-                        .first()
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "interface",
-                            id: bmc_endpoint_request.ip_address.clone(),
-                        })?
-                        .mac_address
-                        .clone();
+        let action = req.action();
 
-                    BmcEndpointRequest {
-                        ip_address: bmc_endpoint_request.ip_address,
-                        mac_address: Some(bmc_mac),
-                    }
-                }
-            },
-            // User provided machine_id
-            (_, Some(machine_id)) => {
-                let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
-                })?;
-                log_machine_id(&machine_id);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin admin_power_control",
+                e,
+            ))
+        })?;
 
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "begin admin_reboot",
-                        e,
-                    ))
-                })?;
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
 
-                let mut topologies =
-                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
-                        .await
-                        .map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit admin_power_control",
+                e,
+            ))
+        })?;
 
-                txn.commit().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "commit admin_reboot",
-                        e,
-                    ))
-                })?;
-
-                let topology =
-                    topologies
-                        .remove(&machine_id)
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "machine_topology",
-                            id: machine_id.to_string(),
-                        })?;
-
-                let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "bmc_ip",
-                        id: machine_id.to_string(),
-                    }
-                })?;
-
-                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "bmc_mac",
-                        id: machine_id.to_string(),
-                    }
-                })?;
-
-                BmcEndpointRequest {
-                    ip_address: bmc_ip.to_string(),
-                    mac_address: Some(bmc_mac.to_string()),
-                }
-            }
-
-            _ => {
-                return Err(Status::invalid_argument(
-                    "Please provider either machine_id, or a bmc endpoint request",
-                ));
-            }
-        };
-
-        let action = match req.action() {
+        let action = match action {
             ::rpc::forge::admin_power_control_request::SystemPowerControl::On => {
                 libredfish::SystemPowerControl::On
             }
@@ -4047,6 +3903,107 @@ fn truncate(mut s: String, len: usize) -> String {
         s.replace_range(len - 2..len, "..");
     }
     s
+}
+
+/// Accepts an optional partial or complete BmcEndpointRequest and optional machine ID and returns a complete and valid BmcEndpointRequest.
+///
+/// * `txn`                  - Active database transaction
+/// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
+/// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
+async fn validate_and_complete_bmc_endpoint_request(
+    txn: &mut Transaction<'_, Postgres>,
+    bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
+    machine_id: Option<String>,
+) -> Result<rpc::BmcEndpointRequest, tonic::Status> {
+    match (bmc_endpoint_request, machine_id) {
+        (Some(bmc_endpoint_request), _) => {
+            let (machine_id, topology) = MachineTopology::find_latest_machine_by_bmc_ip(
+                txn,
+                &bmc_endpoint_request.ip_address,
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: bmc_endpoint_request.ip_address.clone(),
+            })?;
+
+            let bmc_mac = match (
+                bmc_endpoint_request.mac_address,
+                topology.topology().bmc_info.mac,
+            ) {
+                // Topology record found for the IP but no MAC in the topology data?
+                (_, None) => {
+                    return Err(CarbideError::GenericError(format!("BMC endpoint for {} ({machine_id}) found but does not have associated MAC", bmc_endpoint_request.ip_address).to_string()) 
+                    .into());
+                }
+
+                // No MAC passed in but MAC found for the IP passed in?
+                (None, Some(bmc_info_mac)) => bmc_info_mac.to_string(),
+
+                // If MAC passed in _and_ MAC found for IP passed in, then the MACs should match.
+                (Some(request_mac), Some(bmc_info_mac)) => {
+                    if request_mac
+                        .parse::<MacAddress>()
+                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
+                        != bmc_info_mac
+                    {
+                        return Err(CarbideError::BmcMacIpMismatch {
+                            requested_ip: bmc_endpoint_request.ip_address.clone(),
+                            requested_mac: request_mac,
+                            found_mac: bmc_info_mac.to_string(),
+                        }
+                        .into());
+                    }
+                    request_mac
+                }
+            };
+
+            Ok(BmcEndpointRequest {
+                ip_address: bmc_endpoint_request.ip_address,
+                mac_address: Some(bmc_mac),
+            })
+        }
+        // User provided machine_id
+        (_, Some(machine_id)) => {
+            let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+            })?;
+            log_machine_id(&machine_id);
+
+            let mut topologies =
+                MachineTopology::find_latest_by_machine_ids(txn, &[machine_id.clone()])
+                    .await
+                    .map_err(CarbideError::from)?;
+
+            let topology =
+                topologies
+                    .remove(&machine_id)
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    })?;
+
+            let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+                CarbideError::GenericError(
+                    format!("Machine found for {machine_id} but BMC IP is missing").to_string(),
+                )
+            })?;
+
+            let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
+                CarbideError::GenericError(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string()) 
+            })?;
+
+            Ok(BmcEndpointRequest {
+                ip_address: bmc_ip.to_owned(),
+                mac_address: Some(bmc_mac_address.to_string()),
+            })
+        }
+
+        _ => Err(Status::invalid_argument(
+            "Provide either machine_id or BmcEndpointRequest with at least ip_address",
+        )),
+    }
 }
 
 impl Api {

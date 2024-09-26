@@ -9,9 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::common::api_fixtures::create_test_env;
+use std::ops::DerefMut;
+
+use crate::common::api_fixtures::{create_managed_host, create_test_env};
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
+use tonic::Code;
 
 pub mod common;
 
@@ -143,4 +146,114 @@ async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
         response.err().unwrap().message(),
         "at least one ID must be provided",
     );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    // Setup
+    let env = create_test_env(db_pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+
+    let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
+
+    // Check that we find full BMC details based only on BMC IP
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+            ip_address: bmc_ip.to_string(),
+            mac_address: None,
+        }),
+        machine_id: None,
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.message().contains("Missing credential"));
+
+    // Check that we find full BMC details based only on machine_id
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: None,
+        machine_id: Some(host_machine_id.to_string()),
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.message().contains("Missing credential"));
+
+    // Check that we find BMC details but things fail because actual and expected BMC MAC are different
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+            ip_address: bmc_ip.to_string(),
+            mac_address: Some("00:DE:AD:BE:EF:00".to_string()),
+        }),
+        machine_id: None,
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.code() == Code::InvalidArgument);
+    assert!(e
+        .message()
+        .contains("192.0.2.6 resolves to 22:22:22:22:00:00 not 00:DE:AD:BE:EF:00"));
+
+    // Check that we don't find what we're looking for.
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+            ip_address: "0.0.0.0".to_string(),
+            mac_address: None,
+        }),
+        machine_id: None,
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.code() == Code::NotFound);
+
+    // Check that we fail with an internal error if MAC is missing from BMC details.
+    let mut txn = db_pool.begin().await?;
+    let mtxn = &mut txn;
+
+    let query = format!("UPDATE machine_topologies SET topology = jsonb_set(topology, '{{bmc_info}}',  '{{\"ip\": \"{bmc_ip}\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}}', false) WHERE machine_id = $1");
+    let _ = sqlx::query(&query)
+        .bind(host_machine_id.to_string())
+        .execute(mtxn.deref_mut())
+        .await?;
+    txn.commit().await?;
+
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: None,
+        machine_id: Some(host_machine_id.to_string()),
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.code() == Code::Internal);
+    assert!(e.message().contains("does not have associated MAC"));
+
+    // Check that we fail with an internal error if IP is missing from BMC details.
+    let mut txn = db_pool.begin().await?;
+    let mtxn = &mut txn;
+
+    let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}',  '{\"mac\": \"C8:4B:D6:7A:DB:66\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}', false) WHERE machine_id = $1";
+    let _ = sqlx::query(query)
+        .bind(host_machine_id.to_string())
+        .execute(mtxn.deref_mut())
+        .await?;
+    txn.commit().await?;
+
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: None,
+        machine_id: Some(host_machine_id.to_string()),
+        use_ipmitool: false,
+    });
+    let api_result = env.api.admin_bmc_reset(req).await;
+    let e = api_result.unwrap_err();
+    assert!(e.code() == Code::Internal);
+    assert!(e.message().contains("BMC IP is missing"));
+
+    Ok(())
 }

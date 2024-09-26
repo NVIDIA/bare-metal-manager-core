@@ -257,6 +257,16 @@ pub enum CarbideError {
 
     #[error("Explored machine at {0} has no DPUs")]
     NoDpusInMachine(IpAddr),
+
+    #[error("{requested_ip} resolves to {found_mac} not {requested_mac}")]
+    BmcMacIpMismatch {
+        /// The BMC endpoint IP requested by the caller
+        requested_ip: String,
+        /// The BMC MAC address requested by the caller
+        requested_mac: String,
+        /// The actual BMC MAC address found associated with the endpoint IP
+        found_mac: String,
+    },
 }
 
 impl From<CarbideError> for tonic::Status {
@@ -301,6 +311,7 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
             }
+            e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
             CarbideError::UnhealthyHost => Status::unavailable(from.to_string()),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
             CarbideError::NetworkSegmentPrefixOverlap => Status::invalid_argument(from.to_string()),
