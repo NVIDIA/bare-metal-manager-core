@@ -216,6 +216,10 @@ impl TestEnv {
                             .unwrap_or_default();
                         if context == "Cleanup" {
                             id = machine.cleanup_machine_validation_id().unwrap_or_default();
+                        } else if context == "OnDemand" {
+                            id = machine
+                                .on_demand_machine_validation_id()
+                                .unwrap_or_default();
                         }
                         carbide::model::machine::MachineState::MachineValidating {
                             context,
@@ -1279,6 +1283,21 @@ pub async fn get_machine_validation_runs(
         .into_inner()
 }
 
+// Emulates the `OnDemandMachineValidation` request of a Host
+pub async fn on_demand_machine_validation(
+    env: &TestEnv,
+    machine_id: rpc::common::MachineId,
+) -> rpc::forge::MachineValidationOnDemandResponse {
+    env.api
+        .on_demand_machine_validation(Request::new(rpc::forge::MachineValidationOnDemandRequest {
+            machine_id: Some(machine_id),
+            action: rpc::forge::machine_validation_on_demand_request::Action::Start.into(),
+            tags: Vec::new(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
 /// A hot swappable machine state handler.
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).

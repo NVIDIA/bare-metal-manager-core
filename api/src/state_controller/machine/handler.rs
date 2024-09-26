@@ -484,7 +484,28 @@ impl MachineStateHandler {
                         return Ok(StateHandlerOutcome::DoNothing);
                     }
                 }
-
+                if is_machine_validation_requested(state).await {
+                    let validation_id = MachineValidation::create_new_run(
+                        txn,
+                        &state.host_snapshot.machine_id,
+                        "OnDemand".to_string(),
+                    )
+                    .await?;
+                    let next_state = ManagedHostState::HostInit {
+                        machine_state: MachineState::MachineValidating {
+                            context: "OnDemand".to_string(),
+                            id: validation_id,
+                            completed: 1,
+                            total: 1,
+                            is_enabled: self
+                                .host_handler
+                                .host_handler_params
+                                .machine_validation_config
+                                .enabled,
+                        },
+                    };
+                    return Ok(StateHandlerOutcome::Transition(next_state));
+                }
                 // Check if DPU reprovisioning is requested
                 if dpu_reprovisioning_needed(&state.dpu_snapshots) {
                     let mut dpus_for_reprov = vec![];
@@ -4485,6 +4506,20 @@ async fn call_forge_setup_and_handle_no_dpu_error(
     }
 }
 
+// Returns true if update_manager flagged this managed host as needing its firmware examined
+async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bool {
+    println!(
+        "--------------------------------------{:?}",
+        state.host_snapshot.on_demand_machine_validation_request
+    );
+    let Some(on_demand_machine_validation_request) =
+        state.host_snapshot.on_demand_machine_validation_request
+    else {
+        return false;
+    };
+
+    on_demand_machine_validation_request
+}
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;

@@ -9,7 +9,8 @@
  */
 use super::rpc;
 use crate::cfg::carbide_options::{
-    ShowMachineValidationResultsOptions, ShowMachineValidationRunsOptions,
+    MachineValidationOnDemandOptions, ShowMachineValidationResultsOptions,
+    ShowMachineValidationRunsOptions,
 };
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
@@ -225,4 +226,12 @@ fn convert_to_nice_format(
         )?;
     }
     Ok(lines)
+}
+
+pub async fn on_demand_machine_validation(
+    api_config: &ApiConfig<'_>,
+    args: MachineValidationOnDemandOptions,
+) -> CarbideCliResult<()> {
+    rpc::on_demand_machine_validation(args.machine, args.tags, api_config).await?;
+    Ok(())
 }

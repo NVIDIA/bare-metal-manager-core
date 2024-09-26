@@ -390,6 +390,9 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
   // Admin Power Control
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
+
+  // On demand Machine-Validation
+  rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
 }
 
 message BindRequest{
@@ -3212,6 +3215,19 @@ message  GetMachineValidationExternalConfigResponse {
 message AddUpdateMachineValidationExternalConfigRequest {
     MachineValidationExternalConfig config = 1;
 }
+
+message MachineValidationOnDemandRequest {
+  common.MachineId machine_id = 1;
+  repeated string tags = 2;
+  enum Action {
+    Start = 0;
+    Stop = 1;
+  }
+  Action action = 3;
+}
+
+message MachineValidationOnDemandResponse { }
+
 message AdminPowerControlRequest {
   enum SystemPowerControl {
     // Power on a machine

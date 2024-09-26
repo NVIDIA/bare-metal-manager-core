@@ -183,6 +183,11 @@ pub struct Machine {
 
     /// Override to enable or disable firmware auto update
     firmware_autoupdate: Option<bool>,
+
+    /// current on demand validation id.
+    on_demand_machine_validation_id: Option<uuid::Uuid>,
+
+    on_demand_machine_validation_request: Option<bool>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -280,6 +285,9 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             discovery_machine_validation_id: row.try_get("discovery_machine_validation_id")?,
             cleanup_machine_validation_id: row.try_get("cleanup_machine_validation_id")?,
             firmware_autoupdate: row.try_get("firmware_autoupdate")?,
+            on_demand_machine_validation_id: row.try_get("on_demand_machine_validation_id")?,
+            on_demand_machine_validation_request: row
+                .try_get("on_demand_machine_validation_request")?,
         })
     }
 }
@@ -312,6 +320,8 @@ impl From<Machine> for MachineSnapshot {
             last_machine_validation_time: machine.last_machine_validation_time(),
             discovery_machine_validation_id: machine.discovery_machine_validation_id(),
             cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
+            on_demand_machine_validation_id: machine.on_demand_machine_validation_id(),
+            on_demand_machine_validation_request: machine.on_demand_machine_validation_request(),
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
             host_reprovision_requested: machine.host_reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
@@ -936,6 +946,14 @@ SELECT m.id FROM
 
     pub fn firmware_autoupdate(&self) -> Option<bool> {
         self.firmware_autoupdate
+    }
+
+    pub fn on_demand_machine_validation_id(&self) -> Option<uuid::Uuid> {
+        self.on_demand_machine_validation_id
+    }
+
+    pub fn on_demand_machine_validation_request(&self) -> Option<bool> {
+        self.on_demand_machine_validation_request
     }
 
     pub async fn update_reboot_time(
@@ -1982,7 +2000,7 @@ SELECT m.id FROM
         validation_id: &Uuid,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = r#"SELECT * FROM machines 
-            WHERE discovery_machine_validation_id = $1 OR cleanup_machine_validation_id = $1"#;
+            WHERE discovery_machine_validation_id = $1 OR cleanup_machine_validation_id = $1 OR on_demand_machine_validation_id = $1"#;
         let machine: Option<Self> = sqlx::query_as(query)
             .bind(validation_id)
             .fetch_optional(txn.deref_mut())
@@ -2011,6 +2029,23 @@ SELECT m.id FROM
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn set_machine_validation_request(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        machine_validation_request: bool,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET on_demand_machine_validation_request=$2 WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, MachineId>(query)
+            .bind(machine_id.to_string())
+            .bind(machine_validation_request)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ use carbide::{
     db::machine::Machine,
     model::machine::{
         machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
-        ManagedHostState,
+        MachineState, ManagedHostState,
     },
 };
 use rpc::forge::forge_server::Forge;
@@ -26,6 +26,7 @@ use common::api_fixtures::{
     host::create_host_with_machine_validation,
     instance::{create_instance, delete_instance, single_interface_network_config},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    on_demand_machine_validation,
 };
 use rpc::Timestamp;
 
@@ -253,12 +254,29 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     }
 
     let machine = env
-        .find_machines(Some(host_machine_id), None, false)
+        .find_machines(Some(host_machine_id.clone()), None, false)
         .await
         .machines
         .remove(0);
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
+    let _ = on_demand_machine_validation(&env, machine.id.unwrap_or_default()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: true,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
     Ok(())
 }
 

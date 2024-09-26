@@ -1288,6 +1288,14 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 }
             }
+            cfg::carbide_options::MachineValidationCommand::OnDemand(on_demand_command) => {
+                match on_demand_command {
+                    cfg::carbide_options::MachineValidationOnDemandCommand::Start(options) => {
+                        machine_validation::on_demand_machine_validation(api_config, options)
+                            .await?;
+                    }
+                }
+            }
         },
     }
 
