@@ -18,7 +18,13 @@ Besides this additional logs are ingested via the OpenTelemetry collector system
 The Forge [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console) service also fowards the serial console logs of each Machine via a second instance of the OpenTelemetry collector (running inside the console POD) directly to Loki.
 
 Logs can be queried via the following path:
-- Site local Loki can be accessed via the [logcli](https://grafana.com/docs/loki/latest/query/logcli/) tool via `https://loki-siteid.frg.nvidia.com`, e.g. [https://loki-dev3.frg.nvidia.com](https://loki-dev3.frg.nvidia.com).
+- Site local Loki can be accessed via the [logcli](https://grafana.com/docs/loki/latest/query/logcli/) tool.
+  Note that logcli can only be used from within the Site Controller kubernetes cluster since access is non-authenticated.
+  From inside the cluster, logcli can e.g. be used as follows:
+  ```
+  ./logcli-linux-amd64 --addr=http://10.110.231.1:3100 --org-id="forge" query '{k8s_container_name="carbide-api"}'
+  ```
+  The endpoint address of Loki can be identified via `kubectl get services -n loki`.
 - Logs can be accessed via the Grafana installation on each site.
 The URL for this is is `https://grafana-siteid.frg.nvidia.com`, e.g. [https://grafana-dev3.frg.nvidia.com](https://grafana-dev3.frg.nvidia.com).
 
