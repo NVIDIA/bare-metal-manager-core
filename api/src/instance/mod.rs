@@ -121,6 +121,8 @@ pub async fn allocate_instance(
     )
     .await?;
 
+    request.metadata.validate()?;
+
     let new_instance = NewInstance {
         instance_id: request.instance_id,
         machine_id: request.machine_id,

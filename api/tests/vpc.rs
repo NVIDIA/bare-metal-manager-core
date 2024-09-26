@@ -332,6 +332,145 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 }
 
 #[sqlx::test]
+async fn create_vpc_with_invalid_labels(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let forge_vpc1 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test_VPC_with_labels".to_string(),
+                description: "this VPC must have labels.".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "key1".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key2".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "key3".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key4".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "key5".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key6".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "key7".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key8".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "key9".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: "key10".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "key11".to_string(),
+                        value: Some("value1".to_string()),
+                    },
+                ],
+            }),
+        }))
+        .await;
+
+    let error = forge_vpc1
+        .expect_err("expected allocation to fail")
+        .to_string();
+    assert!(
+        error.contains("Cannot have more than 10 labels"),
+        "Error message should contain 'Cannot have more than 10 labels', but is {}",
+        error
+    );
+
+    let forge_vpc2 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test_VPC_with_labels".to_string(),
+                description: "this VPC must have labels.".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "Random257LongStringAZ7rfo6lZITregicb76ykFExk7b9rBjx5Y9T3h2CZnwPuMd8mdCCRXGKcScaiMHKdb81RUlKScU67J3bvVsRUzNRqBFT8akZqxWliFteFlpkAnxbUbRirNJjakt5lSOGv2Qs0BLRGpbqdIxCJiqTZJMJIZOWv3a2W5I9F4RGEn910rO54mrp5JODz3oS1Jp0M2ikc2WBJB70BcK0tETc8nBx6mp2hS3VUl4KemO57y6vqL".to_string(),
+                        value: None,
+                    },
+                ],
+            }),
+        }))
+        .await;
+
+    let error = forge_vpc2
+        .expect_err("expected allocation to fail")
+        .to_string();
+    assert!(
+        error.contains("is too long"),
+        "Error message should contain 'is too long', but is {}",
+        error
+    );
+
+    let forge_vpc3 = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "".to_string(),
+            tenant_organization_id: "Forge_unit_tests".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "test_VPC_with_labels".to_string(),
+                description: "this VPC must have labels.".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "key1".to_string(),
+                        value: Some("Random257LongStringAZ7rfo6lZITregicb76ykFExk7b9rBjx5Y9T3h2CZnwPuMd8mdCCRXGKcScaiMHKdb81RUlKScU67J3bvVsRUzNRqBFT8akZqxWliFteFlpkAnxbUbRirNJjakt5lSOGv2Qs0BLRGpbqdIxCJiqTZJMJIZOWv3a2W5I9F4RGEn910rO54mrp5JODz3oS1Jp0M2ikc2WBJB70BcK0tETc8nBx6mp2hS3VUl4KemO57y6vqL".to_string()),
+                    },
+                ],
+            }),
+        }))
+        .await;
+
+    let error = forge_vpc3
+        .expect_err("expected allocation to fail")
+        .to_string();
+    assert!(
+        error.contains("is too long"),
+        "Error message should contain 'is too long', but is {}",
+        error
+    );
+
+    Ok(())
+}
+
+#[sqlx::test]
 async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 

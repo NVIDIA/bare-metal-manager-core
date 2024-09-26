@@ -50,6 +50,11 @@ pub(crate) async fn create(
         .persist(&mut txn)
         .await
         .map_err(CarbideError::from)?;
+
+    vpc.metadata
+        .validate()
+        .map_err(|e| CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e)))?;
+
     vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
     Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
         .await

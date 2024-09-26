@@ -58,4 +58,6 @@ pub enum RpcDataConversionError {
     InvalidNetworkSegmentId(String),
     #[error("CIDR {0} is not valid")]
     InvalidCidr(String),
+    #[error("Label is not valid: {0}")]
+    InvalidLabel(String),
 }

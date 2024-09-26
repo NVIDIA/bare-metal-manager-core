@@ -390,6 +390,214 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let instance_metadata = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance must have labels.".to_string(),
+        labels: vec![
+            rpc::forge::Label {
+                key: "key1".to_string(),
+                value: Some("value1".to_string()),
+            },
+            rpc::forge::Label {
+                key: "key2".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key3".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key4".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key5".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key6".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key7".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key8".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key9".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key10".to_string(),
+                value: None,
+            },
+            rpc::forge::Label {
+                key: "key11".to_string(),
+                value: None,
+            },
+        ],
+    };
+
+    let tenant_config = default_tenant_config();
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+        storage: None,
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config),
+            metadata: Some(instance_metadata),
+        }))
+        .await;
+
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("Cannot have more than 10 labels"),
+        "Error message should contain 'Cannot have more than 10 labels', but is {}",
+        error
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_instance_with_invalid_long_labels(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let instance_metadata1 = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance must have labels.".to_string(),
+        labels: vec![
+            rpc::forge::Label {
+                key: "Random257LongStringAZ7rfo6lZITregicb76ykFExk7b9rBjx5Y9T3h2CZnwPuMd8mdCCRXGKcScaiMHKdb81RUlKScU67J3bvVsRUzNRqBFT8akZqxWliFteFlpkAnxbUbRirNJjakt5lSOGv2Qs0BLRGpbqdIxCJiqTZJMJIZOWv3a2W5I9F4RGEn910rO54mrp5JODz3oS1Jp0M2ikc2WBJB70BcK0tETc8nBx6mp2hS3VUl4KemO57y6vqL
+                ".to_string(),
+                value: Some("value1".to_string()),
+            },
+        ],
+    };
+
+    let tenant_config = default_tenant_config();
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+        storage: None,
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config.clone()),
+            metadata: Some(instance_metadata1),
+        }))
+        .await;
+
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("is too long "),
+        "Error message should contain 'is too long ', but is {}",
+        error
+    );
+
+    let instance_metadata2 = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance must have labels.".to_string(),
+        labels: vec![
+            rpc::forge::Label {
+                key: "key1".to_string(),
+                value: Some("Random257LongStringAZ7rfo6lZITregicb76ykFExk7b9rBjx5Y9T3h2CZnwPuMd8mdCCRXGKcScaiMHKdb81RUlKScU67J3bvVsRUzNRqBFT8akZqxWliFteFlpkAnxbUbRirNJjakt5lSOGv2Qs0BLRGpbqdIxCJiqTZJMJIZOWv3a2W5I9F4RGEn910rO54mrp5JODz3oS1Jp0M2ikc2WBJB70BcK0tETc8nBx6mp2hS3VUl4KemO57y6vqL".to_string()),
+            },
+        ],
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config.clone()),
+            metadata: Some(instance_metadata2),
+        }))
+        .await;
+
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("is too long"),
+        "Error message should contain 'is too long', but is {}",
+        error
+    );
+
+    let instance_metadata3 = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance must have labels.".to_string(),
+        labels: vec![rpc::forge::Label {
+            key: "".to_string(),
+            value: None,
+        }],
+    };
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config),
+            metadata: Some(instance_metadata3),
+        }))
+        .await;
+
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("Label key cannot be empty"),
+        "Error message should contain 'Label key cannot be empty', but is {}",
+        error
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
