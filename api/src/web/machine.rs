@@ -36,6 +36,7 @@ struct MachineRowDisplay {
     hostname: String,
     state: String,
     time_in_state: String,
+    time_in_state_above_sla: bool,
     associated_dpu_ids: Vec<String>,
     associated_host_id: String,
     sys_vendor: String,
@@ -113,6 +114,11 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             id: m.id.unwrap_or_default().id,
             state: m.state,
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
+            time_in_state_above_sla: m
+                .state_sla
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
+                .unwrap_or_default(),
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
@@ -264,6 +270,8 @@ struct MachineDetail {
     state: String,
     state_version: String,
     time_in_state: String,
+    state_sla: String,
+    time_in_state_above_sla: bool,
     state_reason: String,
     machine_type: String,
     is_host: bool,
@@ -396,6 +404,17 @@ impl From<forgerpc::Machine> for MachineDetail {
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,
+            state_sla: m
+                .state_sla
+                .as_ref()
+                .and_then(|sla| sla.sla.clone())
+                .map(|sla| sla.to_string())
+                .unwrap_or_default(),
+            time_in_state_above_sla: m
+                .state_sla
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
+                .unwrap_or_default(),
             state_reason: m
                 .state_reason
                 .as_ref()

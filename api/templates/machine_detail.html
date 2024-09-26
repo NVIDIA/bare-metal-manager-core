@@ -19,6 +19,8 @@
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
+	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
+	<tr><th>Time in State is above SLA</th>{{ time_in_state_above_sla }}</tr>
 	{% if !state_reason.is_empty() %}
 	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
 	{% endif %}
