@@ -1,6 +1,7 @@
 FROM nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest
 
 ENV PYTHONUNBUFFERED=1
+ENV VAULT_VERSION="1.16.1"
 
 RUN apt-get update && \
     apt-get install -y \
@@ -8,6 +9,10 @@ RUN apt-get update && \
     python3.11-full \
     wget \
     unzip
+
+RUN wget -qO vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" && \
+    unzip vault.zip -d /usr/local/bin/ vault && \
+    rm vault.zip
 
 WORKDIR /tests
 COPY ./tests/machine-lifecycle/requirements.txt machine-lifecycle/requirements.txt
