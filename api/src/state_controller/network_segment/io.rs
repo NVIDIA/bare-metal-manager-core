@@ -19,8 +19,11 @@ use crate::{
         network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
         DatabaseError,
     },
-    model::controller_outcome::PersistentStateHandlerOutcome,
-    model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
+    model::{
+        controller_outcome::PersistentStateHandlerOutcome,
+        network_segment::{self, NetworkSegmentControllerState},
+        StateSla,
+    },
     state_controller::{
         io::StateControllerIO,
         network_segment::{
@@ -142,26 +145,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
     }
 
-    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool {
-        let time_in_state = chrono::Utc::now()
-            .signed_duration_since(state.version.timestamp())
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
-        match &state.value {
-            NetworkSegmentControllerState::Provisioning => {
-                time_in_state > std::time::Duration::from_secs(15 * 60)
-            }
-            NetworkSegmentControllerState::Ready => false,
-            NetworkSegmentControllerState::Deleting {
-                deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { .. },
-            } => {
-                // Draining can take an indefinite time if the subnet is referenced
-                // by an instance
-                false
-            }
-            NetworkSegmentControllerState::Deleting {
-                deletion_state: NetworkSegmentDeletionState::DBDelete { .. },
-            } => time_in_state > std::time::Duration::from_secs(15 * 60),
-        }
+    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+        network_segment::state_sla(&state.value, &state.version)
     }
 }

@@ -309,9 +309,9 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 .to_std()
                                 .unwrap_or(Duration::from_secs(60 * 60 * 24));
 
-                            let time_in_state_above_sla =
-                                IO::time_in_state_above_sla(&controller_state);
-                            metrics.common.time_in_state_above_sla = time_in_state_above_sla;
+                            let state_sla = IO::state_sla(&controller_state);
+                            metrics.common.time_in_state_above_sla =
+                                state_sla.time_in_state_above_sla;
 
                             let mut ctx = StateHandlerContext {
                                 services: &services,
@@ -346,13 +346,15 @@ impl<IO: StateControllerIO> StateController<IO> {
                             // then transform the outcome into an error
                             let handler_outcome = match handler_outcome {
                                 Ok(StateHandlerOutcome::Wait(wait_condition))
-                                    if time_in_state_above_sla =>
+                                    if state_sla.time_in_state_above_sla =>
                                 {
                                     Err(StateHandlerError::TimeInStateAboveSla {
                                         handler_outcome: format!("Wait(\"{wait_condition}\")"),
                                     })
                                 }
-                                Ok(StateHandlerOutcome::DoNothing) if time_in_state_above_sla => {
+                                Ok(StateHandlerOutcome::DoNothing)
+                                    if state_sla.time_in_state_above_sla =>
+                                {
                                     Err(StateHandlerError::TimeInStateAboveSla {
                                         handler_outcome: "DoNothing".to_string(),
                                     })

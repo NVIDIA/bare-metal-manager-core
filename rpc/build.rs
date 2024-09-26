@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .file_descriptor_set_path(reflection)
+        .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
@@ -248,6 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "RuntimeConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute("StateSla", "#[derive(serde::Serialize)]")
         .type_attribute(
             "BuildInfo",
             "#[derive(serde::Deserialize, serde::Serialize)]",

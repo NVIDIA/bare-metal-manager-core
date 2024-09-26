@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::StateSla;
+use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 
 /// State of a IB subnet as tracked by the controller
@@ -24,6 +26,25 @@ pub enum IBPartitionControllerState {
     Error { cause: String },
     /// The IB subnet is in the process of deleting.
     Deleting,
+}
+
+/// Returns the SLA for the current state
+pub fn state_sla(state: &IBPartitionControllerState, state_version: &ConfigVersion) -> StateSla {
+    let time_in_state = chrono::Utc::now()
+        .signed_duration_since(state_version.timestamp())
+        .to_std()
+        .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
+
+    match state {
+        IBPartitionControllerState::Provisioning => {
+            StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state)
+        }
+        IBPartitionControllerState::Ready => StateSla::no_sla(),
+        IBPartitionControllerState::Error { .. } => StateSla::no_sla(),
+        IBPartitionControllerState::Deleting => {
+            StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state)
+        }
+    }
 }
 
 #[cfg(test)]

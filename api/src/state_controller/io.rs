@@ -14,7 +14,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::DatabaseError,
-    model::controller_outcome::PersistentStateHandlerOutcome,
+    model::{controller_outcome::PersistentStateHandlerOutcome, StateSla},
     state_controller::{metrics::MetricsEmitter, state_handler::StateHandlerContextObjects},
 };
 
@@ -94,12 +94,9 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     fn metric_state_names(state: &Self::ControllerState) -> (&'static str, &'static str);
 
     /// Defines whether an object is in a certain state for longer than allowed
-    /// by the SLA.
+    /// by the SLA and returns the SLA.
     ///
     /// If an object stays in a state for longer than expected, a metric will
     /// be emitted.
-    ///
-    /// `false` can be used to indicate that an object can stay in any state
-    /// for an indefinite time in a state.
-    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool;
+    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla;
 }

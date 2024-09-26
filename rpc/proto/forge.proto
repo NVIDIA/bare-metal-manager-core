@@ -758,6 +758,8 @@ message IBPartitionStatus {
   TenantState state = 1;
   // The result of last state controller run - its outcome and an optional reason for that outcome
   optional ControllerStateReason state_reason = 8;
+  // The SLA for the current state - and whether the SLA has been breached
+  StateSla state_sla = 9;
 
   // The pkey of IB Partition
   optional string pkey = 2;
@@ -853,6 +855,8 @@ message NetworkSegment {
   repeated NetworkSegmentStateHistory history = 101;
   // The result of last state controller run - its outcome and an optional reason for that outcome
   optional ControllerStateReason state_reason = 102;
+  // The SLA for the current state - and whether the SLA has been breached
+  StateSla state_sla = 103;
 
 
   // Not sure if we actually still need those
@@ -1506,6 +1510,8 @@ message Machine {
   string state_version = 13;
   // The result of last state controller run - its outcome and an optional reason for that outcome
   optional ControllerStateReason state_reason = 25;
+  // The SLA for the current state - and whether the SLA has been breached
+  StateSla state_sla = 31;
 
   // The history of the state for the machine. Only populated if `include_history` is set.
   repeated MachineEvent events = 8;
@@ -1595,6 +1601,18 @@ enum ControllerStateOutcome {
   TRANSITION = 2;
   DO_NOTHING = 3;
   TODO = 4;
+}
+
+message StateSla {
+  // The SLA for the current state
+  // This field will be absent if there is no SLA defined for a field
+  // A value of 0 (instead of absent) will indicate the `time_in_state` will always
+  // be above SLA. This can happen for certain states that should never be entered
+  // for correct operation.
+  google.protobuf.Duration sla = 1;
+  // Whether the object has been in the state for a longer time than permitted
+  // by the SLA.
+  bool time_in_state_above_sla = 2;
 }
 
 // The most recent tenant related status

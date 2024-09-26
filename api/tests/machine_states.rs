@@ -16,7 +16,9 @@ use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
-use carbide::model::machine::{DpuInitState, FailureDetails, MachineState, ManagedHostState};
+use carbide::model::machine::{
+    DpuInitState, FailureCause, FailureDetails, FailureSource, MachineState, ManagedHostState,
+};
 use carbide::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandlerBuilder,
 };
@@ -674,6 +676,53 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     assert!(
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason } if !reason.is_empty()),
         "Third iteration should be waiting for DPU agent, and include a wait reason",
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_state_sla(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let (_dpu_machine_id, host_machine_id) = create_managed_host(&env).await;
+
+    // When the Machine is in Ready state, there is no SLA
+    let machine = env
+        .find_machines(Some(host_machine_id.clone().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let sla = machine.state_sla.as_ref().unwrap();
+    assert!(!sla.time_in_state_above_sla);
+    assert!(sla.sla.is_none());
+
+    // Now do a Hack and move the Machine into a failed state - which has a SLA
+    let mut txn = env.pool.begin().await.unwrap();
+    Machine::update_state(
+        &mut txn,
+        &host_machine_id,
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id: host_machine_id.clone(),
+            retry_count: 1,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let machine = env
+        .find_machines(Some(host_machine_id.into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let sla = machine.state_sla.as_ref().unwrap();
+    assert!(sla.time_in_state_above_sla);
+    assert_eq!(
+        sla.sla.clone().unwrap(),
+        std::time::Duration::from_secs(0).into()
     );
 }
 

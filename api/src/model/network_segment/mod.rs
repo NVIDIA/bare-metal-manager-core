@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::StateSla;
 use chrono::{DateTime, Utc};
+use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 
 /// State of a network segment as tracked by the controller
@@ -64,6 +66,30 @@ pub enum NetworkDefinitionSegmentType {
     Admin,
     Underlay,
     // Tenant networks are created via the API, not the config file
+}
+
+/// Returns the SLA for the current state
+pub fn state_sla(state: &NetworkSegmentControllerState, state_version: &ConfigVersion) -> StateSla {
+    let time_in_state = chrono::Utc::now()
+        .signed_duration_since(state_version.timestamp())
+        .to_std()
+        .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
+    match state {
+        NetworkSegmentControllerState::Provisioning => {
+            StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state)
+        }
+        NetworkSegmentControllerState::Ready => StateSla::no_sla(),
+        NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { .. },
+        } => {
+            // Draining can take an indefinite time if the subnet is referenced
+            // by an instance
+            StateSla::no_sla()
+        }
+        NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DBDelete { .. },
+        } => StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state),
+    }
 }
 
 #[cfg(test)]

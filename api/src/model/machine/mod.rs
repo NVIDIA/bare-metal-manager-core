@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
-    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
+    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, StateSla,
 };
 use crate::cfg::HardwareHealthReportsConfig;
 use crate::{
@@ -447,6 +447,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 machine.current.state.to_string()
             },
             state_version: machine.current.version.version_string(),
+            state_sla: Some(state_sla(&machine.current.state, &machine.current.version).into()),
             machine_type: *RpcMachineTypeWrapper::from(machine.machine_id.machine_type()) as _,
             events: machine
                 .history
@@ -1717,6 +1718,97 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
         }
+    }
+}
+
+/// Returns the SLA for the current state
+pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> StateSla {
+    let time_in_state = chrono::Utc::now()
+        .signed_duration_since(state_version.timestamp())
+        .to_std()
+        .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
+
+    match state {
+        ManagedHostState::DpuDiscoveringState { dpu_states } => {
+            // Min state indicates the least processed DPU. The state machine is blocked
+            // becasue of this.
+            let dpu_state = dpu_states.states.values().min();
+            let Some(dpu_state) = dpu_state else {
+                return StateSla::no_sla();
+            };
+
+            match dpu_state {
+                DpuDiscoveringState::Initializing
+                | DpuDiscoveringState::Configuring
+                | DpuDiscoveringState::DisableSecureBoot { .. }
+                | DpuDiscoveringState::SetUefiHttpBoot
+                | DpuDiscoveringState::RebootAllDPUS => {
+                    StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+                }
+            }
+        }
+        ManagedHostState::DPUInit { dpu_states } => {
+            // Min state indicates the least processed DPU. The state machine is blocked
+            // becasue of this.
+            let dpu_state = dpu_states.states.values().min();
+            let Some(dpu_state) = dpu_state else {
+                return StateSla::no_sla();
+            };
+
+            // Init has no SLA since starting discovery requires a manual action
+            match dpu_state {
+                DpuInitState::Init => StateSla::no_sla(),
+                _ => StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state),
+            }
+        }
+        ManagedHostState::HostInit { machine_state } => match machine_state {
+            MachineState::Init => StateSla::no_sla(),
+            MachineState::WaitingForDiscovery => StateSla::no_sla(),
+            _ => StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state),
+        },
+        ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::Assigned { instance_state } => match instance_state {
+            InstanceState::Ready => StateSla::no_sla(),
+            InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 0 => {
+                // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
+                StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+            }
+            _ => StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state),
+        },
+        ManagedHostState::WaitingForCleanup { .. } => {
+            StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+        }
+        ManagedHostState::Created => {
+            StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+        }
+        ManagedHostState::ForceDeletion => {
+            StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+        }
+        ManagedHostState::Failed { .. } => {
+            StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+        }
+        ManagedHostState::DPUReprovision { .. } => {
+            StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+        }
+        ManagedHostState::HostReprovision { .. } => {
+            // Multiple types of firmware may need to be updated, and in some cases it can take a while.
+            // This SHOULD be enough based on current observed behavior, but may need to be extended.
+            StateSla::with_sla(std::time::Duration::from_secs(40 * 60), time_in_state)
+        }
+        ManagedHostState::Measuring { measuring_state } => match measuring_state {
+            // The API shouldn't be waiting for measurements for long. As soon
+            // as it transitions into this state, Scout should get an Action::Measure
+            // action, and it should pretty quickly send measurements in (~seconds).
+            MeasuringState::WaitingForMeasurements => {
+                StateSla::with_sla(std::time::Duration::from_secs(30 * 60), time_in_state)
+            }
+            // If the machine is waiting for a matching bundle, this could
+            // take a bit, since it means either auto-bundle generation OR
+            // manual bundle generation needs to happen. In the case of new
+            // turn ups, this could take hours or even days (e.g. if new gear
+            // is sitting there).
+            MeasuringState::PendingBundle => StateSla::no_sla(),
+        },
     }
 }
 
