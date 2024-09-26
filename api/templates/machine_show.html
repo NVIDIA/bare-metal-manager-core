@@ -31,7 +31,11 @@
 	{% for m in machines %}
 		<tr>
 			<td>{{ m.id|machine_id_link|safe }}</td>
-			<td>{{ m.state }} {% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}</td>
+			<td>
+				{{ m.state }}
+				{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
+				{% if m.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>
 				{% if m.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
 					<a href="/admin/machine/health/{{ m.id }}">
