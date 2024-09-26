@@ -506,7 +506,7 @@ pub async fn create_host_with_machine_validation(
             ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: FailureCause::MachineValidation {
-                        err: machine_validation_result.std_err.clone(),
+                        err: format!("{} is failed", machine_validation_result.name),
                     },
                     failed_at: chrono::Utc::now(),
                     source: FailureSource::Scout,
