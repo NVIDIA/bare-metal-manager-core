@@ -103,6 +103,14 @@ This section provides some query examples. Please reference the [Loki queries](h
     ```
     {k8s_container_name="carbide-ssh-console"}
     ```
+- Show BMC logs for a specific Machine (forwarded by ssh-console service)
+    ```
+    {exporter="forge-serial-console", machineid="fm100ht281407gcptbqkntn1jimr1gbkvdcqetkfno98lmm0hp3m2jrohn0"}
+    ```
+- Show forge-dpu-agent logs for a specific DPU
+    ```
+    {systemd_unit="forge-dpu-agent.service", host_name="10-1-1-1.az01.frg.nvidia.com"}
+    ```
 - Show logs for elektra-site-agent:
     ```
     {k8s_container_name="elektra"}
