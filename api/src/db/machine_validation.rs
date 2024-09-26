@@ -430,8 +430,8 @@ impl MachineValidationResult {
             MachineValidationResult::find_by_machine_id(txn, machine_id, false).await?;
 
         for result in db_results {
-            if !result.stderr.is_empty() && result.exit_code != 0 {
-                return Ok(Some(result.stderr));
+            if result.exit_code != 0 {
+                return Ok(Some(format!("{} is failed", result.name)));
             }
         }
         Ok(None)

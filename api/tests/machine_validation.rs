@@ -165,7 +165,7 @@ async fn test_machine_validation_with_error(
             assert_eq!(
                 cause,
                 FailureCause::MachineValidation {
-                    err: machine_validation_result.std_err,
+                    err: format!("{} is failed", machine_validation_result.name),
                 }
             );
             assert_eq!(source, FailureSource::Scout);
