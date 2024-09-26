@@ -1326,6 +1326,8 @@ CREATE TABLE public.machines (
     dpu_agent_health_report jsonb,
     discovery_machine_validation_id uuid,
     cleanup_machine_validation_id uuid
+    on_demand_machine_validation_id uuid
+    on_demand_machine_validation_request: BOOLEAN,
 );
 
 

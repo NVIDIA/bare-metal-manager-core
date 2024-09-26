@@ -1702,6 +1702,8 @@ pub enum MachineValidationCommand {
     ExternalConfig(MachineValidationExternalConfigCommand),
     #[clap(about = "Validation Results", subcommand, visible_alias = "mvr")]
     Validation(MachineValidationResultsCommand),
+    #[clap(about = "Ondemand Validation", subcommand, visible_alias = "mvo")]
+    OnDemand(MachineValidationOnDemandCommand),
 }
 #[derive(Parser, Debug)]
 pub enum MachineValidationExternalConfigCommand {
@@ -1776,4 +1778,23 @@ pub struct ShowMachineValidationResultsOptions {
 
     #[clap(long, default_value = "false", help = "Results history")]
     pub history: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum MachineValidationOnDemandCommand {
+    #[clap(about = "Start on demand machine validation")]
+    Start(MachineValidationOnDemandOptions),
+}
+
+#[derive(Parser, Debug)]
+#[clap(disable_help_flag = true)]
+pub struct MachineValidationOnDemandOptions {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
+    #[clap(short, long, help = "Machine id for start validation")]
+    pub machine: String,
+
+    #[clap(long, help = "Results history")]
+    pub tags: Option<Vec<String>>,
 }

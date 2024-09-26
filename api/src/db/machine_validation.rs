@@ -130,6 +130,8 @@ impl MachineValidation {
         let mut column_name = "discovery_machine_validation_id".to_string();
         if context == "Cleanup" {
             column_name = "cleanup_machine_validation_id".to_string();
+        } else if context == "OnDemand" {
+            column_name = "on_demand_machine_validation_id".to_string();
         }
         Machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
 
@@ -317,11 +319,16 @@ impl MachineValidationResult {
             .unwrap_or_default();
         let cleanup_machine_validation_id =
             machine.cleanup_machine_validation_id().unwrap_or_default();
+
+        let on_demand_machine_validation_id = machine
+            .on_demand_machine_validation_id()
+            .unwrap_or_default();
         MachineValidationResult::find_by(
             txn,
             ObjectFilter::List(&[
                 cleanup_machine_validation_id.to_string(),
                 discovery_machine_validation_id.to_string(),
+                on_demand_machine_validation_id.to_string(),
             ]),
             "machine_validation_id",
         )

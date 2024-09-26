@@ -340,6 +340,11 @@ pub struct MachineSnapshot {
     /// Latest active health overrides set in the database
     /// An override with [`OverrideMode::Override`] can only be set on the host.
     pub health_report_overrides: HealthReportOverrides,
+
+    /// on demand validation id.
+    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
+
+    pub on_demand_machine_validation_request: Option<bool>,
 }
 
 impl MachineSnapshot {

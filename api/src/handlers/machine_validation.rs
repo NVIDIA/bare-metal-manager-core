@@ -12,7 +12,7 @@
 use crate::{
     api::{log_machine_id, log_request_data, Api},
     db::{
-        machine::Machine,
+        machine::{Machine, MachineSearchConfig},
         machine_validation::{MachineValidation, MachineValidationResult},
         machine_validation_config::MachineValidationExternalConfig,
         DatabaseError,
@@ -59,6 +59,10 @@ pub(crate) async fn mark_machine_validation_complete(
             e,
         ))
     })?;
+    //Mark machine validation request to false
+    Machine::set_machine_validation_request(&mut txn, &machine_id, false)
+        .await
+        .map_err(CarbideError::from)?;
 
     let machine = match Machine::find_by_validation_id(&mut txn, &uuid)
         .await
@@ -398,4 +402,77 @@ pub(crate) async fn get_machine_validation_runs(
         .map(Response::new)
         .map_err(CarbideError::from)?;
     Ok(ret)
+}
+
+pub(crate) async fn on_demand_machine_validation(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationOnDemandRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationOnDemandResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Extract and check
+    let machine_id = match &req.machine_id {
+        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+        None => {
+            return Err(Status::invalid_argument("A machine id is required"));
+        }
+    };
+    log_machine_id(&machine_id);
+
+    match req.action() {
+        rpc::machine_validation_on_demand_request::Action::Start => {
+            let mut txn = api.database_connection.begin().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "begin  on_demand_machine_validation",
+                    e,
+                ))
+            })?;
+            let machine = Machine::find_one(
+                &mut txn,
+                &machine_id,
+                MachineSearchConfig {
+                    include_dpus: false,
+                    ..MachineSearchConfig::default()
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| {
+                Status::invalid_argument(format!("Machine id {machine_id} not found."))
+            })?;
+            // Check state
+            match machine.current_state() {
+                ManagedHostState::Ready => {
+                    // Update machine_validation_request.
+                    Machine::set_machine_validation_request(&mut txn, &machine_id, true)
+                        .await
+                        .map_err(CarbideError::from)?;
+
+                    txn.commit().await.map_err(|e| {
+                        CarbideError::from(DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "commit  on_demand_machine_validation",
+                            e,
+                        ))
+                    })?;
+                    Ok(tonic::Response::new(
+                        rpc::MachineValidationOnDemandResponse {},
+                    ))
+                }
+                _ => {
+                    let msg = format!("On demand machine validation requires the machine to be in the {} state.  It is currently in state: {}", ManagedHostState::Ready, machine.current_state());
+                    tracing::warn!(msg);
+                    Err(Status::invalid_argument(msg))
+                }
+            }
+        }
+        rpc::machine_validation_on_demand_request::Action::Stop => Err(Status::invalid_argument(
+            "Cannot stop an on-demand validation request",
+        )),
+    }
 }

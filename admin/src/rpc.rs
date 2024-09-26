@@ -2276,3 +2276,25 @@ pub async fn get_machine_validation_runs(
     })
     .await
 }
+
+pub async fn on_demand_machine_validation(
+    machine_id: String,
+    tags: Option<Vec<String>>,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationOnDemandRequest {
+            machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+            tags: tags.unwrap_or_default(),
+            action: rpc::machine_validation_on_demand_request::Action::Start.into(),
+        });
+        let ret = client
+            .on_demand_machine_validation(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(ret)
+    })
+    .await
+}
