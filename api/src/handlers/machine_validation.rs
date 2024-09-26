@@ -230,7 +230,7 @@ pub(crate) async fn persist_validation_result(
     // Update the Machine validation health report based on the result
     let mut updated_validation_health_report = machine.machine_validation_health_report().clone();
     updated_validation_health_report.observed_at = Some(chrono::Utc::now());
-    if !validation_result.stderr.is_empty() && validation_result.exit_code != 0 {
+    if validation_result.exit_code != 0 {
         updated_validation_health_report
             .alerts
             .push(health_report::HealthProbeAlert {
