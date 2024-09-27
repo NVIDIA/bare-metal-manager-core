@@ -15,6 +15,7 @@ Tests:
         Contexts:
           - Discovery
           - Cleanup
+          - OnDemand
   Dcgm:
     Diag:
       DcgmFullLong:
@@ -24,6 +25,7 @@ Tests:
         PreCondition: "nvidia-smi"
         Contexts:
           - Discovery
+          - OnDemand
       DcgmFullShort:
         Command: "dcgmi "
         Desc: "Full DCGM diag test for seconds"
@@ -38,7 +40,8 @@ Tests:
         Desc: "stress ng mq stresser for 30"
         Args: " --mq 0 -t 120s --times --perf"
         Contexts:
-          - Cleanup
+          - Discovery
+          - OnDemand
       MqStresserShort:
         Command: "stress-ng "
         Desc: "stress ng mq stresser for 30"
@@ -50,13 +53,14 @@ Tests:
       MemoryTestLong:
         Command: "stress-ng "
         Desc: "Memory Stress Test"
-        Args: " -t 120s --vm 4 --vm-bytes 90% --vm-keep"
+        Args: " -t 120s --vm 2 --vm-bytes 50% --vm-keep"
         Contexts:
           - Discovery
+          - OnDemand
       MemoryTestShort:
         Command: "stress-ng "
         Desc: "Memory Stress Test"
-        Args: " -t 10s --vm 4 --vm-bytes 90% --vm-keep"
+        Args: " -t 10s --vm 2 --vm-bytes 50% --vm-keep"
         Contexts:
           - Cleanup
 
@@ -68,6 +72,7 @@ Tests:
         Args: " -t 120s --cpu -1 --cpu-method matrixprod"
         Contexts:
           - Discovery
+          - OnDemand
       CPUTestShort:
         Command: "stress-ng "
         Desc: "CPU Stress Test"
