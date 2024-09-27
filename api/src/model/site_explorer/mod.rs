@@ -300,6 +300,18 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
             report_version: endpoint.report_version.to_string(),
             exploration_requested: endpoint.exploration_requested,
             preingestion_state: format!("{:?}", endpoint.preingestion_state),
+            last_redfish_bmc_reset: endpoint
+                .last_redfish_bmc_reset
+                .map(|time| time.to_string())
+                .unwrap_or_else(|| "no timestamp available".to_string()),
+            last_ipmitool_bmc_reset: endpoint
+                .last_ipmitool_bmc_reset
+                .map(|time| time.to_string())
+                .unwrap_or_else(|| "no timestamp available".to_string()),
+            last_redfish_reboot: endpoint
+                .last_redfish_reboot
+                .map(|time| time.to_string())
+                .unwrap_or_else(|| "no timestamp available".to_string()),
         }
     }
 }

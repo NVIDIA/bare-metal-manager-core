@@ -39,6 +39,12 @@ message ExploredEndpoint {
     bool exploration_requested = 4;
     // The current preingestion state
     string preingestion_state = 5;
+    // Last BMC redfish reset time
+    string last_redfish_bmc_reset = 6;
+    // Last BMC IPMI reset time
+    string last_ipmitool_bmc_reset = 7;
+    // Last BMC redfish reboot time
+    string last_redfish_reboot = 8;
 }
 
 // Information about explored DPU that was discovered via Site Exploration

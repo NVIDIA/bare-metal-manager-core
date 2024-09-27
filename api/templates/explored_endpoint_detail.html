@@ -56,7 +56,13 @@
 		<td>
 			{% set bmc_ip = endpoint.address.clone() %}
 			{% include "bmc_reset.html" %}
-		</td>
+			<br>
+			Last Redfish BMC Reset: {{ endpoint.last_redfish_bmc_reset }}
+			<br>
+			Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
+			<br>
+			Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+		</td>				
 	</tr>
 </table>
 
