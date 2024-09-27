@@ -25,7 +25,10 @@
 			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
 			<td>{{ ns.id }}</td>
 			<td>{{ ns.created }}</td>
-			<td>{{ ns.state }}</td>
+			<td>
+				{{ ns.state }}
+				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>
 			<td>{{ ns.prefixes }}</td>
@@ -55,7 +58,10 @@
 			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
 			<td>{{ ns.id }}</td>
 			<td>{{ ns.created }}</td>
-			<td>{{ ns.state }}</td>
+			<td>
+				{{ ns.state }}
+				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>
 			<td>{{ ns.prefixes }}</td>
@@ -87,7 +93,10 @@
 			<td>{{ ns.id }}</td>
 			<td><a href="/admin/vpc/{{ ns.vpc_id }}">{{ ns.vpc_id }}</a></td>
 			<td>{{ ns.created }}</td>
-			<td>{{ ns.state }}</td>
+			<td>
+				{{ ns.state }}
+				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>
 			<td>{{ ns.prefixes }}</td>

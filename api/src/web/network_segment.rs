@@ -37,6 +37,7 @@ struct NetworkSegmentRowDisplay {
     vpc_id: String,
     created: String,
     state: String,
+    time_in_state_above_sla: bool,
     sub_domain: String,
     mtu: i32,
     prefixes: String,
@@ -55,6 +56,11 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
                 "{:?}",
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
+            time_in_state_above_sla: segment
+                .state_sla
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
+                .unwrap_or_default(),
             sub_domain: String::new(), // filled in later
             mtu: segment.mtu.unwrap_or(-1),
             prefixes: segment
@@ -184,6 +190,8 @@ struct NetworkSegmentDetail {
     updated: String,
     deleted: String,
     state: String,
+    state_sla: String,
+    time_in_state_above_sla: bool,
     state_reason: String,
     domain_id: String,
     domain_name: String,
@@ -247,6 +255,21 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 "{:?}",
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
+            state_sla: segment
+                .state_sla
+                .as_ref()
+                .and_then(|sla| sla.sla.clone())
+                .map(|sla| {
+                    config_version::format_duration(
+                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
+                    )
+                })
+                .unwrap_or_default(),
+            time_in_state_above_sla: segment
+                .state_sla
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
+                .unwrap_or_default(),
             state_reason: segment
                 .state_reason
                 .as_ref()
