@@ -16,13 +16,15 @@
   forge_hosts_health_overrides_count{fresh="true",override_type="merge"} 1
   forge_hosts_health_overrides_count{fresh="true",override_type="override"} 0
   ```
-- The ManagedHost (`/admin/managed-host`) and Machine (`/admin/host`) overview pages
-  on the admin UI now show a ⏱️ icon if the Machine is in a state for longer than allowed
-  by the SLA ("stuck"). The ManagedHost page also allows to filter for these Machines.
-  The details pages of ManagedHosts and Machines show a flag on whether these Machines
-  are stuck, and the actual SLA that applies for the state.
-- `forge-admin-cli mh show $machineid` now shows whether a machine is in a state
-  for longer than allowed by the SLA ("stuck").
+- The ManagedHost (`/admin/managed-host`), Machine (`/admin/host`),
+  Network Segment (`/admin/network-segment`) and IB Partition (`/admin/ib-partition`) overview pages on the admin UI now show a ⏱️ icon if the object is in a state for
+  onger than allowed by the SLA ("stuck").
+  The ManagedHost page also allows to filter for these Machines.
+  The details pages of ManagedHosts, Machines, NetworkSegment and IB Partitions
+  show a flag on whether these Machines are stuck, and the actual SLA that applies
+  for the state.
+- Similar to the Machines pages, the `forge-admin-cli mh show $machineid` now
+  shows whether a machine is in a state for longer than allowed by the SLA ("stuck").
 
 ### Changed
 - FORGE-4465 - On-demand machine-validation API
