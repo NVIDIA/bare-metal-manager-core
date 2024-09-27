@@ -78,7 +78,9 @@ pub async fn run(
 
     let forge_api = &agent.forge_system.api_server;
 
-    write_machine_id("/run/otelcol-contrib", machine_id)?;
+    if let Err(e) = write_machine_id("/run/otelcol-contrib", machine_id) {
+        tracing::error!(error = %e, "Failed to write machine ID");
+    }
 
     let instance_metadata_fetcher =
         Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
@@ -1125,7 +1127,7 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
 
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can
 // apply it as a resource attribute.
-fn write_machine_id(dir_path: &str, machine_id: &str) -> std::io::Result<()> {
+fn write_machine_id(dir_path: &str, machine_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(dir_path)?;
     let file_path = Path::new(dir_path).join("machine-id");
     fs::write(file_path, format!("machine.id={}\n", machine_id))?;
