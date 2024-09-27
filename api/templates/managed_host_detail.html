@@ -14,9 +14,9 @@
 	{% endif %}
 	{% if !maintenance_reference.is_empty() %}
 	<tr>
-      <th>Maintenance Reference</th>
-      <td>{% if is_link_ref %}<a href="{{ maintenance_reference }}">{{ maintenance_reference }}</a>{% else %}{{ maintenance_reference }}{% endif %}</td>
-    </tr>
+		<th>Maintenance Reference</th>
+		<td>{% if is_link_ref %}<a href="{{ maintenance_reference }}">{{ maintenance_reference }}</a>{% else %}{{ maintenance_reference }}{% endif %}</td>
+	</tr>
 		<tr><th>Maintenance Start</th><td>{{ maintenance_start_time }}</td></tr>
 	{% endif %}
 	<tr>
@@ -40,14 +40,14 @@
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
 			{% include "power_control.html" %}
-		</td>				
+		</td>
 	</tr>
 	<tr>
 		<th>Reset BMC</th>
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
 			{% include "bmc_reset.html" %}
-		</td>				
+		</td>
 	</tr>
 </table>
 
@@ -101,14 +101,14 @@
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
 			{% include "power_control.html" %}
-		</td>				
+		</td>
 	</tr>
 	<tr>
 		<th>Reset BMC</th>
 		<td>
 			{% set bmc_ip = host_bmc_ip.clone() %}
 			{% include "bmc_reset.html" %}
-		</td>				
+		</td>
 	</tr>
 </table>
 
@@ -146,14 +146,14 @@
 		<td>
 			{% set bmc_ip = dpu.bmc_ip.clone() %}
 			{% include "power_control.html" %}
-		</td>				
+		</td>
 	</tr>
 	<tr>
 		<th>Reset BMC</th>
 		<td>
 			{% set bmc_ip = dpu.bmc_ip.clone() %}
 			{% include "bmc_reset.html" %}
-		</td>				
+		</td>
 	</tr>
 
 	<tr><th>Switch Connections</th><td>{{ dpu.switch_connection_details() }}</td></tr>
