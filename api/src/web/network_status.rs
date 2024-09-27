@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -24,6 +25,8 @@ use rpc::forge::forge_server::Forge;
 use super::filters;
 use crate::api::Api;
 
+const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
+
 #[derive(Template)]
 #[template(path = "network_status.html")]
 struct NetworkStatus {
@@ -33,6 +36,13 @@ struct NetworkStatus {
     healthy_count: usize,
     unhealthy_count: usize,
     outdated_count: usize,
+    current_page: usize,
+    previous: usize,
+    next: usize,
+    pages: usize,
+    page_range_start: usize,
+    page_range_end: usize,
+    limit: usize,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -52,7 +62,17 @@ pub async fn show_html(
 ) -> Response {
     let filter = params.get("filter").cloned().unwrap_or("all".to_string());
 
-    let all_status = match fetch_network_status(state).await {
+    let current_page = params
+        .get("current_page")
+        .map_or(0, |s| s.parse::<usize>().unwrap_or(0));
+
+    let limit: usize = params.get("limit").map_or(DEFAULT_PAGE_RECORD_LIMIT, |s| {
+        s.parse::<usize>().map_or(DEFAULT_PAGE_RECORD_LIMIT, |s| {
+            min(s, DEFAULT_PAGE_RECORD_LIMIT)
+        })
+    });
+
+    let (pages, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
             tracing::error!(%err, "fetch_network_status");
@@ -98,6 +118,7 @@ pub async fn show_html(
             }
         }
     }
+
     let tmpl = NetworkStatus {
         dpus,
         active_filter: filter,
@@ -105,12 +126,32 @@ pub async fn show_html(
         healthy_count,
         unhealthy_count,
         outdated_count,
+        current_page,
+        previous: current_page.saturating_sub(1),
+        next: current_page.saturating_add(1),
+        pages,
+        page_range_start: current_page.saturating_sub(3),
+        page_range_end: min(current_page.saturating_add(4), pages),
+        limit,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let all_status = match fetch_network_status(state).await {
+pub async fn show_json(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let current_page = params
+        .get("current_page")
+        .map_or(0, |s| s.parse::<usize>().unwrap_or(0));
+
+    let limit: usize = params.get("limit").map_or(DEFAULT_PAGE_RECORD_LIMIT, |s| {
+        s.parse::<usize>().map_or(DEFAULT_PAGE_RECORD_LIMIT, |s| {
+            min(s, DEFAULT_PAGE_RECORD_LIMIT)
+        })
+    });
+
+    let (_, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
             tracing::error!(%err, "fetch_network_status");
@@ -124,13 +165,18 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(all_status)).into_response()
 }
 
-async fn fetch_network_status(api: Arc<Api>) -> Result<Vec<NetworkStatusDisplay>, tonic::Status> {
+async fn fetch_network_status(
+    api: Arc<Api>,
+    current_page: usize,
+    limit: usize,
+) -> Result<(usize, Vec<NetworkStatusDisplay>), tonic::Status> {
     let request: tonic::Request<forgerpc::ManagedHostNetworkStatusRequest> =
         tonic::Request::new(forgerpc::ManagedHostNetworkStatusRequest {});
     // The only reason we require the get_all_managed_host_network_status
     // API here is for retrieving the actually applied network_config_version
     // and the time of last contact (observed_at).
     // Everything else is available via the Machine API.
+
     let all_status = api
         .get_all_managed_host_network_status(request)
         .await
@@ -142,9 +188,33 @@ async fn fetch_network_status(api: Arc<Api>) -> Result<Vec<NetworkStatusDisplay>
         .filter_map(|status| status.dpu_machine_id.clone())
         .collect();
 
+    // Handling the case of getting a nonsensical limit.
+    let limit = if limit == 0 {
+        DEFAULT_PAGE_RECORD_LIMIT
+    } else {
+        limit
+    };
+
+    let pages = all_ids.len().div_ceil(limit);
+
+    let current_record_cnt_seen = current_page.saturating_mul(limit);
+
+    // Just handles the other case of someone messing around with the
+    // query params and suddenly setting a limit that makes
+    // current_record_cnt_seen no longer make sense.
+    if current_record_cnt_seen > all_ids.len() {
+        return Ok((pages, vec![]));
+    }
+
+    let ids_for_page: Vec<rpc::MachineId> = all_ids
+        .into_iter()
+        .skip(current_record_cnt_seen)
+        .take(limit)
+        .collect();
+
     let all_dpus = api
         .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
-            machine_ids: all_ids,
+            machine_ids: ids_for_page,
             include_history: false,
         }))
         .await
@@ -204,5 +274,5 @@ async fn fetch_network_status(api: Arc<Api>) -> Result<Vec<NetworkStatusDisplay>
         });
     }
 
-    Ok(result)
+    Ok((pages, result))
 }

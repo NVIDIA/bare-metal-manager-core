@@ -52,6 +52,48 @@
 			<th></th>
 			<th></th>
 		</tr>
+		<tr>
+			<th>
+				{% if pages > 1 %}
+					<a href="/admin/network-status?current_page=0&limit={{limit}}">[&lt; First]</a>
+					{% if current_page > 0 %}
+						<a href="/admin/network-status?current_page={{previous}}&limit={{limit}}">[&lt;&lt; Previous]</a>
+					{% else %}
+						[&lt;&lt; Previous]
+					{% endif %}
+
+					{% if pages == 0 %}
+						[Next &gt;&gt;]
+						[Last &gt;]
+					{% else%}
+						{% if current_page < (pages-1) %}
+							<a href="/admin/network-status?current_page={{next}}&limit={{limit}}">[Next &gt;&gt;]</a>
+						{% else %}
+							[Next &gt;&gt;]
+						{% endif %}
+						<a href="/admin/network-status?current_page={{(pages - 1)}}&limit={{limit}}">[Last &gt;]</a>
+					{% endif %}
+
+					<br/>
+					Page: ...				    				
+						{% for p in page_range_start..page_range_end %}
+							{% if p == current_page %}
+								[{{p}}]
+							{% else %}
+								<a href="/admin/network-status?current_page={{p}}&limit={{limit}}">[{{p}}]</a> 
+							{% endif %}
+						{% endfor %}
+					...
+				{% endif %}
+			</th>
+			<th></th>
+			{% if active_filter == "unhealthy" %}
+				<th></th>
+				<th></th>
+			{% endif %}
+			<th></th>
+			<th></th>
+		</tr>
 	</tfoot>
 </table>
 

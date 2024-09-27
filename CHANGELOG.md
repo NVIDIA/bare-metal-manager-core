@@ -23,6 +23,7 @@
 ### Fixed
 - Fixes redirect after Power Actions or BMC Reset have been issued on the carbide admin web UI.
 - PowerStates are correctly shown on explored-endpoint details page (`/admin/explored-endpoint/IP`)
+- Adds paging to network-status page in carbide-web UI to fix FORGE-4483 and prevent 5xx responses when viewing large sites.
 
 
 ### Removed
