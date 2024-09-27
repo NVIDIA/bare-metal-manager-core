@@ -246,8 +246,18 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     )?;
 
     writeln!(&mut lines, "State       : {}", m.state)?;
+    writeln!(&mut lines, "    Time in State : {}", m.time_in_state)?;
+    writeln!(
+        &mut lines,
+        "    State SLA     : {}",
+        m.state_sla_duration.unwrap_or_default()
+    )?;
+    writeln!(
+        &mut lines,
+        "    In State > SLA: {}",
+        m.time_in_state_above_sla
+    )?;
     if !m.state_reason.is_empty() {
-        writeln!(&mut lines, "    Time in State : {}", m.time_in_state)?;
         writeln!(&mut lines, "    Reason        : {}", m.state_reason)?;
     }
 

@@ -143,6 +143,7 @@ pub struct ManagedHostOutput {
     pub machine_id: Option<String>,
     pub state: String,
     pub state_version: String,
+    pub state_sla_duration: Option<String>,
     pub time_in_state_above_sla: bool,
     pub time_in_state: String,
     pub state_reason: String,
@@ -189,6 +190,15 @@ impl From<&Machine> for ManagedHostOutput {
                 .as_ref()
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
+            state_sla_duration: machine
+                .state_sla
+                .as_ref()
+                .and_then(|sla| sla.sla.clone())
+                .map(|sla| {
+                    config_version::format_duration(
+                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
+                    )
+                }),
             state_reason: machine
                 .state_reason
                 .as_ref()
