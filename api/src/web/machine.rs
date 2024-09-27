@@ -408,7 +408,11 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .state_sla
                 .as_ref()
                 .and_then(|sla| sla.sla.clone())
-                .map(|sla| sla.to_string())
+                .map(|sla| {
+                    config_version::format_duration(
+                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
+                    )
+                })
                 .unwrap_or_default(),
             time_in_state_above_sla: m
                 .state_sla

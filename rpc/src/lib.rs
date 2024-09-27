@@ -239,6 +239,16 @@ impl TryFrom<Duration> for std::time::Duration {
     }
 }
 
+impl TryFrom<Duration> for chrono::TimeDelta {
+    type Error = prost_types::DurationError;
+
+    fn try_from(duration: Duration) -> Result<Self, Self::Error> {
+        let std_duration = std::time::Duration::try_from(duration.0)?;
+        chrono::TimeDelta::from_std(std_duration)
+            .map_err(|_| prost_types::DurationError::OutOfRange)
+    }
+}
+
 impl From<std::time::Duration> for Duration {
     fn from(duration: std::time::Duration) -> Self {
         // Realistically we will never deal with a `time::Duration` that can't be
@@ -249,6 +259,12 @@ impl From<std::time::Duration> for Duration {
                 nanos: 999_999_999,
             })
             .into()
+    }
+}
+
+impl From<chrono::TimeDelta> for Duration {
+    fn from(duration: chrono::TimeDelta) -> Self {
+        duration.to_std().unwrap_or(std::time::Duration::MAX).into()
     }
 }
 

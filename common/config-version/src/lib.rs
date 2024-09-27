@@ -320,7 +320,7 @@ pub fn since_state_change_humanized(ver: &str) -> String {
     state_version_t.since_state_change_humanized()
 }
 
-fn format_duration(d: TimeDelta) -> String {
+pub fn format_duration(d: TimeDelta) -> String {
     let seconds = d.num_seconds();
     const SECONDS_IN_MINUTE: i64 = 60;
     const SECONDS_IN_HOUR: i64 = SECONDS_IN_MINUTE * 60;
