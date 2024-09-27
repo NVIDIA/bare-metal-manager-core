@@ -20,7 +20,10 @@
 			<td><a href="/admin/ib-partition/{{ p.id }}">{{ p.id }}</a></td>
 			<td>{{ p.tenant_organization_id }}</td>
 			<td>{{ p.name }}</td>
-			<td>{{ p.state }}</td>
+			<td>
+				{{ p.state }}
+				{% if p.time_in_state_above_sla %}⏱️{% endif %}
+			</td>
 			<td>{{ p.pkey }}</td>
 		</tr>
 		{% endfor %}

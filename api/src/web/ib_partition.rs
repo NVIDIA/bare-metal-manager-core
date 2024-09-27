@@ -34,6 +34,7 @@ struct IbPartitionRowDisplay {
     tenant_organization_id: String,
     name: String,
     state: String,
+    time_in_state_above_sla: bool,
     pkey: String,
 }
 
@@ -56,6 +57,13 @@ impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
                 .as_ref()
                 .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
+            time_in_state_above_sla: partition
+                .status
+                .as_ref()
+                .and_then(|status| status.state_sla.as_ref())
+                .as_ref()
+                .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             pkey: partition
                 .status
@@ -144,6 +152,8 @@ struct IbPartitionDetail {
     tenant_organization_id: String,
     name: String,
     state: String,
+    state_sla: String,
+    time_in_state_above_sla: bool,
     state_reason: String,
     pkey: String,
     service_level: String,
@@ -172,6 +182,23 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 .as_ref()
                 .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
+            state_sla: partition
+                .status
+                .as_ref()
+                .and_then(|status| status.state_sla.as_ref())
+                .and_then(|sla| sla.sla.clone())
+                .map(|sla| {
+                    config_version::format_duration(
+                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
+                    )
+                })
+                .unwrap_or_default(),
+            time_in_state_above_sla: partition
+                .status
+                .as_ref()
+                .and_then(|status| status.state_sla.as_ref())
+                .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             state_reason: partition
                 .status
