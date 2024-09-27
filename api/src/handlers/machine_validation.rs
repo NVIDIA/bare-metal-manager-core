@@ -59,10 +59,6 @@ pub(crate) async fn mark_machine_validation_complete(
             e,
         ))
     })?;
-    //Mark machine validation request to false
-    Machine::set_machine_validation_request(&mut txn, &machine_id, false)
-        .await
-        .map_err(CarbideError::from)?;
 
     let machine = match Machine::find_by_validation_id(&mut txn, &uuid)
         .await
@@ -81,6 +77,11 @@ pub(crate) async fn mark_machine_validation_complete(
             "Validation ID does not belong to provided Machine ID",
         ));
     }
+
+    //Mark machine validation request to false
+    Machine::set_machine_validation_request(&mut txn, &machine_id, false)
+        .await
+        .map_err(CarbideError::from)?;
 
     Machine::update_machine_validation_time(&machine_id, &mut txn)
         .await

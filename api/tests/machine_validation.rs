@@ -25,6 +25,7 @@ use common::api_fixtures::{
     create_test_env, get_machine_validation_results,
     host::create_host_with_machine_validation,
     instance::{create_instance, delete_instance, single_interface_network_config},
+    machine_validation_completed,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     on_demand_machine_validation,
 };
@@ -262,7 +263,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let _ = on_demand_machine_validation(&env, machine.id.unwrap_or_default()).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id).unwrap(),
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
         &mut txn,
         ManagedHostState::HostInit {
@@ -273,6 +274,16 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 total: 1,
                 is_enabled: true,
             },
+        },
+    )
+    .await;
+    machine_validation_completed(&env, host_machine_id.clone(), None).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered,
         },
     )
     .await;
