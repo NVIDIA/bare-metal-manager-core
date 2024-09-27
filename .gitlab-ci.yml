@@ -31,6 +31,7 @@ variables:
 
   KANIKO_CACHE_ARGS: "--cache=false --cache-copy-layers=true --cache-ttl=24h"
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
+  CACHE_DIRECTORY: $CI_PROJECT_DIR/cache # for mkosi
   LOGNAME: root
   KEA_BIN_PATH: /usr/bin
   KEA_INCLUDE_PATH: /usr/include/kea
