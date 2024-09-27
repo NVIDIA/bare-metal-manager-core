@@ -19,7 +19,7 @@
 
 ### Changed
 - FORGE-4465 - On-demand machine-validation API
-
+- Updated libredfish version to 0.25.6
 ### Fixed
 - Fixes redirect after Power Actions or BMC Reset have been issued on the carbide admin web UI.
 - PowerStates are correctly shown on explored-endpoint details page (`/admin/explored-endpoint/IP`)
