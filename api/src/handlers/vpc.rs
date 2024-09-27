@@ -28,10 +28,17 @@ pub(crate) async fn create(
     let vpc_creation_request = request.get_ref();
 
     if let Some(metadata) = &vpc_creation_request.metadata {
-        if (!metadata.name.is_empty()
-            || !metadata.description.is_empty()
-            || !metadata.labels.is_empty())
-            && !vpc_creation_request.name.is_empty()
+        if (!metadata.description.is_empty() || !metadata.labels.is_empty())
+            && metadata.name.is_empty()
+        {
+            return Err(CarbideError::InvalidArgument(
+                "VPC name must be specified under metadata only.".to_string(),
+            )
+            .into());
+        }
+
+        if (!metadata.name.is_empty() && !vpc_creation_request.name.is_empty())
+            && metadata.name != vpc_creation_request.name
         {
             return Err(CarbideError::InvalidArgument(
                 "VPC name must be specified under metadata only.".to_string(),

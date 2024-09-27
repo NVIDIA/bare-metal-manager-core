@@ -483,7 +483,7 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             tenant_keyset_id: None,
             network_virtualization_type: None,
             metadata: Some(rpc::forge::Metadata {
-                name: "vpc_name".to_string(),
+                name: "vpc_another_name".to_string(),
                 description: "No description.".to_string(),
                 labels: vec![],
             }),
