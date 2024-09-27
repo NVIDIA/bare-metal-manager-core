@@ -71,6 +71,11 @@ impl FirmwareDownloader {
             return true;
         }
 
+        if url.is_empty() {
+            tracing::error!("Firmware with file not present has no URL: {filename:?}");
+            return false;
+        }
+
         let filename_string = filename.to_str().unwrap().to_string();
 
         let mut state = self.actual.lock().unwrap();

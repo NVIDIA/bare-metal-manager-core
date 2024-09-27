@@ -31,7 +31,8 @@ use carbide::{
     CarbideResult,
 };
 use common::api_fixtures::{
-    create_test_env_with_config, get_config, network_segment::create_admin_network_segment, TestEnv,
+    self, create_test_env_with_config, get_config, network_segment::create_admin_network_segment,
+    TestEnv,
 };
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
@@ -39,9 +40,13 @@ use rpc::forge::DhcpDiscovery;
 use sqlx::{Postgres, Transaction};
 use std::{
     collections::HashMap,
+    fs,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
+    thread::sleep,
+    time::Duration,
 };
+use tempdir::TempDir;
 
 #[ctor::ctor]
 fn setup() {
@@ -774,4 +779,104 @@ async fn test_host_fw_upgrade_enabledisable_generic(
     txn.commit().await.unwrap();
 
     Ok((env, host_machine_id))
+}
+
+#[test]
+fn test_merge_firmware_configs() -> Result<(), eyre::Report> {
+    let tmpdir = TempDir::new("test_merge_firmware_configs")?;
+
+    // B_1 comes later alphabetically but because it's written first, should be parsed first
+    test_merge_firmware_configs_write(
+        &tmpdir,
+        "dir_B_1",
+        r#"
+vendor = "Dell"
+model = "PowerEdge R750"
+[components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "1.0"
+known_firmware = [
+    # Set version to match the version that the firmware will give, and for filename change filename.bin to the filename you specified in Dockerfile.  Leave everything else as it is.
+    { version = "1.0", filename = "/opt/fw/dell-r750-bmc-1.0/filename.bin", default = true },
+]
+    "#,
+    )?;
+    // Even though the file modification time has a precision of nanoseconds, the two files can have matching times, so we have to wait a bit.
+    sleep(Duration::from_millis(100));
+    test_merge_firmware_configs_write(
+        &tmpdir,
+        "dir_A_2",
+        r#"
+vendor = "Dell"
+model = "PowerEdge R750"
+[components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "1.1"
+known_firmware = [
+    # Set version to match the version that the firmware will give, and for filename change filename.bin to the filename you specified in Dockerfile.  Leave everything else as it is.
+    { version = "2.0", filename = "/opt/fw/dell-r750-bmc-2.0/filename.bin", default = true },
+]
+    "#,
+    )?;
+    // And a directory that has no metadata, just to make sure we don't panic
+    let mut dir = tmpdir.path().to_path_buf();
+    dir.push("bad");
+    fs::create_dir_all(dir.clone())?;
+
+    let mut cfg = api_fixtures::get_config();
+    cfg.firmware_global.firmware_directory = tmpdir.path().to_path_buf();
+    let cfg = cfg.get_firmware_config();
+    // Clean up tmpdir before any possible failures so we don't leave it behind
+    drop(tmpdir);
+
+    let model = cfg
+        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
+        .unwrap();
+
+    assert_eq!(
+        model
+            .components
+            .get(&FirmwareComponentType::Bmc)
+            .unwrap()
+            .known_firmware
+            .len(),
+        3
+    );
+    let uefi = model.components.get(&FirmwareComponentType::Uefi).unwrap();
+    assert_eq!(uefi.preingest_upgrade_when_below, Some("1.1".to_string()));
+
+    assert_eq!(uefi.known_firmware.len(), 3);
+    for x in &uefi.known_firmware {
+        match x.version.as_str() {
+            "1.0" => {
+                assert!(!x.default);
+            }
+            "2.0" => {
+                assert!(x.default);
+            }
+            "1.13.2" => {
+                assert!(!x.default);
+            }
+            _ => {
+                panic!("Wrong version {x:?}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn test_merge_firmware_configs_write(
+    tmpdir: &TempDir,
+    name: &str,
+    contents: &str,
+) -> Result<(), eyre::Report> {
+    let mut dir = tmpdir.path().to_path_buf();
+    dir.push(name);
+    fs::create_dir_all(dir.clone())?;
+    let mut file = dir.clone();
+    file.push("metadata.toml");
+    fs::write(file, contents)?;
+
+    Ok(())
 }

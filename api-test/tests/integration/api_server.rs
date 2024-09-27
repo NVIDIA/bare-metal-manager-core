@@ -23,7 +23,6 @@ use carbide::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 use carbide::logging::setup::Logging;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
-use chrono::Duration;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
@@ -230,14 +229,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         },
         dpu_models: HashMap::new(),
         host_models: HashMap::new(),
-        firmware_global: FirmwareGlobal {
-            autoupdate: false,
-            host_enable_autoupdate: vec![],
-            host_disable_autoupdate: vec![],
-            max_uploads: 4,
-            run_interval: Duration::seconds(5),
-            concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
-        },
+        firmware_global: FirmwareGlobal::test_default(),
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),

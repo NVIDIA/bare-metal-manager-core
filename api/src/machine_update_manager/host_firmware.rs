@@ -122,6 +122,8 @@ impl HostFirmwareUpdate {
         meter: opentelemetry::metrics::Meter,
         firmware_config: FirmwareConfig,
     ) -> Option<Self> {
+        tracing::info!("Using firmware configuration: {firmware_config:?}");
+
         let config = config.clone();
 
         let metrics = Arc::new(std::sync::Mutex::new(HostFirmwareUpdateMetrics::new(

@@ -21,8 +21,12 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::ffi::OsStr;
 use std::ops::Deref;
-use std::{collections::HashMap, fmt, fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    cmp::Ordering, collections::HashMap, fmt, fmt::Display, fs, net::SocketAddr, path::PathBuf,
+    sync::Arc, time::SystemTime,
+};
 use utils::HostPortPair;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
@@ -229,7 +233,12 @@ impl CarbideConfig {
                 dpu.clone(),
             );
         }
-        FirmwareConfig { map }
+        let mut config = FirmwareConfig { map };
+        if self.firmware_global.firmware_directory.to_string_lossy() != "" {
+            config.merge_firmware_configs(&self.firmware_global.firmware_directory);
+        }
+
+        config
     }
 }
 
@@ -904,6 +913,22 @@ pub struct FirmwareGlobal {
     pub max_uploads: usize,
     #[serde(default = "FirmwareGlobal::concurrency_limit_default")]
     pub concurrency_limit: usize,
+    #[serde(default = "FirmwareGlobal::firmware_directory_default")]
+    pub firmware_directory: PathBuf,
+}
+
+impl FirmwareGlobal {
+    pub fn test_default() -> Self {
+        FirmwareGlobal {
+            autoupdate: true,
+            host_enable_autoupdate: vec![],
+            host_disable_autoupdate: vec![],
+            max_uploads: 4,
+            run_interval: Duration::seconds(5),
+            concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
+            firmware_directory: PathBuf::default(),
+        }
+    }
 }
 
 /// DPU related config.
@@ -940,6 +965,9 @@ impl FirmwareGlobal {
     pub fn concurrency_limit_default() -> usize {
         16
     }
+    pub fn firmware_directory_default() -> PathBuf {
+        PathBuf::from("/opt/carbide/fw")
+    }
 }
 
 impl Default for FirmwareGlobal {
@@ -951,6 +979,7 @@ impl Default for FirmwareGlobal {
             run_interval: FirmwareGlobal::run_interval_default(),
             max_uploads: FirmwareGlobal::max_uploads_default(),
             concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
+            firmware_directory: FirmwareGlobal::firmware_directory_default(),
         }
     }
 }
@@ -995,6 +1024,88 @@ impl FirmwareConfig {
 
     pub fn map(&self) -> HashMap<String, Firmware> {
         self.map.clone()
+    }
+
+    pub fn merge_firmware_configs(&mut self, firmware_directory: &PathBuf) {
+        if !firmware_directory.is_dir() {
+            tracing::error!("Missing firmware directory {:?}", firmware_directory);
+            return;
+        }
+
+        for dir in subdirectories_sorted_by_modification_date(firmware_directory) {
+            if dir
+                .path()
+                .file_name()
+                .unwrap_or(OsStr::new("."))
+                .to_string_lossy()
+                .starts_with(".")
+            {
+                continue;
+            }
+            let metadata_path = dir.path().join("metadata.toml");
+            let metadata = match fs::read_to_string(metadata_path.clone()) {
+                Ok(str) => str,
+                Err(e) => {
+                    tracing::error!("Could not read {metadata_path:?}: {e}");
+                    continue;
+                }
+            };
+            if let Err(e) = self.merge_from_string(metadata) {
+                tracing::error!("Failed to merge in metadata from {:?}: {e}", dir.path());
+            }
+        }
+    }
+
+    /// merge_from_string adds the given TOML based config to this Firmware.  Figment based merging won't work for this,
+    /// as we want to append new FirmwareEntry instances instead of overwriting.  It is expected that this will be called
+    /// on the metadata in order of oldest creation time to newest.
+    pub fn merge_from_string(&mut self, config_str: String) -> eyre::Result<()> {
+        let cfg: Firmware = toml::from_str(config_str.as_str())?;
+        let key = vendor_model_to_key(cfg.vendor, cfg.model.clone());
+
+        let Some(cur_model) = self.map.get_mut(&key) else {
+            // We haven't seen this model before, so use this as given.
+            self.map.insert(key, cfg);
+            return Ok(());
+        };
+
+        if !cfg.ordering.is_empty() {
+            // Newer ordering definitions take precedence.  For now we don't consider this at a specific version level.
+            cur_model.ordering = cfg.ordering
+        }
+
+        for (new_type, new_component) in cfg.components {
+            if let Some(cur_component) = cur_model.components.get_mut(&new_type) {
+                // The simple fields from the newer version should be used if specified
+                if new_component.current_version_reported_as.is_some() {
+                    cur_component.current_version_reported_as =
+                        new_component.current_version_reported_as;
+                }
+                if new_component.preingest_upgrade_when_below.is_some() {
+                    cur_component.preingest_upgrade_when_below =
+                        new_component.preingest_upgrade_when_below;
+                }
+                if new_component.known_firmware.iter().any(|x| x.default) {
+                    // The newer one lists a default, remove default from the old.
+                    cur_component.known_firmware = cur_component
+                        .known_firmware
+                        .iter()
+                        .map(|x| {
+                            let mut x = x.clone();
+                            x.default = false;
+                            x
+                        })
+                        .collect();
+                }
+                cur_component
+                    .known_firmware
+                    .extend(new_component.known_firmware.iter().cloned());
+            } else {
+                // Nothing for this component
+                cur_model.components.insert(new_type, new_component);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1137,6 +1248,38 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     }
 }
 
+fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEntry> {
+    let Ok(dirs) = topdir.read_dir() else {
+        tracing::error!("Unreadable firmware directory {:?}", topdir);
+        return vec![];
+    };
+
+    // We sort in ascending modification time so that we will use the newest made firmware metadata
+    let mut dirs: Vec<fs::DirEntry> = dirs
+        .filter_map(|x| match x {
+            Ok(x) => Some(x),
+            Err(_) => None,
+        })
+        .collect();
+    dirs.sort_unstable_by(|x, y| {
+        let x_time = match x.metadata() {
+            Err(_) => SystemTime::now(),
+            Ok(x) => match x.modified() {
+                Err(_) => SystemTime::now(),
+                Ok(x) => x,
+            },
+        };
+        let y_time = match y.metadata() {
+            Err(_) => SystemTime::now(),
+            Ok(y) => match y.modified() {
+                Err(_) => SystemTime::now(),
+                Ok(y) => y,
+            },
+        };
+        x_time.partial_cmp(&y_time).unwrap_or(Ordering::Equal)
+    });
+    dirs
+}
 #[cfg(test)]
 mod tests {
     use figment::{
@@ -1751,6 +1894,80 @@ mod tests {
 
             Ok(())
         })
+    }
+
+    #[test]
+    fn merging_config() -> eyre::Result<()> {
+        let cfg1 = r#"
+    vendor = "Dell"
+    model = "PowerEdge R750"
+    ordering = ["uefi", "bmc"]
+
+    
+    [components.uefi]
+    current_version_reported_as = "^Installed-.*__BIOS.Setup."
+    preingest_upgrade_when_below = "1.13.2"
+
+    [[components.uefi.known_firmware]]
+    version = "1.13.2"
+    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
+    default = true
+"#;
+        let cfg2 = r#"
+model = "PowerEdge R750"
+vendor = "Dell"
+
+[components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "1.13.3"
+
+[[components.uefi.known_firmware]]
+version = "1.13.3"
+url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
+default = true
+
+[components.bmc]
+current_version_reported_as = "^Installed-.*__iDRAC."
+
+[[components.bmc.known_firmware]]
+version = "7.10.30.00"
+url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+default = true
+    "#;
+        let mut config: FirmwareConfig = Default::default();
+        config.merge_from_string(cfg1.to_string())?;
+        config.merge_from_string(cfg2.to_string())?;
+        println!("{config:#?}");
+        let server = config.map.get("dell:poweredge r750").unwrap();
+        assert_eq!(
+            server
+                .components
+                .get(&FirmwareComponentType::Uefi)
+                .unwrap()
+                .known_firmware
+                .len(),
+            2
+        );
+        assert_eq!(
+            server
+                .components
+                .get(&FirmwareComponentType::Bmc)
+                .unwrap()
+                .known_firmware
+                .len(),
+            1
+        );
+        assert_eq!(
+            *server
+                .components
+                .get(&FirmwareComponentType::Uefi)
+                .unwrap()
+                .preingest_upgrade_when_below
+                .as_ref()
+                .unwrap(),
+            "1.13.3".to_string()
+        );
+        Ok(())
     }
 
     #[test]
