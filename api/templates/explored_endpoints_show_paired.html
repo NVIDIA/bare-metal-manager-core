@@ -48,14 +48,14 @@
 		</tr>
 		{% endfor %}
 	</tbody>
-  <tfoot>
-    <tr>
-      <th>{{ managed_hosts.len() }} item{% if managed_hosts.len() != 1 %}s{% endif %}</th>
-      <th></th>
-      <th></th>
-      <th></th>
-    </tr>
-  </tfoot>
+	<tfoot>
+		<tr>
+			<th>{{ managed_hosts.len() }} item{% if managed_hosts.len() != 1 %}s{% endif %}</th>
+			<th></th>
+			<th></th>
+			<th></th>
+		</tr>
+	</tfoot>
 </table>
 
 {% endblock %}

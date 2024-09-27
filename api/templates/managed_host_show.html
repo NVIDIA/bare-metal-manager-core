@@ -86,19 +86,19 @@
 		</select>
 	</div>
 
-  <div>
-	  <label for="group-by">Group by</label>
-	  <select id="group-by" name="group-by">
-		  <option value="none">None</option>
-		  <option value="state" {% if active_group_by == "state" %}selected{% endif %}>State</option>
-		  <option value="health,state" {% if active_group_by == "health,state" %}selected{% endif %}>Health, state</option>
-		  <option value="host_memory,num_gpus,num_ib_ifs"{% if active_group_by == "host_memory,num_gpus,num_ib_ifs" %}selected{% endif %}>Host type</option>
-		  <option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
-	  </select>
-  </div>
-  <div>
-      <input type="submit" value="Update">
-  </div>
+	<div>
+		<label for="group-by">Group by</label>
+		<select id="group-by" name="group-by">
+			<option value="none">None</option>
+			<option value="state" {% if active_group_by == "state" %}selected{% endif %}>State</option>
+			<option value="health,state" {% if active_group_by == "health,state" %}selected{% endif %}>Health, state</option>
+			<option value="host_memory,num_gpus,num_ib_ifs"{% if active_group_by == "host_memory,num_gpus,num_ib_ifs" %}selected{% endif %}>Host type</option>
+			<option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
+		</select>
+	</div>
+	<div>
+			<input type="submit" value="Update">
+	</div>
 </form>
 
 {% if grouped_hosts.is_none() %}

@@ -6,222 +6,222 @@
 <h1>Configuration</h1>
 
 <table>
-  <tr>
-    <th>Version</th>
-    <td>{{ version }}</td>
-  </tr>
+	<tr>
+		<th>Version</th>
+		<td>{{ version }}</td>
+	</tr>
 </table>
 
 <h2 style="margin-left:10%">Dynamic</h2>
 <table>
-  <tr>
-    <th>DPU agent upgrade policy</th>
-    <td>{{ agent_upgrade_policy }}</td>
-  </tr>
-  <tr>
-    <th>Site explorer create machines</th>
-    <td>{{ create_machines }}</td>
-  </tr>
-  <tr>
-    <th>RUST_LOG</th>
-    <td>{{ log_filter }}</td>
-  <tr/>
-  <tr>
-    <th>BMC Proxy</th>
-    <td>{{ bmc_proxy }}</td>
-  <tr/>
+	<tr>
+		<th>DPU agent upgrade policy</th>
+		<td>{{ agent_upgrade_policy }}</td>
+	</tr>
+	<tr>
+		<th>Site explorer create machines</th>
+		<td>{{ create_machines }}</td>
+	</tr>
+	<tr>
+		<th>RUST_LOG</th>
+		<td>{{ log_filter }}</td>
+	<tr/>
+	<tr>
+		<th>BMC Proxy</th>
+		<td>{{ bmc_proxy }}</td>
+	<tr/>
 </table>
 
 <h2 style="margin-left:10%">Static</h2>
 <table>
-  <tr>
-    <td>Listen Address</td>
-    <td>{{ carbide_config.listen.to_string() }}</td>
-  </tr>
-  <tr>
-    <td>Metrics Endpoint</td>
-    <td>
-      {% match carbide_config.metrics_endpoint %}
-      {% when Some with (val) %}
-      {{ val.to_string() }}
-      {% else %}
-      No value found
-      {% endmatch %}</td>
-  </tr>
-  <tr>
-    <td>OTLP Endpoint</td>
-    <td>
-      {% match carbide_config.otlp_endpoint %}
-      {% when Some with (val) %}
-      {{ val }}
-      {% else %}
-      Not Configured
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>Database URL</td>
-    <td>{{ carbide_config.database_url }}</td>
-  </tr>
-  <tr>
-    <td>Max Database Connections</td>
-    <td>{{ carbide_config.max_database_connections }}</td>
-  </tr>
-  <tr>
-    <td>IB Fabric</td>
-    <td>
-      {% match carbide_config.ib_config %}
-        {% when Some with (config) %}
-          {% if config.enabled %}
-            Enabled
-          {% else %}
-            Disabled
-          {% endif %}
-        {% else %}
-          Disabled
-      {% endmatch %}</td></tr>
-  <tr><td>ASN</td><td>{{ carbide_config.asn }}</td></tr>
-  <tr><td>DHCP Servers</td><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
-  <tr><td>Route Server State</td><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
-  <tr><td>Route Servers</td><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
-  <tr><td>Deny Prefixes</td><td>
-      {% if carbide_config.deny_prefixes.len() != 0 %}
-      {% for prefix in carbide_config.deny_prefixes %}
-      {{ prefix }},
-      {% endfor %}
-      {% else %}
-      Not Configured
-      {% endif %}
-    </td>
-  </tr>
-  <tr>
-    <td>Site Fabric Prefixes</td>
-    <td>
-      {% if carbide_config.site_fabric_prefixes.len() != 0 %}
-      {% for prefix in carbide_config.site_fabric_prefixes %}
-      {{ prefix }},
-      {% endfor %}
-      {% else %}
-      Not Configured
-      {% endif %}
-    </td>
-  </tr>
-  <tr>
-    <td>Networks</td>
-    <td>
-      {% match carbide_config.networks %}
-      {% when Some with (val) %}
-      {% for network in val.keys() %}
-      {{ network }},
-      {% endfor %}
-      {% else %}
-      Not Configured
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>DPU IPMI Tool Impl</td>
-    <td>
-      {% match carbide_config.dpu_ipmi_tool_impl %}
-      {% when Some with (val) %}
-      {{ val }},
-      {% else %}
-      Not Configured
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>DPU IPMI Reboot Attempt</td>
-    <td>
-      {% match carbide_config.dpu_ipmi_reboot_attempts %}
-      {% when Some with (val) %}
-      {{ val }},
-      {% else %}
-      Not Configured (Default: 0)
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>Initial Domain Name</td>
-    <td>
-      {% match carbide_config.initial_domain_name %}
-      {% when Some with (val) %}
-      {{ val }}
-      {% else %}
-      Not Configured
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>Initial DPU Agent Upgrade Policy</td>
-    <td>
-      {% match carbide_config.initial_dpu_agent_upgrade_policy %}
-      {% when Some with (val) %}
-      {{ val.to_string() }}
-      {% else %}
-      Not Configured (Default: Off)
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>DPU NIC Firmware Update Version</td>
-    <td>
-      {% match carbide_config.dpu_nic_firmware_update_version %}
-      {% when Some with (val) %}
-      <table>
-        {% for (name, version) in val %}
-        <tr>
-          <td>{{ name }}</td>
-          <td>{{ version }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-      {% else %}
-      Not Configured
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>DPU NIC Initial Update</td>
-    <td>{% if carbide_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
-  </tr>
-  <tr>
-    <td>DPU NIC Reprovision Update</td>
-    <td>{% if carbide_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
-  </tr>
-  <tr>
-    <td>Max Concurrent Machine Update</td>
-    <td>
-      {% match carbide_config.max_concurrent_machine_updates %}
-      {% when Some with (val) %}
-      {{ val }}
-      {% else %}
-      Not Configured (Default: 0)
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>Machine Update Runtime Interval</td>
-    <td>
-      {% match carbide_config.machine_update_run_interval %}
-      {% when Some with (val) %}
-      {{ val }}
-      {% else %}
-      Not Configured (Default: 0)
-      {% endmatch %}
-    </td>
-  </tr>
-  <tr>
-    <td>DPU DHCP Server Enabled</td>
-    <td>{{ carbide_config.dpu_dhcp_server_enabled }}</td>
-  </tr>
-  <tr>
-    <td>NVUE Enabled</td>
-    <td>{{ carbide_config.nvue_enabled }}</td>
-  </tr>
-  <tr>
-    <td>Machine Attestation Enabled</td>
-    <td>{{ carbide_config.attestation_enabled }}</td>
-  </tr>
+	<tr>
+		<td>Listen Address</td>
+		<td>{{ carbide_config.listen.to_string() }}</td>
+	</tr>
+	<tr>
+		<td>Metrics Endpoint</td>
+		<td>
+			{% match carbide_config.metrics_endpoint %}
+			{% when Some with (val) %}
+			{{ val.to_string() }}
+			{% else %}
+			No value found
+			{% endmatch %}</td>
+	</tr>
+	<tr>
+		<td>OTLP Endpoint</td>
+		<td>
+			{% match carbide_config.otlp_endpoint %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>Database URL</td>
+		<td>{{ carbide_config.database_url }}</td>
+	</tr>
+	<tr>
+		<td>Max Database Connections</td>
+		<td>{{ carbide_config.max_database_connections }}</td>
+	</tr>
+	<tr>
+		<td>IB Fabric</td>
+		<td>
+			{% match carbide_config.ib_config %}
+				{% when Some with (config) %}
+					{% if config.enabled %}
+						Enabled
+					{% else %}
+						Disabled
+					{% endif %}
+				{% else %}
+					Disabled
+			{% endmatch %}</td></tr>
+	<tr><td>ASN</td><td>{{ carbide_config.asn }}</td></tr>
+	<tr><td>DHCP Servers</td><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
+	<tr><td>Route Server State</td><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
+	<tr><td>Route Servers</td><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
+	<tr><td>Deny Prefixes</td><td>
+			{% if carbide_config.deny_prefixes.len() != 0 %}
+			{% for prefix in carbide_config.deny_prefixes %}
+			{{ prefix }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<td>Site Fabric Prefixes</td>
+		<td>
+			{% if carbide_config.site_fabric_prefixes.len() != 0 %}
+			{% for prefix in carbide_config.site_fabric_prefixes %}
+			{{ prefix }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<td>Networks</td>
+		<td>
+			{% match carbide_config.networks %}
+			{% when Some with (val) %}
+			{% for network in val.keys() %}
+			{{ network }},
+			{% endfor %}
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>DPU IPMI Tool Impl</td>
+		<td>
+			{% match carbide_config.dpu_ipmi_tool_impl %}
+			{% when Some with (val) %}
+			{{ val }},
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>DPU IPMI Reboot Attempt</td>
+		<td>
+			{% match carbide_config.dpu_ipmi_reboot_attempts %}
+			{% when Some with (val) %}
+			{{ val }},
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>Initial Domain Name</td>
+		<td>
+			{% match carbide_config.initial_domain_name %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>Initial DPU Agent Upgrade Policy</td>
+		<td>
+			{% match carbide_config.initial_dpu_agent_upgrade_policy %}
+			{% when Some with (val) %}
+			{{ val.to_string() }}
+			{% else %}
+			Not Configured (Default: Off)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>DPU NIC Firmware Update Version</td>
+		<td>
+			{% match carbide_config.dpu_nic_firmware_update_version %}
+			{% when Some with (val) %}
+			<table>
+				{% for (name, version) in val %}
+				<tr>
+					<td>{{ name }}</td>
+					<td>{{ version }}</td>
+				</tr>
+				{% endfor %}
+			</table>
+			{% else %}
+			Not Configured
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>DPU NIC Initial Update</td>
+		<td>{% if carbide_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+	</tr>
+	<tr>
+		<td>DPU NIC Reprovision Update</td>
+		<td>{% if carbide_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
+	</tr>
+	<tr>
+		<td>Max Concurrent Machine Update</td>
+		<td>
+			{% match carbide_config.max_concurrent_machine_updates %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>Machine Update Runtime Interval</td>
+		<td>
+			{% match carbide_config.machine_update_run_interval %}
+			{% when Some with (val) %}
+			{{ val }}
+			{% else %}
+			Not Configured (Default: 0)
+			{% endmatch %}
+		</td>
+	</tr>
+	<tr>
+		<td>DPU DHCP Server Enabled</td>
+		<td>{{ carbide_config.dpu_dhcp_server_enabled }}</td>
+	</tr>
+	<tr>
+		<td>NVUE Enabled</td>
+		<td>{{ carbide_config.nvue_enabled }}</td>
+	</tr>
+	<tr>
+		<td>Machine Attestation Enabled</td>
+		<td>{{ carbide_config.attestation_enabled }}</td>
+	</tr>
 </table>
 {% endblock %}
