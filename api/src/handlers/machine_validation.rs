@@ -447,7 +447,7 @@ pub(crate) async fn on_demand_machine_validation(
             })?;
             // Check state
             match machine.current_state() {
-                ManagedHostState::Ready => {
+                ManagedHostState::Ready | ManagedHostState::Failed { .. } => {
                     // Update machine_validation_request.
                     Machine::set_machine_validation_request(&mut txn, &machine_id, true)
                         .await
