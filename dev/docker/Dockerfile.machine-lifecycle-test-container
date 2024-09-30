@@ -6,6 +6,7 @@ ENV VAULT_VERSION="1.16.1"
 RUN apt-get update && \
     apt-get install -y \
     curl \
+    jq \
     python3.11-full \
     wget \
     unzip
