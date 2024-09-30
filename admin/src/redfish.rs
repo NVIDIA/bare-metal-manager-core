@@ -664,6 +664,7 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
         "Static IP Addresses",
         "MTU Size",
         "Speed (Mbps)",
+        "UefiDevicePath"
     ]);
 
     for eth_if in &eth_ifs {
@@ -712,6 +713,7 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
                 .speed_mbps
                 .map(|s| s.to_string())
                 .unwrap_or("N/A".to_string()),
+            eth_if.uefi_device_path.clone().unwrap_or("N/A".to_string())
         ]);
     }
     table.into()

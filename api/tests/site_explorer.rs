@@ -18,7 +18,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use carbide::db::ObjectFilter;
 use carbide::{
     cfg::SiteExplorerConfig,
     db::{
@@ -43,6 +42,7 @@ use carbide::{
     CarbideError,
 };
 use carbide::{db::explored_managed_host::DbExploredManagedHost, model::site_explorer::PowerState};
+use carbide::{db::ObjectFilter, model::site_explorer::UefiDevicePath};
 use common::api_fixtures::TestEnv;
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use itertools::Itertools;
@@ -178,6 +178,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
+                        uefi_device_path: None,
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -443,6 +444,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some("c8:4b:d6:7a:dc:bc".parse().unwrap()),
+                    uefi_device_path: None,
                 }],
             }],
             systems: vec![ComputerSystem {
@@ -456,18 +458,21 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                         description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
+                        uefi_device_path: None,
                     },
                     EthernetInterface {
                         id: Some("NIC.Embedded.1-1-1".to_string()),
                         description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                         interface_enabled: Some(false),
                         mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
+                        uefi_device_path: None,
                     },
                     EthernetInterface {
                         id: Some("NIC.Slot.5-1".to_string()),
                         description: Some("NIC in Slot 5 Port 1".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
+                        uefi_device_path: None,
                     },
                 ],
                 attributes: ComputerSystemAttributes::default(),
@@ -769,6 +774,7 @@ async fn test_site_explorer_audit_exploration_results(
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("5a:5b:5c:5d:5e:5f".parse().unwrap()),
+                        uefi_device_path: None,
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -880,6 +886,7 @@ async fn test_site_explorer_audit_exploration_results(
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some(machines[4].mac),
+                        uefi_device_path: None,
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -894,18 +901,21 @@ async fn test_site_explorer_audit_exploration_results(
                             description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                             interface_enabled: Some(true),
                             mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
+                            uefi_device_path: None,
                         },
                         EthernetInterface {
                             id: Some("NIC.Embedded.1-1-1".to_string()),
                             description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                             interface_enabled: Some(false),
                             mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
+                            uefi_device_path: None,
                         },
                         EthernetInterface {
                             id: Some("NIC.Slot.5-1".to_string()),
                             description: Some("NIC in Slot 5 Port 1".to_string()),
                             interface_enabled: Some(true),
                             mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
+                            uefi_device_path: None,
                         },
                     ],
                     attributes: ComputerSystemAttributes::default(),
@@ -1008,6 +1018,7 @@ async fn test_site_explorer_audit_exploration_results(
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("ef:cd:ab:ef:cd:ab".parse().unwrap()),
+                        uefi_device_path: None,
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -1367,6 +1378,7 @@ async fn test_site_explorer_reexplore(
                         description: Some("Management Network Interface".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
+                        uefi_device_path: None,
                     }],
                 }],
                 systems: vec![ComputerSystem {
@@ -1623,6 +1635,7 @@ async fn test_site_explorer_creates_managed_host(
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("a0:88:c2:08:80:97".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -1632,6 +1645,7 @@ async fn test_site_explorer_creates_managed_host(
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some(oob_mac),
+                uefi_device_path: None,
             }],
             manufacturer: None,
             model: None,
@@ -2097,6 +2111,13 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(format!("a0:88:c2:08:80:9{}", i).parse().unwrap()),
+                    uefi_device_path: Some(
+                        UefiDevicePath::from_str(&format!(
+                            "PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x{:x})/MAC(A088C208545C,0x1)",
+                            i
+                        ))
+                        .unwrap(),
+                    ),
                 }],
             }],
             systems: vec![ComputerSystem {
@@ -2379,6 +2400,7 @@ async fn test_site_explorer_clear_last_known_error(
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("a0:88:c2:08:80:97".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2564,6 +2586,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("b8:3f:d2:90:97:a6".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2644,6 +2667,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("c8:4b:d6:7a:dc:bc".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -2657,18 +2681,21 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                     description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some("c8:4b:d6:7b:ab:93".parse().unwrap()),
+                    uefi_device_path: None,
                 },
                 EthernetInterface {
                     id: Some("NIC.Embedded.1-1-1".to_string()),
                     description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
                     interface_enabled: Some(false),
                     mac_address: Some("c8:4b:d6:7b:ab:92".parse().unwrap()),
+                    uefi_device_path: None,
                 },
                 EthernetInterface {
                     id: Some("NIC.Slot.5-1".to_string()),
                     description: Some("NIC in Slot 5 Port 1".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some("b8:3f:d2:90:97:a4".parse().unwrap()),
+                    uefi_device_path: None,
                 },
             ],
             attributes: ComputerSystemAttributes::default(),
@@ -3006,6 +3033,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("a0:88:c2:08:80:90".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -3015,6 +3043,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some(oob_mac),
+                uefi_device_path: None,
             }],
             manufacturer: None,
             model: None,
@@ -3197,6 +3226,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
                 description: Some("Management Network Interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some("a0:88:c2:08:80:90".parse().unwrap()),
+                uefi_device_path: None,
             }],
         }],
         systems: vec![ComputerSystem {
@@ -3206,6 +3236,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
                 description: Some("1G DPU OOB network interface".to_string()),
                 interface_enabled: Some(true),
                 mac_address: Some(oob_mac),
+                uefi_device_path: None,
             }],
             manufacturer: None,
             model: None,
@@ -3417,5 +3448,249 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     assert_eq!(value.machine_id.unwrap(), dpu_machine_id);
     txn.rollback().await?;
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+async fn test_fetch_host_primary_interface_mac(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let host_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "BMC".to_string(),
+            ethernet_interfaces: vec![],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Dell".to_string(),
+            ethernet_interfaces: vec![
+                EthernetInterface {
+                    id: Some("eth0".to_string()),
+                    description: Some("Interface 1".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some("a0:88:c2:08:80:70".parse().unwrap()),
+                    uefi_device_path: Some(
+                        UefiDevicePath::from_str(
+                            "PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x1,0x1)/MAC(A088C208545C,0x1)",
+                        )
+                        .unwrap(),
+                    ),
+                },
+                EthernetInterface {
+                    id: Some("eth1".to_string()),
+                    description: Some("Interface 2".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some("a0:88:c2:08:80:71".parse().unwrap()),
+                    uefi_device_path: Some(
+                        UefiDevicePath::from_str(
+                            "PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x2)/MAC(A088C208545C,0x1)",
+                        )
+                        .unwrap(),
+                    ),
+                },
+            ],
+            manufacturer: None,
+            model: None,
+            serial_number: Some("TESTSERIALNUM".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
+            },
+            pcie_devices: vec![],
+            base_mac: Some("a088c208804c".to_string()),
+            power_state: PowerState::On,
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AAA".to_string()),
+            serial_number: Some("TESTSERIALNUM".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+        versions: HashMap::default(),
+        model: None,
+    };
+
+    const NUM_DPUS: usize = 2;
+
+    let env = common::api_fixtures::create_test_env(pool).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+    let mut txn = env.pool.begin().await?;
+    let mut oob_interfaces = Vec::new();
+    let mut explored_dpus = Vec::new();
+
+    for i in 0..NUM_DPUS {
+        let oob_mac = MacAddress::from_str(format!("a0:88:c2:08:80:9{i}").as_str())?;
+        let response = env
+            .api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: oob_mac.to_string(),
+                relay_address: "192.0.1.1".to_string(),
+                link_address: None,
+                vendor_string: Some("NVIDIA/OOB".to_string()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert!(!response.address.is_empty());
+        let oob_interface = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+        assert!(oob_interface[0].is_primary);
+        oob_interfaces.push(oob_interface[0].clone());
+
+        let serial_number = format!("MT2328XZ18{i}R");
+
+        let mut dpu_report = EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            machine_id: None,
+            managers: vec![Manager {
+                id: "Bluefield_BMC".to_string(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("eth0".to_string()),
+                    description: Some("Management Network Interface".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some(format!("a0:88:c2:08:80:9{}", i).parse().unwrap()),
+                    uefi_device_path: Some(
+                        UefiDevicePath::from_str(&format!(
+                            "PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x{:x})/MAC(A088C208545C,0x1)",
+                            i
+                        ))
+                        .unwrap(),
+                    ),
+                }],
+            }],
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ethernet_interfaces: Vec::new(),
+                manufacturer: None,
+                model: None,
+                serial_number: Some(serial_number.to_string()),
+                attributes: ComputerSystemAttributes {
+                    nic_mode: Some(NicMode::Dpu),
+                    http_dev1_interface: None,
+                },
+                pcie_devices: vec![],
+                base_mac: Some("a088c208804c".to_string()),
+                power_state: PowerState::On,
+            }],
+            chassis: vec![Chassis {
+                id: "Card1".to_string(),
+                manufacturer: Some("Nvidia".to_string()),
+                model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+                part_number: Some(format!("900-9D3B6-00CV-AA{}", i).to_string()),
+                serial_number: Some(serial_number.to_string()),
+                network_adapters: vec![],
+            }],
+            service: vec![Service {
+                id: "FirmwareInventory".to_string(),
+                inventories: vec![
+                    Inventory {
+                        id: "DPU_NIC".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("32.38.1002".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_BSP".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("4.5.0.12984".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "BMC_Firmware".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("BF-23.10-3".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_OFED".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_OS".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some(
+                            "DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string(),
+                        ),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_UEFI".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("4.5.0-43-geb17a52".to_string()),
+                        release_date: None,
+                    },
+                ],
+            }],
+            versions: HashMap::default(),
+            model: None,
+        };
+        dpu_report.generate_machine_id(false)?;
+        explored_dpus.push(ExploredDpu {
+            bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
+            host_pf_mac_address: Some(MacAddress::from_str(
+                format!("a0:88:c2:08:80:7{i}").as_str(),
+            )?),
+            report: dpu_report.clone(),
+        })
+    }
+
+    let expected_mac: MacAddress = "a0:88:c2:08:80:71".parse().unwrap();
+    let mac = host_report
+        .fetch_host_primary_interface_mac(&explored_dpus)
+        .unwrap();
+    assert_eq!(mac, expected_mac);
     Ok(())
 }

@@ -24,8 +24,8 @@ use regex::Regex;
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
-    NicMode, PCIeDevice, PowerState, Service, SystemStatus, DPU_BIOS_ATTRIBUTES_MISSING,
-    HOST_BIOS_ATTRIBUTES_MISSING,
+    NicMode, PCIeDevice, PowerState, Service, SystemStatus, UefiDevicePath,
+    DPU_BIOS_ATTRIBUTES_MISSING, HOST_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -468,11 +468,19 @@ async fn fetch_ethernet_interfaces(
             None
         };
 
+        let uefi_device_path = if let Some(uefi_device_path) = iface.uefi_device_path {
+            let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)?;
+            Some(path_as_version_string)
+        } else {
+            None
+        };
+
         let iface = EthernetInterface {
             description: iface.description,
             id: iface.id,
             interface_enabled: iface.interface_enabled,
             mac_address,
+            uefi_device_path,
         };
 
         eth_ifs.push(iface);
@@ -538,6 +546,7 @@ async fn get_oob_interface(
                     id: Some("oob_net0".to_string()),
                     interface_enabled: None,
                     mac_address: Some(mac_addr),
+                    uefi_device_path: None,
                 }));
             }
         }

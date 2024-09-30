@@ -12,7 +12,9 @@
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
 use config_version::ConfigVersion;
+use libredfish::RedfishError;
 use mac_address::MacAddress;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::{bmc_info::BmcInfo, hardware_info::DpuData};
@@ -196,30 +198,67 @@ impl ExploredEndpoint {
 }
 
 impl EndpointExplorationReport {
-    pub fn fetch_host_primary_interface_mac(&self) -> Option<MacAddress> {
-        if self.vendor?.is_dell() {
-            // For Dell hosts, HttpDev1Interface field in Bios provides bootable interface details.
-            let system = self.systems.first()?;
+    pub fn fetch_host_primary_interface_mac(
+        &self,
+        explored_dpus: &[ExploredDpu],
+    ) -> Option<MacAddress> {
+        let system = self.systems.first()?;
 
-            let Some(interface_name) = system.attributes.http_dev1_interface.clone() else {
-                // This should not be None for Dell. Error is handled during fetching it from Bios
-                // params.
-                return None;
-            };
+        // Gather explored DPUs mac.
+        let explored_dpus_macs = explored_dpus
+            .iter()
+            .filter_map(|x| x.host_pf_mac_address)
+            .collect::<Vec<MacAddress>>();
 
-            // If we know the bootable interface name, find the MAC address associated with it.
-            let mac_address = system.ethernet_interfaces.iter().find_map(|x| {
-                if x.id.clone().unwrap_or_default() == interface_name {
-                    x.mac_address
+        // Filter PCI device names only for the interfaces which are mapped to DPU.
+        // Host might have some integrated or embedded interfaces, which are not used by forge.
+        // Need to ignore them.
+        let interfaces = system
+            .ethernet_interfaces
+            .iter()
+            .filter(|x| {
+                if let Some(mac) = x.mac_address {
+                    explored_dpus_macs.contains(&mac)
                 } else {
-                    None
+                    false
                 }
-            });
+            })
+            .collect::<Vec<&EthernetInterface>>();
 
-            return mac_address;
+        // If any of the interface does not contain pci path, return None.
+        if interfaces.iter().any(|x| x.uefi_device_path.is_none()) {
+            return None;
         }
 
-        None
+        let Some(first) = interfaces.first() else {
+            // PCI path is missing from all interfaces, can't sort based on pci path.
+            return None;
+        };
+
+        let interface_with_min_pci = interfaces.iter().fold(first, |acc, x| {
+            // It can never be none as verified above.
+            if let (Some(pci_path), Some(existing_path)) =
+                (&x.uefi_device_path, &acc.uefi_device_path)
+            {
+                let path = pci_path.0.clone();
+                let existing_path = existing_path.0.clone();
+
+                if let Ok(res) =
+                    version_compare::compare_to(path, existing_path, version_compare::Cmp::Lt)
+                {
+                    if res {
+                        return x;
+                    }
+                }
+
+                return acc;
+            }
+
+            acc
+        });
+
+        // If we know the bootable interface name, find the MAC address associated with it.
+        interface_with_min_pci.mac_address
     }
 }
 
@@ -909,6 +948,56 @@ pub struct EthernetInterface {
         deserialize_with = "forge_network::deserialize_optional_mlx_mac"
     )]
     pub mac_address: Option<MacAddress>,
+
+    pub uefi_device_path: Option<UefiDevicePath>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct UefiDevicePath(String);
+
+impl FromStr for UefiDevicePath {
+    type Err = RedfishError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Uefi string is received as PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0)/MAC(A088C208545C,0x1)
+        // Need to convert it as 8.2.10.0.0
+        // Some output does not contain MAC part. Also it is useless for us.
+
+        let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
+
+        let re = Regex::new(r"PciRoot\((.*?)\)\/Pci\((.*?)\)\/Pci\((.*?)\)").map_err(|x| {
+            RedfishError::GenericError {
+                error: x.to_string(),
+            }
+        })?;
+        let captures = re.captures(st).ok_or_else(|| RedfishError::GenericError {
+            error: format!("Could not match regex in PCI Device Path {}.", s),
+        })?;
+
+        let mut pci = vec![];
+
+        for (i, capture) in captures.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+
+            if let Some(capture) = capture {
+                for hex in capture.as_str().split(',') {
+                    let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
+                        .map_err(|e| RedfishError::GenericError {
+                            error: format!(
+                                "Can't convert pci address to int {}, error: {} for pci: {}",
+                                hex, e, s
+                            ),
+                        })?;
+                    pci.push(hex_int.to_string());
+                }
+            }
+            // Should we return error if capture is not proper??
+        }
+
+        Ok(UefiDevicePath(pci.join(".")))
+    }
 }
 
 impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
@@ -1306,5 +1395,16 @@ mod tests {
         ));
         let deserialized = serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap();
         assert_eq!(deserialized.machine_id.clone().unwrap(), machine_id);
+    }
+
+    #[test]
+    fn test_uefi_device_path() {
+        let path = "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)";
+        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
+        assert_eq!(converted.0, "2.1.0.0.1");
+
+        let path = "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)";
+        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
+        assert_eq!(converted.0, "17.1.0.0.10");
     }
 }

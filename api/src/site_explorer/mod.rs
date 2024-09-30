@@ -682,7 +682,10 @@ impl SiteExplorer {
             // If we know the booting interface of the host, we should use this for deciding
             // primary interface.
             let mut is_sorted = false;
-            if let Some(mac_address) = ep.report.fetch_host_primary_interface_mac() {
+            if let Some(mac_address) = ep
+                .report
+                .fetch_host_primary_interface_mac(&dpus_explored_for_host)
+            {
                 let primary_dpu_position = dpus_explored_for_host
                     .iter()
                     .position(|x| x.host_pf_mac_address.unwrap_or_default() == mac_address);
