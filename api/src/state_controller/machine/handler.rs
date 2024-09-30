@@ -3574,10 +3574,30 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?;
 
-                    let boot_interface_mac = None; // libredfish will choose the DPU
+                    let boot_interface_mac = if state.dpu_snapshots.len() > 1 {
+                        // Multi DPU case. Reason it is kept separate is that forge_setup/setting
+                        // booting device based on MAC is not tested yet. Soon when it is tested,
+                        // and confirmed to work with all hardware, this `if` condition can be removed.
+                        let primary_interface = state
+                            .host_snapshot
+                            .interfaces
+                            .iter()
+                            .find(|x| x.is_primary)
+                            .ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "Missing primary interface from host: {}",
+                                    state.host_snapshot.machine_id
+                                ))
+                            })?;
+                        Some(primary_interface.mac_address.to_string())
+                    } else {
+                        // libredfish will choose the DPU
+                        None
+                    };
+
                     match call_forge_setup_and_handle_no_dpu_error(
                         redfish_client.as_ref(),
-                        boot_interface_mac,
+                        boot_interface_mac.as_deref(),
                         state.host_snapshot.associated_dpu_machine_ids().len(),
                         ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
                     )
@@ -4379,11 +4399,28 @@ async fn lockdown_host(
     // - serial setup (bios, bmc)
     // - tpm clear (bios)
     // - boot once to pxe
-    let boot_interface_mac = None; // libredfish will choose the DPU
+    let boot_interface_mac = if state.dpu_snapshots.len() > 1 {
+        // Multi DPU case
+        let primary_interface = state
+            .host_snapshot
+            .interfaces
+            .iter()
+            .find(|x| x.is_primary)
+            .ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "Missing primary interface from host: {}",
+                    state.host_snapshot.machine_id
+                ))
+            })?;
+        Some(primary_interface.mac_address.to_string())
+    } else {
+        // libredfish will choose the DPU
+        None
+    };
 
     call_forge_setup_and_handle_no_dpu_error(
         redfish_client.as_ref(),
-        boot_interface_mac,
+        boot_interface_mac.as_deref(),
         state.host_snapshot.associated_dpu_machine_ids().len(),
         services.site_config.site_explorer.allow_zero_dpu_hosts,
     )
