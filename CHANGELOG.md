@@ -1,46 +1,57 @@
 # Changelog
 
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc2-0...trunk)
+## [v2024.09.27-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...trunk)
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [v2024.09.27-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc5-0...v2024.09.27-rc1-0)
 
 ### Added
 
 - The Hardware Health monitor will emit a `PoweredOff` alert if the systems powerstate is not `On`.
   We already had a `PowerSupply` alert before which inspected the status of the redfish power subsystem. However most of our other code just looks at the top level power status which is encoded in the `ComputerSystem`. Therefore a separate alert is emitted for the value of this field.
-- A new metric `forge_hosts_health_overrides_count` is emitted which indicates the amount
-  of health overrides that are configured on a site. That allows operators to determine
-  whether any health status might be impacted by overrides or whether hosts are
-  "naturally" health or unhealthy.
-  The metric carries an attribute `override_type` which can be either `merge` or `override`.  
+- A new metric `forge_hosts_health_overrides_count` is emitted which indicates the amount of health overrides that are configured on a site. That allows operators to determine whether any health status might be impacted by overrides or whether hosts are "naturally" health or unhealthy.
+  The metric carries an attribute `override_type` which can be either `merge` or `override`.
   **Example:**
   ```
   forge_hosts_health_overrides_count{fresh="true",override_type="merge"} 1
   forge_hosts_health_overrides_count{fresh="true",override_type="override"} 0
   ```
-- The ManagedHost (`/admin/managed-host`), Machine (`/admin/host`),
-  Network Segment (`/admin/network-segment`) and IB Partition (`/admin/ib-partition`) overview pages on the admin UI now show a ⏱️ icon if the object is in a state for
-  longer than allowed by the SLA ("stuck").
-  The ManagedHost page also allows to filter for these Machines.
-  The details pages of ManagedHosts, Machines, NetworkSegment and IB Partitions
-  show a flag on whether these Machines are stuck, and the actual SLA that applies
-  for the state.
-- Similar to the Machines pages, the `forge-admin-cli mh show $machineid` now
-  shows whether a machine is in a state for longer than allowed by the SLA ("stuck").
+- The ManagedHost (`/admin/managed-host`), Machine (`/admin/host`), Network Segment (`/admin/network-segment`) and IB Partition (`/admin/ib-partition`) overview pages on the admin UI now show a ⏱️ icon if the object is in a state for longer than allowed by the SLA ("stuck").
+  - The ManagedHost page also allows to filter for these Machines.
+  - The details pages of ManagedHosts, Machines, NetworkSegment and IB Partitions show a flag on whether these Machines are stuck, and the actual SLA that applies for the state.
+- Similar to the Machines pages, the `forge-admin-cli mh show $machineid` now shows whether a machine is in a state for longer than allowed by the SLA ("stuck").
 - FORGE-3866: MultiDPU - Decide host's primary interface based on PCI Device Path. The DPU attached to primary interface will be used as primary DPU.
+- The Admin UI gained the ability to reboot a BMC via RedFish or IPMI
+- The Admin UI gained the ability to clear the last site explorer expiration error to indicate Site Explorer should restart exploration for a particular BMC.
+- The Admin UI will now display timestamps of BMC reboot / reset timestamps.
+- Carbide now supports mutual-TLS for communicating with UFM, configuration is described in [the Infiniband Runbook](https://nvmetal.gitlab-master-pages.nvidia.com/carbide/playbooks/ib_runbook.html)
+- Carbide will now update the DPU BMC when going through DPU Reprovisioning states.
+- DGX H100 (Vikings) are supported for host ingestion *if the UEFI firmware version is 1.5.3* (Automatic UEFI Firmware upgrades during pre-ingestion will come at a future date).
+    - The DPU and host serial number pairs still must be pre-populated in Expected Machines.
+- Tenants can now update instances with new Operating Systems without deleting the instance first (see [FORGE-2911](https://jirasw.nvidia.com/browse/FORGE-2911)).
 
 ### Changed
-- Forge Site admin can now perform machine validation on-demand (only on Ready/Failed machines)
-  use following command to trigger on-demand machine validation 
-  `forge-admin-cli machine-validation on-demand start -m <machineID>` 
-  For more information [Forge-4465](https://jirasw.nvidia.com/browse/FORGE-4465).
+
+- Forge Site admin can now perform machine validation on-demand (only on Ready/Failed machines) [FORGE-4465](https://jirasw.nvidia.com/browse/FORGE-4465).
+  - Use following command to trigger on-demand machine validation: `forge-admin-cli machine-validation on-demand start -m <machineID>`.
 - Feature flag to enable and disable machine validation [FORGE-4487](https://jirasw.nvidia.com/browse/FORGE-4487)
-- Updated libredfish version to 0.25.6
+- Forge scout now runs in Ubuntu 24.04 instead of Debian 12 for compatibility with ARM servers and NVIDIA drivers.
+
 ### Fixed
+
 - Fixes redirect after Power Actions or BMC Reset have been issued on the carbide admin web UI.
 - PowerStates are correctly shown on explored-endpoint details page (`/admin/explored-endpoint/IP`)
 - Adds paging to network-status page in carbide-web UI to fix FORGE-4483 and prevent 5xx responses when viewing large sites.
-
-
-### Removed
+- The Admin UI network status page uses paginated API calls and will not fail if the number exceeds the page size.
+- The DPU agent will not crash if `/run` is not writable
+- The DPU agent will now configure `ovs-switchd` to use less CPU
 
 ## [v2024.09.13-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc4-0...v2024.09.13-rc5-0)
 
