@@ -1,1 +1,1 @@
-deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64 /
+deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64 /
