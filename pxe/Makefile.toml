@@ -364,6 +364,7 @@ dependencies = [
 	"ipxe-build-efi-aarch64-ci",
 ]
 
+# This requires the GNU `ld`. It fails with LLVM's `lld`.
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
