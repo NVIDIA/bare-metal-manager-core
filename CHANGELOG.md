@@ -18,13 +18,14 @@
   ```
 - The ManagedHost (`/admin/managed-host`), Machine (`/admin/host`),
   Network Segment (`/admin/network-segment`) and IB Partition (`/admin/ib-partition`) overview pages on the admin UI now show a ⏱️ icon if the object is in a state for
-  onger than allowed by the SLA ("stuck").
+  longer than allowed by the SLA ("stuck").
   The ManagedHost page also allows to filter for these Machines.
   The details pages of ManagedHosts, Machines, NetworkSegment and IB Partitions
   show a flag on whether these Machines are stuck, and the actual SLA that applies
   for the state.
 - Similar to the Machines pages, the `forge-admin-cli mh show $machineid` now
   shows whether a machine is in a state for longer than allowed by the SLA ("stuck").
+- FORGE-3866: MultiDPU - Decide host's primary interface based on PCI Device Path. The DPU attached to primary interface will be used as primary DPU.
 
 ### Changed
 - FORGE-4465 - On-demand machine-validation API
