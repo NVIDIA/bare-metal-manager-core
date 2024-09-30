@@ -64,7 +64,7 @@ impl StorageCluster {
         txn: &mut Transaction<'_, Postgres>,
         attrs: &StorageClusterAttributes,
         nvmesh_cluster: nvmesh::ClusterId,
-        cluster_status: nvmesh::ClusterStatus,
+        cluster_capacity: nvmesh::ClusterCapacity,
     ) -> Result<Self, DatabaseError> {
         let timestamp: DateTime<Utc> = Utc::now();
         let id: Uuid = Uuid::try_from(nvmesh_cluster.uuid.as_str()).map_err(|e| {
@@ -78,9 +78,9 @@ impl StorageCluster {
         let cluster = StorageCluster {
             name: nvmesh_cluster.id,
             id,
-            capacity: cluster_status.total_space,
-            allocated: cluster_status.allocated_space,
-            available: cluster_status.free_space,
+            capacity: cluster_capacity.total_capacity_in_bytes,
+            allocated: 0, // cluster_capacity.total_reserved_in_bytes?
+            available: cluster_capacity.available_space_in_bytes,
             healthy: true,
             attributes: attrs.clone(),
             created_at: Some(timestamp.to_string()),
@@ -105,16 +105,16 @@ impl StorageCluster {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         new_attrs: &StorageClusterAttributes,
-        cluster_status: nvmesh::ClusterStatus,
+        cluster_capacity: nvmesh::ClusterCapacity,
     ) -> Result<Self, DatabaseError> {
         let timestamp: DateTime<Utc> = Utc::now();
         // todo: maybe validate all storage pools and volumes in db match the updated storage cluster?
         let cluster = StorageCluster {
             name: self.name.clone(),
             id: self.id,
-            capacity: cluster_status.total_space,
-            allocated: cluster_status.allocated_space,
-            available: cluster_status.free_space,
+            capacity: cluster_capacity.total_capacity_in_bytes,
+            allocated: 0, // cluster_capacity.total_reserved_in_bytes,
+            available: cluster_capacity.available_space_in_bytes,
             healthy: true,
             attributes: new_attrs.clone(),
             created_at: self.created_at.clone(),
@@ -225,13 +225,14 @@ impl StoragePool {
                 sqlx::Error::Protocol(e.to_string()),
             )
         })?;
+
         let pool = StoragePool {
             nvmesh_uuid,
             allocated: 0,
             available: 0,
             attributes: attrs.clone(),
-            created_at: Some(nvmesh_pool.date_created.clone()),
-            modified_at: Some(nvmesh_pool.date_modified.clone()),
+            created_at: nvmesh_pool.date_created.clone(),
+            modified_at: nvmesh_pool.date_modified.clone(),
         };
         pool.persist(txn, false).await
     }
@@ -405,8 +406,8 @@ impl StorageVolume {
             },
             instance_id: instance_ids,
             dpu_machine_id: machine_ids,
-            created_at: Some(nvmesh_vol.date_created.clone()),
-            modified_at: Some(nvmesh_vol.date_modified.clone()),
+            created_at: nvmesh_vol.date_created.clone(),
+            modified_at: nvmesh_vol.date_modified.clone(),
         };
         volume.persist(txn, false).await
     }

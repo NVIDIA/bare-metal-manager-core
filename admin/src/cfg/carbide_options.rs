@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
+use crate::cfg::storage::{OsImageActions, StorageActions};
 use carbide::ib::DEFAULT_IB_FABRIC_NAME;
 
 #[derive(Parser, Debug)]
@@ -185,6 +186,15 @@ pub enum CarbideCommand {
 
     #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(MachineValidationCommand),
+
+    #[clap(
+        about = "Storage management commands",
+        visible_alias = "st",
+        subcommand
+    )]
+    Storage(StorageActions),
+    #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
+    OsImage(OsImageActions),
 }
 
 #[derive(Parser, Debug)]

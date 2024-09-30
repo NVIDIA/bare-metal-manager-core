@@ -11,3 +11,4 @@
  */
 pub mod carbide_options;
 pub mod measurement;
+pub mod storage;
