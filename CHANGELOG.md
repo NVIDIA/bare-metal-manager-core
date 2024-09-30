@@ -18,7 +18,11 @@
   ```
 
 ### Changed
-- FORGE-4465 - On-demand machine-validation API
+- Forge Site admin can now perform machine validation on-demand (only on Ready machines) 
+  use following command to trigger on-demand machine validation 
+  `forge-admin-cli machine-validation on-demand start -m <machineID>` 
+  For more information [Forge-4465](https://jirasw.nvidia.com/browse/FORGE-4465).
+- Feature flag to enable and disable machine validation [FORGE-4487](https://jirasw.nvidia.com/browse/FORGE-4487)
 - Updated libredfish version to 0.25.6
 ### Fixed
 - Fixes redirect after Power Actions or BMC Reset have been issued on the carbide admin web UI.
