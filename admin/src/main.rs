@@ -22,8 +22,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::cfg::carbide_options::{IbPartitionOptions, TenantKeySetOptions};
-
+use crate::cfg::storage::{
+    OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
+};
 use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
@@ -43,12 +44,14 @@ use cfg::carbide_options::DpuAction::Versions;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::ExpectedMachine;
 use cfg::carbide_options::HostAction;
+use cfg::carbide_options::IbPartitionOptions;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
 use cfg::carbide_options::SetAction;
 use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
+use cfg::carbide_options::TenantKeySetOptions;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
@@ -87,6 +90,7 @@ mod redfish;
 mod resource_pool;
 mod rpc;
 mod site_explorer;
+mod storage;
 mod tenant_keyset;
 mod uefi;
 mod version;
@@ -1239,6 +1243,7 @@ async fn main() -> color_eyre::Result<()> {
             // Do we have no idea what it is?
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
+
         CarbideCommand::MachineValidation(command) => match command {
             cfg::carbide_options::MachineValidationCommand::ExternalConfig(config_command) => {
                 match config_command {
@@ -1295,6 +1300,88 @@ async fn main() -> color_eyre::Result<()> {
                             .await?;
                     }
                 }
+            }
+        },
+        CarbideCommand::Storage(storage_cmd) => match storage_cmd {
+            StorageActions::Cluster(storage_cluster) => match storage_cluster {
+                StorageClusterActions::Show(storage_cluster) => {
+                    storage::cluster_show(
+                        storage_cluster,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                    )
+                    .await?
+                }
+                StorageClusterActions::Import(storage_cluster) => {
+                    storage::cluster_import(storage_cluster, api_config).await?
+                }
+                StorageClusterActions::Delete(storage_cluster) => {
+                    storage::cluster_delete(storage_cluster, api_config).await?
+                }
+                StorageClusterActions::Update(storage_cluster) => {
+                    storage::cluster_update(storage_cluster, api_config).await?
+                }
+            },
+            StorageActions::Pool(storage_pool) => match storage_pool {
+                StoragePoolActions::Show(storage_pool) => {
+                    storage::pool_show(
+                        storage_pool,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                    )
+                    .await?
+                }
+                StoragePoolActions::Create(storage_pool) => {
+                    storage::pool_create(storage_pool, api_config).await?
+                }
+                StoragePoolActions::Delete(storage_pool) => {
+                    storage::pool_delete(storage_pool, api_config).await?
+                }
+                StoragePoolActions::Update(storage_pool) => {
+                    storage::pool_update(storage_pool, api_config).await?
+                }
+            },
+            StorageActions::Volume(storage_volume) => match storage_volume {
+                StorageVolumeActions::Show(storage_volume) => {
+                    storage::volume_show(
+                        storage_volume,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                    )
+                    .await?
+                }
+                StorageVolumeActions::Create(storage_volume) => {
+                    storage::volume_create(storage_volume, api_config).await?
+                }
+                StorageVolumeActions::Delete(storage_volume) => {
+                    storage::volume_delete(storage_volume, api_config).await?
+                }
+                StorageVolumeActions::Update(storage_volume) => {
+                    storage::volume_update(storage_volume, api_config).await?
+                }
+            },
+        },
+        CarbideCommand::OsImage(os_image) => match os_image {
+            OsImageActions::Show(os_image) => {
+                storage::os_image_show(
+                    os_image,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
+            }
+            OsImageActions::Create(os_image) => {
+                storage::os_image_create(os_image, api_config).await?
+            }
+            OsImageActions::Delete(os_image) => {
+                storage::os_image_delete(os_image, api_config).await?
+            }
+            OsImageActions::Update(os_image) => {
+                storage::os_image_update(os_image, api_config).await?
             }
         },
     }

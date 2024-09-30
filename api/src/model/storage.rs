@@ -291,9 +291,9 @@ impl TryFrom<StorageRaidLevels> for libnvmesh::nvmesh_model::RaidLevels {
             StorageRaidLevels::Concatenated => {
                 Ok(libnvmesh::nvmesh_model::RaidLevels::Concatenated)
             }
-            StorageRaidLevels::Raid0 => Ok(libnvmesh::nvmesh_model::RaidLevels::RAID0),
-            StorageRaidLevels::Raid1 => Ok(libnvmesh::nvmesh_model::RaidLevels::RAID1),
-            StorageRaidLevels::Raid10 => Ok(libnvmesh::nvmesh_model::RaidLevels::RAID10),
+            StorageRaidLevels::Raid0 => Ok(libnvmesh::nvmesh_model::RaidLevels::Raid0),
+            StorageRaidLevels::Raid1 => Ok(libnvmesh::nvmesh_model::RaidLevels::Raid1),
+            StorageRaidLevels::Raid10 => Ok(libnvmesh::nvmesh_model::RaidLevels::Raid10),
             StorageRaidLevels::ErasureCoding => {
                 Ok(libnvmesh::nvmesh_model::RaidLevels::ErasureCoding)
             }
@@ -308,9 +308,9 @@ impl TryFrom<libnvmesh::nvmesh_model::RaidLevels> for StorageRaidLevels {
             libnvmesh::nvmesh_model::RaidLevels::Concatenated => {
                 Ok(StorageRaidLevels::Concatenated)
             }
-            libnvmesh::nvmesh_model::RaidLevels::RAID0 => Ok(StorageRaidLevels::Raid0),
-            libnvmesh::nvmesh_model::RaidLevels::RAID1 => Ok(StorageRaidLevels::Raid1),
-            libnvmesh::nvmesh_model::RaidLevels::RAID10 => Ok(StorageRaidLevels::Raid10),
+            libnvmesh::nvmesh_model::RaidLevels::Raid0 => Ok(StorageRaidLevels::Raid0),
+            libnvmesh::nvmesh_model::RaidLevels::Raid1 => Ok(StorageRaidLevels::Raid1),
+            libnvmesh::nvmesh_model::RaidLevels::Raid10 => Ok(StorageRaidLevels::Raid10),
             libnvmesh::nvmesh_model::RaidLevels::ErasureCoding => {
                 Ok(StorageRaidLevels::ErasureCoding)
             }

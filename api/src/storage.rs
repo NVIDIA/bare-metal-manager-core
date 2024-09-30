@@ -124,6 +124,7 @@ impl<C: CredentialProvider + 'static> NvmeshClientPool for NvmeshClientPoolImpl<
             port,
             username: Some(user),
             password: Some(pass),
+            use_https: None,
         };
 
         self.pool
@@ -338,11 +339,11 @@ pub(crate) async fn import_storage_cluster(
         .cluster_get_id()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let cluster_status = nvmesh_api
-        .cluster_get_status()
+    let cluster_capacity = nvmesh_api
+        .cluster_get_capacity()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let cluster = StorageCluster::import(&mut txn, &attrs.clone(), cluster_id, cluster_status)
+    let cluster = StorageCluster::import(&mut txn, &attrs.clone(), cluster_id, cluster_capacity)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     txn.commit()
@@ -485,8 +486,8 @@ pub(crate) async fn update_storage_cluster(
         .cluster_get_id()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let updated_cluster_status = nvmesh_api
-        .cluster_get_status()
+    let updated_cluster_capacity = nvmesh_api
+        .cluster_get_capacity()
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
     // now get cluster stored in the db
@@ -499,7 +500,7 @@ pub(crate) async fn update_storage_cluster(
     }
 
     let updated = cluster
-        .update(&mut txn, &new_attrs.clone(), updated_cluster_status)
+        .update(&mut txn, &new_attrs.clone(), updated_cluster_capacity)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -551,8 +552,9 @@ pub(crate) async fn create_storage_pool(
             attrs.id.to_string(),
             libnvmesh::nvmesh_model::RaidLevels::try_from(attrs.raid_level.clone())
                 .map_err(|e| Status::invalid_argument(e.to_string()))?,
-            Some(attrs.capacity), // todo: round up to 16 byte boundary
+            attrs.capacity, // todo: round up to 16 byte boundary
             None,
+            false,
         )
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -805,7 +807,7 @@ pub(crate) async fn update_storage_pool(
             if nvmesh_pool.is_empty() {
                 return Err(Status::not_found("storage pool after extending"));
             }
-            modified_at = Some(nvmesh_pool[0].date_modified.clone());
+            modified_at = nvmesh_pool[0].date_modified.clone();
         }
         Ordering::Equal => {}
     }
@@ -1073,7 +1075,7 @@ pub(crate) async fn update_storage_volume(
             if nvmesh_vol.is_empty() {
                 return Err(Status::not_found("volume after extending"));
             }
-            modified_at = Some(nvmesh_vol[0].date_modified.clone());
+            modified_at = nvmesh_vol[0].date_modified.clone();
         }
         Ordering::Equal => {}
     }
@@ -1393,7 +1395,7 @@ impl Nvmesh for NvmeshSimClient {
         &self,
         _response: Option<libnvmesh::nvmesh_model::ApiReply>,
         _url: &str,
-        _status: hyper::http::status::StatusCode,
+        _status: http::StatusCode,
     ) -> Result<(), NvmeshApiError> {
         todo!()
     }
@@ -1402,8 +1404,30 @@ impl Nvmesh for NvmeshSimClient {
         &self,
         _response: Option<libnvmesh::nvmesh_model::ApiReply>,
         _url: &str,
-        _status: hyper::http::status::StatusCode,
+        _status: http::StatusCode,
     ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+        todo!()
+    }
+
+    fn post_api_response_decode(
+        &self,
+        _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
+        _url: &str,
+        _status: http::StatusCode,
+    ) -> Result<(), NvmeshApiError> {
+        todo!()
+    }
+
+    fn post_api_response_decode_return(
+        &self,
+        _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
+        _url: &str,
+        _status: http::StatusCode,
+    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+        todo!()
+    }
+
+    async fn access_token_count(&self) -> Result<u32, NvmeshApiError> {
         todo!()
     }
 
@@ -1421,6 +1445,9 @@ impl Nvmesh for NvmeshSimClient {
 
     async fn access_token_get(
         &self,
+        _id: Option<String>,
+        _page: Option<u32>,
+        _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::AccessToken>, NvmeshApiError> {
         todo!()
     }
@@ -1467,6 +1494,10 @@ impl Nvmesh for NvmeshSimClient {
         todo!()
     }
 
+    async fn conf_count(&self) -> Result<u32, NvmeshApiError> {
+        todo!()
+    }
+
     async fn conf_create(
         &self,
         _config: libnvmesh::nvmesh_model::ConfigurationSettings,
@@ -1483,6 +1514,9 @@ impl Nvmesh for NvmeshSimClient {
 
     async fn conf_get(
         &self,
+        _id: Option<String>,
+        _page: Option<u32>,
+        _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::ConfigurationProfile>, NvmeshApiError> {
         todo!()
     }
@@ -1530,12 +1564,13 @@ impl Nvmesh for NvmeshSimClient {
         todo!()
     }
 
+    async fn disk_class_count(&self) -> Result<u32, NvmeshApiError> {
+        todo!()
+    }
+
     async fn disk_class_create(
         &self,
-        _disks: Vec<libnvmesh::nvmesh_model::DiskClassDisk>,
-        _id: String,
-        _description: Option<String>,
-        _domains: Vec<libnvmesh::nvmesh_model::Domain>,
+        _class: libnvmesh::nvmesh_model::DiskClassSet,
     ) -> Result<(), NvmeshApiError> {
         todo!()
     }
@@ -1546,6 +1581,9 @@ impl Nvmesh for NvmeshSimClient {
 
     async fn disk_class_get(
         &self,
+        _id: Option<String>,
+        _page: Option<u32>,
+        _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::DiskClass>, NvmeshApiError> {
         todo!()
     }
@@ -1557,13 +1595,17 @@ impl Nvmesh for NvmeshSimClient {
         todo!()
     }
 
+    async fn disks_count(&self) -> Result<u32, NvmeshApiError> {
+        todo!()
+    }
+
     async fn disks_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
         todo!()
     }
 
     async fn disks_evict(
         &self,
-        _disks: Vec<libnvmesh::nvmesh_model::Disk>,
+        _disks: Vec<libnvmesh::nvmesh_model::DiskId>,
     ) -> Result<(), NvmeshApiError> {
         todo!()
     }
@@ -1576,6 +1618,15 @@ impl Nvmesh for NvmeshSimClient {
         todo!()
     }
 
+    async fn disks_get(
+        &self,
+        _id: Option<String>,
+        _page: Option<u32>,
+        _items: Option<u32>,
+    ) -> Result<Vec<libnvmesh::nvmesh_model::Disk>, NvmeshApiError> {
+        todo!()
+    }
+
     async fn logs_count(&self) -> Result<u32, NvmeshApiError> {
         todo!()
     }
@@ -1585,6 +1636,10 @@ impl Nvmesh for NvmeshSimClient {
         _page: Option<u32>,
         _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::LogEntry>, NvmeshApiError> {
+        todo!()
+    }
+
+    async fn security_group_count(&self) -> Result<u32, NvmeshApiError> {
         todo!()
     }
 
@@ -1601,6 +1656,9 @@ impl Nvmesh for NvmeshSimClient {
     }
     async fn security_group_get(
         &self,
+        _id: Option<String>,
+        _page: Option<u32>,
+        _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>, NvmeshApiError> {
         todo!()
     }
@@ -1609,6 +1667,10 @@ impl Nvmesh for NvmeshSimClient {
         &self,
         _vsgs: Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>,
     ) -> Result<(), NvmeshApiError> {
+        todo!()
+    }
+
+    async fn server_class_count(&self) -> Result<u32, NvmeshApiError> {
         todo!()
     }
 
@@ -1628,6 +1690,7 @@ impl Nvmesh for NvmeshSimClient {
 
     async fn server_class_get(
         &self,
+        _id: Option<String>,
         _page: Option<u32>,
         _items: Option<u32>,
     ) -> Result<Vec<libnvmesh::nvmesh_model::ServerClass>, NvmeshApiError> {
@@ -1704,12 +1767,17 @@ impl Nvmesh for NvmeshSimClient {
         todo!()
     }
 
+    async fn volume_group_count(&self) -> Result<u32, NvmeshApiError> {
+        todo!()
+    }
+
     async fn volume_group_create(
         &self,
         _name: String,
         _raid_level: libnvmesh::nvmesh_model::RaidLevels,
-        _capacity: Option<u64>,
+        _capacity: u64,
         _description: Option<String>,
+        _single_node: bool,
     ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
         todo!()
     }
@@ -1759,6 +1827,10 @@ impl Nvmesh for NvmeshSimClient {
         _id: String,
         _uuid: String,
     ) -> Result<(), NvmeshApiError> {
+        todo!()
+    }
+
+    async fn volumes_count(&self) -> Result<u32, NvmeshApiError> {
         todo!()
     }
 

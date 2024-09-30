@@ -2228,7 +2228,6 @@ pub async fn add_update_machine_validation_external_config(
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
-
         Ok(())
     })
     .await
@@ -2251,6 +2250,118 @@ pub async fn get_machine_validation_results(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(details)
+    })
+    .await
+}
+
+pub async fn import_storage_cluster(
+    api_config: &ApiConfig<'_>,
+    cluster_attrs: rpc::StorageClusterAttributes,
+) -> CarbideCliResult<rpc::StorageCluster> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(cluster_attrs);
+
+        let cluster = client
+            .import_storage_cluster(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(cluster)
+    })
+    .await
+}
+
+pub async fn list_storage_cluster(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<Vec<rpc::StorageCluster>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ListStorageClusterRequest {});
+        let response = client
+            .list_storage_cluster(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        let clusters = response.clusters;
+        Ok(clusters)
+    })
+    .await
+}
+
+pub async fn get_storage_cluster(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::StorageCluster> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(id);
+        let cluster = client
+            .get_storage_cluster(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(cluster)
+    })
+    .await
+}
+
+pub async fn delete_storage_cluster(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    name: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DeleteStorageClusterRequest { name, id: Some(id) });
+        let _response = client
+            .delete_storage_cluster(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn update_storage_cluster(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    host: Vec<String>,
+    port: Option<u32>,
+    username: Option<String>,
+    password: Option<String>,
+) -> CarbideCliResult<rpc::StorageCluster> {
+    if host.is_empty() && port.is_none() && username.is_none() && password.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Invalid arguments".to_string(),
+        ));
+    }
+    let cluster = get_storage_cluster(api_config, id.clone()).await?;
+    if cluster.attributes.is_none() {
+        return Err(CarbideCliError::Empty);
+    }
+    let mut new_attrs = cluster.attributes.clone().unwrap();
+    if !host.is_empty() {
+        new_attrs.host = host;
+    }
+    if let Some(x) = port {
+        new_attrs.port = x;
+    }
+    if username.is_some() {
+        new_attrs.username = username;
+    }
+    if password.is_some() {
+        new_attrs.password = password;
+    }
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::UpdateStorageClusterRequest {
+            cluster_id: Some(id),
+            attributes: Some(new_attrs),
+        });
+
+        let cluster = client
+            .update_storage_cluster(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(cluster)
     })
     .await
 }
@@ -2295,6 +2406,331 @@ pub async fn on_demand_machine_validation(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(ret)
+    })
+    .await
+}
+
+pub async fn create_storage_pool(
+    api_config: &ApiConfig<'_>,
+    pool_attrs: rpc::StoragePoolAttributes,
+) -> CarbideCliResult<rpc::StoragePool> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(pool_attrs);
+        let pool = client
+            .create_storage_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(pool)
+    })
+    .await
+}
+
+pub async fn list_storage_pool(
+    api_config: &ApiConfig<'_>,
+    cluster_id: Option<::rpc::common::Uuid>,
+    tenant_organization_id: Option<String>,
+) -> CarbideCliResult<Vec<rpc::StoragePool>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ListStoragePoolRequest {
+            cluster_id,
+            tenant_organization_id,
+        });
+        let response = client
+            .list_storage_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(response.pools)
+    })
+    .await
+}
+
+pub async fn get_storage_pool(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::StoragePool> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(id);
+        let pool = client
+            .get_storage_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(pool)
+    })
+    .await
+}
+
+pub async fn delete_storage_pool(
+    api_config: &ApiConfig<'_>,
+    cluster_id: ::rpc::common::Uuid,
+    pool_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DeleteStoragePoolRequest {
+            cluster_id: Some(cluster_id),
+            pool_id: Some(pool_id),
+        });
+        let _response = client
+            .delete_storage_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn update_storage_pool(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    capacity: Option<u64>,
+    name: Option<String>,
+    description: Option<String>,
+) -> CarbideCliResult<rpc::StoragePool> {
+    if capacity.is_none() && name.is_none() && description.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Invalid arguments".to_string(),
+        ));
+    }
+    let pool = get_storage_pool(api_config, id).await?;
+    if pool.attributes.is_none() {
+        return Err(CarbideCliError::Empty);
+    }
+    let mut new_attrs = pool.attributes.clone().unwrap();
+    if let Some(x) = capacity {
+        new_attrs.capacity = x;
+    }
+    if name.is_some() {
+        new_attrs.name = name;
+    }
+    if description.is_some() {
+        new_attrs.description = description;
+    }
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(new_attrs);
+        let updated = client
+            .update_storage_pool(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(updated)
+    })
+    .await
+}
+
+pub async fn create_storage_volume(
+    api_config: &ApiConfig<'_>,
+    volume_attrs: rpc::StorageVolumeAttributes,
+) -> CarbideCliResult<rpc::StorageVolume> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(volume_attrs);
+        let volume = client
+            .create_storage_volume(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(volume)
+    })
+    .await
+}
+
+pub async fn list_storage_volume(
+    api_config: &ApiConfig<'_>,
+    filter: rpc::StorageVolumeFilter,
+) -> CarbideCliResult<Vec<rpc::StorageVolume>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(filter);
+        let response = client
+            .list_storage_volume(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(response.volumes)
+    })
+    .await
+}
+
+pub async fn get_storage_volume(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::StorageVolume> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(id);
+        let volume = client
+            .get_storage_volume(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(volume)
+    })
+    .await
+}
+
+pub async fn delete_storage_volume(
+    api_config: &ApiConfig<'_>,
+    cluster_id: ::rpc::common::Uuid,
+    pool_id: ::rpc::common::Uuid,
+    volume_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DeleteStorageVolumeRequest {
+            volume_id: Some(volume_id),
+            pool_id: Some(pool_id),
+            cluster_id: Some(cluster_id),
+        });
+        let _ = client
+            .delete_storage_volume(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn update_storage_volume(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    capacity: Option<u64>,
+    name: Option<String>,
+    description: Option<String>,
+) -> CarbideCliResult<rpc::StorageVolume> {
+    if capacity.is_none() && name.is_none() && description.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Invalid arguments".to_string(),
+        ));
+    }
+    let volume = get_storage_volume(api_config, id).await?;
+    if volume.attributes.is_none() {
+        return Err(CarbideCliError::Empty);
+    }
+    let mut new_attrs = volume.attributes.clone().unwrap();
+    if let Some(x) = capacity {
+        new_attrs.capacity = x;
+    }
+    if name.is_some() {
+        new_attrs.name = name;
+    }
+    if description.is_some() {
+        new_attrs.description = description;
+    }
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(new_attrs);
+        let volume = client
+            .update_storage_volume(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(volume)
+    })
+    .await
+}
+
+pub async fn create_os_image(
+    api_config: &ApiConfig<'_>,
+    image_attrs: rpc::OsImageAttributes,
+) -> CarbideCliResult<rpc::OsImage> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(image_attrs);
+        let os_image = client
+            .create_os_image(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(os_image)
+    })
+    .await
+}
+
+pub async fn list_os_image(
+    api_config: &ApiConfig<'_>,
+    tenant_organization_id: Option<String>,
+) -> CarbideCliResult<Vec<rpc::OsImage>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ListOsImageRequest {
+            tenant_organization_id,
+        });
+        let response = client
+            .list_os_image(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(response.images)
+    })
+    .await
+}
+
+pub async fn get_os_image(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::OsImage> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(id);
+        let os_image = client
+            .get_os_image(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(os_image)
+    })
+    .await
+}
+
+pub async fn delete_os_image(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    tenant_organization_id: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DeleteOsImageRequest {
+            id: Some(id),
+            tenant_organization_id,
+        });
+        let _ = client
+            .delete_os_image(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn update_os_image(
+    api_config: &ApiConfig<'_>,
+    id: ::rpc::common::Uuid,
+    auth_type: Option<String>,
+    auth_token: Option<String>,
+    name: Option<String>,
+    description: Option<String>,
+) -> CarbideCliResult<rpc::OsImage> {
+    let os_image = get_os_image(api_config, id).await?;
+    if os_image.attributes.is_none() {
+        return Err(CarbideCliError::Empty);
+    }
+    let mut new_attrs = os_image.attributes.clone().unwrap();
+    if auth_type.is_some() {
+        new_attrs.auth_type = auth_type;
+    }
+    if auth_token.is_some() {
+        new_attrs.auth_token = auth_token;
+    }
+    if name.is_some() {
+        new_attrs.name = name;
+    }
+    if description.is_some() {
+        new_attrs.description = description;
+    }
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(new_attrs);
+        let os_image = client
+            .update_os_image(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(os_image)
     })
     .await
 }
