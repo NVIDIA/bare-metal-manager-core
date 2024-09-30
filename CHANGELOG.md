@@ -28,7 +28,7 @@
 - FORGE-3866: MultiDPU - Decide host's primary interface based on PCI Device Path. The DPU attached to primary interface will be used as primary DPU.
 
 ### Changed
-- Forge Site admin can now perform machine validation on-demand (only on Ready machines) 
+- Forge Site admin can now perform machine validation on-demand (only on Ready/Failed machines)
   use following command to trigger on-demand machine validation 
   `forge-admin-cli machine-validation on-demand start -m <machineID>` 
   For more information [Forge-4465](https://jirasw.nvidia.com/browse/FORGE-4465).
