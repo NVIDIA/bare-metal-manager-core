@@ -14,6 +14,8 @@ use crate::model::StateSla;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 
+mod slas;
+
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -36,14 +38,16 @@ pub fn state_sla(state: &IBPartitionControllerState, state_version: &ConfigVersi
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
-        IBPartitionControllerState::Provisioning => {
-            StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state)
-        }
+        IBPartitionControllerState::Provisioning => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::PROVISIONING),
+            time_in_state,
+        ),
         IBPartitionControllerState::Ready => StateSla::no_sla(),
         IBPartitionControllerState::Error { .. } => StateSla::no_sla(),
-        IBPartitionControllerState::Deleting => {
-            StateSla::with_sla(std::time::Duration::from_secs(15 * 60), time_in_state)
-        }
+        IBPartitionControllerState::Deleting => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::DELETING),
+            time_in_state,
+        ),
     }
 }
 
