@@ -43,6 +43,7 @@
   - Use following command to trigger on-demand machine validation: `forge-admin-cli machine-validation on-demand start -m <machineID>`.
 - Feature flag to enable and disable machine validation [FORGE-4487](https://jirasw.nvidia.com/browse/FORGE-4487)
 - Forge scout now runs in Ubuntu 24.04 instead of Debian 12 for compatibility with ARM servers and NVIDIA drivers.
+- User can now mention history count to be displayed in `machine show` command in admin-cli command.
 
 ### Fixed
 

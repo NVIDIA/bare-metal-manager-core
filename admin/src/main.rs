@@ -990,6 +990,7 @@ async fn main() -> color_eyre::Result<()> {
                         hosts: false,
                         all: false,
                         dpus: false,
+                        history_count: 5,
                     },
                     config.format,
                     api_config,
@@ -1053,6 +1054,7 @@ async fn main() -> color_eyre::Result<()> {
                                     hosts: false,
                                     all: false,
                                     dpus: false,
+                                    history_count: 5
                                 },
                                 config_format,
                                 api_config,
@@ -1230,6 +1232,7 @@ async fn main() -> color_eyre::Result<()> {
                         hosts: false,
                         all: false,
                         dpus: false,
+                        history_count: 5,
                     },
                     config.format,
                     api_config,

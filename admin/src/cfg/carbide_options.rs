@@ -1060,6 +1060,14 @@ pub struct ShowMachine {
         help = "The machine to query, leave empty for all (default)"
     )]
     pub machine: String,
+
+    #[clap(
+        short = 'c',
+        long,
+        default_value("5"),
+        help = "History count. Valid if `machine` argument is passed."
+    )]
+    pub history_count: u32,
 }
 
 #[derive(Parser, Debug)]
