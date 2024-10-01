@@ -10,6 +10,12 @@
 
 ### Removed
 
+## [v2024.09.27-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...v2024.09.27-rc2-0)
+
+### Changed
+
+- Reverted: Forge scout now runs in Ubuntu 24.04 instead of Debian 12 for compatibility with ARM servers and NVIDIA drivers.
+
 ## [v2024.09.27-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc5-0...v2024.09.27-rc1-0)
 
 ### Added
