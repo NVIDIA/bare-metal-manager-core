@@ -939,7 +939,10 @@ impl SiteExplorer {
         let mut unique_matched_expected_machines: HashSet<MacAddress> = HashSet::new();
 
         let mut matched_expected_machines: HashMap<IpAddr, ExpectedMachine> = HashMap::new();
+        let mut expected_machines_by_mac: HashMap<MacAddress, ExpectedMachine> = HashMap::new();
         for expected_machine in expected {
+            expected_machines_by_mac
+                .insert(expected_machine.bmc_mac_address, expected_machine.clone());
             if let Some(iface) = underlay_interfaces_by_mac.get(&expected_machine.bmc_mac_address) {
                 unique_matched_expected_machines.insert(expected_machine.bmc_mac_address);
                 for addr in iface.addresses.iter() {
@@ -952,6 +955,10 @@ impl SiteExplorer {
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
             expected_count - unique_matched_expected_machines.len();
+
+        for endpoint in explore_endpoint_data.iter_mut() {
+            endpoint.expected = expected_machines_by_mac.remove(&endpoint.iface.mac_address);
+        }
 
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
