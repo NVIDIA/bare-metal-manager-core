@@ -19,7 +19,9 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, admin_power_control_request, BmcEndpointRequest};
+use rpc::forge::{
+    self as forgerpc, admin_power_control_request, BmcEndpointRequest, ForgeSetupStatus,
+};
 use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
 use serde::Deserialize;
 
@@ -352,11 +354,16 @@ struct ExploredEndpointDetail {
     endpoint: ExploredEndpoint,
     has_exploration_error: bool,
     last_exploration_error: String,
+    forge_setup_status: String,
+}
+struct ExploredEndpointInfo {
+    endpoint: ExploredEndpoint,
+    forge_setup_status: ForgeSetupStatus,
 }
 
-impl From<ExploredEndpoint> for ExploredEndpointDetail {
-    fn from(endpoint: ExploredEndpoint) -> Self {
-        let report_ref = endpoint.report.as_ref();
+impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
+    fn from(endpoint_info: ExploredEndpointInfo) -> Self {
+        let report_ref = endpoint_info.endpoint.report.as_ref();
         Self {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
@@ -364,7 +371,8 @@ impl From<ExploredEndpoint> for ExploredEndpointDetail {
             has_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.as_ref())
                 .is_some(),
-            endpoint,
+            forge_setup_status: forge_setup_status_to_string(&endpoint_info.forge_setup_status),
+            endpoint: endpoint_info.endpoint,
         }
     }
 }
@@ -434,7 +442,31 @@ pub async fn detail(
         }
     }
 
-    let display = ExploredEndpointDetail::from(endpoint);
+    // Fetch forge setup status here
+    let forge_setup_status = match state
+        .fetch_forge_setup_status(tonic::Request::new(rpc::forge::ForgeSetupStatusRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(response) => response,
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "forge_setup_status_update");
+            return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+        }
+    };
+
+    let endpoint_info = ExploredEndpointInfo {
+        endpoint,
+        forge_setup_status,
+    };
+
+    let display = ExploredEndpointDetail::from(endpoint_info);
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -593,4 +625,23 @@ pub async fn clear_last_exploration_error(
     }
 
     Redirect::to(&view_url).into_response()
+}
+
+fn forge_setup_status_to_string(status: &ForgeSetupStatus) -> String {
+    if status.is_done {
+        "OK".to_string()
+    } else {
+        let diffs_string = status
+            .diffs
+            .iter()
+            .map(|diff| {
+                format!(
+                    "{} is '{}' expected '{}'",
+                    diff.key, diff.actual, diff.expected
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("Mismatch: {}", diffs_string)
+    }
 }

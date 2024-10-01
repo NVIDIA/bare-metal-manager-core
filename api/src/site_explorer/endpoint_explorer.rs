@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::SocketAddr;
-
 use crate::{
     db::expected_machine::ExpectedMachine,
     model::{
@@ -19,6 +17,8 @@ use crate::{
         site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     },
 };
+use libredfish::ForgeSetupStatus;
+use std::net::SocketAddr;
 
 use super::metrics::SiteExplorationMetrics;
 
@@ -65,4 +65,10 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     ) -> Result<(), EndpointExplorationError>;
 
     async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool;
+
+    async fn forge_setup_status(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<ForgeSetupStatus, EndpointExplorationError>;
 }
