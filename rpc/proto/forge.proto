@@ -683,9 +683,13 @@ message VpcUpdateRequest {
   // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
+  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
   string name = 3;
-  string tenantOrganizationId = 4;
-  optional string tenantKeysetId = 5;
+  reserved 4; // was tenantOrganizationId
+  reserved 5; // was tenantKeysetId
+
+  // New Metadata to be utilized by the vpc
+  Metadata metadata = 6;
 }
 
 message VpcUpdateResult {
