@@ -9,8 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
 
 use carbide::db::vpc::{UpdateVpc, UpdateVpcVirtualization, Vpc, VpcIdKeyedObjectFilter};
+use carbide::model::metadata::Metadata;
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
@@ -88,17 +90,21 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .expect("Unable to create transaction on database pool");
 
     let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id").try_into()?;
+    let updated_metadata = Metadata {
+        name: "new name".to_string(),
+        description: "".to_string(),
+        labels: HashMap::from([("label_new_key".to_string(), "label_new_value".to_string())]),
+    };
+
     let updated_vpc = UpdateVpc {
         id: no_org_vpc_id,
-        name: "new name".to_string(),
-        tenant_organization_id: "new org".to_string(),
         if_version_match: None,
+        metadata: updated_metadata.clone(),
     }
     .update(&mut txn)
     .await?;
 
-    assert_eq!(&updated_vpc.metadata.name, "new name");
-    assert_eq!(&updated_vpc.tenant_organization_id, "new org");
+    assert_eq!(updated_vpc.metadata, updated_metadata);
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
     // This only works because `EthernetVirtualizer` is the default
@@ -147,9 +153,12 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // Update on outdated version
     let update_result = UpdateVpc {
         id: no_org_vpc_id,
-        name: "never this name".to_string(),
-        tenant_organization_id: "never this org".to_string(),
         if_version_match: Some(initial_no_org_vpc_version),
+        metadata: Metadata {
+            name: "never this name".to_string(),
+            description: "".to_string(),
+            labels: HashMap::new(),
+        },
     }
     .update(&mut txn)
     .await;
@@ -162,26 +171,26 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "new name");
-    assert_eq!(&first.tenant_organization_id, "new org");
     assert_eq!(first.version.version_nr(), 4); // includes 2 changes to VPC virtualization type
 
     // Update on correct version
     let updated_vpc = UpdateVpc {
         id: no_org_vpc_id,
-        name: "yet another new name".to_string(),
-        tenant_organization_id: "yet another new org".to_string(),
         if_version_match: Some(updated_vpc.version),
+        metadata: Metadata {
+            name: "yet another new name".to_string(),
+            description: "".to_string(),
+            labels: HashMap::new(),
+        },
     }
     .update(&mut txn)
     .await?;
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
-    assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
     assert_eq!(updated_vpc.version.version_nr(), 5);
 
     let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
-    assert_eq!(&first.tenant_organization_id, "yet another new org");
     assert_eq!(first.version.version_nr(), 5);
 
     let vpc = Vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();

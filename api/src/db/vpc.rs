@@ -66,8 +66,7 @@ pub struct NewVpc {
 pub struct UpdateVpc {
     pub id: VpcId,
     pub if_version_match: Option<ConfigVersion>,
-    pub name: String,
-    pub tenant_organization_id: String,
+    pub metadata: Metadata,
 }
 
 /// UpdateVpcVirtualization exists as a mechanism to translate
@@ -394,14 +393,49 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
             None => None,
         };
 
+        let mut labels = HashMap::new();
+        let vpc_name: String;
+
+        if let Some(metadata) = &value.metadata {
+            if !metadata.name.is_empty() {
+                vpc_name = metadata.name.clone();
+            } else {
+                vpc_name = value.name.clone();
+            }
+
+            for label in &metadata.labels {
+                let key = label.key.clone();
+                let value = label.value.clone().unwrap_or_default();
+
+                if labels.contains_key(&key) {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Duplicate key found: {}",
+                        key
+                    )));
+                }
+
+                labels.insert(key, value);
+            }
+        } else {
+            vpc_name = value.name.clone();
+        }
+
+        let metadata = Metadata {
+            name: vpc_name,
+            description: value
+                .metadata
+                .as_ref()
+                .map_or_else(|| "".to_owned(), |m| m.description.clone()),
+            labels,
+        };
+
         Ok(UpdateVpc {
             id: value
                 .id
                 .ok_or(CarbideError::MissingArgument("id"))?
                 .try_into()?,
             if_version_match,
-            name: value.name,
-            tenant_organization_id: value.tenant_organization_id,
+            metadata,
         })
     }
 }
@@ -459,13 +493,14 @@ impl UpdateVpc {
         // network_virtualization_type cannot be changed currently
         // TODO check number of changed rows
         let query = "UPDATE vpcs
-            SET name=$1, organization_id=$2, version=$3, updated=NOW()
-            WHERE id=$4 AND version=$5 AND deleted is null
+            SET name=$1, version=$2, description=$3, labels=$4::json, updated=NOW()
+            WHERE id=$5 AND version=$6 AND deleted is null
             RETURNING *";
         let query_result = sqlx::query_as(query)
-            .bind(&self.name)
-            .bind(&self.tenant_organization_id)
+            .bind(&self.metadata.name)
             .bind(next_version)
+            .bind(&self.metadata.description)
+            .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(self.id)
             .bind(current_version)
             .fetch_one(txn.deref_mut())
