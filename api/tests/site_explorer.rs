@@ -2959,6 +2959,19 @@ impl EndpointExplorer for FakeEndpointExplorer {
     async fn have_credentials(&self, _interface: &MachineInterfaceSnapshot) -> bool {
         true
     }
+
+    async fn forge_setup_status(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::ForgeSetupStatus, EndpointExplorationError> {
+        let setup_status = libredfish::ForgeSetupStatus {
+            is_done: true,
+            diffs: vec![],
+        };
+        let res = Ok(setup_status);
+        return res;
+    }
 }
 
 async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExplorationReport {

@@ -11,7 +11,7 @@
  */
 
 use mac_address::MacAddress;
-use rpc::forge::DoesSiteExplorerHaveCredentialsResponse;
+use rpc::forge::{DoesSiteExplorerHaveCredentialsResponse, ForgeSetupDiff, ForgeSetupStatus};
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
 
@@ -196,5 +196,55 @@ pub(crate) async fn does_site_explorer_have_credentials(
 
     Ok(Response::new(DoesSiteExplorerHaveCredentialsResponse {
         have_credentials,
+    }))
+}
+
+pub(crate) async fn forge_setup_status(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+) -> Result<Response<ForgeSetupStatus>, tonic::Status> {
+    let address = if request.ip_address.contains(':') {
+        request.ip_address.clone()
+    } else {
+        format!("{}:443", request.ip_address)
+    };
+
+    let mut addrs = lookup_host(address).await?;
+    let Some(bmc_addr) = addrs.next() else {
+        return Err(tonic::Status::invalid_argument(format!(
+            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+            request.ip_address
+        )));
+    };
+
+    let bmc_mac_address: MacAddress;
+    if let Some(mac_str) = request.mac_address {
+        bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
+    } else {
+        return Err(tonic::Status::invalid_argument(format!(
+            "request did not specify mac address: {request:#?}"
+        )));
+    };
+
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+    let status = api
+        .endpoint_explorer
+        .forge_setup_status(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+    let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
+
+    for diff in status.diffs {
+        diffs.push(ForgeSetupDiff {
+            key: diff.key,
+            expected: diff.expected,
+            actual: diff.actual,
+        });
+    }
+
+    Ok(Response::new(ForgeSetupStatus {
+        is_done: status.is_done,
+        diffs,
     }))
 }

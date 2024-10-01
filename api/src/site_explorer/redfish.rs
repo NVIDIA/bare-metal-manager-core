@@ -18,7 +18,7 @@ use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{Redfish, RedfishError, RoleId};
+use libredfish::{ForgeSetupStatus, Redfish, RedfishError, RoleId};
 use regex::Regex;
 
 use crate::model::site_explorer::{
@@ -307,6 +307,25 @@ impl RedfishClient {
 
         client.power(action).await.map_err(map_redfish_error)?;
         Ok(())
+    }
+
+    pub async fn forge_setup_status(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let status = client
+            .forge_setup_status()
+            .await
+            .map_err(map_redfish_error)?;
+
+        Ok(status)
     }
 }
 

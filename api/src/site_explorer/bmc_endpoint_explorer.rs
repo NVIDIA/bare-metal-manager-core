@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::service_root::RedfishVendor;
+use libredfish::ForgeSetupStatus;
 use mac_address::MacAddress;
 
 use super::credentials::{get_bmc_root_credential_key, CredentialClient};
@@ -264,6 +265,20 @@ impl BmcEndpointExplorer {
             .power(bmc_ip_address, username, password, action)
             .await
     }
+
+    pub async fn forge_setup_status(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .forge_setup_status(bmc_ip_address, username, password)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -410,6 +425,26 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 tracing::info!(
                     %bmc_ip_address,
                     "Site explorer does not support rebooting the endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn forge_setup_status(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.forge_setup_status(bmc_ip_address, credentials).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support fetching forge_setup_status for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)
