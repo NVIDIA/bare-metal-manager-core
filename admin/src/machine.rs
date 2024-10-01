@@ -23,7 +23,10 @@ use super::{default_uuid, rpc};
 use crate::cfg::carbide_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
-fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
+fn convert_machine_to_nice_format(
+    machine: forgerpc::Machine,
+    history_count: u32,
+) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
     let machine_id = machine.id.clone().unwrap_or_default().id;
@@ -63,13 +66,19 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
     }
 
-    writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
+    writeln!(&mut lines, "STATE HISTORY: (Latest {} only)", history_count)?;
     if machine.events.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         let mut max_state_len = 0;
         let mut max_version_len = 0;
-        for x in machine.events.iter().rev().take(5).rev() {
+        for x in machine
+            .events
+            .iter()
+            .rev()
+            .take(history_count as usize)
+            .rev()
+        {
             max_state_len = max_state_len.max(x.event.len());
             max_version_len = max_version_len.max(x.version.len());
         }
@@ -83,7 +92,13 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
             div.push('-')
         }
         writeln!(&mut lines, "\t{}", div)?;
-        for x in machine.events.iter().rev().take(5).rev() {
+        for x in machine
+            .events
+            .iter()
+            .rev()
+            .take(history_count as usize)
+            .rev()
+        {
             writeln!(
                 &mut lines,
                 "\t{:<max_state_len$} {:<max_version_len$} {}",
@@ -258,17 +273,18 @@ async fn show_all_machines(
 }
 
 async fn show_machine_information(
-    id: String,
+    args: &ShowMachine,
     json: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let machine = rpc::get_machine(id, api_config).await?;
+    let machine = rpc::get_machine(args.machine.clone(), api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machine).unwrap());
     } else {
         println!(
             "{}",
-            convert_machine_to_nice_format(machine).unwrap_or_else(|x| x.to_string())
+            convert_machine_to_nice_format(machine, args.history_count)
+                .unwrap_or_else(|x| x.to_string())
         );
     }
     Ok(())
@@ -282,7 +298,7 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
-        show_machine_information(args.machine, is_json, api_config).await?;
+        show_machine_information(&args, is_json, api_config).await?;
     } else {
         let machine_type = if args.dpus {
             Some(forgerpc::MachineType::Dpu)
