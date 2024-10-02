@@ -26,11 +26,9 @@ use crate::db::instance::Instance;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_prefix::NetworkPrefix;
-use crate::db::network_segment::{
-    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
-};
+use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::Vpc;
-use crate::db::DatabaseError;
+use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
 use crate::model::hardware_info::MachineInventory;
 use crate::model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
@@ -197,9 +195,12 @@ pub(crate) async fn get_managed_host_network_config(
             };
 
             //Get Domain
-            let segments = &NetworkSegment::find(
+            let segments = &NetworkSegment::find_by(
                 &mut txn,
-                NetworkSegmentIdKeyedObjectFilter::One(interfaces[0].network_segment_id),
+                ObjectColumnFilter::One(
+                    network_segment::IdColumn,
+                    &interfaces[0].network_segment_id,
+                ),
                 NetworkSegmentSearchConfig::default(),
             )
             .await

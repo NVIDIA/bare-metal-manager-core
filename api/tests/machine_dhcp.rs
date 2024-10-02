@@ -12,9 +12,7 @@
 
 use std::str::FromStr;
 
-use carbide::db::{
-    self, dhcp_entry::DhcpEntry, machine_interface::MachineInterfaceIdKeyedObjectFilter,
-};
+use carbide::db::{self, dhcp_entry, dhcp_entry::DhcpEntry, ObjectColumnFilter};
 use carbide::CarbideError;
 use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
@@ -314,9 +312,9 @@ async fn machine_interface_discovery_persists_vendor_strings(
         expected: &[&str],
     ) {
         let mut txn = pool.clone().begin().await.unwrap();
-        let entry = DhcpEntry::find_for_interfaces(
+        let entry = DhcpEntry::find_by(
             &mut txn,
-            MachineInterfaceIdKeyedObjectFilter::One(*interface_id),
+            ObjectColumnFilter::One(dhcp_entry::MachineInterfaceIdColumn, interface_id),
         )
         .await
         .unwrap();

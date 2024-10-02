@@ -14,11 +14,9 @@
 
 use config_version::{ConfigVersion, Versioned};
 
+use crate::db::ObjectColumnFilter;
 use crate::{
-    db::{
-        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
-        DatabaseError,
-    },
+    db::{self, network_segment::NetworkSegment, DatabaseError},
     model::{
         controller_outcome::PersistentStateHandlerOutcome,
         network_segment::{self, NetworkSegmentControllerState},
@@ -65,10 +63,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut segments = NetworkSegment::find(
+        let mut segments = NetworkSegment::find_by(
             txn,
-            NetworkSegmentIdKeyedObjectFilter::One(*segment_id),
-            crate::db::network_segment::NetworkSegmentSearchConfig {
+            ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
+            db::network_segment::NetworkSegmentSearchConfig {
                 include_num_free_ips: true,
                 include_history: false,
             },

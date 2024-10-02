@@ -23,7 +23,10 @@ use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
 use super::dhcp_entry::DhcpEntry;
-use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
+use super::{
+    dhcp_entry, machine_interface_address, ColumnInfo, DatabaseError, FilterableQueryBuilder,
+    ObjectColumnFilter,
+};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
@@ -38,49 +41,37 @@ use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::Network
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
-///
-/// A parameter to find() to filter resources by MachineInterfaceId;
-///
-#[derive(Clone)]
-pub enum MachineInterfaceIdKeyedObjectFilter<'a> {
-    /// Don't filter by MachineInterfaceId
-    All,
-
-    /// Filter by a list of MachineInterfaceIds
-    List(&'a [MachineInterfaceId]),
-
-    /// Retrieve a single resource
-    One(MachineInterfaceId),
-}
-
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: NetworkSegmentId,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct IdColumn;
-impl ColumnInfo for IdColumn {
+impl ColumnInfo<'_> for IdColumn {
+    type TableType = MachineInterfaceSnapshot;
     type ColumnType = MachineInterfaceId;
-    fn column_name(&self) -> String {
-        "id".to_string()
+    fn column_name(&self) -> &'static str {
+        "id"
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MacAddressColumn;
-impl ColumnInfo for MacAddressColumn {
+impl ColumnInfo<'_> for MacAddressColumn {
+    type TableType = MachineInterfaceSnapshot;
     type ColumnType = MacAddress;
-    fn column_name(&self) -> String {
-        "mac_address".to_string()
+    fn column_name(&self) -> &'static str {
+        "mac_address"
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MachineIdColumn;
-impl ColumnInfo for MachineIdColumn {
+impl ColumnInfo<'_> for MachineIdColumn {
+    type TableType = MachineInterfaceSnapshot;
     type ColumnType = MachineId;
-    fn column_name(&self) -> String {
-        "machine_id".to_string()
+    fn column_name(&self) -> &'static str {
+        "machine_id"
     }
 }
 
@@ -158,7 +149,7 @@ pub async fn find_by_mac_address(
     txn: &mut Transaction<'_, Postgres>,
     macaddr: MacAddress,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    find_by(txn, ObjectColumnFilter::One(MacAddressColumn, macaddr)).await
+    find_by(txn, ObjectColumnFilter::One(MacAddressColumn, &macaddr)).await
 }
 
 pub async fn find_by_ip(
@@ -178,7 +169,7 @@ pub async fn find_by_ip(
 pub async fn find_all(
     txn: &mut Transaction<'_, Postgres>,
 ) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
-    find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
+    find_by(txn, ObjectColumnFilter::All::<IdColumn>)
         .await
         .map_err(CarbideError::from)
 }
@@ -212,9 +203,12 @@ pub async fn find_host_primary_interface_by_dpu_id(
         return Ok(None);
     };
 
-    let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
+    let mut addresses_for_interfaces = MachineInterfaceAddress::find_by(
         &mut *txn,
-        MachineInterfaceIdKeyedObjectFilter::List(&[machine_interface.id]),
+        ObjectColumnFilter::List(
+            machine_interface_address::MachineInterfaceIdColumn,
+            &[machine_interface.id],
+        ),
     )
     .await?;
 
@@ -249,7 +243,7 @@ pub async fn find_one(
     txn: &mut Transaction<'_, Postgres>,
     interface_id: MachineInterfaceId,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
-    let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
+    let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
         .await
         .map_err(CarbideError::from)?;
     match interfaces.len() {
@@ -440,7 +434,7 @@ pub async fn create(
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
     Ok(
-        find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
+        find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
             .await?
             .remove(0),
     )
@@ -549,67 +543,59 @@ fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
     }
 }
 
-async fn find_by<'a, C, T>(
+async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
     txn: &mut Transaction<'_, Postgres>,
-    filter: ObjectColumnFilter<'a, C, T>,
-) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError>
-where
-    C: ColumnInfo<ColumnType = T>,
-    T: sqlx::Type<sqlx::Postgres>
-        + Send
-        + Sync
-        + sqlx::Encode<'a, sqlx::Postgres>
-        + sqlx::postgres::PgHasArrayType
-        + Clone,
-{
-    let mut query = sqlx::QueryBuilder::new("SELECT * FROM machine_interfaces mi");
+    filter: ObjectColumnFilter<'a, C>,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    let mut query = FilterableQueryBuilder::new("SELECT * FROM machine_interfaces").filter(&filter);
+    let mut interfaces = query
+        .build_query_as::<MachineInterfaceSnapshot>()
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
-    let mut interfaces = match filter {
-        ObjectColumnFilter::All => query
-            .build_query_as::<MachineInterfaceSnapshot>()
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
-        ObjectColumnFilter::One(ref column, ref id) => query
-            .push(format!(" WHERE mi.{}=", column.column_name().clone()))
-            .push_bind(id.clone())
-            .build_query_as::<MachineInterfaceSnapshot>()
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
-        ObjectColumnFilter::List(ref column, list) => {
-            if list.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            query
-                .push(format!(" WHERE mi.{} = ANY(", column.column_name().clone()))
-                .push_bind(list)
-                .push(")")
-                .build_query_as::<MachineInterfaceSnapshot>()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces List", e))?
-        }
-    };
-
-    let interface_ids;
-    let component_filter = match filter {
-        ObjectColumnFilter::All => MachineInterfaceIdKeyedObjectFilter::All,
+    // Query for MachineInterfaceAddress and DhcpEntry, mirroring the same criteria as we are using.
+    // ObjectColumnFilters are of distinct types, and need to be constructed with the right column
+    // type, which is distinct from machine_interface::IdColumn.
+    let (mut addresses_for_interfaces, dhcp_entries) = match filter {
+        ObjectColumnFilter::All => (
+            MachineInterfaceAddress::find_by(
+                &mut *txn,
+                ObjectColumnFilter::<machine_interface_address::MachineInterfaceIdColumn>::All,
+            )
+            .await?,
+            DhcpEntry::find_by(
+                &mut *txn,
+                ObjectColumnFilter::<dhcp_entry::MachineInterfaceIdColumn>::All,
+            )
+            .await?,
+        ),
         _ => {
-            interface_ids = interfaces
+            let interface_ids = interfaces
                 .iter()
                 .map(|interface| interface.id)
                 .collect::<Vec<MachineInterfaceId>>();
-            MachineInterfaceIdKeyedObjectFilter::List(interface_ids.as_slice())
+            (
+                MachineInterfaceAddress::find_by(
+                    &mut *txn,
+                    ObjectColumnFilter::List(
+                        machine_interface_address::MachineInterfaceIdColumn,
+                        interface_ids.as_slice(),
+                    ),
+                )
+                .await?,
+                DhcpEntry::find_by(
+                    &mut *txn,
+                    ObjectColumnFilter::List(
+                        dhcp_entry::MachineInterfaceIdColumn,
+                        interface_ids.as_slice(),
+                    ),
+                )
+                .await?,
+            )
         }
     };
 
-    let mut addresses_for_interfaces =
-        MachineInterfaceAddress::find_for_interface(&mut *txn, component_filter.clone()).await?;
-
-    let dhcp_entries: Vec<DhcpEntry> =
-        DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
     let mut vendors_by_interface_id = HashMap::<MachineInterfaceId, Vec<String>>::new();
     for entry in dhcp_entries.into_iter() {
         let vendors = vendors_by_interface_id

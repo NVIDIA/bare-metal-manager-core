@@ -18,26 +18,13 @@ use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
 
-use super::DatabaseError;
+use super::{
+    network_segment, vpc, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter,
+};
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult};
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
-
-///
-/// A parameter to find() to filter resources by VpcId;
-///
-#[derive(Clone)]
-pub enum VpcIdKeyedObjectFilter<'a> {
-    /// Don't filter by VpcId
-    All,
-
-    /// Filter by a list of VpcIds
-    List(&'a [VpcId]),
-
-    /// Retrieve a single resource
-    One(VpcId),
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
@@ -52,6 +39,28 @@ pub struct Vpc {
     // Option because we can't allocate it until DB generates an id for us
     pub vni: Option<i32>,
     pub metadata: Metadata,
+}
+
+#[derive(Clone, Copy)]
+pub struct IdColumn;
+impl ColumnInfo<'_> for crate::db::vpc::IdColumn {
+    type TableType = Vpc;
+    type ColumnType = VpcId;
+
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct NameColumn;
+impl<'a> ColumnInfo<'a> for NameColumn {
+    type TableType = Vpc;
+    type ColumnType = &'a str;
+
+    fn column_name(&self) -> &'static str {
+        "name"
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -115,7 +124,7 @@ impl NewVpc {
     ) -> Result<Vpc, DatabaseError> {
         let query =
             "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type,
-                description, 
+                description,
                 labels) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
@@ -214,64 +223,45 @@ impl Vpc {
 
     // Note: Following find function should not be used to search based on vpc labels.
     // Recommended approach to filter by labels is to first find VPC ids.
-    pub async fn find(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: VpcIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<Vpc>, DatabaseError> {
-        let results: Vec<Vpc> = match filter {
-            VpcIdKeyedObjectFilter::All => {
-                let query = "SELECT * FROM vpcs WHERE deleted is NULL";
-                sqlx::query_as(query)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-            VpcIdKeyedObjectFilter::One(uuid) => {
-                let query = "SELECT * FROM vpcs WHERE id = $1 and deleted is NULL";
-                sqlx::query_as(query)
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-            VpcIdKeyedObjectFilter::List(list) => {
-                let query = "select * from vpcs WHERE id = ANY($1) and deleted is NULL";
-                sqlx::query_as(query)
-                    .bind(list)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-        };
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM vpcs").filter(&filter);
 
-        Ok(results)
+        query
+            .push(" AND deleted IS NULL")
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_by_name(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         name: &str,
     ) -> Result<Vec<Vpc>, DatabaseError> {
-        let query = "SELECT * FROM vpcs WHERE name = $1 and deleted is NULL";
-        sqlx::query_as(query)
-            .bind(name)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        Self::find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
     }
 
     pub async fn find_by_segment(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         segment_id: NetworkSegmentId,
     ) -> Result<Vpc, DatabaseError> {
-        let query = "SELECT * from vpcs v
-            INNER JOIN network_segments s ON v.id = s.vpc_id
-            WHERE s.id = $1
-            LIMIT 1";
-        sqlx::query_as(query)
-            .bind(segment_id)
+        let mut query = FilterableQueryBuilder::new(
+            "SELECT * from vpcs v INNER JOIN network_segments s ON v.id = s.vpc_id",
+        )
+        .filter_relation(
+            &ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+            Some("s"),
+        );
+        query.push(" LIMIT 1");
+
+        query
+            .build_query_as()
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     /// Tries to deletes a VPC
@@ -479,7 +469,8 @@ impl UpdateVpc {
         let current_version = match self.if_version_match {
             Some(version) => version,
             None => {
-                let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(self.id)).await?;
+                let vpcs =
+                    Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &self.id)).await?;
                 if vpcs.len() != 1 {
                     return Err(CarbideError::FindOneReturnedManyResultsError(
                         self.id.into(),
@@ -536,7 +527,8 @@ impl UpdateVpcVirtualization {
         let current_version = match self.if_version_match {
             Some(version) => version,
             None => {
-                let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(self.id)).await?;
+                let vpcs =
+                    Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &self.id)).await?;
                 if vpcs.len() != 1 {
                     return Err(CarbideError::FindOneReturnedManyResultsError(
                         self.id.into(),

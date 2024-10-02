@@ -38,25 +38,23 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
+use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::{instance::InstanceId, machine::MachineId, vpc::VpcId};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-///
-/// A parameter to find() to filter resources by InstanceId;
-///
-#[derive(Clone)]
-pub enum InstanceIdKeyedObjectFilter<'a> {
-    /// Don't filter by InstanceId
-    All,
+#[derive(Copy, Clone)]
+pub struct IdColumn;
 
-    /// Filter by a list of InstanceIds
-    List(&'a [InstanceId]),
+impl ColumnInfo<'_> for IdColumn {
+    type TableType = Instance;
+    type ColumnType = InstanceId;
 
-    /// Retrieve a single resource
-    One(InstanceId),
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -83,7 +81,7 @@ pub struct DeleteInstance {
 }
 
 pub enum FindInstanceTypeFilter<'a> {
-    Id(&'a InstanceIdKeyedObjectFilter<'a>),
+    Id(ObjectColumnFilter<'a, IdColumn>),
     Label(&'a rpc::Label),
 }
 
@@ -270,31 +268,15 @@ WHERE vpc_id = ",
         txn: &mut Transaction<'_, Postgres>,
         filter: FindInstanceTypeFilter<'_>,
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-        let base_query_for_id = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
-
         let all_instances: Vec<InstanceSnapshot> = match filter {
-            FindInstanceTypeFilter::Id(id) => match id {
-                InstanceIdKeyedObjectFilter::All => {
-                    sqlx::query_as::<_, InstanceSnapshot>(&base_query_for_id.replace("{where}", ""))
-                        .fetch_all(txn.deref_mut())
-                        .await
-                        .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
-                }
-                InstanceIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, InstanceSnapshot>(
-                    &base_query_for_id.replace("{where}", "WHERE m.id=$1"),
-                )
-                .bind(uuid)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?,
-                InstanceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, InstanceSnapshot>(
-                    &base_query_for_id.replace("{where}", "WHERE m.id=ANY($1)"),
-                )
-                .bind(list)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
-            },
+            FindInstanceTypeFilter::Id(id) => {
+                let mut query = FilterableQueryBuilder::new("SELECT * FROM instances").filter(&id);
+                query
+                    .build_query_as()
+                    .fetch_all(txn.deref_mut())
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?
+            }
 
             FindInstanceTypeFilter::Label(label) => match (label.key.is_empty(), &label.value) {
                 (true, Some(value)) => sqlx::query_as::<_, InstanceSnapshot>(

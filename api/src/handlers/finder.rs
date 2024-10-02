@@ -16,17 +16,13 @@ use ::rpc::protos::common as rpc_common;
 use ::rpc::protos::forge as rpc;
 
 use crate::db;
-use crate::db::domain::Domain;
-use crate::db::domain::DomainIdKeyedObjectFilter;
+use crate::db::domain::{self, Domain};
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::instance::FindInstanceTypeFilter;
 use crate::db::instance::Instance;
-use crate::db::instance::InstanceIdKeyedObjectFilter;
-use crate::db::network_segment::{
-    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
-};
+use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::Vpc;
-use crate::db::vpc::VpcIdKeyedObjectFilter;
+use crate::db::{instance, network_segment, vpc, ObjectColumnFilter};
 use crate::{
     api::Api,
     db::{
@@ -401,9 +397,9 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin UUID search", e))?;
 
     if let Ok(ns_id) = NetworkSegmentId::try_from(u.clone()) {
-        let segments = NetworkSegment::find(
+        let segments = NetworkSegment::find_by(
             &mut txn,
-            NetworkSegmentIdKeyedObjectFilter::List(&[ns_id]),
+            ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
             NetworkSegmentSearchConfig {
                 include_history: false,
                 include_num_free_ips: false,
@@ -418,7 +414,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     if let Ok(instance_id) = InstanceId::try_from(u.clone()) {
         let instances = Instance::find(
             &mut txn,
-            FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::One(instance_id)),
+            FindInstanceTypeFilter::Id(ObjectColumnFilter::One(instance::IdColumn, &instance_id)),
         )
         .await?;
         if instances.len() == 1 {
@@ -436,14 +432,18 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(vpc_id) = VpcId::try_from(u.clone()) {
-        let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(vpc_id)).await?;
+        let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
             return Ok(Some(rpc::UuidType::Vpc));
         }
     }
 
     if let Ok(domain_id) = DomainId::try_from(u.clone()) {
-        let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(domain_id)).await?;
+        let domains = Domain::find_by(
+            &mut txn,
+            ObjectColumnFilter::One(domain::IdColumn, &domain_id),
+        )
+        .await?;
         if domains.len() == 1 {
             return Ok(Some(rpc::UuidType::Domain));
         }

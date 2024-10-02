@@ -15,8 +15,8 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 use crate::db::instance::Instance;
-use crate::db::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcIdKeyedObjectFilter};
-use crate::db::DatabaseError;
+use crate::db::vpc::{self, NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
+use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::vpc::VpcId;
@@ -254,7 +254,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::List(&vpc_ids)).await;
+    let db_vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).await;
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {
@@ -281,8 +281,9 @@ pub(crate) async fn find(
 
     let vpcs = match (id, name) {
         (Some(id), _) => {
+            let mut binding = None;
             let uuid = match VpcId::try_from(id) {
-                Ok(uuid) => VpcIdKeyedObjectFilter::One(uuid),
+                Ok(uuid) => ObjectColumnFilter::One(vpc::IdColumn, binding.insert(uuid)),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
                         "Supplied invalid UUID: {}",
@@ -290,10 +291,10 @@ pub(crate) async fn find(
                     )));
                 }
             };
-            Vpc::find(&mut txn, uuid).await
+            Vpc::find_by(&mut txn, uuid).await
         }
         (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
-        (None, None) => Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await,
+        (None, None) => Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await,
     };
 
     let result = vpcs

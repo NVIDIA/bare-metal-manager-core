@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 
+use crate::db::ObjectColumnFilter;
 use crate::{
     db::{ib_partition, instance::Instance},
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
@@ -70,9 +71,9 @@ pub(crate) async fn record_infiniband_status_observation(
     let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
 
     for (k, v) in ibconf {
-        let ib_partitions = ib_partition::IBPartition::find(
+        let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
-            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
+            ObjectColumnFilter::One(ib_partition::IdColumn, &k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
@@ -149,9 +150,9 @@ pub(crate) async fn bind_ib_ports(
         .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 
     for (k, v) in ibconf {
-        let ib_partitions = ib_partition::IBPartition::find(
+        let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
-            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
+            ObjectColumnFilter::One(ib_partition::IdColumn, &k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
@@ -201,9 +202,9 @@ pub(crate) async fn unbind_ib_ports(
         .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 
     for (k, v) in ibconf {
-        let ib_partitions = ib_partition::IBPartition::find(
+        let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
-            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
+            ObjectColumnFilter::One(ib_partition::IdColumn, &k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },

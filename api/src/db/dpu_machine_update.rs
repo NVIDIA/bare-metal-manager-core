@@ -44,14 +44,14 @@ impl DpuMachineUpdate {
             return Ok(vec![]);
         }
         if expected_firmware_versions.is_empty() {
-            return Err(DatabaseError {
-                file: file!(),
-                line: line!(),
-                query: "find_available_outdated_dpus",
-                source: sqlx::Error::Configuration(Box::new(CarbideError::InvalidArgument(
+            return Err(DatabaseError::new(
+                file!(),
+                line!(),
+                "find_available_outdated_dpus",
+                sqlx::Error::Configuration(Box::new(CarbideError::InvalidArgument(
                     "Missing expected_firmware_versions".to_string(),
                 ))),
-            });
+            ));
         }
 
         let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id,

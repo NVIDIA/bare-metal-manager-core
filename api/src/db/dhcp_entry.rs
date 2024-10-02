@@ -13,8 +13,7 @@ use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::DatabaseError;
-use crate::db::machine_interface::MachineInterfaceIdKeyedObjectFilter;
+use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use forge_uuid::machine::MachineInterfaceId;
 
 ///
@@ -28,35 +27,29 @@ pub struct DhcpEntry {
     pub vendor_string: String,
 }
 
-impl DhcpEntry {
-    pub async fn find_for_interfaces(
-        txn: &mut Transaction<'_, Postgres>,
-        filter: MachineInterfaceIdKeyedObjectFilter<'_>,
-    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
-        let base_query = "SELECT * FROM dhcp_entries {where}".to_owned();
+#[derive(Clone, Copy)]
+pub struct MachineInterfaceIdColumn;
+impl ColumnInfo<'_> for MachineInterfaceIdColumn {
+    type TableType = DhcpEntry;
+    type ColumnType = MachineInterfaceId;
 
-        Ok(match filter {
-            MachineInterfaceIdKeyedObjectFilter::All => {
-                sqlx::query_as(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries All", e))?
-            }
-            MachineInterfaceIdKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE machine_interface_id=$1"))
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?
-            }
-            MachineInterfaceIdKeyedObjectFilter::List(list) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"))
-                    .bind(list)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries List", e))?
-            }
-        })
+    fn column_name(&self) -> &'static str {
+        "machine_interface_id"
+    }
+}
+
+impl DhcpEntry {
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = DhcpEntry>>(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: ObjectColumnFilter<'a, C>,
+    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM dhcp_entries").filter(&filter);
+
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn persist(

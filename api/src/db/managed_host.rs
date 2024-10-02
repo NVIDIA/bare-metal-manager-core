@@ -15,11 +15,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::db::{instance, ObjectColumnFilter};
 use crate::{
     cfg::HardwareHealthReportsConfig,
     db::{
         self,
-        instance::{FindInstanceTypeFilter, Instance, InstanceIdKeyedObjectFilter},
+        instance::{FindInstanceTypeFilter, Instance},
         machine::Machine,
         DatabaseError,
     },
@@ -153,7 +154,7 @@ pub async fn load_by_instance_ids(
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let instance_snapshots = Instance::find(
         txn,
-        FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::List(instance_ids)),
+        FindInstanceTypeFilter::Id(ObjectColumnFilter::List(instance::IdColumn, instance_ids)),
     )
     .await?;
 

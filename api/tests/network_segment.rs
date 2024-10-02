@@ -17,10 +17,8 @@ use std::time::Duration;
 use carbide::db;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use carbide::db::network_segment::{
-    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentType, NewNetworkSegment,
-};
-use carbide::db::vpc::{Vpc, VpcIdKeyedObjectFilter};
+use carbide::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
+use carbide::db::vpc::{self, Vpc};
 use carbide::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
     NetworkSegmentDeletionState,
@@ -36,11 +34,11 @@ use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 use mac_address::MacAddress;
 
 pub mod common;
+use crate::common::api_fixtures::FIXTURE_VPC_ID;
+use carbide::db::{network_segment, ObjectColumnFilter};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
-
-use crate::common::api_fixtures::FIXTURE_VPC_ID;
 
 #[sqlx::test(fixtures("create_vpc"))]
 async fn test_advance_network_prefix_state(
@@ -48,9 +46,9 @@ async fn test_advance_network_prefix_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let vpc = Vpc::find(
+    let vpc = Vpc::find_by(
         &mut txn,
-        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_VPC_ID)),
+        ObjectColumnFilter::One(vpc::IdColumn, &VpcId::from(FIXTURE_VPC_ID)),
     )
     .await?
     .pop()
@@ -116,10 +114,13 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     .await;
 
     let mut txn = env.pool.begin().await?;
-    let db_segment = NetworkSegment::find(
+    let db_segment = NetworkSegment::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
-        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+        ObjectColumnFilter::One(
+            network_segment::IdColumn,
+            &segment.id.clone().unwrap().try_into().unwrap(),
+        ),
+        network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
@@ -274,10 +275,10 @@ async fn test_network_segment_max_history_length(
     const HISTORY_LIMIT: usize = 250;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let mut version = NetworkSegment::find(
+    let mut version = NetworkSegment::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(segment_id),
-        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()[0]
@@ -297,10 +298,10 @@ async fn test_network_segment_max_history_length(
         )
         .await
         .unwrap());
-        version = NetworkSegment::find(
+        version = NetworkSegment::find_by(
             &mut txn,
-            NetworkSegmentIdKeyedObjectFilter::One(segment_id),
-            carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+            ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+            network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()[0]
@@ -451,20 +452,26 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
-    use carbide::db::network_segment::NetworkSegmentSearchConfig; // override global rpc one
+    use network_segment::NetworkSegmentSearchConfig; // override global rpc one
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
-    let num_before =
-        NetworkSegment::find(&mut txn, NetworkSegmentIdKeyedObjectFilter::All, search_cfg)
-            .await?
-            .len();
+    let num_before = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::<network_segment::IdColumn>::All,
+        search_cfg,
+    )
+    .await?
+    .len();
     txn.commit().await?;
     carbide::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
-    let num_after =
-        NetworkSegment::find(&mut txn, NetworkSegmentIdKeyedObjectFilter::All, search_cfg)
-            .await?
-            .len();
+    let num_after = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::<network_segment::IdColumn>::All,
+        search_cfg,
+    )
+    .await?
+    .len();
     txn.commit().await?;
     assert_eq!(
         num_before, num_after,

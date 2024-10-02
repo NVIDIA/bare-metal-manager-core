@@ -11,7 +11,8 @@
  */
 use std::collections::HashMap;
 
-use carbide::db::vpc::{UpdateVpc, UpdateVpcVirtualization, Vpc, VpcIdKeyedObjectFilter};
+use carbide::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
+use carbide::db::ObjectColumnFilter;
 use carbide::model::metadata::Metadata;
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
@@ -126,7 +127,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .update(&mut txn)
     .await?;
 
-    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
+    )
+    .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(
         first.network_virtualization_type,
@@ -143,7 +148,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .update(&mut txn)
     .await?;
 
-    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
+    )
+    .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(
         first.network_virtualization_type,
@@ -168,7 +177,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     ));
 
     // Check that the data was indeed not touched
-    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
+    )
+    .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "new name");
     assert_eq!(first.version.version_nr(), 4); // includes 2 changes to VPC virtualization type
@@ -188,7 +201,11 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(updated_vpc.version.version_nr(), 5);
 
-    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
+    )
+    .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(first.version.version_nr(), 5);
@@ -197,14 +214,14 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     assert!(vpc.deleted.is_some());
 
-    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(vpc.id)).await?;
+    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc.id)).await?;
 
     txn.commit().await?;
 
     assert!(vpcs.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await?;
+    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert_eq!(vpcs.len(), 1);
     let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id").try_into()?;
     assert_eq!(vpcs[0].id, forge_vpc_id);
@@ -214,7 +231,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await?;
+    let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
 
@@ -608,9 +625,9 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let some_vpc = Vpc::find(
+    let some_vpc = Vpc::find_by(
         &mut txn,
-        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_VPC_ID)),
+        ObjectColumnFilter::One(vpc::IdColumn, &VpcId::from(FIXTURE_VPC_ID)),
     )
     .await?;
     assert_eq!(1, some_vpc.len());

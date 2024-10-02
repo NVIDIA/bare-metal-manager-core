@@ -17,8 +17,7 @@ use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
-use super::DatabaseError;
-use crate::db::network_segment::NetworkSegmentIdKeyedObjectFilter;
+use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::CarbideError;
 use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
@@ -31,6 +30,17 @@ pub struct NetworkPrefix {
     pub num_reserved: i32,
     pub circuit_id: Option<String>,
     pub num_free_ips: u32,
+}
+
+#[derive(Clone, Copy)]
+pub struct SegmentIdColumn;
+impl ColumnInfo<'_> for SegmentIdColumn {
+    type TableType = NetworkPrefix;
+    type ColumnType = NetworkSegmentId;
+
+    fn column_name(&self) -> &'static str {
+        "segment_id"
+    }
 }
 
 #[derive(Debug)]
@@ -128,34 +138,18 @@ impl NetworkPrefix {
     /*
      * Return a list of `NetworkPrefix`es for a segment.
      */
-    pub async fn find_by_segment(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkPrefix>>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: NetworkSegmentIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-        let base_query = "SELECT * FROM network_prefixes {where}".to_owned();
+        let mut query =
+            FilterableQueryBuilder::new("SELECT * FROM network_prefixes").filter(&filter);
 
-        Ok(match filter {
-            NetworkSegmentIdKeyedObjectFilter::All => {
-                sqlx::query_as(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes All", e))?
-            }
-            NetworkSegmentIdKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE segment_id=$1"))
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?
-            }
-            NetworkSegmentIdKeyedObjectFilter::List(list) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE segment_id=ANY($1)"))
-                    .bind(list)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes List", e))?
-            }
-        })
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     // Return a list of network prefixes for a VPC. More specifically,
