@@ -442,7 +442,6 @@ pub async fn detail(
         }
     }
 
-    // Fetch forge setup status here
     let forge_setup_status = match state
         .fetch_forge_setup_status(tonic::Request::new(rpc::forge::ForgeSetupStatusRequest {
             machine_id: None,
@@ -457,7 +456,10 @@ pub async fn detail(
         Ok(response) => response,
         Err(err) => {
             tracing::error!(%err, endpoint_ip = %endpoint_ip, "forge_setup_status_update");
-            return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+            ForgeSetupStatus {
+                is_done: false,
+                diffs: vec![],
+            }
         }
     };
 
@@ -630,6 +632,8 @@ pub async fn clear_last_exploration_error(
 fn forge_setup_status_to_string(status: &ForgeSetupStatus) -> String {
     if status.is_done {
         "OK".to_string()
+    } else if status.diffs.is_empty() {
+        "".to_string()
     } else {
         let diffs_string = status
             .diffs
