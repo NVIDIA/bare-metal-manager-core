@@ -14,92 +14,95 @@
 	<h1>All Managed Hosts</h1>
 {% endif %}
 
-<form class="filter-container" action="" method="get">
-	<div>
-		<label for="health-alerts-filter" style="padding-right: 25px">Health</label>
-		<select id="health-alerts-filter" name="health-alerts-filter">
-			<option value="all">All</option>
-			<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
-			<option value="unhealthy" {% if active_health_alerts_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
-		</select>
-	</div>
-	<div>
-		<label for="maintenance-filter">Maint.</label>
-		<select id="maintenance-filter" name="maintenance-filter">
-			<option value="all">All</option>
-			<option value="active" {% if active_maintenance_filter == "active" %}selected{% endif %}>Active</option>
-			<option value="maintenance" {% if active_maintenance_filter == "maintenance" %}selected{% endif %}>Maintenance</option>
-		</select>
-	</div>
-	<div>
-		<label for="vendor-filter">Vendor</label>
-		<select id="vendor-filter" name="vendor-filter">
-			<option value="all">All</option>
-			{% for v in vendors %}
-			<option value="{{ v|lower }}" {% if active_vendor_filter == v.to_lowercase() %}selected{% endif %}>{{ v|capitalize }}</option>
-			{% endfor %}
-			<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
-		</select>
-	</div>
-	<div>
-		<label for="state-filter">State</label>
-		<select id="state-filter" name="state-filter">
-			<option value="all">All</option>
-			{% for s in states %}
-			<option value="{{ s|lower }}" {% if active_state_filter == s.to_lowercase() %}selected{% endif %}>{{ s|capitalize }}</option>
-			{% endfor %}
-		</select>
-	</div>
-	<div>
-		<label for="time-in-state-above-sla-filter">Time in State Above SLA</label>
-		<select id="time-in-state-above-sla-filter" name="time-in-state-above-sla-filter">
-			<option value="all" {% if active_time_in_state_above_sla_filter == "all" %}selected{% endif %}>All</option>
-			<option value="true" {% if active_time_in_state_above_sla_filter == "true" %}selected{% endif %}>True</option>
-			<option value="false" {% if active_time_in_state_above_sla_filter == "false" %}selected{% endif %}>False</option>
-		</select>
-	</div>
-	<div>
-		<label for="gpu-filter"># GPUs</label>
-		<select id="gpu-filter" name="gpu-filter">
-			<option value="all">All</option>
-			{% for x in gpus %}
-			<option value="{{ x }}" {% if active_gpu_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
-			{% endfor %}
-		</select>
-	</div>
-	<div>
-		<label for="ib-filter"># IB IFs</label>
-		<select id="ib-filter" name="ib-filter">
-			<option value="all">All</option>
-			{% for x in ibs %}
-			<option value="{{ x }}" {% if active_ib_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
-			{% endfor %}
-		</select>
-	</div>
-	<div>
-		<label for="mem-filter">Mem</label>
-		<select id="mem-filter" name="mem-filter">
-			<option value="-1">All</option>
-			{% for (val, display) in mems %}
-			<option value="{{ val }}" {% if active_mem_filter|as_ref == val %}selected{% endif %}>{{ display }}</option>
-			{% endfor %}
-		</select>
-	</div>
+<details {% if is_filtered || grouped_hosts.is_some() %}open="true"{% endif %}>
+	<summary>Show filters</summary>
+	<form class="filter-container" action="" method="get">
+		<div>
+			<label for="health-alerts-filter" style="padding-right: 25px">Health</label>
+			<select id="health-alerts-filter" name="health-alerts-filter">
+				<option value="all">All</option>
+				<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
+				<option value="unhealthy" {% if active_health_alerts_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
+			</select>
+		</div>
+		<div>
+			<label for="maintenance-filter">Maint.</label>
+			<select id="maintenance-filter" name="maintenance-filter">
+				<option value="all">All</option>
+				<option value="active" {% if active_maintenance_filter == "active" %}selected{% endif %}>Active</option>
+				<option value="maintenance" {% if active_maintenance_filter == "maintenance" %}selected{% endif %}>Maintenance</option>
+			</select>
+		</div>
+		<div>
+			<label for="vendor-filter">Vendor</label>
+			<select id="vendor-filter" name="vendor-filter">
+				<option value="all">All</option>
+				{% for v in vendors %}
+				<option value="{{ v|lower }}" {% if active_vendor_filter == v.to_lowercase() %}selected{% endif %}>{{ v|capitalize }}</option>
+				{% endfor %}
+				<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
+			</select>
+		</div>
+		<div>
+			<label for="state-filter">State</label>
+			<select id="state-filter" name="state-filter">
+				<option value="all">All</option>
+				{% for s in states %}
+				<option value="{{ s|lower }}" {% if active_state_filter == s.to_lowercase() %}selected{% endif %}>{{ s|capitalize }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div>
+			<label for="time-in-state-above-sla-filter">Time in State Above SLA</label>
+			<select id="time-in-state-above-sla-filter" name="time-in-state-above-sla-filter">
+				<option value="all" {% if active_time_in_state_above_sla_filter == "all" %}selected{% endif %}>All</option>
+				<option value="true" {% if active_time_in_state_above_sla_filter == "true" %}selected{% endif %}>True</option>
+				<option value="false" {% if active_time_in_state_above_sla_filter == "false" %}selected{% endif %}>False</option>
+			</select>
+		</div>
+		<div>
+			<label for="gpu-filter"># GPUs</label>
+			<select id="gpu-filter" name="gpu-filter">
+				<option value="all">All</option>
+				{% for x in gpus %}
+				<option value="{{ x }}" {% if active_gpu_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div>
+			<label for="ib-filter"># IB IFs</label>
+			<select id="ib-filter" name="ib-filter">
+				<option value="all">All</option>
+				{% for x in ibs %}
+				<option value="{{ x }}" {% if active_ib_filter == x.as_str() %}selected{% endif %}>{{ x }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		<div>
+			<label for="mem-filter">Mem</label>
+			<select id="mem-filter" name="mem-filter">
+				<option value="-1">All</option>
+				{% for (val, display) in mems %}
+				<option value="{{ val }}" {% if active_mem_filter|as_ref == val %}selected{% endif %}>{{ display }}</option>
+				{% endfor %}
+			</select>
+		</div>
 
-	<div>
-		<label for="group-by">Group by</label>
-		<select id="group-by" name="group-by">
-			<option value="none">None</option>
-			<option value="state" {% if active_group_by == "state" %}selected{% endif %}>State</option>
-			<option value="health,state" {% if active_group_by == "health,state" %}selected{% endif %}>Health, state</option>
-			<option value="host_memory,num_gpus,num_ib_ifs"{% if active_group_by == "host_memory,num_gpus,num_ib_ifs" %}selected{% endif %}>Host type</option>
-			<option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
-		</select>
-	</div>
-	<div>
-			<input type="submit" value="Update">
-	</div>
-</form>
+		<div>
+			<label for="group-by">Group by</label>
+			<select id="group-by" name="group-by">
+				<option value="none">None</option>
+				<option value="state" {% if active_group_by == "state" %}selected{% endif %}>State</option>
+				<option value="health,state" {% if active_group_by == "health,state" %}selected{% endif %}>Health, state</option>
+				<option value="host_memory,num_gpus,num_ib_ifs"{% if active_group_by == "host_memory,num_gpus,num_ib_ifs" %}selected{% endif %}>Host type</option>
+				<option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
+			</select>
+		</div>
+		<div>
+				<input type="submit" value="Update">
+		</div>
+	</form>
+</details>
 
 {% if grouped_hosts.is_none() %}
 	{% include "managed_host_individual_table.html" %}
