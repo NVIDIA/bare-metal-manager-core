@@ -1223,9 +1223,30 @@ scheduled-test:machine-lifecycle-test:
     - wget --no-verbose ${NGC_APPS_URL}/${NGC_CLI_LATEST}/files/ngccli_linux.zip
     - unzip -q ngccli_linux.zip && chmod u+x ngc-cli/ngc
     - ln -s $(pwd)/ngc-cli/ngc /usr/local/bin/
+    - export CARBIDE_VERSION=$(forge-admin-cli --format json -c https://${CARBIDE_API_URL} version | jq -r '.build_version')
+    - echo "CARBIDE_VERSION=${CARBIDE_VERSION}" > env.sh
+    - echo "Current carbide build deployed on ${SHORT_SITE_NAME} is ${CARBIDE_VERSION}"
   script:
     - source /tests/venv/bin/activate
     - python3 $CI_PROJECT_DIR/tests/machine-lifecycle/machine_lifecycle_test.py
+  after_script:
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
+    - export GITLAB_API_TOKEN="$(vault kv get -field scheduled_pipeline_bot_token secrets/forge/tokens)"
+    - source env.sh
+    - |
+      SNIPPET_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/snippets/7706"
+      curl -s --request GET --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --output orig_list.txt \
+        "${SNIPPET_URL}/raw"
+
+      if [[ ${CI_JOB_STATUS} == 'success' ]]; then
+        echo "Test passed for build ${CARBIDE_VERSION}. Adding result to snippet list..."
+        new_list=$(echo "${CARBIDE_VERSION} (pipeline ${CI_PIPELINE_ID}) - PASS" | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
+        curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --header 'Content-Type: application/json' \
+          --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
+          "${SNIPPET_URL}"
+      fi
 
 #
 # Runs a test that spins up a single-node Forge control plane (i.e. a dev environment) directly on the GitLab runner and
