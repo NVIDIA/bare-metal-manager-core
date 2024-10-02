@@ -60,6 +60,10 @@
 - The DPU agent will not crash if `/run` is not writable
 - The DPU agent will now configure `ovs-switchd` to use less CPU
 
+## [v2024.09.13-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc5-0...v2024.09.13-rc6-0)
+
+No user facing changes.
+
 ## [v2024.09.13-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc4-0...v2024.09.13-rc5-0)
 
 No user facing changes.
