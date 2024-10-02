@@ -14,8 +14,8 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
-use crate::db::domain::{Domain, DomainIdKeyedObjectFilter, NewDomain};
-use crate::db::DatabaseError;
+use crate::db::domain::{self, Domain, NewDomain};
+use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::CarbideError;
 use forge_uuid::domain::DomainId;
 
@@ -81,7 +81,7 @@ pub(crate) async fn update(
         }
     };
 
-    let mut domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(uuid))
+    let mut domains = Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid))
         .await
         .map_err(CarbideError::from)?;
 
@@ -151,7 +151,7 @@ pub(crate) async fn delete(
         }
     };
 
-    let mut domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(uuid))
+    let mut domains = Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid))
         .await
         .map_err(CarbideError::from)?;
 
@@ -205,19 +205,18 @@ pub(crate) async fn find(
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {
         (Some(id), _) => {
-            let uuid = match DomainId::try_from(id) {
-                Ok(uuid) => DomainIdKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Invalid UUID supplied: {}",
-                        err
-                    )));
-                }
-            };
-            Domain::find(&mut txn, uuid).await
+            let domain_id = DomainId::try_from(id)
+                .map_err(|e| Status::invalid_argument(format!("Invalid UUID supplied: {e}")))?;
+            Domain::find_by(
+                &mut txn,
+                ObjectColumnFilter::One(domain::IdColumn, &domain_id),
+            )
+            .await
         }
         (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
-        (None, None) => Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await,
+        (None, None) => {
+            Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await
+        }
     };
 
     let result = domains

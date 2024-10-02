@@ -38,21 +38,18 @@ use crate::{
     model::tenant::TenantOrganizationId, CarbideError, CarbideResult,
 };
 
+use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
-///
-/// A parameter to find() to filter resources by IBPartitionId;
-///
-#[derive(Clone)]
-pub enum IBPartitionIdKeyedObjectFilter<'a> {
-    /// Don't filter by IBPartitionId
-    All,
+#[derive(Copy, Clone)]
+pub struct IdColumn;
+impl ColumnInfo<'_> for IdColumn {
+    type TableType = IBPartition;
+    type ColumnType = IBPartitionId;
 
-    /// Filter by a list of IBPartitionIds
-    List(&'a [IBPartitionId]),
-
-    /// Retrieve a single resource
-    One(IBPartitionId),
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
 }
 
 impl From<rpc::IbPartitionSearchConfig> for IBPartitionSearchConfig {
@@ -399,39 +396,18 @@ impl IBPartition {
         Ok(ids)
     }
 
-    pub async fn find(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = IBPartition>>(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: IBPartitionIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
         _search_config: IBPartitionSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let base_query = "SELECT * FROM ib_partitions {where}".to_owned();
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM ib_partitions").filter(&filter);
 
-        let all_records: Vec<IBPartition> = match filter {
-            IBPartitionIdKeyedObjectFilter::All => {
-                sqlx::query_as(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions All", e))?
-            }
-
-            IBPartitionIdKeyedObjectFilter::List(uuids) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"))
-                    .bind(uuids)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?
-            }
-
-            IBPartitionIdKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE ib_partitions.id=$1"))
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions One", e))?
-            }
-        };
-
-        Ok(all_records)
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_pkey_by_partition_id(
@@ -441,13 +417,13 @@ impl IBPartition {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct Pkey(i32);
 
-        let query = "SELECT pkey FROM ib_partitions WHERE id = $1";
-
-        let pkey = sqlx::query_as::<_, Pkey>(query)
-            .bind(id)
+        let mut query = FilterableQueryBuilder::new("SELECT pkey FROM ib_partitions")
+            .filter(&ObjectColumnFilter::One(IdColumn, &id));
+        let pkey = query
+            .build_query_as::<Pkey>()
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
         Ok(pkey.map(|id| id.0 as u16))
     }

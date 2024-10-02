@@ -12,12 +12,21 @@
 
 //! Contains host related fixtures
 
+use super::{get_machine_validation_runs, FIXTURE_DHCP_RELAY_ADDRESS};
+use crate::common::api_fixtures::{
+    discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
+    TestEnv,
+};
+use crate::common::api_fixtures::{
+    inject_machine_measurements, machine_validation_completed, persist_machine_validation_result,
+};
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
+use carbide::db::{network_prefix, ObjectColumnFilter};
 use carbide::model::machine::{FailureCause, FailureDetails, FailureSource};
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
-    db::{self, network_segment::NetworkSegmentIdKeyedObjectFilter},
+    db,
     model::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, ManagedHostState},
@@ -32,16 +41,6 @@ use rpc::{
 };
 use strum::IntoEnumIterator;
 use tonic::Request;
-
-use super::FIXTURE_DHCP_RELAY_ADDRESS;
-use crate::common::api_fixtures::{
-    discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
-    TestEnv,
-};
-use crate::common::api_fixtures::{
-    get_machine_validation_runs, inject_machine_measurements, machine_validation_completed,
-    persist_machine_validation_result,
-};
 
 const TEST_DATA_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -103,9 +102,12 @@ pub async fn host_discover_dhcp(
         .unwrap()
         .unwrap();
 
-    let prefix = NetworkPrefix::find_by_segment(
+    let prefix = NetworkPrefix::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id),
+        ObjectColumnFilter::One(
+            network_prefix::SegmentIdColumn,
+            &predicted_host.interfaces()[0].segment_id,
+        ),
     )
     .await
     .unwrap()

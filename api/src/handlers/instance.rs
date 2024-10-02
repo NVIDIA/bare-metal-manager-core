@@ -12,12 +12,10 @@
 
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
-use crate::db::instance::{
-    DeleteInstance, FindInstanceTypeFilter, Instance, InstanceIdKeyedObjectFilter,
-};
+use crate::db::instance::{self, DeleteInstance, FindInstanceTypeFilter, Instance};
 use crate::db::machine::Machine;
 use crate::db::managed_host::LoadSnapshotOptions;
-use crate::db::DatabaseError;
+use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
@@ -157,19 +155,20 @@ pub(crate) async fn find(
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
     let instance_snapshots = match (id, label) {
         (Some(id), None) => {
-            let uuid = match InstanceId::try_from(id) {
-                Ok(uuid) => InstanceIdKeyedObjectFilter::One(uuid),
+            let mut binding = None;
+            let id_filter = match InstanceId::try_from(id) {
+                Ok(uuid) => ObjectColumnFilter::One(instance::IdColumn, binding.insert(uuid)),
                 Err(_err) => {
                     return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
             };
-            Instance::find(&mut txn, FindInstanceTypeFilter::Id(&uuid))
+            Instance::find(&mut txn, FindInstanceTypeFilter::Id(id_filter))
                 .await
                 .map_err(CarbideError::from)
         }
         (None, None) => Instance::find(
             &mut txn,
-            FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::All),
+            FindInstanceTypeFilter::Id(ObjectColumnFilter::All),
         )
         .await
         .map_err(CarbideError::from),

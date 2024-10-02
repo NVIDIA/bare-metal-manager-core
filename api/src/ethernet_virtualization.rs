@@ -14,14 +14,13 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
+use crate::db::{network_segment, ObjectColumnFilter};
 use crate::{
     db::{
         self,
         domain::Domain,
         machine_interface_address::MachineInterfaceAddress,
-        network_segment::{
-            NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
-        },
+        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
     },
     model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     CarbideError,
@@ -179,9 +178,9 @@ pub async fn tenant_network(
     iface: &InstanceInterfaceConfig,
     fqdn: String,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
-    let segments = &NetworkSegment::find(
+    let segments = &NetworkSegment::find_by(
         txn,
-        NetworkSegmentIdKeyedObjectFilter::One(iface.network_segment_id),
+        ObjectColumnFilter::One(network_segment::IdColumn, &iface.network_segment_id),
         NetworkSegmentSearchConfig::default(),
     )
     .await

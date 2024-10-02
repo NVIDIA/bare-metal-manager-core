@@ -17,12 +17,12 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 use crate::db;
-use crate::db::domain::{Domain, DomainIdKeyedObjectFilter};
+use crate::db::domain::{self, Domain};
 use crate::db::instance::Instance;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::DatabaseError;
+use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::ReprovisionState;
 use crate::model::os::OperatingSystemVariant;
@@ -118,14 +118,17 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(domain_id))
-                .await
-                .map_err(CarbideError::from)?
-                .first()
-                .ok_or_else(|| {
-                    CarbideError::GenericError(format!("Could not find a domain for {}", domain_id))
-                })?
-                .to_owned();
+            let domain = Domain::find_by(
+                &mut txn,
+                ObjectColumnFilter::One(domain::IdColumn, &domain_id),
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .first()
+            .ok_or_else(|| {
+                CarbideError::GenericError(format!("Could not find a domain for {}", domain_id))
+            })?
+            .to_owned();
 
             // This custom pxe is different from a customer instance of pxe. It is more for testing one off
             // changes until a real dev env is established and we can just override our existing code to test

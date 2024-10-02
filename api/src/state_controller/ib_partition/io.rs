@@ -14,9 +14,11 @@
 
 use config_version::{ConfigVersion, Versioned};
 
+use crate::db::ObjectColumnFilter;
 use crate::{
     db::{
-        ib_partition::{IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig},
+        self,
+        ib_partition::{IBPartition, IBPartitionSearchConfig},
         DatabaseError,
     },
     model::{
@@ -60,9 +62,9 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         partition_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut partitions = IBPartition::find(
+        let mut partitions = IBPartition::find_by(
             txn,
-            IBPartitionIdKeyedObjectFilter::One(*partition_id),
+            ObjectColumnFilter::One(db::ib_partition::IdColumn, partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;

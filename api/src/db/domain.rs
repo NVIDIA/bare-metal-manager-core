@@ -15,27 +15,12 @@ use chrono::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::ops::DerefMut;
 
-use super::DatabaseError;
+use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::{domain::DomainId, vpc::VpcId};
+use forge_uuid::domain::DomainId;
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
-
-///
-/// A parameter to find() to filter resources by DomainId;
-///
-#[derive(Clone)]
-pub enum DomainIdKeyedObjectFilter<'a> {
-    /// Don't filter by DomainId
-    All,
-
-    /// Filter by a list of DomainIds
-    List(&'a [DomainId]),
-
-    /// Retrieve a single resource
-    One(DomainId),
-}
 
 /// A DNS domain. Used by carbide-dns for resolving FQDNs.
 /// We create an initial one startup. Each segment can have a different domain,
@@ -60,6 +45,28 @@ pub struct Domain {
 
     // when the domain was deleted
     pub deleted: Option<DateTime<Utc>>,
+}
+
+#[derive(Copy, Clone)]
+pub struct IdColumn;
+impl ColumnInfo<'_> for crate::db::domain::IdColumn {
+    type TableType = Domain;
+    type ColumnType = DomainId;
+
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct NameColumn;
+impl<'a> ColumnInfo<'a> for NameColumn {
+    type TableType = Domain;
+    type ColumnType = &'a str;
+
+    fn column_name(&self) -> &'static str {
+        "name"
+    }
 }
 
 pub struct NewDomain {
@@ -156,49 +163,39 @@ impl NewDomain {
 }
 
 impl Domain {
-    /// Finds a  `domains` based on UUID
+    /// Finds `domains` based on specified criteria, excluding deleted entries.
     ///
     /// Returns `Vec<Domain>`
     ///
     /// # Arguments
     ///
-    /// * `UUIDKeyedObjectFilter` - An enum that determines the number of `UUID` to use in the query
+    /// * [`ObjectColumnFilter`] - An enum that determines the query criteria
     ///
     /// # Examples
     ///
     ///
-    pub async fn find(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: DomainIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<Domain>, DatabaseError> {
-        // TODO(jdg):  Add a deleted option to find
-        let results: Vec<Domain> = match filter {
-            DomainIdKeyedObjectFilter::All => {
-                let query = "SELECT * FROM domains WHERE deleted is NULL";
-                sqlx::query_as(query)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-            DomainIdKeyedObjectFilter::One(uuid) => {
-                let query = "SELECT * FROM domains WHERE id = $1 AND deleted is NULL";
-                sqlx::query_as(query)
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-            DomainIdKeyedObjectFilter::List(list) => {
-                let query = "select * from domains WHERE id = ANY($1) AND deleted is NULL";
-                sqlx::query_as(query)
-                    .bind(list)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            }
-        };
+        Self::find_all_by(txn, filter, false).await
+    }
 
-        Ok(results)
+    /// Similar to [`Domain::find_by`] but lets you specify whether to include deleted results
+    pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        filter: ObjectColumnFilter<'a, C>,
+        include_deleted: bool,
+    ) -> Result<Vec<Domain>, DatabaseError> {
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM domains").filter(&filter);
+        if !include_deleted {
+            query.push(" AND deleted IS NULL");
+        }
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub fn new(name: &str) -> Domain {
@@ -226,40 +223,21 @@ impl Domain {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn find_by_vpc(
-        txn: &mut Transaction<'_, Postgres>,
-        vpc_id: VpcId, // aka projects for now 4/7/2022
-    ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM domains where project_id = $1";
-        let results: Vec<Self> = sqlx::query_as(query)
-            .bind(vpc_id)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(results)
-    }
-
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: &str,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM domains WHERE name= $1 and deleted is NULL";
-        sqlx::query_as(query)
-            .bind(name)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        Self::find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
     }
+
+    /// Find the domain with the given ID, even if it is deleted.
     pub async fn find_by_uuid(
         txn: &mut Transaction<'_, Postgres>,
         uuid: DomainId,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM domains WHERE id = $1::uuid";
-        sqlx::query_as(query)
-            .bind(uuid)
-            .fetch_optional(txn.deref_mut())
+        Self::find_all_by(txn, ObjectColumnFilter::One(IdColumn, &uuid), true)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map(|f| f.first().cloned())
     }
 
     pub async fn delete(

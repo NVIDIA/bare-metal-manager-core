@@ -13,13 +13,12 @@
 use config_version::ConfigVersion;
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::db::ObjectColumnFilter;
 use crate::{
     cfg::HardwareHealthReportsConfig,
     db::{
         self,
-        ib_partition::{
-            self, IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
-        },
+        ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         managed_host::LoadSnapshotOptions,
@@ -294,9 +293,9 @@ pub async fn tenant_consistent_check(
     ib_config: &InstanceInfinibandConfig,
 ) -> CarbideResult<()> {
     for ib_instance_config in ib_config.ib_interfaces.iter() {
-        let ib_partitions = IBPartition::find(
+        let ib_partitions = IBPartition::find_by(
             txn,
-            IBPartitionIdKeyedObjectFilter::One(ib_instance_config.ib_partition_id),
+            ObjectColumnFilter::One(ib_partition::IdColumn, &ib_instance_config.ib_partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;

@@ -18,18 +18,8 @@ use std::str::FromStr;
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
+use crate::db::{network_prefix, ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use ::rpc::forge as rpc;
-use ::rpc::protos::forge::TenantState;
-use chrono::prelude::*;
-use config_version::{ConfigVersion, Versioned};
-use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
-use futures::StreamExt;
-use ipnetwork::IpNetwork;
-use itertools::Itertools;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
-
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{state_sla, NetworkDefinition, NetworkDefinitionSegmentType};
 use crate::{
@@ -44,23 +34,29 @@ use crate::{
 };
 use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::forge as rpc;
+use ::rpc::protos::forge::TenantState;
+use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
+use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
+use futures::StreamExt;
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 const DEFAULT_MTU_TENANT: i32 = 9000;
 const DEFAULT_MTU_OTHER: i32 = 1500;
 
-///
-/// A parameter to find() to filter resources by NetworkSegmentId;
-///
-#[derive(Clone)]
-pub enum NetworkSegmentIdKeyedObjectFilter<'a> {
-    /// Don't filter by NetworkSegmentId
-    All,
+#[derive(Copy, Clone)]
+pub struct IdColumn;
+impl ColumnInfo<'_> for IdColumn {
+    type TableType = NetworkSegment;
+    type ColumnType = NetworkSegmentId;
 
-    /// Filter by a list of NetworkSegmentIds
-    List(&'a [NetworkSegmentId]),
-
-    /// Retrieve a single resource
-    One(NetworkSegmentId),
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -510,36 +506,19 @@ impl NetworkSegment {
         Ok(ids)
     }
 
-    pub async fn find(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: NetworkSegmentIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
         search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let base_query = "SELECT * FROM network_segments {where}".to_owned();
+        let mut query =
+            FilterableQueryBuilder::new("SELECT * FROM network_segments").filter(&filter);
 
-        let mut all_records: Vec<NetworkSegment> = match filter {
-            NetworkSegmentIdKeyedObjectFilter::All => {
-                sqlx::query_as(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments All", e))?
-            }
-
-            NetworkSegmentIdKeyedObjectFilter::List(uuids) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"))
-                    .bind(uuids)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?
-            }
-            NetworkSegmentIdKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as(&base_query.replace("{where}", "WHERE network_segments.id=$1"))
-                    .bind(uuid)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments One", e))?
-            }
-        };
+        let mut all_records = query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
         Self::update_prefix_into_network_segment_list(txn, search_config, &mut all_records).await?;
         Ok(all_records)
@@ -557,9 +536,9 @@ impl NetworkSegment {
 
         // TODO(ajf): N+1 query alert.  Optimize later.
 
-        let mut grouped_prefixes = NetworkPrefix::find_by_segment(
+        let mut grouped_prefixes = NetworkPrefix::find_by(
             &mut *txn,
-            NetworkSegmentIdKeyedObjectFilter::List(&all_uuids),
+            ObjectColumnFilter::List(network_prefix::SegmentIdColumn, &all_uuids),
         )
         .await?
         .into_iter()

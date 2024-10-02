@@ -17,8 +17,8 @@ use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use super::{
-    machine_interface::MachineInterfaceIdKeyedObjectFilter, network_segment::NetworkSegmentType,
-    DatabaseError,
+    network_segment::NetworkSegmentType, ColumnInfo, DatabaseError, FilterableQueryBuilder,
+    ObjectColumnFilter,
 };
 use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
@@ -27,6 +27,17 @@ use forge_uuid::machine::MachineInterfaceId;
 pub struct MachineInterfaceAddress {
     pub interface_id: MachineInterfaceId,
     pub address: IpAddr,
+}
+
+#[derive(Clone, Copy)]
+pub struct MachineInterfaceIdColumn;
+impl ColumnInfo<'_> for MachineInterfaceIdColumn {
+    type TableType = MachineInterfaceAddress;
+    type ColumnType = MachineInterfaceId;
+
+    fn column_name(&self) -> &'static str {
+        "interface_id"
+    }
 }
 
 impl MachineInterfaceAddress {
@@ -50,46 +61,19 @@ impl MachineInterfaceAddress {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn find_for_interface(
+    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceAddress>>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: MachineInterfaceIdKeyedObjectFilter<'_>,
+        filter: ObjectColumnFilter<'a, C>,
     ) -> Result<HashMap<MachineInterfaceId, Vec<MachineInterfaceAddress>>, DatabaseError> {
-        let base_query = "SELECT * FROM machine_interface_addresses mia {where}".to_owned();
-
-        Ok(match filter {
-            MachineInterfaceIdKeyedObjectFilter::All => {
-                sqlx::query_as::<_, MachineInterfaceAddress>(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_interface_addresses All", e)
-                    })?
-            }
-            MachineInterfaceIdKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, MachineInterfaceAddress>(
-                    &base_query.replace("{where}", "WHERE mia.interface_id=$1"),
-                )
-                .bind(uuid)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_interface_addresses One", e)
-                })?
-            }
-            MachineInterfaceIdKeyedObjectFilter::List(list) => {
-                sqlx::query_as::<_, MachineInterfaceAddress>(
-                    &base_query.replace("{where}", "WHERE mia.interface_id=ANY($1)"),
-                )
-                .bind(list)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_interface_addresses List", e)
-                })?
-            }
-        }
-        .into_iter()
-        .into_group_map_by(|address| address.interface_id))
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM machine_interface_addresses")
+            .filter(&filter);
+        Ok(query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?
+            .into_iter()
+            .into_group_map_by(|address: &MachineInterfaceAddress| address.interface_id))
     }
 
     pub async fn find_by_address(

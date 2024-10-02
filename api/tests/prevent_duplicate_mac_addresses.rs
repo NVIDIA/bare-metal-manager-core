@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use carbide::db::{
-    self,
-    address_selection_strategy::AddressSelectionStrategy,
-    machine::Machine,
-    network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
+    self, address_selection_strategy::AddressSelectionStrategy, machine::Machine, network_segment,
+    network_segment::NetworkSegment, ObjectColumnFilter,
 };
 use carbide::model::machine::machine_id::from_hardware_info;
 use carbide::CarbideError;
@@ -39,9 +37,9 @@ async fn prevent_duplicate_mac_addresses(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = NetworkSegment::find(
+    let network_segment = NetworkSegment::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(*FIXTURE_NETWORK_SEGMENT_ID),
+        ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?

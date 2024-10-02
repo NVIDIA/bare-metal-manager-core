@@ -14,13 +14,14 @@ use carbide::{
         self,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
-        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
+        network_segment::NetworkSegment,
     },
     model::{hardware_info::HardwareInfo, machine::machine_id::from_hardware_info},
 };
 use forge_uuid::{domain::DomainId, machine::MachineId};
 
 pub mod common;
+use carbide::db::{network_segment, ObjectColumnFilter};
 use common::api_fixtures::{
     create_managed_host, create_test_env, host::create_host_hardware_info,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
@@ -48,9 +49,9 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let segment = NetworkSegment::find(
+    let segment = NetworkSegment::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(*FIXTURE_NETWORK_SEGMENT_ID),
+        ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await

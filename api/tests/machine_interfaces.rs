@@ -17,9 +17,9 @@ use carbide::{
         self,
         address_selection_strategy::AddressSelectionStrategy,
         dhcp_entry::DhcpEntry,
-        domain::{Domain, DomainIdKeyedObjectFilter},
+        domain::{self, Domain},
         machine::Machine,
-        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
+        network_segment::NetworkSegment,
     },
     model::machine::{
         machine_id::{from_hardware_info, try_parse_machine_id},
@@ -35,14 +35,14 @@ use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};
 use sqlx::{Connection, Postgres};
 
 pub mod common;
+use crate::common::api_fixtures::dpu::create_dpu_machine;
+use carbide::db::{network_segment, ObjectColumnFilter};
 use common::api_fixtures::{
     create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use tokio::sync::broadcast;
 use tonic::Code;
-
-use crate::common::api_fixtures::dpu::create_dpu_machine;
 
 #[ctor::ctor]
 fn setup() {
@@ -52,10 +52,10 @@ fn setup() {
 async fn get_fixture_network_segment(
     txn: &mut sqlx::Transaction<'_, Postgres>,
 ) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
-    carbide::db::network_segment::NetworkSegment::find(
+    network_segment::NetworkSegment::find_by(
         txn,
-        NetworkSegmentIdKeyedObjectFilter::One(*FIXTURE_NETWORK_SEGMENT_ID),
-        carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
+        ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
+        network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
     .pop()
@@ -201,7 +201,7 @@ async fn find_all_interfaces_test_cases(
     let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
+    let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
@@ -273,7 +273,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
+    let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let new_interface = db::machine_interface::create(
         &mut txn,
@@ -334,12 +334,13 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
-    let network = NetworkSegment::find(
+    let network = NetworkSegment::find_by(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(
-            NetworkSegmentId::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
+        ObjectColumnFilter::One(
+            network_segment::IdColumn,
+            &NetworkSegmentId::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
         ),
-        carbide::db::network_segment::NetworkSegmentSearchConfig {
+        network_segment::NetworkSegmentSearchConfig {
             include_history: false,
             include_num_free_ips: false,
         },

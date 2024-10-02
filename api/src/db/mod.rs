@@ -47,26 +47,12 @@ pub mod storage;
 pub mod tenant;
 pub mod vpc;
 
+use sqlx::Postgres;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 // Max values we can bind to a Postgres SQL statement;
 pub const BIND_LIMIT: usize = 65535;
-
-///
-/// A parameter to find() to filter resources by Uuid;
-///
-#[derive(Clone)]
-pub enum UuidKeyedObjectFilter<'a> {
-    /// Don't filter by uuid
-    All,
-
-    /// Filter by a list of uuids
-    List(&'a [uuid::Uuid]),
-
-    /// Retrieve a single resource
-    One(uuid::Uuid),
-}
 
 /// A parameter to find() to filter resources based on an implied ID column
 pub enum ObjectFilter<'a, ID> {
@@ -83,7 +69,8 @@ pub enum ObjectFilter<'a, ID> {
 }
 
 /// A parameter to find_by() to filter resources based on a specified column
-pub enum ObjectColumnFilter<'a, C: ColumnInfo<ColumnType = T>, T> {
+#[derive(Clone)]
+pub enum ObjectColumnFilter<'a, C: ColumnInfo<'a>> {
     /// Don't filter. Return all objects
     All,
 
@@ -92,15 +79,147 @@ pub enum ObjectColumnFilter<'a, C: ColumnInfo<ColumnType = T>, T> {
     /// The filter will return any objects where the value of the column C is
     /// included in this list [T]. If the list is empty, the filter will return no
     /// objects.
-    List(C, &'a [T]),
+    List(C, &'a [C::ColumnType]),
 
     /// Retrieve a single object where the value of the column C is equal to T
-    One(C, T),
+    One(C, &'a C::ColumnType),
 }
 
-pub trait ColumnInfo: Clone {
-    type ColumnType: sqlx::Type<sqlx::Postgres>;
-    fn column_name(&self) -> String;
+/// Newtype wrapper around sqlx::QueryBuilder that allows passing an ObjectColumnFilter to build the WHERE clause
+pub struct FilterableQueryBuilder<'q>(sqlx::QueryBuilder<'q, Postgres>);
+
+impl<'q> FilterableQueryBuilder<'q> {
+    pub fn new(init: impl Into<String>) -> Self {
+        FilterableQueryBuilder(sqlx::QueryBuilder::new(init))
+    }
+
+    /// Push a WHERE clause to this query builder that matches the given filter, optionally using
+    /// the given relation to qualify the column names
+    ///
+    /// Example:
+    ///
+    /// ```
+    /// use carbide::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct IdColumn;
+    /// impl ColumnInfo<'_> for IdColumn {
+    ///     type TableType = ();
+    ///     type ColumnType = i32;
+    ///     fn column_name(&self) -> &'static str { "id" }
+    /// }
+    ///
+    /// let query = FilterableQueryBuilder::new("SELECT * from table1 t")
+    ///     .filter_relation(&ObjectColumnFilter::One(IdColumn, &1), Some("t"));
+    /// assert_eq!(query.sql(), "SELECT * from table1 t WHERE t.id=$1");
+    /// ```
+    pub fn filter_relation<'a, C: ColumnInfo<'q>>(
+        mut self,
+        filter: &ObjectColumnFilter<'q, C>,
+        relation: Option<&str>,
+    ) -> sqlx::QueryBuilder<'q, Postgres> {
+        match filter {
+            ObjectColumnFilter::All => self.0.push(" WHERE true".to_string()),
+            ObjectColumnFilter::List(column, list) => {
+                if let Some(relation) = relation {
+                    self.0
+                        .push(format!(" WHERE {}.{}=ANY(", relation, column.column_name()))
+                        .push_bind(*list)
+                        .push(")")
+                } else {
+                    self.0
+                        .push(format!(" WHERE {}=ANY(", column.column_name()))
+                        .push_bind(*list)
+                        .push(")")
+                }
+            }
+            ObjectColumnFilter::One(column, id) => {
+                if let Some(relation) = relation {
+                    self.0
+                        .push(format!(" WHERE {}.{}=", relation, column.column_name()))
+                        .push_bind(*id)
+                } else {
+                    self.0
+                        .push(format!(" WHERE {}=", column.column_name()))
+                        .push_bind(*id)
+                }
+            }
+        };
+
+        self.0
+    }
+
+    /// Push a WHERE clause to this query builder that matches the given filter.
+    ///
+    /// Example:
+    ///
+    /// ```
+    /// use carbide::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct IdColumn;
+    /// impl ColumnInfo<'_> for IdColumn {
+    ///     type TableType = ();
+    ///     type ColumnType = i32;
+    ///     fn column_name(&self) -> &'static str { "id" }
+    /// }
+    ///
+    /// let query = FilterableQueryBuilder::new("SELECT * from table1")
+    ///     .filter(&ObjectColumnFilter::One(IdColumn, &1));
+    /// assert_eq!(query.sql(), "SELECT * from table1 WHERE id=$1");
+    /// ```
+    pub fn filter<'a, C: ColumnInfo<'q>>(
+        self,
+        filter: &ObjectColumnFilter<'q, C>,
+    ) -> sqlx::QueryBuilder<'q, Postgres> {
+        self.filter_relation(filter, None)
+    }
+}
+
+/// Metadata about a particular column that can be filtered by in a typical `find_by` function
+///
+/// This conveys metadata such as the name of the column and the type of data it returns, so that we
+/// can write generic functions to build SQL queries from given search criteria, while maintaining
+/// type safety.
+pub trait ColumnInfo<'a>: Clone + Copy {
+    /// TableType has no requirements, it is here to allow `find_by` functions to constrain what
+    /// columns can be searched by, via type bounds. For example, this will fail to compile:
+    ///
+    /// ```compile_fail,E0271
+    /// use carbide::db::{ColumnInfo, ObjectColumnFilter};
+    ///
+    /// struct GoodTable; // Marker type, can be otherwise unused
+    /// struct BadTable; // Marker type, can be otherwise unused
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct GoodColumn;
+    /// impl <'a> ColumnInfo<'a> for GoodColumn {
+    ///     type TableType = GoodTable;
+    ///     type ColumnType = &'a str;
+    ///     fn column_name(&self) -> &'static str { "id" }
+    /// }
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct BadColumn;
+    /// impl <'a> ColumnInfo<'a> for BadColumn {
+    ///     type TableType = BadTable;
+    ///     type ColumnType = &'a str;
+    ///     fn column_name(&self) -> &'static str { "id" }
+    /// }
+    ///
+    /// fn find_by<'a, C: ColumnInfo<'a, TableType=GoodTable>>(
+    ///     filter: ObjectColumnFilter<'a, C>
+    /// ) {}
+    ///
+    /// find_by(ObjectColumnFilter::One(BadColumn, &"hello")) // error[E0271]: type mismatch resolving `<BadColumn as ColumnInfo<'_>>::TableType == GoodTable`
+    /// ```
+    type TableType;
+    type ColumnType: sqlx::Type<sqlx::Postgres>
+        + Send
+        + Sync
+        + sqlx::Encode<'a, sqlx::Postgres>
+        + sqlx::postgres::PgHasArrayType;
+    fn column_name(&self) -> &'static str;
 }
 
 ///
@@ -110,21 +229,16 @@ pub trait ColumnInfo: Clone {
 pub struct DatabaseError {
     file: &'static str,
     line: u32,
-    query: &'static str,
+    query: String,
     pub source: sqlx::Error,
 }
 
 impl DatabaseError {
-    pub fn new(
-        file: &'static str,
-        line: u32,
-        query: &'static str,
-        source: sqlx::Error,
-    ) -> DatabaseError {
+    pub fn new(file: &'static str, line: u32, query: &str, source: sqlx::Error) -> DatabaseError {
         DatabaseError {
             file,
             line,
-            query,
+            query: query.to_string(),
             source,
         }
     }

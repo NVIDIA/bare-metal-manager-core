@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
@@ -18,13 +18,13 @@ use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use super::DatabaseError;
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
-    UuidKeyedObjectFilter,
+    ColumnInfo, FilterableQueryBuilder,
 };
+use super::{network_segment, DatabaseError, ObjectColumnFilter};
 
-use crate::db::network_segment::{NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig};
+use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
@@ -40,6 +40,28 @@ pub struct InstanceAddress {
     pub circuit_id: String,
     pub address: IpAddr,
     pub prefix: IpNetwork,
+}
+
+#[derive(Copy, Clone)]
+pub struct InstanceIdColumn;
+impl ColumnInfo<'_> for crate::db::instance_address::InstanceIdColumn {
+    type TableType = InstanceAddress;
+    type ColumnType = InstanceId;
+
+    fn column_name(&self) -> &'static str {
+        "instance_id"
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct PrefixColumn;
+impl ColumnInfo<'_> for PrefixColumn {
+    type TableType = InstanceAddress;
+    type ColumnType = IpNetwork;
+
+    fn column_name(&self) -> &'static str {
+        "prefix"
+    }
 }
 
 impl InstanceAddress {
@@ -67,46 +89,14 @@ impl InstanceAddress {
         txn: &mut Transaction<'_, Postgres>,
         prefix: IpNetwork,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM instance_addresses WHERE prefix = $1::cidr";
-        sqlx::query_as(query)
-            .bind(prefix)
+        let mut query = FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
+            .filter(&ObjectColumnFilter::One(PrefixColumn, &prefix));
+
+        query
+            .build_query_as()
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_for_instance(
-        txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
-    ) -> Result<HashMap<InstanceId, Vec<InstanceAddress>>, DatabaseError> {
-        let base_query = "SELECT * FROM instance_addresses isa {where}".to_owned();
-
-        Ok(match filter {
-            UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, InstanceAddress>(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "instance_addresses All", e)
-                    })?
-            }
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, InstanceAddress>(
-                &base_query.replace("{where}", "WHERE isa.instance_id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses One", e))?,
-            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, InstanceAddress>(
-                &base_query.replace("{where}", "WHERE isa.instance_id=ANY($1)"),
-            )
-            .bind(list)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses List", e))?,
-        }
-        .into_iter()
-        .into_group_map_by(|address| address.instance_id))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn delete(
@@ -203,9 +193,10 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "begin", e)))?;
 
-        let segments = NetworkSegment::find(
+        let segments = NetworkSegment::find_by(
             &mut inner_txn,
-            NetworkSegmentIdKeyedObjectFilter::List(
+            ObjectColumnFilter::List(
+                network_segment::IdColumn,
                 &updated_config
                     .interfaces
                     .iter()
@@ -422,6 +413,7 @@ mod tests {
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use forge_uuid::vpc::VpcId;
+    use std::collections::HashMap;
     use std::str::FromStr;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {

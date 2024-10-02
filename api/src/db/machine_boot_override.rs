@@ -14,6 +14,7 @@ use std::ops::DerefMut;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::str::FromStr;
 
+use crate::db::FilterableQueryBuilder;
 use crate::{
     db::{ColumnInfo, DatabaseError, ObjectColumnFilter},
     CarbideError, CarbideResult,
@@ -30,12 +31,13 @@ pub struct MachineBootOverride {
     pub custom_user_data: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct MachineInterfaceIdColumn;
-impl ColumnInfo for MachineInterfaceIdColumn {
+impl ColumnInfo<'_> for MachineInterfaceIdColumn {
+    type TableType = MachineBootOverride;
     type ColumnType = MachineInterfaceId;
-    fn column_name(&self) -> String {
-        "machine_interface_id".to_string()
+    fn column_name(&self) -> &'static str {
+        "machine_interface_id"
     }
 }
 
@@ -155,7 +157,7 @@ impl MachineBootOverride {
     ) -> CarbideResult<Option<MachineBootOverride>> {
         let mut interfaces = MachineBootOverride::find_by(
             txn,
-            ObjectColumnFilter::One(MachineInterfaceIdColumn, machine_interface_id),
+            ObjectColumnFilter::One(MachineInterfaceIdColumn, &machine_interface_id),
         )
         .await
         .map_err(CarbideError::from)?;
@@ -168,56 +170,17 @@ impl MachineBootOverride {
         }
     }
 
-    async fn find_by<'a, C, T>(
+    async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineBootOverride>>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectColumnFilter<'a, C, T>,
-    ) -> Result<Vec<MachineBootOverride>, DatabaseError>
-    where
-        C: ColumnInfo<ColumnType = T>,
-        T: sqlx::Type<sqlx::Postgres>
-            + Send
-            + Sync
-            + sqlx::Encode<'a, sqlx::Postgres>
-            + sqlx::postgres::PgHasArrayType
-            + Clone,
-    {
-        let mut base_query = sqlx::QueryBuilder::new("SELECT * FROM machine_boot_override pxe");
+        filter: ObjectColumnFilter<'a, C>,
+    ) -> Result<Vec<MachineBootOverride>, DatabaseError> {
+        let mut query =
+            FilterableQueryBuilder::new("SELECT * FROM machine_boot_override").filter(&filter);
 
-        let custom_pxes = match filter {
-            ObjectColumnFilter::All => base_query
-                .build_query_as()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_boot_override All", e)
-                })?,
-            ObjectColumnFilter::One(column, id) => base_query
-                .push(format!(" WHERE pxe.{}=", column.column_name()))
-                .push_bind(id)
-                .build_query_as()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_boot_override One", e)
-                })?,
-            ObjectColumnFilter::List(column, list) => {
-                if list.is_empty() {
-                    return Ok(Vec::new());
-                }
-
-                base_query
-                    .push(format!(" WHERE pxe.{} = ANY(", column.column_name()))
-                    .push_bind(list)
-                    .push(")")
-                    .build_query_as()
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_boot_override List", e)
-                    })?
-            }
-        };
-
-        Ok(custom_pxes)
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 }

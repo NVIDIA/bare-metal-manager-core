@@ -14,10 +14,8 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
-use crate::db::ib_partition::{
-    IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig, NewIBPartition,
-};
-use crate::db::DatabaseError;
+use crate::db::ib_partition::{self, IBPartition, IBPartitionSearchConfig, NewIBPartition};
+use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::infiniband::IBPartitionId;
@@ -144,9 +142,9 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = IBPartition::find(
+    let partitions = IBPartition::find_by(
         &mut txn,
-        IBPartitionIdKeyedObjectFilter::List(&partition_ids),
+        ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
         IBPartitionSearchConfig { include_history },
     )
     .await
@@ -181,9 +179,10 @@ pub(crate) async fn find(
         id, search_config, ..
     } = request.into_inner();
 
+    let mut binding = None;
     let uuid_filter = match id {
         Some(id) => match IBPartitionId::try_from(id) {
-            Ok(uuid) => IBPartitionIdKeyedObjectFilter::One(uuid),
+            Ok(uuid) => ObjectColumnFilter::One(ib_partition::IdColumn, binding.insert(uuid)),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
                     "Supplied invalid UUID: {}",
@@ -191,13 +190,13 @@ pub(crate) async fn find(
                 )));
             }
         },
-        None => IBPartitionIdKeyedObjectFilter::All,
+        None => ObjectColumnFilter::All,
     };
 
     let search_config = search_config
         .map(IBPartitionSearchConfig::from)
         .unwrap_or(IBPartitionSearchConfig::default());
-    let results = IBPartition::find(&mut txn, uuid_filter, search_config)
+    let results = IBPartition::find_by(&mut txn, uuid_filter, search_config)
         .await
         .map_err(CarbideError::from)?;
     let mut ib_partitions = Vec::with_capacity(results.len());
@@ -227,9 +226,9 @@ pub(crate) async fn delete(
 
     let uuid = IBPartitionId::from_grpc(id)?;
 
-    let mut segments = IBPartition::find(
+    let mut segments = IBPartition::find_by(
         &mut txn,
-        IBPartitionIdKeyedObjectFilter::One(uuid),
+        ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
         IBPartitionSearchConfig::default(),
     )
     .await
