@@ -18,10 +18,14 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
-    model::task::{Task, TaskState},
+    model::{
+        task::{Task, TaskState},
+        update_service::ComponentType,
+    },
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
 use tokio::{fs::File, sync::Semaphore};
@@ -65,7 +69,6 @@ use crate::{
         },
     },
 };
-use forge_uuid::machine::MachineId;
 
 mod ib;
 mod storage;
@@ -1280,6 +1283,7 @@ impl MachineStateHandler {
                 to_install.get_filename().as_path(),
                 true,
                 std::time::Duration::from_secs(120),
+                ComponentType::Unknown,
             )
             .await
         {

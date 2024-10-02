@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::SystemTime;
+
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
 use health_report::{
@@ -31,9 +35,6 @@ use opentelemetry_sdk::metrics::MeterProvider;
 use report::HealthCheck;
 use rpc::forge_tls_client::ForgeClientT;
 use sha2::{Digest, Sha256};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::SystemTime;
 
 use crate::HealthError;
 
@@ -165,8 +166,11 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
             Some(fan_name) => fan_name.replace(' ', "_"),
             None => continue,
         };
+        let Some(reading) = fan.reading else {
+            continue;
+        };
         fan_sensors.observe(
-            fan.reading,
+            reading,
             &[
                 KeyValue::new("hw.id", sensor_name),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
