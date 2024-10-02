@@ -157,6 +157,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuDiscoveringState::DisableSecureBoot { .. } => "disablesecureboot",
                 DpuDiscoveringState::SetUefiHttpBoot { .. } => "setuefihttpboot",
                 DpuDiscoveringState::RebootAllDPUS => "rebootalldpus",
+                DpuDiscoveringState::EnableRshim => "enablershim",
             }
         }
 

@@ -951,6 +951,7 @@ pub enum DpuDiscoveringState {
         count: u32,
     },
     SetUefiHttpBoot,
+    EnableRshim,
 }
 
 impl DpuDiscoveringState {
@@ -1749,7 +1750,8 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
                 | DpuDiscoveringState::Configuring
                 | DpuDiscoveringState::DisableSecureBoot { .. }
                 | DpuDiscoveringState::SetUefiHttpBoot
-                | DpuDiscoveringState::RebootAllDPUS => StateSla::with_sla(
+                | DpuDiscoveringState::RebootAllDPUS
+                | DpuDiscoveringState::EnableRshim => StateSla::with_sla(
                     std::time::Duration::from_secs(slas::DPUDISCOVERING),
                     time_in_state,
                 ),

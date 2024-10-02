@@ -1901,6 +1901,25 @@ async fn test_site_explorer_creates_managed_host(
             dpu_states: carbide::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id().clone(),
+                    DpuDiscoveringState::EnableRshim,
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
                     DpuDiscoveringState::DisableSecureBoot { count: 0 },
                 )]),
             },

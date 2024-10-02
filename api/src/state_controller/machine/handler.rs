@@ -2655,6 +2655,35 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuDiscoveringState::Configuring => {
+                let next_state = DpuDiscoveringState::EnableRshim
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+                Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            DpuDiscoveringState::EnableRshim => {
+                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
+                    dpu_snapshot.bmc_addr(),
+                    &ctx.services.redfish_client_pool,
+                    txn,
+                )
+                .await;
+
+                let dpu_redfish_client = match dpu_redfish_client_result {
+                    Ok(redfish_client) => redfish_client,
+                    Err(e) => {
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for RedFish to become available: {:?}",
+                            e
+                        )))
+                    }
+                };
+
+                dpu_redfish_client.enable_rshim_bmc().await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "enable_rshim_bmc",
+                        error: e,
+                    }
+                })?;
+
                 let next_state = DpuDiscoveringState::DisableSecureBoot { count: 0 }
                     .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
