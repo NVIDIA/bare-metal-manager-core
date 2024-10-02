@@ -4,9 +4,17 @@
 
 ### Added
 
+- Hardware Health Monitor now emits a histogram metric `forge_hardware_health_monitor_iteration_latency_millisecons_sum`/`_count`. The metric tracks the time it takes to perform one health iteration.
+
 ### Changed
 
+- The following hardware health monitor metrics have been renamed and their types had been changed from Gauge to Histograms:
+  - `api_findmachines_latency` => `forge_hardware_health_findmachines_latency_milliseconds_sum`/`_count`
+  - `api.getbmcmetadata.latency` => `forge_hardware_health_getbmcmetadata_latency_milliseconds_sum`/`_count`
+
 ### Fixed
+
+- Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes https://nvbugspro.nvidia.com/bug/4890909)
 
 ### Removed
 

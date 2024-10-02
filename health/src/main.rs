@@ -29,8 +29,7 @@ use hyper::{
 };
 use opentelemetry::global::{logger_provider, GlobalLoggerProvider, ObjectSafeLoggerProvider};
 use opentelemetry::logs::LogError;
-use opentelemetry::metrics::ObservableGauge;
-use opentelemetry::metrics::{MeterProvider as _, Unit};
+use opentelemetry::metrics::{Histogram, MeterProvider as _, Unit};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::MeterProvider;
 use prometheus::{Encoder, TextEncoder};
@@ -142,10 +141,7 @@ async fn create_forge_client(
     Ok(client)
 }
 
-pub async fn get_machines(
-    client: &mut ForgeClientT,
-    gauge: &ObservableGauge<i64>,
-) -> Result<rpc::MachineList, HealthError> {
+pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList, HealthError> {
     let request = tonic::Request::new(rpc::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
@@ -153,7 +149,6 @@ pub async fn get_machines(
         only_maintenance: false,
         exclude_hosts: false,
     });
-    let begin_ts: DateTime<Utc> = Utc::now();
     let machine_ids = client
         .find_machine_ids(request)
         .await
@@ -174,32 +169,28 @@ pub async fn get_machines(
             .map_err(HealthError::ApiInvocationError)?;
         all_machines.machines.extend(machines.machines);
     }
-    let end_ts: DateTime<Utc> = Utc::now();
-    let elapsed = end_ts.timestamp_micros() - begin_ts.timestamp_micros();
-    gauge.observe(elapsed, &[]);
 
     Ok(all_machines)
 }
 
-pub async fn get_machine(
+pub async fn get_machine_bmc_data(
     client: &mut ForgeClientT,
     id: &MachineId,
-    gauge: &ObservableGauge<i64>,
+    histogram: &Histogram<f64>,
 ) -> Result<libredfish::Endpoint, HealthError> {
     let request = tonic::Request::new(rpc::BmcMetaDataGetRequest {
         machine_id: Some(id.clone()),
         role: rpc::UserRoles::Administrator.into(),
         request_type: rpc::BmcRequestType::Ipmi.into(),
     });
-    let begin_ts: DateTime<Utc> = Utc::now();
+    let start_time = std::time::Instant::now();
     let response = client
         .get_bmc_meta_data(request)
         .await
         .map(|response| response.into_inner())
-        .map_err(HealthError::ApiInvocationError)?;
-    let end_ts: DateTime<Utc> = Utc::now();
-    let elapsed = end_ts.timestamp_micros() - begin_ts.timestamp_micros();
-    gauge.observe(elapsed, &[]);
+        .map_err(HealthError::ApiInvocationError);
+    histogram.record(1000.0 * start_time.elapsed().as_secs_f64(), &[]);
+    let response = response?;
 
     let endpoint = libredfish::Endpoint {
         host: response.ip,
@@ -282,19 +273,33 @@ pub async fn scrape_machines_health(
 
     // build a meter for carbide api response time
     let api_meter = provider.meter("api-server-client".to_string());
-    let api_gauge_1 = api_meter
-        .i64_observable_gauge("api.findmachines.latency")
+    let find_machines_latency_histogram = api_meter
+        .f64_histogram("forge_hardware_health_findmachines_latency")
         .with_description("api server response time for FindMachines")
-        .with_unit(Unit::new("microseconds"))
+        .with_unit(Unit::new("ms"))
         .init();
-    let api_gauge_2 = api_meter
-        .i64_observable_gauge("api.getbmcmetadata.latency")
+    let get_bmc_metadata_latency_histogram = api_meter
+        .f64_histogram("forge_hardware_health_getbmcmetadata_latency")
         .with_description("api server response time for GetBMCMetaData")
-        .with_unit(Unit::new("microseconds"))
+        .with_unit(Unit::new("ms"))
         .init();
-
+    let iteration_latency_histogram = api_meter
+        .f64_histogram("forge_hardware_health_monitor_iteration_latency")
+        .with_description("The time it took to perform one hardware health monitor iteration")
+        .with_unit(Unit::new("ms"))
+        .init();
     loop {
-        let machines: rpc::MachineList = get_machines(&mut grpc_client, &api_gauge_1).await?;
+        let loop_start = std::time::Instant::now();
+        let get_machines_result = get_machines(&mut grpc_client).await;
+        find_machines_latency_histogram.record(1000.0 * loop_start.elapsed().as_secs_f64(), &[]);
+        let machines = match get_machines_result {
+            Ok(machines) => machines,
+            Err(e) => {
+                tracing::error!("Failed to fetch Machine list: {e}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                continue;
+            }
+        };
 
         // Only keep active machines in machines_hash
         let active_ids: HashSet<String> = machines
@@ -358,7 +363,13 @@ pub async fn scrape_machines_health(
 
             if health_data.host.is_empty() {
                 // initial empty hash, get host bmc creds from api-server
-                let endpoint = match get_machine(&mut grpc_client, id, &api_gauge_2).await {
+                let endpoint = match get_machine_bmc_data(
+                    &mut grpc_client,
+                    id,
+                    &get_bmc_metadata_latency_histogram,
+                )
+                .await
+                {
                     Ok(x) => {
                         health_data.last_host_error_ts = 0;
                         health_data.host_error_count = 0;
@@ -415,21 +426,26 @@ pub async fn scrape_machines_health(
                     attached_dpu_machine_id_for_primary_interface(&machine),
                     scrape_dpu,
                 ) {
-                    let dpu_endpoint =
-                        match get_machine(&mut grpc_client, dpu_id, &api_gauge_2).await {
-                            Ok(x) => {
-                                health_data.last_dpu_error_ts = 0;
-                                health_data.dpu_error_count = 0;
-                                Some(x)
-                            }
-                            Err(e) => {
-                                error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
-                                let now: DateTime<Utc> = Utc::now();
-                                health_data.last_dpu_error_ts = now.timestamp();
-                                health_data.dpu_error_count += 1;
-                                None
-                            }
-                        };
+                    let dpu_endpoint = match get_machine_bmc_data(
+                        &mut grpc_client,
+                        dpu_id,
+                        &get_bmc_metadata_latency_histogram,
+                    )
+                    .await
+                    {
+                        Ok(x) => {
+                            health_data.last_dpu_error_ts = 0;
+                            health_data.dpu_error_count = 0;
+                            Some(x)
+                        }
+                        Err(e) => {
+                            error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
+                            let now: DateTime<Utc> = Utc::now();
+                            health_data.last_dpu_error_ts = now.timestamp();
+                            health_data.dpu_error_count += 1;
+                            None
+                        }
+                    };
                     if let Some(dpu_endpoint) = dpu_endpoint {
                         health_data.dpu = dpu_endpoint.host.clone();
                         health_data.dpu_port = dpu_endpoint.port.unwrap_or(0);
@@ -489,6 +505,9 @@ pub async fn scrape_machines_health(
                 }
             };
         }
+
+        let elapsed = loop_start.elapsed();
+        iteration_latency_histogram.record(1000.0 * elapsed.as_secs_f64(), &[]);
 
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
