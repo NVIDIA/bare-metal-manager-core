@@ -867,6 +867,7 @@ async fn initiate_update(
             to_install.get_filename().as_path(),
             true,
             Duration::from_secs(120),
+            (*firmware_type).into(),
         )
         .await
     {

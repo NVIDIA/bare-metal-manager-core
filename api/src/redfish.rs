@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    db::{self, machine::Machine},
-    ipmitool::IPMITool,
-    model::machine::MachineSnapshot,
-    CarbideError, CarbideResult,
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::Path,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use forge_secrets::credentials::{
@@ -28,23 +31,22 @@ use libredfish::{
         sensor::GPUSensors,
         service_root::ServiceRoot,
         task::Task,
-        update_service::{TransferProtocolType, UpdateService},
+        update_service::{ComponentType, TransferProtocolType, UpdateService},
         ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::Path,
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
 use tokio::time;
 use utils::HostPortPair;
+
+use crate::{
+    db::{self, machine::Machine},
+    ipmitool::IPMITool,
+    model::machine::MachineSnapshot,
+    CarbideError, CarbideResult,
+};
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 
@@ -991,6 +993,7 @@ impl Redfish for RedfishSimClient {
         _filename: &Path,
         _reboot: bool,
         _timeout: Duration,
+        _component_type: ComponentType,
     ) -> Result<String, RedfishError> {
         // Simulate it taking a bit of time to upload
         time::sleep(Duration::from_secs(4)).await;

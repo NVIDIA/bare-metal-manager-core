@@ -10,10 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
-use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
-use crate::state_controller::config::IterationConfig;
-use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
+use std::ffi::OsStr;
+use std::ops::Deref;
+use std::{
+    cmp::Ordering, collections::HashMap, fmt, fmt::Display, fs, net::SocketAddr, path::PathBuf,
+    sync::Arc, time::SystemTime,
+};
+
 use arc_swap::ArcSwap;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -21,13 +24,12 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::ffi::OsStr;
-use std::ops::Deref;
-use std::{
-    cmp::Ordering, collections::HashMap, fmt, fmt::Display, fs, net::SocketAddr, path::PathBuf,
-    sync::Arc, time::SystemTime,
-};
 use utils::HostPortPair;
+
+use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
+use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use crate::state_controller::config::IterationConfig;
+use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
@@ -842,6 +844,19 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::Cec => write!(f, "CEC"),
             FirmwareComponentType::Bfb => write!(f, "BFB"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl From<FirmwareComponentType> for libredfish::model::update_service::ComponentType {
+    fn from(fct: FirmwareComponentType) -> libredfish::model::update_service::ComponentType {
+        use libredfish::model::update_service::ComponentType;
+        match fct {
+            FirmwareComponentType::Bmc => ComponentType::BMC,
+            FirmwareComponentType::Uefi => ComponentType::UEFI,
+            FirmwareComponentType::Cec => ComponentType::Unknown,
+            FirmwareComponentType::Bfb => ComponentType::Unknown,
+            FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }
 }
@@ -1903,7 +1918,7 @@ mod tests {
     model = "PowerEdge R750"
     ordering = ["uefi", "bmc"]
 
-    
+
     [components.uefi]
     current_version_reported_as = "^Installed-.*__BIOS.Setup."
     preingest_upgrade_when_below = "1.13.2"

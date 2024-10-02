@@ -17,6 +17,7 @@ use libredfish::{
     model::{
         software_inventory::SoftwareInventory,
         task::{Task, TaskState},
+        update_service::ComponentType,
         LinkStatus,
     },
     Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
@@ -280,6 +281,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     Path::new(&details.filename),
                     true,
                     Duration::from_secs(120),
+                    ComponentType::Unknown,
                 )
                 .await?;
             loop {
