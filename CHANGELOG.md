@@ -10,6 +10,10 @@
 
 ### Removed
 
+## [v2024.09.27-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc2-0...v2024.09.27-rc3-0)
+
+No user facing changes.
+
 ## [v2024.09.27-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...v2024.09.27-rc2-0)
 
 ### Changed
