@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use errors::MachineValidationError;
 use flate2::write::GzDecoder;
 use futures_util::StreamExt;
 use machine_validation::Suite;
@@ -22,6 +23,7 @@ use std::time::Duration;
 
 use std::io::Write;
 
+mod errors;
 mod machine_validation;
 
 pub const MACHINE_VALIDATION_SERVER: &str = "carbide-pxe.forge";
@@ -36,19 +38,7 @@ pub const MACHINE_VALIDATION_IMAGE_FILE: &str = "/tmp/machine_validation.tar";
 pub const MACHINE_VALIDATION_RUNNER_BASE_PATH: &str = "nvcr.io/nvidian/nvforge/";
 pub const MACHINE_VALIDATION_RUNNER_TAG: &str = "latest";
 pub const IMAGE_LIST_FILE: &str = "/tmp/list.json";
-#[derive(thiserror::Error, Debug)]
-pub enum MachineValidationError {
-    #[error("Machine Validation: {0}")]
-    Generic(String),
-    #[error("Unable to config read: {0}")]
-    ConfigFileRead(String),
-    #[error("Yaml parse error: {0}")]
-    Parse(String),
-    #[error("{0}: {1}")]
-    File(String, String),
-    #[error("Failed {0}: {1}")]
-    ApiClient(String, String),
-}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineValidationConfiguration {
     #[serde(rename = "ExternalConfigs")]

@@ -23,6 +23,7 @@ async-trait = "*"
 futures = { version = "0.3", default-features = false }
 forge-tls = { path = "../tls" }
 rpc = { path = "../../rpc" }
+utils = { path = "../../common/utils" }
 tonic = { workspace = true }
 chrono = { version = "0.4.34", features = ["serde"] }
 tracing = "0.1.40"

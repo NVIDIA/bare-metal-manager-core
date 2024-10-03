@@ -187,6 +187,10 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
                         key: "ValidationId".to_string(),
                         value: data.validataion_id.to_string(),
                     },
+                    KeyValuePair {
+                        key: "IsEnabled".to_string(),
+                        value: "true".to_string(),
+                    },
                 ]
                 .to_vec(),
             }),
