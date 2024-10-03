@@ -1698,9 +1698,21 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .unwrap()
         .into_inner();
     assert!(!network_config.use_admin_network);
+    assert_eq!(network_config.tenant_interfaces.len(), 2);
     assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.2.3");
     assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.3.3");
     assert_eq!(network_config.dpu_network_pinger_type, None);
+    // Ensure the VPC prefixes (which in this case are the two network segment
+    // IDs referenced above) are both associated with both interfaces.
+    let expected_vpc_prefixes = vec!["192.0.2.0/24".to_string(), "192.0.3.0/24".to_string()];
+    assert_eq!(
+        network_config.tenant_interfaces[0].vpc_prefixes,
+        expected_vpc_prefixes
+    );
+    assert_eq!(
+        network_config.tenant_interfaces[1].vpc_prefixes,
+        expected_vpc_prefixes
+    );
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
