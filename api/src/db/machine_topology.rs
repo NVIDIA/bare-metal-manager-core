@@ -10,8 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-use std::ops::DerefMut;
+use std::{collections::HashMap, net::IpAddr, ops::DerefMut};
 
 use chrono::prelude::*;
 use itertools::Itertools;
@@ -145,6 +144,35 @@ impl MachineTopology {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(res)
+    }
+
+    // update_firmware_version_by_bmc_address updates the stored firmware version info, using the BMC IP under the assumption that this came from site explorer reading from that address.
+    pub async fn update_firmware_version_by_bmc_address(
+        txn: &mut Transaction<'_, Postgres>,
+        bmc_address: &IpAddr,
+        bmc_version: &str,
+        bios_version: &str,
+    ) -> CarbideResult<()> {
+        // The IS NOT NULL checks that we're not partially creating stuff under an Option when adding a bios_version.  The firmware_version for the BMC gets implicitly checked when checking for the BMC IP.
+        let query = r#"UPDATE machine_topologies SET topology =
+                        jsonb_set(jsonb_set(topology, '{bmc_info}',
+                            jsonb_set(topology->'bmc_info', '{firmware_version}', $2)),
+                            '{discovery_data}',
+                                 jsonb_set(topology->'discovery_data', '{Info}',
+                                            jsonb_set(topology->'discovery_data'->'Info', '{dmi_data}',
+                                                        jsonb_set(topology->'discovery_data'->'Info'->'dmi_data', '{bios_version}', $3))
+                        )) WHERE topology->'bmc_info'->>'ip' = $1
+                                            AND topology->'discovery_data'->'Info'->'dmi_data'->'bios_version' IS NOT NULL;"#;
+
+        sqlx::query(query)
+            .bind(bmc_address.to_string())
+            .bind(sqlx::types::Json(bmc_version))
+            .bind(sqlx::types::Json(bios_version))
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        Ok(())
     }
 
     pub async fn find_by_machine_ids(

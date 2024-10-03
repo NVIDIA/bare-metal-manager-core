@@ -16,6 +16,7 @@
 ### Fixed
 
 - Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes <https://nvbugspro.nvidia.com/bug/4890909>)
+- Firmware versions stored in machine_topology now get updated when site explorer runs to fix [https://nvbugspro.nvidia.com/bug/4813183](https://nvbugspro.nvidia.com/bug/4813183).
 
 ### Removed
 
