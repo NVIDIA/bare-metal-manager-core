@@ -989,6 +989,13 @@ pub struct ForceDeleteMachineQuery {
         help = "Delete BMC credentials. Only applicable if site explorer has configured credentials for the BMCs associated with this managed host."
     )]
     pub delete_bmc_credentials: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
+    )]
+    pub allow_delete_with_instance: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
