@@ -831,6 +831,7 @@ pub enum FirmwareComponentType {
     Bmc,
     Cec,
     Uefi,
+    HGXBmc,
     #[serde(other)]
     #[default]
     Unknown,
@@ -843,6 +844,7 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::Uefi => write!(f, "UEFI"),
             FirmwareComponentType::Cec => write!(f, "CEC"),
             FirmwareComponentType::Bfb => write!(f, "BFB"),
+            FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
         }
     }
@@ -856,6 +858,7 @@ impl From<FirmwareComponentType> for libredfish::model::update_service::Componen
             FirmwareComponentType::Uefi => ComponentType::UEFI,
             FirmwareComponentType::Cec => ComponentType::Unknown,
             FirmwareComponentType::Bfb => ComponentType::Unknown,
+            FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }

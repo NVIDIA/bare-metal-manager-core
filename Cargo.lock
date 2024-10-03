@@ -3465,9 +3465,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.25.9"
+version = "0.25.10"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "f3b293611030319410c4e4fd4eb2ad996a70b7569216a614aa7b7ebc0cfa6408"
+checksum = "0ba809b6cbf098a8738d9be43ebd9d2fd7271f91e08c256bceea09036ec13049"
 dependencies = [
  "async-trait",
  "clap 4.5.4",
@@ -4873,7 +4873,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.12.1",
  "log",
  "multimap",

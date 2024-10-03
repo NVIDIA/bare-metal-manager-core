@@ -716,6 +716,19 @@ impl PreingestionManagerStatic {
             DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
             return Ok(());
         }
+        if *upgrade_type == FirmwareComponentType::HGXBmc {
+            // Needs a host power reset
+            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                tracing::error!("Failed to power off {}: {e}", &endpoint.address);
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                tracing::error!("Failed to power on {}: {e}", &endpoint.address);
+                return Ok(());
+            }
+            // Okay to proceed
+        }
 
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
         DbExploredEndpoint::set_preingestion_new_reported_wait(
