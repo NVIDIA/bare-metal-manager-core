@@ -123,27 +123,27 @@ dependencies = [
 [tasks.create-ephemeral-image-x86_64-ci]
 category = "Ephemeral Image"
 dependencies = [
-	"mkosi-clean-artifacts",
-	"copy-forge-scout-ci",
-	"copy-forge-prod-root-ca",
-	"mkosi-build-scout",
+	"mkosi-clean-qcow-imager",
+	"mkosi-clean-scout-x86_64",
+	"copy-forge-scout-ci-x86_64",
+	"copy-forge-prod-root-ca-x86_64",
+	"mkosi-build-scout-x86_64",
 	"mkosi-build-qcow-imager",
-	"mkosi-copy-qcow-imager-to-webroot",
-	"mkosi-copy-scout-to-webroot",
-
+	"mkosi-copy-qcow-imager-to-webroot-x86_64",
+	"mkosi-copy-scout-to-webroot-x86_64",
 ]
 
 [tasks.create-ephemeral-image-x86_64]
 category = "Ephemeral Image"
 dependencies = [
-	"mkosi-clean-artifacts",
-	"copy-forge-scout",
-	"copy-forge-dev-root-ca",
-	"mkosi-build-scout",
+	"mkosi-clean-qcow-imager",
+	"mkosi-clean-scout-x86_64",
+	"copy-forge-scout-x86_64",
+	"copy-forge-dev-root-ca-x86_64",
+	"mkosi-build-scout-x86_64",
 	"mkosi-build-qcow-imager",
-	"mkosi-copy-qcow-imager-to-webroot",
-	"mkosi-copy-scout-to-webroot",
-
+	"mkosi-copy-qcow-imager-to-webroot-x86_64",
+	"mkosi-copy-scout-to-webroot-x86_64",
 ]
 
 [tasks.cleanup-pxe-submodule]
@@ -172,38 +172,38 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 '''
 
-[tasks.copy-forge-prod-root-ca]
+[tasks.copy-forge-prod-root-ca-x86_64]
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
 	"-f",
 	"${FORGE_CA_PATH}",
-	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
+	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
-[tasks.copy-forge-dev-root-ca]
+[tasks.copy-forge-dev-root-ca-x86_64]
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
 	"-f",
 	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
+	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
-[tasks.copy-forge-scout]
+[tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/release/forge-scout",
-	"mkosi.profiles/scout/mkosi.extra/opt/forge/",
+	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
-[tasks.copy-forge-scout-ci]
+[tasks.copy-forge-scout-ci-x86_64]
 category = "Copy Forge Scout in CI"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/debug/forge-scout",
-	"mkosi.profiles/scout/mkosi.extra/opt/forge/",
+	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
 [tasks.mkosi-clean-artifacts]
@@ -221,21 +221,21 @@ args = [
 	"clean"
 ]
 
-[tasks.mkosi-clean-scout]
+[tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
-	"--profile", "scout",
+	"--profile", "scout-x86_64",
 	"clean"
 ]
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
-[tasks.mkosi-build-scout]
+[tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
 	"-c",
-    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout build"
+    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 build"
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -246,7 +246,7 @@ args = [
     "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager build"
 ]
 
-[tasks.mkosi-copy-qcow-imager-to-webroot]
+[tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
 args = [
@@ -257,7 +257,7 @@ dependencies = [
 	"mkdir-static-x86_64"
 ]
 
-[tasks.mkosi-copy-scout-to-webroot]
+[tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
 args = [
