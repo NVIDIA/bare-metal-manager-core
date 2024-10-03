@@ -17,6 +17,7 @@ use carbide::{
     db::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
+        machine_topology::MachineTopology,
         DatabaseError,
     },
     machine_update_manager::MachineUpdateManager,
@@ -587,6 +588,13 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         &mut txn,
     )
     .await?;
+    MachineTopology::update_firmware_version_by_bmc_address(
+        &mut txn,
+        &host.bmc_info().ip_addr().unwrap(),
+        "6.00.30.00",
+        "1.2.3",
+    )
+    .await?;
     txn.commit().await.unwrap();
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
@@ -659,6 +667,21 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
             .formatted_metric("forge_active_host_firmware_update_count")
             .unwrap(),
         "0"
+    );
+
+    // Validate update_firmware_version_by_bmc_address behavior
+    assert_eq!(
+        host.bmc_info().firmware_version,
+        Some("6.00.30.00".to_string())
+    );
+    assert_eq!(
+        host.hardware_info()
+            .unwrap()
+            .dmi_data
+            .clone()
+            .unwrap()
+            .bios_version,
+        "1.2.3".to_string()
     );
 
     Ok(())

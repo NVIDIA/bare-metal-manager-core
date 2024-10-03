@@ -231,12 +231,7 @@ impl DbExploredEndpoint {
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "explored_endpoints find_all_preingestion_complete",
-                    e,
-                )
+                DatabaseError::new(file!(), line!(), "explored_endpoints find_all_by_ip", e)
             })
     }
 

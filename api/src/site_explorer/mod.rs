@@ -27,7 +27,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::{FirmwareConfig, SiteExplorerConfig},
+    cfg::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
     db::{
         self,
         bmc_metadata::BmcMetaDataUpdateRequest,
@@ -1002,7 +1002,7 @@ impl SiteExplorer {
                         if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
                         {
                             report.parse_versions(&fw_info);
-                        } else {
+                            } else {
                             // It's possible that we knew about this host type before but do not now, so make sure we
                             // do not keep stale data.
                             report.versions = HashMap::default();
@@ -1058,6 +1058,21 @@ impl SiteExplorer {
 
                     if e.is_redfish() {
                         self.handle_redfish_error(endpoint.clone(), e).await;
+                    }
+                }
+            }
+
+            // Update possible stale machine versions
+            if let Ok(report) = &result {
+                if let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc) {
+                    if let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi) {
+                        MachineTopology::update_firmware_version_by_bmc_address(
+                            &mut txn,
+                            &address,
+                            bmc_version,
+                            uefi_version,
+                        )
+                        .await?;
                     }
                 }
             }
