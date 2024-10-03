@@ -406,6 +406,17 @@ pub async fn force_delete(
     let start = std::time::Instant::now();
     let mut dpu_machine_id = String::new();
 
+    if !rpc::get_instances_by_machine_id(api_config, query.machine.clone())
+        .await?
+        .instances
+        .is_empty()
+        && !query.allow_delete_with_instance
+    {
+        return Err(CarbideCliError::GenericError(
+            "Machine has an associated instance, use --allow-delete-with-instance to acknowledge that this machine should be deleted with an instance allocated".to_string(),
+        ));
+    }
+
     loop {
         let response = rpc::machine_admin_force_delete(query.clone(), api_config).await?;
         println!(
