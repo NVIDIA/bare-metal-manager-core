@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, ValueEnum};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
+use libredfish::model::update_service::ComponentType;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
@@ -745,6 +746,8 @@ pub struct BmcPassword {
 pub struct Multipart {
     #[clap(long, help = "Local filename for the firmware to be installed")]
     pub filename: String,
+    #[clap(long, help = "Firmware type, ignored by some platforms")]
+    pub component_type: Option<ComponentType>,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

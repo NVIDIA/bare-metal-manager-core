@@ -276,12 +276,16 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             println!("{:#?}", manager);
         }
         UpdateFirmwareMultipart(details) => {
+            let component_type = match details.component_type {
+                Some(x) => x,
+                None => ComponentType::Unknown,
+            };
             let taskid = redfish
                 .update_firmware_multipart(
                     Path::new(&details.filename),
                     true,
                     Duration::from_secs(120),
-                    ComponentType::Unknown,
+                    component_type,
                 )
                 .await?;
             loop {

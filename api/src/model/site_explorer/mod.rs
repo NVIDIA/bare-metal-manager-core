@@ -696,9 +696,7 @@ impl EndpointExplorationReport {
         match component {
             FirmwareComponentType::Bmc => self.dpu_bmc_version(),
             FirmwareComponentType::Uefi => self.dpu_uefi_version(),
-            FirmwareComponentType::Cec => None,
-            FirmwareComponentType::Bfb => None,
-            FirmwareComponentType::Unknown => None,
+            _ => None,
         }
     }
 

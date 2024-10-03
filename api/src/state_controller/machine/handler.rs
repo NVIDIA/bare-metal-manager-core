@@ -22,10 +22,7 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
-    model::{
-        task::{Task, TaskState},
-        update_service::ComponentType,
-    },
+    model::task::{Task, TaskState},
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
 use tokio::{fs::File, sync::Semaphore};
@@ -1148,6 +1145,7 @@ impl MachineStateHandler {
                         services,
                         &to_install,
                         &state.host_snapshot,
+                        &firmware_type,
                         txn,
                     )
                     .await?
@@ -1219,6 +1217,7 @@ impl MachineStateHandler {
         services: &StateHandlerServices,
         to_install: &FirmwareEntry,
         snapshot: &MachineSnapshot,
+        component_type: &FirmwareComponentType,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Option<String>, StateHandlerError> {
         if !self
@@ -1283,7 +1282,7 @@ impl MachineStateHandler {
                 to_install.get_filename().as_path(),
                 true,
                 std::time::Duration::from_secs(120),
-                ComponentType::Unknown,
+                (*component_type).into(),
             )
             .await
         {
@@ -1444,11 +1443,11 @@ impl MachineStateHandler {
 
             // Same state but with the rebooted flag set, it can take a long time to reboot in some cases so we do not retry.
         } else if *firmware_type == FirmwareComponentType::Bmc
-            && endpoint
+            && !endpoint
                 .report
                 .vendor
                 .unwrap_or(bmc_vendor::BMCVendor::Unknown)
-                .is_lenovo()
+                .is_dell()
         {
             tracing::debug!(
                 "Upgrade task has completed for {} but needs BMC reboot, initiating one",
@@ -1465,6 +1464,25 @@ impl MachineStateHandler {
                 tracing::warn!("Failed to reboot {}: {e}", &endpoint.address);
                 return Ok(None);
             }
+        }
+        if *firmware_type == FirmwareComponentType::HGXBmc {
+            // Needs a host power reset
+            let redfish_client = build_redfish_client_from_bmc_ip(
+                state.host_snapshot.bmc_addr(),
+                &services.redfish_client_pool,
+                txn,
+            )
+            .await?;
+            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                tracing::error!("Failed to power off {}: {e}", &endpoint.address);
+                return Ok(None);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                tracing::error!("Failed to power on {}: {e}", &endpoint.address);
+                return Ok(None);
+            }
+            // Okay to proceed
         }
 
         // Now we can go on to waiting for the correct version to be reported
@@ -1940,7 +1958,7 @@ async fn component_update(
         FirmwareComponentType::Bmc => "BMC_Firmware",
         FirmwareComponentType::Uefi => "DPU_UEFI",
         FirmwareComponentType::Cec => "Bluefield_FW_ERoT",
-        FirmwareComponentType::Unknown => "Unknown",
+        _ => "Unknown",
     };
     let inventories =
         redfish

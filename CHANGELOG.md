@@ -5,6 +5,7 @@
 ### Added
 
 - Hardware Health Monitor now emits a histogram metric `forge_hardware_health_monitor_iteration_latency_millisecons_sum`/`_count`. The metric tracks the time it takes to perform one health iteration.
+- Support for Viking host firmware upgrades
 
 ### Changed
 
@@ -14,7 +15,7 @@
 
 ### Fixed
 
-- Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes https://nvbugspro.nvidia.com/bug/4890909)
+- Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes <https://nvbugspro.nvidia.com/bug/4890909>)
 
 ### Removed
 
@@ -37,10 +38,12 @@ No user facing changes.
 - A new metric `forge_hosts_health_overrides_count` is emitted which indicates the amount of health overrides that are configured on a site. That allows operators to determine whether any health status might be impacted by overrides or whether hosts are "naturally" health or unhealthy.
   The metric carries an attribute `override_type` which can be either `merge` or `override`.
   **Example:**
+
   ```
   forge_hosts_health_overrides_count{fresh="true",override_type="merge"} 1
   forge_hosts_health_overrides_count{fresh="true",override_type="override"} 0
   ```
+
 - The ManagedHost (`/admin/managed-host`), Machine (`/admin/host`), Network Segment (`/admin/network-segment`) and IB Partition (`/admin/ib-partition`) overview pages on the admin UI now show a ⏱️ icon if the object is in a state for longer than allowed by the SLA ("stuck").
   - The ManagedHost page also allows to filter for these Machines.
   - The details pages of ManagedHosts, Machines, NetworkSegment and IB Partitions show a flag on whether these Machines are stuck, and the actual SLA that applies for the state.
@@ -52,7 +55,7 @@ No user facing changes.
 - Carbide now supports mutual-TLS for communicating with UFM, configuration is described in [the Infiniband Runbook](https://nvmetal.gitlab-master-pages.nvidia.com/carbide/playbooks/ib_runbook.html)
 - Carbide will now update the DPU BMC when going through DPU Reprovisioning states.
 - DGX H100 (Vikings) are supported for host ingestion *if the UEFI firmware version is 1.5.3* (Automatic UEFI Firmware upgrades during pre-ingestion will come at a future date).
-    - The DPU and host serial number pairs still must be pre-populated in Expected Machines.
+  - The DPU and host serial number pairs still must be pre-populated in Expected Machines.
 - Tenants can now update instances with new Operating Systems without deleting the instance first (see [FORGE-2911](https://jirasw.nvidia.com/browse/FORGE-2911)).
 
 ### Changed
@@ -100,28 +103,30 @@ No user facing changes.
 - Site Explorer now gets the attached DPU's "base mac address" from Redfish instead of calculating it from `FirmwareInventory`.
 - The FMDS endpoint will now include the intended BGP remote ASN at `meta-data/asn`.
 - If a machine is in a state for longer than that state's SLA, the State Handler Outcome will report that it is out of SLA directly.
-- Site Explorer will now emit time-series metrics for expected machines and missing machines (fixes: (FORGE-3353)[https://jirasw.nvidia.com/browse/FORGE-3353])
-    - `forge_endpoint_exploration_expected_machines_missing_overall_count` - reports the number of machines in expected-machines that haven't been seen.
-    - `forge_endpoint_exploration_failures_overall_count` - reports the number of explorations that have failed.
-    - `forge_endpoint_exploration_preingestions_incomplete_overall_count` - the number of outstanding pre-ingestions.
-    - `forge_endpoint_exploration_expected_serial_number_mismatches_overall_count` - the number of machine that don't match the expected serial number.
-    - `forge_endpoint_exploration_machines_explored_overall_count` - The number of overall explored machines.
-    - `forge_endpoint_exploration_identified_managed_hosts_overall_count` - The number of explored endpoints that were matched to the same `ManagedHost`
+- Site Explorer will now emit time-series metrics for expected machines and missing machines (fixes: [FORGE-3353](https://jirasw.nvidia.com/browse/FORGE-3353))
+  - `forge_endpoint_exploration_expected_machines_missing_overall_count` - reports the number of machines in expected-machines that haven't been seen.
+  - `forge_endpoint_exploration_failures_overall_count` - reports the number of explorations that have failed.
+  - `forge_endpoint_exploration_preingestions_incomplete_overall_count` - the number of outstanding pre-ingestions.
+  - `forge_endpoint_exploration_expected_serial_number_mismatches_overall_count` - the number of machine that don't match the expected serial number.
+  - `forge_endpoint_exploration_machines_explored_overall_count` - The number of overall explored machines.
+  - `forge_endpoint_exploration_identified_managed_hosts_overall_count` - The number of explored endpoints that were matched to the same `ManagedHost`
 - The Admin UI now has buttons on Site Explorer to control the Host or DPU power.
 - Added an API call to manually reset a BMC via Redfish or IPMI.
 - Hardware health montioring is included and a config change in `carbide-api-site-config.toml` is required to set its behavior.
-    - Options include:
-        - `Disabled` (Default): Ignore all metrics sent by the hardware health service.
-        - `MonitorOnly`: The aggregate health report will include reports from this service, but classifications are dropped.
-        - `Enabled`: The aggregate health report will include reports, as well as their classifications to affect state processing.
-    - Example:
+  - Options include:
+    - `Disabled` (Default): Ignore all metrics sent by the hardware health service.
+    - `MonitorOnly`: The aggregate health report will include reports from this service, but classifications are dropped.
+    - `Enabled`: The aggregate health report will include reports, as well as their classifications to affect state processing.
+  - Example:
+
         ```
         [host_health]
         hardware_health_reports = "MonitorOnly"
         ```
+
 - Machine Validation will now update a machine's aggregate health.
-    - If a validation test fails, a health alert with probe ID `FailedValidationTest` and a target that contains the validation tests `name` will be raised. The alert will be shown as part of the aggregate machine health.
-    - Test results can now be viewed with `forge-admin-cli machine-validation`
+  - If a validation test fails, a health alert with probe ID `FailedValidationTest` and a target that contains the validation tests `name` will be raised. The alert will be shown as part of the aggregate machine health.
+  - Test results can now be viewed with `forge-admin-cli machine-validation`
 
 ### Changed
 
@@ -210,7 +215,6 @@ No user facing changes.
 - Handle a DPU reboot if the DPU is stuck in WaitingForNetworkConfig
 - Don't try to recover a machine if it could be updating firmware
 - Fix a display issue when displaying the number of Free IPS in a Network Segment in the Admin CLI
-
 
 ## [v2024.08.02-rc1-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.08.02-rc1-2...v2024.08.02-rc1-3)
 
