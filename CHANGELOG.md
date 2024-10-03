@@ -1,6 +1,6 @@
 # Changelog
 
-## [v2024.09.27-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...trunk)
+## [v2024.10.11-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...trunk)
 
 ### Added
 
@@ -17,6 +17,7 @@
 
 - Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes <https://nvbugspro.nvidia.com/bug/4890909>)
 - Firmware versions stored in machine_topology now get updated when site explorer runs to fix [https://nvbugspro.nvidia.com/bug/4813183](https://nvbugspro.nvidia.com/bug/4813183).
+- Fixes issue that prevented hosts in the same VPC from communicating with each other.
 
 ### Removed
 
@@ -75,6 +76,12 @@ No user facing changes.
 - The Admin UI network status page uses paginated API calls and will not fail if the number exceeds the page size.
 - The DPU agent will not crash if `/run` is not writable
 - The DPU agent will now configure `ovs-switchd` to use less CPU
+
+## [v2024.09.13-rc6-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc6-0...v2024.09.13-rc6-1)
+
+### Fixed
+
+- Fixes issue that prevented hosts in the same VPC from communicating with each other.
 
 ## [v2024.09.13-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.13-rc5-0...v2024.09.13-rc6-0)
 
