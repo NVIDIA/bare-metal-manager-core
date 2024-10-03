@@ -4,7 +4,7 @@
 
 ### Added
 
-- Hardware Health Monitor now emits a histogram metric `forge_hardware_health_monitor_iteration_latency_millisecons_sum`/`_count`. The metric tracks the time it takes to perform one health iteration.
+- Hardware Health Monitor now emits a histogram metric `forge_hardware_health_iteration_latency_millisecons_sum`/`_count`. The metric tracks the time it takes to perform one health iteration.
 - Support for Viking host firmware upgrades
 
 ### Changed

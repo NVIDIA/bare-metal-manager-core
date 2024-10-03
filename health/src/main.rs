@@ -284,7 +284,7 @@ pub async fn scrape_machines_health(
         .with_unit(Unit::new("ms"))
         .init();
     let iteration_latency_histogram = api_meter
-        .f64_histogram("forge_hardware_health_monitor_iteration_latency")
+        .f64_histogram("forge_hardware_health_iteration_latency")
         .with_description("The time it took to perform one hardware health monitor iteration")
         .with_unit(Unit::new("ms"))
         .init();
