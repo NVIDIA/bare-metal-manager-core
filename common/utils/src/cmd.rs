@@ -2,7 +2,9 @@ use std::ffi::OsStr;
 use std::process::Command;
 use std::time::Duration;
 
+use chrono::Utc;
 use tokio::process::Command as TokioCommand;
+use tokio::time::timeout;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CmdError {
@@ -58,6 +60,14 @@ pub struct Cmd {
     ignore_return: bool,
 }
 
+#[derive(Debug)]
+pub struct CmdOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub start_time: chrono::DateTime<Utc>,
+    pub end_time: chrono::DateTime<Utc>,
+}
 impl Cmd {
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         Self {
@@ -141,6 +151,7 @@ impl Cmd {
 pub struct TokioCmd {
     command: TokioCommand,
     attempts: u32,
+    timeout: u64,
 }
 
 impl TokioCmd {
@@ -148,6 +159,7 @@ impl TokioCmd {
         Self {
             command: TokioCommand::new(program),
             attempts: 1,
+            timeout: 3600,
         }
     }
 
@@ -171,6 +183,60 @@ impl TokioCmd {
     pub fn attempts(mut self, attempts: u32) -> Self {
         self.attempts = attempts;
         self
+    }
+
+    pub fn timeout(mut self, timeout: u64) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub async fn output_with_timeout(mut self) -> CmdResult<CmdOutput> {
+        if cfg!(test) {
+            return Ok(CmdOutput {
+                stdout: "test string".to_string(),
+                stderr: "test string".to_string(),
+                exit_code: 0,
+                start_time: Utc::now(),
+                end_time: Utc::now(),
+            });
+        }
+        let mut last_output = None;
+        let start_time = Utc::now();
+
+        for _attempt in 0..self.attempts {
+            let child = self
+                .command
+                .spawn()
+                .map_err(|e| CmdError::RunError(self.pretty_cmd(), e.to_string()))?;
+
+            // Apply timeout and run command
+            let output = timeout(Duration::from_secs(self.timeout), child.wait_with_output())
+                .await
+                .map_err(|x| CmdError::TokioRunError(self.pretty_cmd(), x.to_string()))?
+                .map_err(|y| CmdError::TokioRunError(self.pretty_cmd(), y.to_string()))?;
+
+            last_output = Some(output.clone());
+
+            if output.status.success() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let end_time = Utc::now();
+        // Here idea is to capture both std out and std err along with exit code
+        if let Some(output) = last_output {
+            Ok(CmdOutput {
+                stdout: String::from_utf8(output.stdout)
+                    .map_err(|_| CmdError::output_parse_error(self.command.as_std()))?,
+                stderr: String::from_utf8(output.stderr)
+                    .map_err(|_| CmdError::output_parse_error(self.command.as_std()))?,
+                exit_code: output.status.code().unwrap_or_default(),
+                start_time,
+                end_time,
+            })
+        } else {
+            Err(CmdError::InvalidRetry(self.attempts, self.pretty_cmd()))
+        }
     }
 
     pub async fn output(mut self) -> CmdResult<String> {

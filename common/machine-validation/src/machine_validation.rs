@@ -21,10 +21,10 @@ use std::path::Path;
 use tracing::error;
 use tracing::info;
 use tracing::trace;
+use utils::cmd::TokioCmd;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::process::Command;
 
 use crate::MachineValidation;
 use crate::MachineValidationError;
@@ -37,8 +37,11 @@ use crate::MACHINE_VALIDATION_RUNNER_BASE_PATH;
 use crate::MACHINE_VALIDATION_RUNNER_TAG;
 use crate::MACHINE_VALIDATION_SERVER;
 use crate::SCHME;
-
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
+pub const DEFAULT_TIMEOUT: u64 = 3600;
+pub fn default_time_out() -> Option<u64> {
+    Some(DEFAULT_TIMEOUT)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Suite {
@@ -76,6 +79,8 @@ pub struct ExecCommand {
     contexts: Vec<String>,
     #[serde(rename = "PreCondition")]
     pre_condition: Option<String>,
+    #[serde(rename = "Timeout", default = "default_time_out")]
+    timeout: Option<u64>,
 }
 
 impl MachineValidation {
@@ -203,40 +208,29 @@ impl MachineValidation {
 
         let command_string = format!(" ctr images import {}", MACHINE_VALIDATION_IMAGE_FILE);
         info!("Executing command '{}'", command_string);
-        match Command::new("sh")
-            .arg("-c")
-            .arg(&command_string)
-            .output()
+        TokioCmd::new("sh")
+            .args(vec!["-c".to_string(), command_string])
+            .timeout(DEFAULT_TIMEOUT)
+            .output_with_timeout()
             .await
-        {
-            Ok(_data) => Ok(format!(
-                "{}{}:{}",
-                MACHINE_VALIDATION_RUNNER_BASE_PATH, image_name, image_tag
-            )),
-            Err(e) => Err(MachineValidationError::Generic(format!(
-                "Failed to import container {} '{}'",
-                image_name, e
-            ))),
-        }
+            .map_err(|e| MachineValidationError::Generic(e.to_string()))?;
+        Ok(format!(
+            "{}{}:{}",
+            MACHINE_VALIDATION_RUNNER_BASE_PATH, image_name, image_tag
+        ))
     }
 
     pub async fn pull_container(image_name: &str) {
         tracing::info!(image_name);
-
         let command_string = format!(" ctr  image pull {}", image_name);
-        info!("Executing command '{}'", command_string);
-        match Command::new("sh")
-            .arg("-c")
-            .arg(&command_string)
-            .output()
+        match TokioCmd::new("sh")
+            .args(vec!["-c".to_string(), command_string])
+            .timeout(DEFAULT_TIMEOUT)
+            .output_with_timeout()
             .await
         {
-            Ok(_data) => {
-                info!("pulled {}", image_name);
-            }
-            Err(e) => {
-                error!("Failed to image pull{} '{}'", image_name, e);
-            }
+            Ok(result) => info!("pulled: {}", result.stdout),
+            Err(e) => error!("Failed to image pull{} '{}'", image_name, e),
         }
     }
     async fn execute_machinevalidation_command(
@@ -246,7 +240,6 @@ impl MachineValidation {
         in_context: String,
         uuid: rpc::common::Uuid,
     ) -> Option<rpc::forge::MachineValidationResult> {
-        let mut command_string = format!("{} {}", cmd.command, cmd.args);
         if cmd.required_external_config_file.is_some() {
             let file_name = format!(
                 "/tmp/machine_validation/external_config/{}",
@@ -273,21 +266,19 @@ impl MachineValidation {
                 });
             }
         }
+
+        // Check pre_condition
         if cmd.pre_condition.is_some() {
-            match Command::new("sh")
-                .arg("-c")
-                .env("CONTEXT", in_context.clone())
-                .env("MACHINE_VALIDATION_RUN_ID", uuid.to_string())
-                .env("MACHINE_ID", machine_id)
-                .arg(cmd.pre_condition.unwrap_or("/bin/true".to_owned()))
-                .output()
+            match TokioCmd::new(cmd.pre_condition.unwrap_or("/bin/true".to_owned()))
+                .timeout(DEFAULT_TIMEOUT)
+                .env("CONTEXT".to_owned(), in_context.clone())
+                .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
+                .env("MACHINE_ID".to_owned(), machine_id.to_string())
+                .output_with_timeout()
                 .await
             {
-                Ok(output) => {
-                    let exit_code = if output.status.success() { 0 } else { -1 };
-
-                    let start_time = Utc::now();
-                    let end_time = Utc::now();
+                Ok(result) => {
+                    let exit_code = result.exit_code;
                     if exit_code != 0 {
                         return Some(rpc::forge::MachineValidationResult {
                             name,
@@ -295,19 +286,16 @@ impl MachineValidation {
                             command: cmd.command.clone(),
                             args: cmd.args.clone(),
                             std_out: "Skipped : Pre condition failed".to_owned(),
-                            std_err: "".to_string(),
+                            std_err: result.stderr,
                             context: in_context.clone(),
                             exit_code: 0,
-                            start_time: Some(start_time.into()),
-                            end_time: Some(end_time.into()),
+                            start_time: Some(result.start_time.into()),
+                            end_time: Some(result.end_time.into()),
                             validation_id: Some(uuid),
                         });
                     }
                 }
                 Err(e) => {
-                    let start_time = Utc::now();
-                    let end_time = Utc::now();
-
                     return Some(rpc::forge::MachineValidationResult {
                         name,
                         description: cmd.description.clone(),
@@ -317,15 +305,19 @@ impl MachineValidation {
                         std_err: e.to_string(),
                         context: in_context.clone(),
                         exit_code: 0,
-                        start_time: Some(start_time.into()),
-                        end_time: Some(end_time.into()),
+                        start_time: Some(Utc::now().into()),
+                        end_time: Some(Utc::now().into()),
                         validation_id: Some(uuid),
                     });
                 }
             }
         }
+        // Execute command
+        let mut command_string = format!("{} {}", cmd.command, cmd.args);
+        // Check if container
         if cmd.img_name.is_some() {
             if cmd.execute_in_host.unwrap_or(false) {
+                // Execute command in host
                 command_string = format!("chroot /host /bin/bash -c \"{}\"", command_string);
             }
             Self::pull_container(&cmd.img_name.clone().unwrap_or_default()).await;
@@ -344,11 +336,11 @@ impl MachineValidation {
         let _ = std::fs::remove_file("/tmp/forge_env_variables");
         match File::create("/tmp/forge_env_variables") {
             Ok(mut file) => {
-                let mut data = HashMap::new();
-                data.insert("CONTEXT", in_context.clone());
-                data.insert("MACHINE_VALIDATION_RUN_ID", uuid.to_string());
-                data.insert("MACHINE_ID", machine_id.to_string());
-                let env_vars = data
+                let mut envs = HashMap::new();
+                envs.insert("CONTEXT".to_owned(), in_context.clone());
+                envs.insert("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string());
+                envs.insert("MACHINE_ID".to_owned(), machine_id.to_string());
+                let env_vars = envs
                     .iter()
                     .map(|(key, value)| format!("{}={}", key, value))
                     .collect::<Vec<String>>()
@@ -358,22 +350,18 @@ impl MachineValidation {
             Err(_) => error!("Failed to create file"),
         }
 
-        let start_time = Utc::now();
-        match Command::new("sh")
-            .arg("-c")
-            .env("CONTEXT", in_context.clone())
-            .env("MACHINE_VALIDATION_RUN_ID", uuid.to_string())
-            .env("MACHINE_ID", machine_id)
-            .arg(&command_string)
-            .output()
+        match TokioCmd::new("sh")
+            .args(vec!["-c".to_string(), command_string])
+            .timeout(cmd.timeout.unwrap_or_default())
+            .env("CONTEXT".to_owned(), in_context.clone())
+            .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
+            .env("MACHINE_ID".to_owned(), machine_id.to_string())
+            .output_with_timeout()
             .await
         {
-            Ok(output) => {
-                let mut stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
-                let mut stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
-                let mut exit_code = if output.status.success() { 0 } else { -1 };
-
-                let end_time = Utc::now();
+            Ok(result) => {
+                let mut stdout_str = result.stdout;
+                let mut stderr_str = result.stderr;
                 if cmd.extra_output_file.is_some() {
                     let message: String =
                         match tokio::fs::read_to_string(cmd.extra_output_file.unwrap_or_default())
@@ -392,12 +380,8 @@ impl MachineValidation {
                             Ok(data) => data,
                             Err(_) => "".to_owned(),
                         };
-                    if !message.is_empty() {
-                        exit_code = 0;
-                    }
                     stderr_str = stderr_str + &message;
                 }
-                info!("exit code {}", exit_code);
                 Some(rpc::forge::MachineValidationResult {
                     name,
                     description: cmd.description.clone(),
@@ -414,29 +398,25 @@ impl MachineValidation {
                         stderr_str
                     },
                     context: in_context,
-                    exit_code,
-                    start_time: Some(start_time.into()),
-                    end_time: Some(end_time.into()),
+                    exit_code: result.exit_code,
+                    start_time: Some(result.start_time.into()),
+                    end_time: Some(result.end_time.into()),
                     validation_id: Some(uuid),
                 })
             }
-            Err(e) => {
-                error!("Error {}", e);
-                let end_time = Utc::now();
-                Some(rpc::forge::MachineValidationResult {
-                    name,
-                    description: cmd.description.clone(),
-                    command: cmd.command.clone(),
-                    args: cmd.args.clone(),
-                    std_out: e.to_string(),
-                    std_err: e.to_string(),
-                    context: in_context,
-                    exit_code: -1,
-                    start_time: Some(start_time.into()),
-                    end_time: Some(end_time.into()),
-                    validation_id: Some(uuid),
-                })
-            }
+            Err(e) => Some(rpc::forge::MachineValidationResult {
+                name,
+                description: cmd.description.clone(),
+                command: cmd.command.clone(),
+                args: cmd.args.clone(),
+                std_out: e.to_string(),
+                std_err: e.to_string(),
+                context: in_context,
+                exit_code: -1,
+                start_time: Some(Utc::now().into()),
+                end_time: Some(Utc::now().into()),
+                validation_id: Some(uuid),
+            }),
         }
     }
 
