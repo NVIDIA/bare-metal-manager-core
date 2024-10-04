@@ -303,6 +303,7 @@ impl MachineStateHandler {
             }
         }
 
+        ctx.metrics.is_allocatable = state.check_allocatable().is_ok();
         ctx.metrics.available_gpus = state
             .host_snapshot
             .hardware_info
