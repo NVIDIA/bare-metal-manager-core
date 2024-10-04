@@ -249,7 +249,7 @@ impl Vpc {
         segment_id: NetworkSegmentId,
     ) -> Result<Vpc, DatabaseError> {
         let mut query = FilterableQueryBuilder::new(
-            "SELECT * from vpcs v INNER JOIN network_segments s ON v.id = s.vpc_id",
+            "SELECT v.* from vpcs v INNER JOIN network_segments s ON v.id = s.vpc_id",
         )
         .filter_relation(
             &ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
