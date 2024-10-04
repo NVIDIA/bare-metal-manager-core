@@ -651,7 +651,9 @@ pub(crate) async fn update_instance_config(
         None => return Err(CarbideError::MissingArgument("metadata").into()),
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
-    // TODO: We don't verify instance metadata? Also sees to be missing in the initial path
+    metadata.validate().map_err(|e| {
+        CarbideError::InvalidArgument(format!("Instance's new metadata is not valid: {}", e))
+    })?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

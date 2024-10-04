@@ -271,7 +271,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     updated_config_2.os = Some(updated_os_2);
     updated_config_2.tenant.as_mut().unwrap().tenant_keyset_ids = vec!["c".to_string()];
     let updated_metadata_2 = rpc::Metadata {
-        name: "".to_string(),
+        name: "Name12".to_string(),
         description: "".to_string(),
         labels: vec![
             rpc::forge::Label {
@@ -303,6 +303,29 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     assert_eq!(status.message(),
          format!("An object of type instance was intended to be modified did not have the expected version {}", initial_config_version.version_string()),
          "Message is {}", status.message());
+
+    // Start an invalid name for instance update
+    // This should fail.
+    let status = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(instance_id.into()),
+                if_version_match: Some(initial_config_version.version_string()),
+                config: Some(updated_config_2.clone()),
+                metadata: Some(rpc::Metadata {
+                    name: "Name with non-asci €".to_string(),
+                    description: "".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .expect_err("Update instances with non-ascii characters should fail");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status
+        .message()
+        .contains(&"Instance's new metadata is not valid".to_string()));
 
     // Using the correct current version should allow the update
     let instance = env

@@ -419,6 +419,8 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
             labels,
         };
 
+        metadata.validate()?;
+
         Ok(UpdateVpc {
             id: value
                 .id
