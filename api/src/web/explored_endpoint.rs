@@ -629,11 +629,35 @@ pub async fn clear_last_exploration_error(
     Redirect::to(&view_url).into_response()
 }
 
+pub async fn forge_setup(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .forge_setup(tonic::Request::new(rpc::forge::ForgeSetupRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_forge_setup");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
 fn forge_setup_status_to_string(status: &ForgeSetupStatus) -> String {
     if status.is_done {
         "OK".to_string()
     } else if status.diffs.is_empty() {
-        "".to_string()
+        "Unable to fetch Forge Setup Status".to_string()
     } else {
         let diffs_string = status
             .diffs
