@@ -9,11 +9,13 @@
 <table class="sortable">
 	<thead>
 	<tr>
+		<th>#</th>
 		<th>ID</th>
 		<th>Machine ID</th>
 		<th>Tenant Org</th>
 		<th>Tenant State</th>
 		<th>Configs Synced</th>
+		<th>Labels</th>
 		<th>IP Addresses</th>
 		<th>Eth IFs #</th>
 		<th>IB IFs #</th>
@@ -23,11 +25,13 @@
 	<tbody>
 	{% for i in instances %}
 		<tr>
+			<td>{{ loop.index }}</td> 
 			<td><a href="/admin/instance/{{ i.id }}">{{ i.id }}</a></td>
 			<td>{{ i.machine_id|managed_host_id_link|safe}}</td>
 			<td>{{ i.tenant_org }}</td>
 			<td>{{ i.tenant_state }}</td>
 			<td>{{ i.configs_synced }}</td>
+			<td>{{ i.labels }}</td>
 			<td>{{ i.ip_addresses }}</td>
 			<td>{{ i.num_eth_ifs }}</td>
 			<td>{{ i.num_ib_ifs }}</td>

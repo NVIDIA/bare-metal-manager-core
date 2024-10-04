@@ -131,7 +131,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
                 .map(|label| {
                     let key = &label.key;
                     let value = label.value.clone().unwrap_or_default();
-                    format!("{}:{}", key, value)
+                    format!("\"{}:{}\"", key, value)
                 })
                 .collect::<Vec<_>>()
                 .join(", "),
