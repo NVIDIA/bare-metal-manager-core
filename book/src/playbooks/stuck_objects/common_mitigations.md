@@ -46,59 +46,8 @@ Instance gets deleted, Provisioning), Forge requires the `forge-dpu-agent` to
 acknowledge that the desired DPU configuration is applied and that the DPU and
 services running on it (like `HBN`) are in a healthy state.
 
-[If the DPU has not recently reported that it is up, healthy and that the latest
-desired configuration is applied](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/38849aed602a2ab6e19a5315b342db3d4535b143/api/src/state_controller/machine/handler.rs#L104-114),
-the state will not be advanced.
-
-If a ManagedHost is stuck due to this check, you can inspect which condition is
-not met by inspecting the last report from the DPU via forge-admin-cli.
-
-E.g. in the following report
-```
-/opt/carbide/forge-admin-cli managed-host show --host fm100pskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80
-Hostname    : oven-bakerloo
-State       : Host/WaitingForDiscovery
-
-Host:
-----------------------------------------
-  ID                 : fm100pskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80
-  ...
-  Network unhealthy  : ipv4_unicast failed peers is 1 should be 0
-
-DPU:
-----------------------------------------
-  ID                 : fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80
-  Last reboot        : 2023-09-11 21:23:38.296311 UTC
-  Last seen          : 2023-09-13 22:35:38.936301376 UTC
-```
-
-- "Network is healthy" will indicate whether any of the DPUS health-check failed.
-  If a health-check has failed, then the root-caused for the failed health-check
-  needs to be remediated.
-- "Last seen" indicates whether the DPU (and `forge-dpu-agent`) is up and running.
-  If the timestamp is too old, it might indicate the DPU agent has crashed or the
-  whole DPU is no longer online. In this case an operator should SSH onto the DPU
-  and inspect the state of `forge-dpu-agent`. The dpu agent logs which are locally
-  available on the DPU using `journalctl -u forge-dpu-agent.service` can help with
-  this investigation. If forge-dpu-agent is not even started,
-  then it needs to be started (`systemctl enable forge-dpu-agent.service`).
-  This should however never be necessary, since the agent gets restarted on all
-  crashes.
-
-An alternative tool that can be used to inspect the state of all DPUs is the
-`forge-admin-cli machine network status` command, which lists the latest reported
-states of all DPUs within a Forge Site.
-
-The following example report shows a DPU `fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80`
-whose `BgpStats` health-check has failed:
-```
-/opt/carbide/forge-admin-cli machine network status
-+--------------------------------+-------------------------------------------------------------+------------------------+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------------------+
-| Observed at                    | DPU machine ID                                              | Network config version | Is healthy? | Checks passed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Checks failed | First failure                              |
-+--------------------------------+-------------------------------------------------------------+------------------------+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------------------+
-| 2023-09-13T22:38:53.223285483Z | fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80 | V2-T1694466270293052   | false       | ContainerExists,SupervisorctlStatus,ServiceRunning(frr),ServiceRunning(nl2doca),ServiceRunning(rsyslog),DhcpRelay,Ifreload,BgpDaemonEnabled,FileExists(/var/lib/hbn/etc/frr/frr.conf),FileIsValid(/var/lib/hbn/etc/frr/frr.conf),FileExists(/var/lib/hbn/etc/network/interfaces),FileIsValid(/var/lib/hbn/etc/network/interfaces),FileExists(/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf),FileIsValid(/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf),FileExists(/var/lib/hbn/etc/frr/daemons),FileIsValid(/var/lib/hbn/etc/frr/daemons)                                       | BgpStats      | ipv4_unicast failed peers is 1 should be 0 |
-+--------------------------------+-------------------------------------------------------------+------------------------+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------------------+
-```
+This often happens within a state called `WaitingForNetworkConfig`. For details
+about this see [WaitingForNetworkConfig](waiting_for_network_config.md).
 
 ## Optional Step 5: Mitigation by deleting the object using the Forge Web UI or API
 
