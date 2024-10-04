@@ -73,7 +73,62 @@ pub struct ManagedHostStateSnapshot {
     pub aggregate_health: health_report::HealthReport,
 }
 
+/// Reasons why a Machine is not allocatable
+#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
+pub enum NotAllocatableReason {
+    #[error("The Machine is in a state other than `Ready`: {0:?}")]
+    InvalidState(Box<ManagedHostState>),
+    #[error("The Machine has a pending instance creation request, that has not yet been processed by the state handler")]
+    PendingInstanceCreation,
+    #[error("There are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
+    NoDpuSnapshots,
+    #[error("The Machine is in Maintenance Mode")]
+    MaintenanceMode,
+    #[error("A Health Alert prevents the Machine from being allocated: {0:?}")]
+    HealthAlert(Box<health_report::HealthProbeAlert>),
+}
+
 impl ManagedHostStateSnapshot {
+    /// Returns `Ok` if the Host can be used for Tenant allocations
+    ///
+    /// This requires
+    /// - the Machine to be in `Ready` state
+    /// - the Machine has not yet been target of an instance creation request
+    /// - no health alerts which classification `PreventAllocations` to be set
+    /// - the machine not to be in Maintenance Mode
+    pub fn check_allocatable(&self) -> Result<(), NotAllocatableReason> {
+        if !matches!(self.managed_state, ManagedHostState::Ready) {
+            return Err(NotAllocatableReason::InvalidState(Box::new(
+                self.managed_state.clone(),
+            )));
+        }
+
+        // A new instance can be created only in Ready state.
+        // This is possible that a instance is created by user, but still not picked by state machine.
+        // To avoid that race condition, need to check if db has any entry with given machine id.
+        if self.instance.is_some() {
+            return Err(NotAllocatableReason::PendingInstanceCreation);
+        }
+
+        if self.dpu_snapshots.is_empty()
+            && !self.host_snapshot.associated_dpu_machine_ids().is_empty()
+        {
+            return Err(NotAllocatableReason::NoDpuSnapshots);
+        }
+
+        if let Some(alert) = self.aggregate_health.find_alert_by_classification(
+            &health_report::HealthAlertClassification::prevent_allocations(),
+        ) {
+            return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
+        }
+
+        if self.host_snapshot.is_maintenance_mode() {
+            return Err(NotAllocatableReason::MaintenanceMode);
+        }
+
+        Ok(())
+    }
+
     /// Derives the aggregate health of the Managed Host based on individual
     /// health reports
     pub fn derive_aggregate_health(

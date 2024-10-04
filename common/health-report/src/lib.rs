@@ -65,7 +65,17 @@ impl HealthReport {
 
     /// Returns `true` if the report contains any alert with the given classification
     pub fn has_classification(&self, classification: &HealthAlertClassification) -> bool {
-        self.classifications().any(|c| c == classification)
+        self.find_alert_by_classification(classification).is_some()
+    }
+
+    /// Finds the first alert given a given classification
+    pub fn find_alert_by_classification(
+        &self,
+        classification: &HealthAlertClassification,
+    ) -> Option<&HealthProbeAlert> {
+        self.alerts
+            .iter()
+            .find(|alert| alert.classifications.contains(classification))
     }
 
     /// Returns a health report which indicates that an actually expected health report was absent
@@ -500,8 +510,27 @@ mod tests {
         };
 
         assert!(r1.has_classification(&HealthAlertClassification::prevent_allocations()));
+        assert_eq!(
+            r1.find_alert_by_classification(&HealthAlertClassification::prevent_allocations())
+                .unwrap()
+                .id
+                .0,
+            "ProbeA1"
+        );
         assert!(r1.has_classification(&HealthAlertClassification::prevent_host_state_changes()));
+        assert_eq!(
+            r1.find_alert_by_classification(
+                &HealthAlertClassification::prevent_host_state_changes()
+            )
+            .unwrap()
+            .id
+            .0,
+            "ProbeA2"
+        );
         assert!(!r1.has_classification(&HealthAlertClassification("NotFound".to_string())));
+        assert!(r1
+            .find_alert_by_classification(&HealthAlertClassification("NotFound".to_string()))
+            .is_none());
     }
 
     #[test]
