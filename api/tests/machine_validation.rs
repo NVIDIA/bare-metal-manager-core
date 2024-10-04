@@ -180,7 +180,7 @@ async fn test_machine_validation_with_error(
     }
 
     let machine = env
-        .find_machines(Some(host_machine_id), None, false)
+        .find_machines(Some(host_machine_id.clone()), None, false)
         .await
         .machines
         .remove(0);
@@ -202,6 +202,37 @@ async fn test_machine_validation_with_error(
         .into()
     );
 
+    let _ = on_demand_machine_validation(&env, machine.id.unwrap_or_default()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: true,
+            },
+        },
+    )
+    .await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: true,
+            },
+        },
+    )
+    .await;
     Ok(())
 }
 
