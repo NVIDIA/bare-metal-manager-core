@@ -13,6 +13,7 @@
 pub mod common;
 
 use crate::common::api_fixtures::instance::default_tenant_config;
+use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use crate::common::api_fixtures::FIXTURE_VPC_ID;
 use crate::common::api_fixtures::{create_test_env, vpc::create_vpc, TestEnv};
 use ::rpc::forge as rpc;
@@ -319,4 +320,20 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     let vpc_matched_by_label =
         find_vpc_by_request(&env, search_label, Some("VPC_222".to_string())).await;
     assert_eq!(vpc_matched_by_label.vpcs.len(), 0);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let vpc = Vpc::find_by_segment(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        .await
+        .unwrap();
+    assert_eq!(vpc.id.to_string(), *FIXTURE_VPC_ID.to_string());
 }
