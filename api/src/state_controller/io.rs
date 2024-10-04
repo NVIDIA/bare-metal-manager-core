@@ -32,7 +32,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// actively acts upon. It is passed via the `controller_state` parameter to
     /// each state handler, and can be modified via this parameter.
     /// This state may not be updated by any other component.
-    type ControllerState: std::fmt::Debug + Send + Sync + 'static + Clone;
+    type ControllerState: std::fmt::Debug + Send + Sync + 'static + Clone + Eq;
     /// Defines how metrics that are specific to this kind of object are handled
     type MetricsEmitter: MetricsEmitter;
     /// The collection of generic objects which are referenced in StateHandlerContext
