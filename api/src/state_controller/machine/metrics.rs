@@ -46,6 +46,13 @@ pub struct MachineMetrics {
     pub num_merge_overrides: usize,
     /// Whether an override of type `override` is configured
     pub override_override_enabled: bool,
+    /// Whether the Machine is allocatable to a Tenant
+    /// Doing so requires
+    /// - the Machine to be in `Ready` state
+    /// - the Machine has not yet been target of an instance creation request
+    /// - no health alerts which classification `PreventAllocations` to be set
+    /// - the machine not to be in Maintenance Mode
+    pub is_allocatable: bool,
 }
 
 #[derive(Debug, Default)]
@@ -61,9 +68,11 @@ pub struct MachineStateControllerIterationMetrics {
     pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
+    pub allocatable_gpus: usize,
     pub available_gpus: usize,
     pub assigned_gpus_by_tenant: HashMap<TenantOrganizationId, usize>,
     pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
+    pub hosts_allocatable: usize,
     pub hosts_total: usize,
     pub hosts_healthy: usize,
     pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>), usize>,
@@ -81,6 +90,8 @@ pub struct MachineMetricsEmitter {
     assigned_gpus_gauge: ObservableGauge<u64>,
     assigned_gpus_by_tenant_gauge: ObservableGauge<u64>,
     assigned_hosts_by_tenant_gauge: ObservableGauge<u64>,
+    allocatable_hosts_gauge: ObservableGauge<u64>,
+    allocatable_gpus_gauge: ObservableGauge<u64>,
     available_gpus_gauge: ObservableGauge<u64>,
     hosts_health_status_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
@@ -109,6 +120,14 @@ impl MetricsEmitter for MachineMetricsEmitter {
     type IterationMetrics = MachineStateControllerIterationMetrics;
 
     fn new(_object_type: &str, meter: &Meter) -> Self {
+        let allocatable_hosts_gauge = meter
+            .u64_observable_gauge("forge_allocatable_hosts_count")
+            .with_description("The total number of Machines in the Forge site which are available for Tenant allocations")
+            .init();
+        let allocatable_gpus_gauge = meter
+            .u64_observable_gauge("forge_allocatable_gpus_count")
+            .with_description("The total number of GPUs in the Forge site which are available for Tenant allocations")
+            .init();
         let available_gpus_gauge = meter
             .u64_observable_gauge("forge_available_gpus_count")
             .with_description("The total number of available GPUs in the Forge site")
@@ -201,6 +220,8 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .init();
 
         Self {
+            allocatable_hosts_gauge,
+            allocatable_gpus_gauge,
             assigned_gpus_gauge,
             assigned_gpus_by_tenant_gauge,
             assigned_hosts_by_tenant_gauge,
@@ -223,6 +244,8 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
         vec![
+            self.allocatable_hosts_gauge.as_any(),
+            self.allocatable_gpus_gauge.as_any(),
             self.assigned_gpus_gauge.as_any(),
             self.assigned_gpus_by_tenant_gauge.as_any(),
             self.assigned_hosts_by_tenant_gauge.as_any(),
@@ -254,6 +277,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
         }
 
         iteration_metrics.available_gpus += object_metrics.available_gpus;
+        if object_metrics.is_allocatable {
+            iteration_metrics.hosts_allocatable += 1;
+            iteration_metrics.allocatable_gpus += object_metrics.available_gpus;
+        }
+
         if let Some(tenant) = object_metrics.assigned_to_tenant.as_ref() {
             *iteration_metrics
                 .assigned_gpus_by_tenant
@@ -342,6 +370,16 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics: &Self::IterationMetrics,
         attributes: &[KeyValue],
     ) {
+        observer.observe_u64(
+            &self.allocatable_hosts_gauge,
+            iteration_metrics.hosts_allocatable as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.allocatable_gpus_gauge,
+            iteration_metrics.allocatable_gpus as u64,
+            attributes,
+        );
         observer.observe_u64(
             &self.available_gpus_gauge,
             iteration_metrics.available_gpus as u64,
@@ -564,6 +602,7 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 override_override_enabled: false,
+                is_allocatable: true,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -591,6 +630,7 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 override_override_enabled: false,
+                is_allocatable: true,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -620,6 +660,7 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 1,
                 override_override_enabled: true,
+                is_allocatable: false,
             },
             MachineMetrics {
                 available_gpus: 1,
@@ -654,6 +695,7 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 override_override_enabled: false,
+                is_allocatable: true,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -707,6 +749,7 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 1,
                 override_override_enabled: false,
+                is_allocatable: false,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -749,6 +792,7 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 0,
                 override_override_enabled: true,
+                is_allocatable: false,
             },
         ];
 
@@ -775,6 +819,8 @@ mod tests {
                 .unwrap(),
             3
         );
+        assert_eq!(iteration_metrics.hosts_allocatable, 3);
+        assert_eq!(iteration_metrics.allocatable_gpus, 3);
         assert_eq!(iteration_metrics.available_gpus, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);
         assert_eq!(iteration_metrics.dpus_healthy, 5);

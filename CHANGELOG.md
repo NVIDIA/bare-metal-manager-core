@@ -1,23 +1,41 @@
 # Changelog
 
-## [v2024.10.11-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc1-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc4-0...trunk)
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [v2024.09.27-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc3-0...v2024.09.27-rc4-0)
 
 ### Added
 
 - Hardware Health Monitor now emits a histogram metric `forge_hardware_health_iteration_latency_millisecons_sum`/`_count`. The metric tracks the time it takes to perform one health iteration.
 - Support for Viking host firmware upgrades
+- DPU ingestion will now enable the DPU BMC's rshim ([FORGE-4538](https://https://jirasw.nvidia.com/browse/FORGE-4358)).
+- The Forge Admin UI gained support for running `forge_setup` on a BMC, reconfiguring the BMC for forge use on-demand
+- New metrics to track GPU counts:
+    - `forge_allocatable_gpus_count`: Tracks the amount of GPUs wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in `Ready` state, as well as the Machine to be healthy.
+    - `forge_allocatable_hosts_count`: Tracks the amount of Hosts wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in `Ready` state, as well as the Machine to be healthy.
 
 ### Changed
 
 - The following hardware health monitor metrics have been renamed and their types had been changed from Gauge to Histograms:
   - `api_findmachines_latency` => `forge_hardware_health_findmachines_latency_milliseconds_sum`/`_count`
   - `api.getbmcmetadata.latency` => `forge_hardware_health_getbmcmetadata_latency_milliseconds_sum`/`_count`
+- Forge Scout now runs in a Ubuntu 22.04 image instead of Debian 12 for compatibility with NVIDIA Software for upcoming ARM support
+- Force deleting a machine with an instance now requires specifying `--allow-delete-with-instance` flag.
 
 ### Fixed
 
 - Hardware Health Monitor no longer restarts when the list of Machines can no be retrieved (fixes <https://nvbugspro.nvidia.com/bug/4890909>)
 - Firmware versions stored in machine_topology now get updated when site explorer runs to fix [https://nvbugspro.nvidia.com/bug/4813183](https://nvbugspro.nvidia.com/bug/4813183).
 - Fixes issue that prevented hosts in the same VPC from communicating with each other.
+- Fixed issue with handling nvme command drive parameters [NVBug 4892022](https://nvbugspro.nvidia.com/bug/4892022)
 
 ### Removed
 

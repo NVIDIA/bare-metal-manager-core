@@ -171,7 +171,7 @@ pub(crate) async fn mark_machine_validation_complete(
         %machine_id,
         result, "machine_validation_completed:machine_validation_results",
     );
-    tracing::trace!(
+    tracing::info!(
         %machine_id,
         machine_validation_results, "machine_validation_completed",
     );

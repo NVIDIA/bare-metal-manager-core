@@ -309,6 +309,22 @@ impl RedfishClient {
         Ok(())
     }
 
+    pub async fn forge_setup(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.forge_setup(None).await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
     pub async fn forge_setup_status(
         &self,
         bmc_ip_address: SocketAddr,

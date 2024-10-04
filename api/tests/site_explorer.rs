@@ -3006,6 +3006,14 @@ impl EndpointExplorer for FakeEndpointExplorer {
         true
     }
 
+    async fn forge_setup(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
     async fn forge_setup_status(
         &self,
         _address: SocketAddr,

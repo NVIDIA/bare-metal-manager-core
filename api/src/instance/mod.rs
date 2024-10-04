@@ -14,6 +14,7 @@ use config_version::ConfigVersion;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::db::ObjectColumnFilter;
+use crate::model::machine::NotAllocatableReason;
 use crate::{
     cfg::HardwareHealthReportsConfig,
     db::{
@@ -32,7 +33,7 @@ use crate::{
             network::{InstanceNetworkConfig, InterfaceFunctionId},
             InstanceConfig,
         },
-        machine::{machine_id::try_parse_machine_id, ManagedHostState, ManagedHostStateSnapshot},
+        machine::{machine_id::try_parse_machine_id, ManagedHostStateSnapshot},
         metadata::Metadata,
         tenant::TenantOrganizationId,
         ConfigValidationError,
@@ -154,41 +155,24 @@ pub async fn allocate_instance(
         id: machine_id.to_string(),
     })?;
 
-    // A new instance can be created only in Ready state.
-    // This is possible that a instance is created by user, but still not picked by state machine.
-    // To avoid that race condition, need to check if db has any entry with given machine id.
-    if ManagedHostState::Ready != mh_snapshot.managed_state || mh_snapshot.instance.is_some() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Could not create instance on machine {} given machine state {:?}, Unprocessed instance: {}",
+    if let Err(e) = mh_snapshot.check_allocatable() {
+        tracing::error!(%machine_id, "Host can not be allocated due to reason: {}", e);
+        return Err(match e {
+            NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
+            "Could not create instance on machine {} given machine state {:?}",
             machine_id,
-            mh_snapshot.managed_state,
-            mh_snapshot.instance.is_some()
-        )));
-    }
-
-    if mh_snapshot.dpu_snapshots.is_empty()
-        && !mh_snapshot
-            .host_snapshot
-            .associated_dpu_machine_ids()
-            .is_empty()
-    {
-        // If there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty, we can't
-        // allocate an instance.
-        return Err(CarbideError::GenericError(format!(
-            "Machine {machine_id} has no DPU. Cannot allocate."
-        )));
-    }
-
-    if mh_snapshot
-        .aggregate_health
-        .has_classification(&health_report::HealthAlertClassification::prevent_allocations())
-    {
-        tracing::error!(%machine_id, "Host {} can not be allocated due to alerts {:?}", mh_snapshot.host_snapshot.machine_id, mh_snapshot.aggregate_health.alerts);
-        return Err(CarbideError::UnhealthyHost);
-    }
-
-    if mh_snapshot.host_snapshot.is_maintenance_mode() {
-        return Err(CarbideError::MaintenanceMode);
+            s
+        )),
+            NotAllocatableReason::PendingInstanceCreation => CarbideError::InvalidArgument(format!(
+            "Could not create instance on machine {}. Machine is already used by another Instance creation request.",
+            machine_id,
+        )),
+            NotAllocatableReason::NoDpuSnapshots => CarbideError::GenericError(format!(
+                "Machine {machine_id} has no DPU. Cannot allocate."
+            )),
+            NotAllocatableReason::MaintenanceMode  => CarbideError::MaintenanceMode,
+            NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
+        });
     }
 
     // This persists the instance with initial configs, but this is lacking the config
