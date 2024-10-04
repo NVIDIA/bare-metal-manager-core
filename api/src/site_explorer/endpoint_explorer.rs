@@ -66,6 +66,12 @@ pub trait EndpointExplorer: Send + Sync + 'static {
 
     async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool;
 
+    async fn forge_setup(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
+
     async fn forge_setup_status(
         &self,
         address: SocketAddr,

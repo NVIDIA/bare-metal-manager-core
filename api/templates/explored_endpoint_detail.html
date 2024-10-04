@@ -64,7 +64,21 @@
 			Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
 		</td>				
 	</tr>
-	<tr><th>Forge Setup Status</th><td>{{ forge_setup_status }}</td></tr>
+	<tr>
+		<th>Forge Setup</th>
+		<td>
+			<table align="left">
+				<tr>
+					<td>
+						<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
+							<input style="margin-left: 0" type="submit" value="Forge Setup">
+						</form>
+					</td>
+					<td><em>Current Status</em> - {{ forge_setup_status }}</td>
+				</tr>
+			</table>
+		</td>
+	</tr>
 </table>
 
 {% match endpoint.report %}
