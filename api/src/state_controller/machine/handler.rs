@@ -594,9 +594,12 @@ impl MachineStateHandler {
                     };
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
-                    if state.host_snapshot.bios_password_set_time.is_none() {
-                        tracing::info!("transitioning legacy host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
-                        host_machine_id);
+                    // This feature has only been tested thoroughly on Dells and Lenovos
+                    if (state.host_snapshot.bmc_vendor.is_dell()
+                        || state.host_snapshot.bmc_vendor.is_lenovo())
+                        && state.host_snapshot.bios_password_set_time.is_none()
+                    {
+                        tracing::info!("transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",state.host_snapshot.bmc_vendor, state.host_snapshot.machine_id);
                         return Ok(StateHandlerOutcome::Transition(
                             ManagedHostState::HostInit {
                                 machine_state: MachineState::UefiSetup {
@@ -3481,23 +3484,51 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::SetUefiPassword => {
-            let job_id = set_host_uefi_password(
+            match set_host_uefi_password(
                 redfish_client.as_ref(),
                 ctx.services.redfish_client_pool.clone(),
             )
             .await
-            .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?;
-
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: job_id,
-                            uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
+            {
+                Ok(job_id) => Ok(StateHandlerOutcome::Transition(
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::UefiSetup {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: job_id,
+                                uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
+                            },
                         },
                     },
-                },
-            ))
+                )),
+                Err(e) => {
+                    let msg = format!(
+                        "failed to set the BIOS password on {} ({}): {}",
+                        state.host_snapshot.machine_id, state.host_snapshot.bmc_vendor, e
+                    );
+
+                    // This feature has only been tested thoroughly on Dells and Lenovos
+                    if state.host_snapshot.bmc_vendor.is_dell()
+                        || state.host_snapshot.bmc_vendor.is_lenovo()
+                    {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!("{}", msg)));
+                    }
+
+                    // For all other vendors, allow ingestion even though we couldnt set the bios password
+                    // An operator will have to set the bios password manually
+                    tracing::info!(msg);
+
+                    Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::UefiSetup {
+                                uefi_setup_info: UefiSetupInfo {
+                                    uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                                    uefi_setup_state: UefiSetupState::LockdownHost,
+                                },
+                            },
+                        },
+                    ))
+                }
+            }
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
