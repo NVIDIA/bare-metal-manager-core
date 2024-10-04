@@ -560,6 +560,20 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
             .unwrap(),
         r#"{fresh="true"} 0"#
     );
+    // TODO: For some reason the 2nd created Host stays in state `Discovered`
+    // and never becomes ready. Once it does, the test should be updated.
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_allocatable_hosts_count")
+            .unwrap(),
+        r#"{fresh="true"} 1"#
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_allocatable_gpus_count")
+            .unwrap(),
+        r#"{fresh="true"} 1"#
+    );
     assert_eq!(
         env.test_meter
             .formatted_metric("forge_available_gpus_count")

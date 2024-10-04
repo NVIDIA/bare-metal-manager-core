@@ -23,6 +23,7 @@ use rpc::forge::forge_server::Forge;
 
 use super::filters;
 use crate::{api::Api, CarbideError, CarbideResult};
+const MAX_LABEL_LENGTH: usize = 32;
 
 #[derive(Template)]
 #[template(path = "instance_show.html")]
@@ -36,6 +37,7 @@ struct InstanceDisplay {
     tenant_org: String,
     tenant_state: String,
     configs_synced: String,
+    labels: String,
     ip_addresses: String,
     num_eth_ifs: usize,
     num_ib_ifs: usize,
@@ -64,6 +66,41 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .as_ref()
             .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
             .map(|state| format!("{:?}", state))
+            .unwrap_or_default();
+
+        let labels = instance
+            .metadata
+            .as_ref()
+            .map(|metadata| {
+                metadata
+                    .labels
+                    .iter()
+                    .map(|label| {
+                        let key = label.key.clone();
+                        let truncated_key = if key.len() > MAX_LABEL_LENGTH {
+                            format!(
+                                "{}...",
+                                &key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                            )
+                        } else {
+                            key
+                        };
+
+                        let value = label.value.clone().unwrap_or_default();
+                        let truncated_value = if value.len() > MAX_LABEL_LENGTH {
+                            format!(
+                                "{}...",
+                                &value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                            )
+                        } else {
+                            value
+                        };
+
+                        format!("\"{}: {}\"", truncated_key, truncated_value)
+                    })
+                    .collect::<Vec<String>>()
+                    .join(",    ")
+            })
             .unwrap_or_default();
 
         let instance_addresses: Vec<&str> = instance
@@ -105,6 +142,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             tenant_org,
             tenant_state,
             configs_synced,
+            labels,
             ip_addresses: instance_addresses.join(","),
             num_eth_ifs,
             num_ib_ifs,

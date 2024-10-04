@@ -303,6 +303,7 @@ impl MachineStateHandler {
             }
         }
 
+        ctx.metrics.is_allocatable = state.check_allocatable().is_ok();
         ctx.metrics.available_gpus = state
             .host_snapshot
             .hardware_info
@@ -485,6 +486,14 @@ impl MachineStateHandler {
                     }
                 }
                 if is_machine_validation_requested(state).await {
+                    //reboot the machine with new scout image
+                    handler_host_power_control(
+                        state,
+                        ctx.services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
                     let validation_id = MachineValidation::create_new_run(
                         txn,
                         &state.host_snapshot.machine_id,
@@ -823,6 +832,46 @@ impl MachineStateHandler {
                         if let Some(next_state) =
                             handle_measuring_state(Err(managed_state), state, txn).await?
                         {
+                            Ok(StateHandlerOutcome::Transition(next_state))
+                        } else {
+                            Ok(StateHandlerOutcome::DoNothing)
+                        }
+                    }
+                    FailureCause::MachineValidation { .. }
+                        if machine_id.machine_type().is_host() =>
+                    {
+                        if is_machine_validation_requested(state).await {
+                            //reboot the machine with new scout image
+                            handler_host_power_control(
+                                state,
+                                ctx.services,
+                                SystemPowerControl::ForceRestart,
+                                txn,
+                            )
+                            .await?;
+                            // Clear the error so that state machine doesnt get into loop
+                            Machine::clear_failure_details(machine_id, txn)
+                                .await
+                                .map_err(StateHandlerError::from)?;
+                            let validation_id = MachineValidation::create_new_run(
+                                txn,
+                                &state.host_snapshot.machine_id,
+                                "OnDemand".to_string(),
+                            )
+                            .await?;
+                            let next_state = ManagedHostState::HostInit {
+                                machine_state: MachineState::MachineValidating {
+                                    context: "OnDemand".to_string(),
+                                    id: validation_id,
+                                    completed: 1,
+                                    total: 1,
+                                    is_enabled: self
+                                        .host_handler
+                                        .host_handler_params
+                                        .machine_validation_config
+                                        .enabled,
+                                },
+                            };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
                             Ok(StateHandlerOutcome::DoNothing)
@@ -4596,10 +4645,7 @@ async fn call_forge_setup_and_handle_no_dpu_error(
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
 async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bool {
-    println!(
-        "--------------------------------------{:?}",
-        state.host_snapshot.on_demand_machine_validation_request
-    );
+    tracing::info!(state.host_snapshot.on_demand_machine_validation_request);
     let Some(on_demand_machine_validation_request) =
         state.host_snapshot.on_demand_machine_validation_request
     else {
