@@ -35,9 +35,9 @@ not met by inspecting the last report from the Host and DPUs
     forge-admin-cli machine network status
     ```
 - via Forge Admin Web UI:
-  - https://api-pdx01.frg.nvidia.com/admin/managed-host/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
-  - https://api-pdx01.frg.nvidia.com/admin/machine/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
-  - https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+  - [https://api-pdx01.frg.nvidia.com/admin/managed-host/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg](https://api-pdx01.frg.nvidia.com/admin/managed-host/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg)
+  - [https://api-pdx01.frg.nvidia.com/admin/machine/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg](https://api-pdx01.frg.nvidia.com/admin/machine/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg)
+  - [https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg](https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg)
 
 E.g. in the following report
 ```
@@ -113,7 +113,7 @@ The network status details show:
 
 In this case we learn that the DPU was alive before, and acknowledged network config version `V2-T1702485344893918`. This is still the desired network configuration version for
 this DPU. The target configuration for a DPU can be found on the `Network Config` block
-the DPU page in the admin Web UI: https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+the DPU page in the admin Web UI: [https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg](https://api-pdx01.frg.nvidia.com/admin/machine/fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg)
 
 The summary for this example is that the Machine is stuck because the DPU
 - is either not healthy at all (e.g. not booted)
