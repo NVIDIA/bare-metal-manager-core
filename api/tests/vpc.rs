@@ -91,6 +91,30 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .expect("Unable to create transaction on database pool");
 
     let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id").try_into()?;
+
+    let invalid_updated_vpc = env
+        .api
+        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+            name: "".to_string(),
+            id: Some(no_org_vpc_id.into()),
+            if_version_match: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "new name with non-asci: €".to_string(),
+                description: "".to_string(),
+                labels: Vec::new(),
+            }),
+        }))
+        .await;
+
+    let error = invalid_updated_vpc
+        .expect_err("expected VPC update to fail")
+        .to_string();
+    assert!(
+        error.contains("must contain ASCII characters only"),
+        "Error message should contain 'must contain ASCII characters only', but is {}",
+        error
+    );
+
     let updated_metadata = Metadata {
         name: "new name".to_string(),
         description: "".to_string(),
