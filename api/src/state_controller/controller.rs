@@ -332,6 +332,9 @@ impl<IO: StateControllerIO> StateController<IO> {
                             if let Ok(StateHandlerOutcome::Transition(next)) = &handler_outcome {
                                 next_state = Some(next.clone());
 
+                                if *next == controller_state.value {
+                                    tracing::warn!(state=?next, %object_id, "Transition to current state");
+                                }
                                 io.persist_controller_state(
                                     &mut txn,
                                     &object_id,
