@@ -9,6 +9,7 @@
 <table class="sortable">
 	<thead>
 	<tr>
+		<th>#</th>
 		<th>ID</th>
 		<th>State</th>
 		<th>Health Alerts</th>
@@ -30,6 +31,7 @@
 	<tbody>
 	{% for m in machines %}
 		<tr>
+			<td>{{ loop.index }}</td> 
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>
 				{{ m.state }}

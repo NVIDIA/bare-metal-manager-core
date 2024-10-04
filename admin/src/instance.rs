@@ -197,7 +197,9 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
         "TenantState",
         "ConfigsSynced",
         "IPAddresses",
+        "Labels",
     ]);
+    let default_metadata = Default::default();
 
     for instance in instances.instances {
         let tenant_org = instance
@@ -206,6 +208,19 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .and_then(|config| config.tenant.as_ref())
             .map(|tenant| tenant.tenant_organization_id.clone())
             .unwrap_or_default();
+
+        let labels = instance
+            .metadata
+            .as_ref()
+            .unwrap_or(&default_metadata)
+            .labels
+            .iter()
+            .map(|label| {
+                let key = &label.key;
+                let value = label.value.clone().unwrap_or_default();
+                format!("\"{}:{}\"", key, value)
+            })
+            .collect::<Vec<_>>();
 
         let tenant_state = instance
             .status
@@ -239,7 +254,8 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             tenant_org,
             tenant_state,
             configs_synced,
-            instance_addresses.join(",")
+            instance_addresses.join(","),
+            labels.join(", ")
         ]);
     }
 
