@@ -3251,9 +3251,27 @@ async fn trigger_reboot_if_needed(
         .failure_retry_time
         .max(Duration::minutes(1));
 
-    let next_potential_reboot_time = last_reboot_requested.time + wait_period;
     let current_time = Utc::now();
     let entered_state_at = target.current.version.timestamp();
+    let next_potential_reboot_time: DateTime<Utc> =
+        if last_reboot_requested.time + wait_period > entered_state_at {
+            last_reboot_requested.time + wait_period
+        } else {
+            // Handles this case:
+            // T0: State A
+            //      DPU was hung--Reboot DPU
+            //      DPU last requested reboot requested time: T0
+            // T1 (T0 + 1 hour): State B
+            //      DPU was hung; DPU wait period is 45 mins
+            //      If we only calculate the next reboot time from the last requested reboot time
+            //      the DPU's next potential reboot time = T0 + 45 < T1
+            // Our logic to detect the reboot cycle will return an error here,
+            // because the next reboot time is before the time the DPU entered State B.
+            // Update the DPU's next reboot time to be 5 minutes after it entered State B to handle
+            // this edge case.
+            entered_state_at + Duration::minutes(5)
+        };
+
     let time_elapsed_since_state_change = (current_time - entered_state_at).num_minutes();
     // Let's stop at 15 cycles of reboot.
     let max_retry_duration = Duration::minutes(wait_period.num_minutes() * 15);
