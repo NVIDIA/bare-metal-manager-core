@@ -428,7 +428,10 @@ impl SiteExplorer {
                 .create_managed_host(host.clone(), report, &self.database_connection)
                 .await
             {
-                Ok(true) => metrics.created_machines += 1,
+                Ok(true) => {
+                    metrics.created_machines += 1;
+                    break;
+                }
                 Ok(false) => {}
                 Err(error) => tracing::error!(%error, "Failed to create managed host {:#?}", host),
             }

@@ -630,7 +630,7 @@ impl PartialEq for SiteExplorerConfig {
 
 impl SiteExplorerConfig {
     pub const fn default_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
+        std::time::Duration::from_secs(120)
     }
 
     pub const fn default_concurrent_explorations() -> u64 {
@@ -1538,7 +1538,7 @@ mod tests {
             config.site_explorer,
             SiteExplorerConfig {
                 enabled: true,
-                run_interval: std::time::Duration::from_secs(60),
+                run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: crate::dynamic_settings::create_machines(true),
