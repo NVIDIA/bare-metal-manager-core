@@ -832,6 +832,7 @@ pub enum FirmwareComponentType {
     Cec,
     Uefi,
     HGXBmc,
+    CombinedBmcUefi,
     #[serde(other)]
     #[default]
     Unknown,
@@ -842,6 +843,7 @@ impl fmt::Display for FirmwareComponentType {
         match self {
             FirmwareComponentType::Bmc => write!(f, "BMC"),
             FirmwareComponentType::Uefi => write!(f, "UEFI"),
+            FirmwareComponentType::CombinedBmcUefi => write!(f, "BMC+UEFI"),
             FirmwareComponentType::Cec => write!(f, "CEC"),
             FirmwareComponentType::Bfb => write!(f, "BFB"),
             FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
@@ -859,8 +861,24 @@ impl From<FirmwareComponentType> for libredfish::model::update_service::Componen
             FirmwareComponentType::Cec => ComponentType::Unknown,
             FirmwareComponentType::Bfb => ComponentType::Unknown,
             FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
+            FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
+    }
+}
+
+impl FirmwareComponentType {
+    pub fn is_bmc(&self) -> bool {
+        matches!(
+            self,
+            FirmwareComponentType::Bmc | FirmwareComponentType::CombinedBmcUefi
+        )
+    }
+    pub fn is_uefi(&self) -> bool {
+        matches!(
+            self,
+            FirmwareComponentType::Uefi | FirmwareComponentType::CombinedBmcUefi
+        )
     }
 }
 
@@ -882,6 +900,9 @@ pub struct FirmwareEntry {
     pub filename: Option<String>,
     pub url: Option<String>,
     pub checksum: Option<String>,
+    #[serde(default)]
+    // If set, we will pass the firmware type to libredfish which for some platforms will install only one part of a multi-firmware package.
+    pub install_only_specified: bool,
 }
 
 impl FirmwareEntry {

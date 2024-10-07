@@ -666,10 +666,11 @@ impl PreingestionManagerStatic {
             }
         };
 
+        let mut need_wait = false;
         // Still not reporting the new version.
         // If this is the UEFI, we need to request a reboot.  Otherwise, we just need to keep waiting.
         // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a long wait.
-        if *upgrade_type == FirmwareComponentType::Uefi {
+        if upgrade_type.is_uefi() {
             tracing::info!(
                 "Upgrade task has completed for {} but needs reboot, initiating one",
                 &endpoint.address
@@ -685,18 +686,15 @@ impl PreingestionManagerStatic {
                 txn,
             )
             .await?;
-            // Will not be reporting the new version yet, we need to wait.
-            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
-            return Ok(());
+
+            need_wait = true;
         }
         // Lenovo and Nvidia DPU BMC needs to be manually reset after the update
         let bmc_vendor = endpoint
             .report
             .vendor
             .unwrap_or(bmc_vendor::BMCVendor::Unknown);
-        if *upgrade_type == FirmwareComponentType::Bmc
-            && (bmc_vendor.is_lenovo() || bmc_vendor.is_nvidia())
-        {
+        if upgrade_type.is_bmc() && (bmc_vendor.is_lenovo() || bmc_vendor.is_nvidia()) {
             tracing::info!(
                 "Upgrade task has completed for {} but needs BMC reboot, initiating one",
                 &endpoint.address
@@ -713,8 +711,7 @@ impl PreingestionManagerStatic {
             )
             .await?;
             // Will not be reporting the new version yet, we need to wait.
-            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
-            return Ok(());
+            need_wait = true;
         }
         if *upgrade_type == FirmwareComponentType::HGXBmc {
             // Needs a host power reset
@@ -727,9 +724,13 @@ impl PreingestionManagerStatic {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            // Okay to proceed
+            // Does not need a wait
         }
 
+        if need_wait {
+            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            return Ok(());
+        }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
         DbExploredEndpoint::set_preingestion_new_reported_wait(
             endpoint.address,
@@ -875,12 +876,17 @@ async fn initiate_update(
         "initiate_update: Started upload of firmware to {}",
         endpoint_clone.address
     );
+    let redfish_component_type: libredfish::model::update_service::ComponentType =
+        match to_install.install_only_specified {
+            false => libredfish::model::update_service::ComponentType::Unknown,
+            true => (*firmware_type).into(),
+        };
     let task = match redfish_client
         .update_firmware_multipart(
             to_install.get_filename().as_path(),
             true,
             Duration::from_secs(120),
-            (*firmware_type).into(),
+            redfish_component_type,
         )
         .await
     {

@@ -91,6 +91,7 @@ mod test {
             filename: None,
             url: None,
             checksum: None,
+            install_only_specified: false,
         };
         let component = FirmwareComponent {
             current_version_reported_as: None,
