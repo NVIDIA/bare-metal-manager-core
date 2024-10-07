@@ -746,7 +746,10 @@ pub struct BmcPassword {
 pub struct Multipart {
     #[clap(long, help = "Local filename for the firmware to be installed")]
     pub filename: String,
-    #[clap(long, help = "Firmware type, ignored by some platforms")]
+    #[clap(
+        long,
+        help = "Firmware type, ignored by some platforms and optional on others"
+    )]
     pub component_type: Option<ComponentType>,
 }
 

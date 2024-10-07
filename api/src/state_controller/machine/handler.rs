@@ -1329,12 +1329,17 @@ impl MachineStateHandler {
             }
         };
 
+        let redfish_component_type: libredfish::model::update_service::ComponentType =
+            match to_install.install_only_specified {
+                false => libredfish::model::update_service::ComponentType::Unknown,
+                true => (*component_type).into(),
+            };
         let task = match redfish_client
             .update_firmware_multipart(
                 to_install.get_filename().as_path(),
                 true,
                 std::time::Duration::from_secs(120),
-                (*component_type).into(),
+                redfish_component_type,
             )
             .await
         {
@@ -1485,7 +1490,7 @@ impl MachineStateHandler {
             return Ok(None);
         };
 
-        if *firmware_type == FirmwareComponentType::Uefi {
+        if firmware_type.is_uefi() {
             tracing::debug!(
                 "Upgrade task has completed for {} but needs reboot, initiating one",
                 &endpoint.address
@@ -1494,7 +1499,9 @@ impl MachineStateHandler {
                 .await?;
 
             // Same state but with the rebooted flag set, it can take a long time to reboot in some cases so we do not retry.
-        } else if *firmware_type == FirmwareComponentType::Bmc
+        }
+
+        if firmware_type.is_bmc()
             && !endpoint
                 .report
                 .vendor
@@ -1517,6 +1524,7 @@ impl MachineStateHandler {
                 return Ok(None);
             }
         }
+
         if *firmware_type == FirmwareComponentType::HGXBmc {
             // Needs a host power reset
             let redfish_client = build_redfish_client_from_bmc_ip(
