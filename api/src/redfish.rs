@@ -21,6 +21,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use chrono::Utc;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
     TestCredentialProvider,
@@ -712,6 +713,11 @@ impl Redfish for RedfishSimClient {
     async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
         Ok(libredfish::model::ComputerSystem {
             id: "Bluefield".to_string(),
+            boot_progress: Some(libredfish::model::BootProgress {
+                last_state: Some(libredfish::model::BootProgressTypes::OSRunning),
+                last_state_time: Some(Utc::now().to_string()),
+                oem_last_state: Some("OSRunning".to_string()),
+            }),
             ..Default::default()
         })
     }
