@@ -159,7 +159,7 @@ pub async fn register_machine(
         )),
         create_machine,
     };
-    tracing::debug!("register_machine discovery_info {:?}", info);
+    tracing::info!("register_machine discovery_info {:?}", info);
 
     let forge_client_config = match use_mgmt_vrf {
         true => ForgeClientConfig::new(root_ca, None)
