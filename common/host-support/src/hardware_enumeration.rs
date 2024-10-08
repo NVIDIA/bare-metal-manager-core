@@ -552,15 +552,19 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         }
     };
 
-    let dpu_vpd = match dmi.sys_vendor.as_str() {
-        "https://www.mellanox.com" => match dpu::get_dpu_info() {
-            Ok(dpu_data) => Some(dpu_data),
-            Err(e) => {
-                tracing::error!("Could not get DPU data: {:?}", e);
-                None
-            }
-        },
-        _ => None,
+    let dpu_vpd = if is_dpu {
+        match dmi.sys_vendor.as_str() {
+            "https://www.mellanox.com" | "Nvidia" => match dpu::get_dpu_info() {
+                Ok(dpu_data) => Some(dpu_data),
+                Err(e) => {
+                    tracing::error!("Could not get DPU data: {:?}", e);
+                    None
+                }
+            },
+            _ => None,
+        }
+    } else {
+        None
     };
 
     let mut enumerator = libudev::Enumerator::new(&context)?;
