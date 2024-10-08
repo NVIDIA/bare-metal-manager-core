@@ -2421,14 +2421,15 @@ async fn handle_dpu_reprovision(
         ReprovisionState::WaitingForNetworkConfig => {
             for dpu_snapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dpu_snapshot) {
-                    tracing::warn!("Waiting for DPU {} to come up", dpu_snapshot.machine_id);
+                    let msg = format!("Waiting for DPU {} to come up", dpu_snapshot.machine_id);
+                    tracing::warn!("{msg}");
 
-                    reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
-                        .await?;
+                    let reboot_status =
+                        reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
+                            .await?;
 
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "Waiting for DPU {} to come up.",
-                        dpu_snapshot.machine_id
+                        "{msg};\nreboot_status: {reboot_status:#?}"
                     )));
                 }
 
@@ -2441,12 +2442,13 @@ async fn handle_dpu_reprovision(
                     // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
                     // let the trigger_reboot_if_needed determine if we are stuck here
                     // (based on how long it has been since the last requested reboot)
-                    reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
-                        .await?;
+                    let reboot_status =
+                        reboot_if_needed(state, dpu_snapshot, reachability_params, services, txn)
+                            .await?;
 
                     // TODO: Make is_network_ready give us more details as a string
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "Waiting for DPU {} to sync network config/become healthy.",
+                        "Waiting for DPU {} to sync network config/become healthy;\nreboot status: {reboot_status:#?}",
                         dpu_snapshot.machine_id
                     )));
                 }
@@ -3043,8 +3045,9 @@ impl DpuMachineStateHandler {
                 )
                 .await
                 {
-                    tracing::warn!("redfish forge_setup failed, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", e);
-                    reboot_if_needed(
+                    let msg = format!("redfish forge_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", dpu_snapshot.machine_id, e);
+                    tracing::warn!(msg);
+                    let reboot_status = reboot_if_needed(
                         state,
                         dpu_snapshot,
                         &self.reachability_params,
@@ -3054,7 +3057,7 @@ impl DpuMachineStateHandler {
                     .await?;
 
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "Waiting for DPU to reboot {}",
+                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
                         dpu_snapshot.machine_id
                     )));
                 }
@@ -3065,8 +3068,24 @@ impl DpuMachineStateHandler {
                     .uefi_setup(dpu_redfish_client.as_ref(), true)
                     .await
                 {
-                    tracing::error!(%e, "Failed to run uefi_setup call");
-                    return Err(StateHandlerError::RedfishClientCreationError(e));
+                    let msg = format!(
+                        "Failed to run uefi_setup call failed for DPU {}: {}",
+                        dpu_snapshot.machine_id, e
+                    );
+                    tracing::warn!(msg);
+                    let reboot_status = reboot_if_needed(
+                        state,
+                        dpu_snapshot,
+                        &self.reachability_params,
+                        ctx.services,
+                        txn,
+                    )
+                    .await?;
+
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                        dpu_snapshot.machine_id
+                    )));
                 }
 
                 let next_state = DpuInitState::WaitingForNetworkConfig
@@ -3083,7 +3102,7 @@ impl DpuMachineStateHandler {
                         // we requested a DPU reboot in DpuInitState::Init
                         // let the trigger_reboot_if_needed determine if we are stuck here
                         // (based on how long it has been since the last requested reboot)
-                        reboot_if_needed(
+                        let reboot_status = reboot_if_needed(
                             state,
                             dpu_snapshot,
                             &self.reachability_params,
@@ -3094,7 +3113,7 @@ impl DpuMachineStateHandler {
 
                         // TODO: Make is_network_ready give us more details as a string
                         return Ok(StateHandlerOutcome::Wait(
-                            format!("Waiting for DPU agent to apply network config and report healthy network for DPU {}",
+                            format!("Waiting for DPU agent to apply network config and report healthy network for DPU {}\nreboot status: {reboot_status:#?}",
                         dpu_snapshot.machine_id),
                         ));
                     }
@@ -3426,7 +3445,7 @@ async fn reboot_if_needed(
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), StateHandlerError> {
+) -> Result<RebootStatus, StateHandlerError> {
     let reboot_status = trigger_reboot_if_needed(
         machine_snapshot,
         &state.clone(),
@@ -3451,7 +3470,7 @@ async fn reboot_if_needed(
         );
     }
 
-    Ok(())
+    Ok(reboot_status)
 }
 
 async fn handler_host_lockdown(
