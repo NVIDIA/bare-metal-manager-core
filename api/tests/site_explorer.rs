@@ -1920,7 +1920,12 @@ async fn test_site_explorer_creates_managed_host(
             dpu_states: carbide::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id().clone(),
-                    DpuDiscoveringState::DisableSecureBoot { count: 0 },
+                    DpuDiscoveringState::DisableSecureBoot {
+                        disable_secure_boot_state: Some(
+                            carbide::model::machine::DisableSecureBootState::CheckSecureBootStatus
+                        ),
+                        count: 0,
+                    },
                 )]),
             },
         }

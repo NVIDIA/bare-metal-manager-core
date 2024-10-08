@@ -14,6 +14,7 @@
 
 use std::{net::IpAddr, sync::Arc};
 
+use crate::model::machine::DisableSecureBootState;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -2657,51 +2658,6 @@ impl DpuMachineStateHandler {
 
         Ok(!secure_boot_enable && !secure_boot_current_boot.is_enabled())
     }
-
-    async fn disable_secure_boot(
-        &self,
-        dpu_snapshot: &MachineSnapshot,
-        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<(), StateHandlerError> {
-        let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-            dpu_snapshot.bmc_addr(),
-            &ctx.services.redfish_client_pool,
-            txn,
-        )
-        .await?;
-
-        // The Redfish calls here MUST be available without assistance from UEFI.
-        //
-        // On a newly reset DPU/BMC or brand new device, UEFI, nor the OS on the ARM cores may not
-        // have booted yet.
-        //
-        // Any redfish here that relies on UEFI having POSTed will fail.
-        //
-        //
-        // Disabling SecureBoot is required for iPXE to boot.
-        //
-        dpu_redfish_client
-            .disable_secure_boot()
-            .await
-            .map_err(|e| StateHandlerError::RedfishError {
-                operation: "disable_secure_boot",
-                error: e,
-            })?;
-
-        //
-        // Next just do a ForceRestart to netboot without secureboot.
-        //
-        // This will kick off the ARM OS install since we move to DPU/Init next.
-        //
-        dpu_redfish_client
-            .power(SystemPowerControl::GracefulRestart)
-            .await
-            .map_err(|e| StateHandlerError::RedfishError {
-                operation: "graceful_restart",
-                error: e,
-            })
-    }
 }
 
 impl DpuMachineStateHandler {
@@ -2762,33 +2718,26 @@ impl DpuMachineStateHandler {
                     }
                 })?;
 
-                let next_state = DpuDiscoveringState::DisableSecureBoot { count: 0 }
-                    .next_state(&state.managed_state, dpu_machine_id)?;
+                let next_state = DpuDiscoveringState::DisableSecureBoot {
+                    count: 0,
+                    disable_secure_boot_state: Some(DisableSecureBootState::CheckSecureBootStatus),
+                }
+                .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            DpuDiscoveringState::DisableSecureBoot { count } => {
+            // The proceure to disable secure boot is documented on page 58-59 here: https://docs.nvidia.com/networking/display/nvidia-bluefield-management-and-initial-provisioning.pdf
+            DpuDiscoveringState::DisableSecureBoot {
+                disable_secure_boot_state,
+                count,
+            } => {
                 let next_state: ManagedHostState;
+
                 // Use the host snapshot instead of the DPU snapshot because
                 // the state.host_snapshot.current.version might be a bit more correct:
                 // the state machine is driven by the host state
-                let wait_for_dpu_reboot = *count > 0
-                    && state
-                        .host_snapshot
-                        .current
-                        .version
-                        .since_state_change()
-                        .num_minutes()
-                        < 5;
-
-                tracing::debug!(
-                    "ManagedHostState::DpuDiscoveringState::DisableSecureBoot ({count}) for {dpu_machine_id}; waiting for DPU reboot: {wait_for_dpu_reboot} ({})",
-                    state
-                        .host_snapshot
-                        .current
-                        .version
-                        .since_state_change()
-                        .num_minutes()
-                );
+                let time_since_state_change =
+                    state.host_snapshot.current.version.since_state_change();
+                let wait_for_dpu_to_come_up;
 
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
                     dpu_snapshot.bmc_addr(),
@@ -2807,51 +2756,138 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                match self
-                    .is_secure_boot_disabled(dpu_machine_id, dpu_redfish_client)
+                match dpu_redfish_client
+                    .get_system()
                     .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "get_system",
+                        error: e,
+                    })?
+                    .boot_progress
                 {
-                    // we successfully disabled secure boot
-                    Ok(true) => {
-                        next_state = DpuDiscoveringState::SetUefiHttpBoot
-                            .next_state(&state.managed_state, dpu_machine_id)?;
-                    }
-                    // Secure boot is still enabled
-                    Ok(false) => {
-                        if wait_for_dpu_reboot {
-                            return Ok(StateHandlerOutcome::Wait(format!(
-                                    "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
-                                    dpu_snapshot.current.version.timestamp()
-                                )));
+                    Some(boot_progress) => match boot_progress.last_state {
+                        Some(last_boot_progress_state) => {
+                            wait_for_dpu_to_come_up = !(matches!(
+                                last_boot_progress_state,
+                                libredfish::model::BootProgressTypes::OSRunning
+                            ));
                         }
+                        None => wait_for_dpu_to_come_up = time_since_state_change.num_minutes() < 5,
+                    },
+                    // The DPUs only started reporting boot progress starting in BMC FW version 24.04
+                    None => wait_for_dpu_to_come_up = time_since_state_change.num_minutes() < 5,
+                }
 
-                        self.disable_secure_boot(dpu_snapshot, ctx, txn).await?;
-
-                        next_state = DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
-                            .next_state(&state.managed_state, dpu_machine_id)?;
-                    }
-                    // we cant retrieve the secure boot status
-                    Err(e) => {
-                        tracing::error!(%e, "Failed to retrieve secure boot status ({count})");
-                        // We have requested a reboot, so wait for the DPU to come up
-                        if wait_for_dpu_reboot {
-                            return Ok(StateHandlerOutcome::Wait(format!(
-                                    "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
-                                    dpu_snapshot.current.version.timestamp()
+                match disable_secure_boot_state {
+                    Some(disable_secure_boot_state) => match disable_secure_boot_state {
+                        DisableSecureBootState::CheckSecureBootStatus => {
+                            // This is the logic:
+                            // CheckSecureBootStatus -> DisableSecureBoot -> DisableSecureBootState::RebootDPU{0} -> DisableSecureBootState::RebootDPU{1}
+                            // The first time we check to see if secure boot is disabled, we do not need to wait. The DPU should already be up.
+                            // However, we need to give time in between the second reboot and checking the status again.
+                            if *count > 0 && wait_for_dpu_to_come_up {
+                                return Ok(StateHandlerOutcome::Wait(format!(
+                                    "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}; DisableSecureBoot cycle: {count}",
                                 )));
-                        }
+                            }
 
-                        if *count > 1 {
-                            // We have tried (disabling secure boot -> rebooting the DPU -> waiting for 5 minutes) more than once. No need to try indefinitely
-                            next_state = DpuDiscoveringState::SetUefiHttpBoot
-                                .next_state(&state.managed_state, dpu_machine_id)?;
-                        } else {
-                            self.disable_secure_boot(dpu_snapshot, ctx, txn).await?;
-
-                            next_state =
-                                DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
+                            if self
+                                .is_secure_boot_disabled(dpu_machine_id, dpu_redfish_client)
+                                .await?
+                            {
+                                next_state = DpuDiscoveringState::SetUefiHttpBoot
                                     .next_state(&state.managed_state, dpu_machine_id)?;
+                            } else {
+                                // TODO (spyda): fine tune this limit
+                                if *count > 10 {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                            "Carbide failed disable secure boot on DPU {dpu_machine_id} after trying {count} times; waiting for manual intervention",                                
+                                        )));
+                                }
+
+                                next_state = DpuDiscoveringState::DisableSecureBoot {
+                                    disable_secure_boot_state: Some(
+                                        DisableSecureBootState::DisableSecureBoot,
+                                    ),
+                                    count: *count,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            }
                         }
+                        DisableSecureBootState::DisableSecureBoot => {
+                            dpu_redfish_client
+                                .disable_secure_boot()
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "disable_secure_boot",
+                                    error: e,
+                                })?;
+
+                            next_state = DpuDiscoveringState::DisableSecureBoot {
+                                disable_secure_boot_state: Some(
+                                    DisableSecureBootState::RebootDPU { reboot_count: 0 },
+                                ),
+                                count: *count,
+                            }
+                            .next_state(&state.managed_state, dpu_machine_id)?;
+                        }
+                        // DPUs requires two reboots after the previous step in order to disable secure boot.
+                        // From the doc linked above: "the BlueField Arm OS must be rebooted twice. The first
+                        // reboot is for the UEFI redfish client to read the request from the BMC and apply it; the
+                        // second reboot is for the setting to take effect."
+                        // We do not need to wait between disabling secure boot and the first reboot.
+                        // But, we need to give the DPU time to come up after the initial reboot,
+                        // before we reboot it again.
+                        DisableSecureBootState::RebootDPU { reboot_count } => {
+                            if *reboot_count == 0 {
+                                next_state = DpuDiscoveringState::DisableSecureBoot {
+                                    disable_secure_boot_state: Some(
+                                        DisableSecureBootState::RebootDPU {
+                                            reboot_count: *reboot_count + 1,
+                                        },
+                                    ),
+                                    count: *count,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            } else {
+                                if wait_for_dpu_to_come_up {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                        "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}",
+                                    )));
+                                }
+
+                                next_state = DpuDiscoveringState::DisableSecureBoot {
+                                    disable_secure_boot_state: Some(
+                                        DisableSecureBootState::CheckSecureBootStatus,
+                                    ),
+                                    count: *count + 1,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            }
+
+                            //
+                            // Next just do a ForceRestart to netboot without secureboot.
+                            //
+                            // This will kick off the ARM OS install since we move to DPU/Init next.
+                            //
+                            dpu_redfish_client
+                                .power(SystemPowerControl::ForceRestart)
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "force_restart",
+                                    error: e,
+                                })?;
+                        }
+                    },
+                    None => {
+                        // Add the new sub-state to DpuDiscoveringState::DisableSecureBoot if we have a machine with the older version of the state
+                        next_state = DpuDiscoveringState::DisableSecureBoot {
+                            disable_secure_boot_state: Some(
+                                DisableSecureBootState::CheckSecureBootStatus,
+                            ),
+                            count: 0,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
                     }
                 }
 

@@ -1003,10 +1003,20 @@ pub enum DpuDiscoveringState {
     Configuring,
     RebootAllDPUS,
     DisableSecureBoot {
+        // this substate is optional because it was added after DisableSecureBoot was initially created (just in case we have a machine stuck in this state even though we shouldnt)
+        disable_secure_boot_state: Option<DisableSecureBootState>,
         count: u32,
     },
     SetUefiHttpBoot,
     EnableRshim,
+}
+
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd)]
+#[serde(tag = "disablesecurebootstate", rename_all = "lowercase")]
+pub enum DisableSecureBootState {
+    CheckSecureBootStatus,
+    DisableSecureBoot,
+    RebootDPU { reboot_count: u32 },
 }
 
 impl DpuDiscoveringState {
