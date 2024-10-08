@@ -278,6 +278,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     // let fff = devices.map(|device|DiscoveryNic { mac: "".to_string(), dev: "".to_string() });
     let mut nics: Vec<rpc_discovery::NetworkInterface> = Vec::new();
 
+    let mut is_dpu = false;
     for device in devices {
         tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
@@ -301,10 +302,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                     }
                 };
 
+                is_dpu = ib::is_dpu(&properties_ext.pci_properties.device);
+
                 // discovery DPU and non ib capable device
-                if ib::is_dpu(&properties_ext.pci_properties.device)
-                    || !ib::mlnx_ib_capable(&properties_ext)
-                {
+                if is_dpu || !ib::mlnx_ib_capable(&properties_ext) {
                     nics.push(rpc_discovery::NetworkInterface {
                         mac_address: convert_udev_to_mac(
                             convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
@@ -333,6 +334,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         //tracing::debug!("CPU info: {:?}", cpu_info.get_info(cpu_num));
         match arch {
             CpuArchitecture::Aarch64 => {
+                // TODO (spyda): we should remove this when we start ingesting ARM hosts
+                // This is a defensive check in case we dont catch it above
+                is_dpu = true;
+
                 cpus.push(rpc_discovery::Cpu {
                     vendor: cpu_info
                         .get_info(cpu_num)
@@ -513,8 +518,18 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             dmi.board_version = convert_sysattr_to_string("board_version", &device)?.to_string();
             dmi.bios_version = convert_sysattr_to_string("bios_version", &device)?.to_string();
             dmi.bios_date = convert_sysattr_to_string("bios_date", &device)?.to_string();
-            dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
-            dmi.chassis_serial = convert_sysattr_to_string("chassis_serial", &device)?.to_string();
+            // TODO (spyda): reach out to the NBU team. We recently found DPUs that reports a
+            // serial number for board_serial instead of what was previously found: "Unspecified Base Board Serial Number".
+            // Figure out a longer term strategy to use all three serial numbers. Keeping the commented out code below for future reference.
+            if is_dpu {
+                dmi.board_serial = utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
+                dmi.chassis_serial = utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
+            } else {
+                dmi.board_serial = convert_sysattr_to_string("board_serial", &device)?.to_string();
+                dmi.chassis_serial =
+                    convert_sysattr_to_string("chassis_serial", &device)?.to_string();
+            }
+
             dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
             dmi.product_name = convert_sysattr_to_string("product_name", &device)?.to_string();
             if cpu_part == BF3_CPU_PART && dmi.product_name == BF2_PRODUCT_NAME {
