@@ -25,9 +25,6 @@
 - Support for Viking host firmware upgrades
 - DPU ingestion will now enable the DPU BMC's rshim ([FORGE-4538](https://https://jirasw.nvidia.com/browse/FORGE-4358)).
 - The Forge Admin UI gained support for running `forge_setup` on a BMC, reconfiguring the BMC for forge use on-demand
-- New metrics to track GPU counts:
-    - `forge_allocatable_gpus_count`: Tracks the amount of GPUs wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in `Ready` state, as well as the Machine to be healthy.
-    - `forge_allocatable_hosts_count`: Tracks the amount of Hosts wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in `Ready` state, as well as the Machine to be healthy.
 
 ### Changed
 
