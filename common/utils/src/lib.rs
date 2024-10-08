@@ -9,6 +9,8 @@ pub mod models;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
 pub use managed_host_display::{get_managed_host_output, ManagedHostMetadata, ManagedHostOutput};
+pub const DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER: &str = "Unspecified Base Board Serial Number";
+pub const DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER: &str = "Unspecified Chassis Board Serial Number";
 
 /// A string to display to the user. Either the 'reason' or 'err' field, or None.
 pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {

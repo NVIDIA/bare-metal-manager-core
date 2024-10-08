@@ -628,8 +628,8 @@ impl EndpointExplorationReport {
         // the same values here.
         DmiData {
             product_serial: serial_number.trim().to_string(),
-            chassis_serial: "Unspecified Chassis Board Serial Number".to_string(),
-            board_serial: "Unspecified Base Board Serial Number".to_string(),
+            chassis_serial: utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
+            board_serial: utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
             bios_version: "".to_string(),
             sys_vendor: "".to_string(),
             board_name: "BlueField SoC".to_string(),
