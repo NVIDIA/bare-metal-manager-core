@@ -4434,14 +4434,6 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
-                    // Delete from database now. Once done, reboot and move to next state.
-                    DeleteInstance {
-                        instance_id: instance.id,
-                    }
-                    .delete(txn)
-                    .await
-                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-
                     // TODO: TPM cleanup
                     // Reboot host
                     handler_host_power_control(
@@ -4451,6 +4443,14 @@ impl StateHandler for InstanceStateHandler {
                         txn,
                     )
                     .await?;
+
+                    // Delete from database now. Once done, reboot and move to next state.
+                    DeleteInstance {
+                        instance_id: instance.id,
+                    }
+                    .delete(txn)
+                    .await
+                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
                     let next_state = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,

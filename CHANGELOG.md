@@ -33,6 +33,7 @@
   - `api.getbmcmetadata.latency` => `forge_hardware_health_getbmcmetadata_latency_milliseconds_sum`/`_count`
 - Forge Scout now runs in a Ubuntu 22.04 image instead of Debian 12 for compatibility with NVIDIA Software for upcoming ARM support
 - Force deleting a machine with an instance now requires specifying `--allow-delete-with-instance` flag.
+- State machine should update db only if handler returns Success. (Fixes: [4901186](https://nvbugspro.nvidia.com/bug/4901186))
 
 ### Fixed
 
