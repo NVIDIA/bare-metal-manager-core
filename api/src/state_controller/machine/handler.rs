@@ -4058,11 +4058,6 @@ impl StateHandler for HostMachineStateHandler {
                                 retry_count: 0,
                             }));
                         }
-                    } else {
-                        tracing::info!(
-                            "{} machine validation is in progress",
-                            state.host_snapshot.machine_id
-                        );
                     }
                     Ok(StateHandlerOutcome::DoNothing)
                 }
@@ -4757,12 +4752,15 @@ async fn call_forge_setup_and_handle_no_dpu_error(
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
 async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bool {
-    tracing::info!(state.host_snapshot.on_demand_machine_validation_request);
     let Some(on_demand_machine_validation_request) =
         state.host_snapshot.on_demand_machine_validation_request
     else {
         return false;
     };
+
+    if on_demand_machine_validation_request {
+        tracing::info!(machine_id = %state.host_snapshot.machine_id, "Machine Validation is requested");
+    }
 
     on_demand_machine_validation_request
 }
