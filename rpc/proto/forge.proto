@@ -1066,7 +1066,7 @@ message OperatingSystem {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     IpxeOperatingSystem ipxe = 1;
-    // TODO: Image based OS, Block storage, etc
+    common.UUID os_image_id = 2;
   }
 
   // If this flag is set to `true` the instance will not transition to a Ready state until
@@ -1092,6 +1092,8 @@ message OperatingSystem {
   // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
   // `true`.
   bool run_provisioning_instructions_on_every_boot = 12;
+  // tenant cloud-init script for any type of OS, preferred
+  optional string user_data = 13;
 }
 
 message IpxeOperatingSystem {
@@ -1099,6 +1101,7 @@ message IpxeOperatingSystem {
   string ipxe_script = 1;
   // Optional user-data that is associated with the iPXE script
   // This can be a cloud-init script
+  // Deprecated, use OperatingSystem user_data field
   optional string user_data = 2;
 }
 

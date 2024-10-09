@@ -136,7 +136,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     match &expected_os.variant {
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = ipxe.user_data.clone();
+            expected_tenant_config.user_data = expected_os.user_data.clone();
         }
         _ => panic!("Unexpected OS"),
     }

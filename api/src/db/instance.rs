@@ -44,6 +44,7 @@ use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::{instance::InstanceId, machine::MachineId, vpc::VpcId};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use uuid::Uuid;
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -103,14 +104,17 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         let os_ipxe_script: String = row.try_get("os_ipxe_script")?;
         let os_always_boot_with_ipxe = row.try_get("os_always_boot_with_ipxe")?;
         let os_phone_home_enabled = row.try_get("os_phone_home_enabled")?;
-
+        let os_image_id: Option<Uuid> = row.try_get("os_image_id")?;
         let os = OperatingSystem {
-            variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
-                ipxe_script: os_ipxe_script,
-                user_data: os_user_data,
-            }),
+            variant: match os_image_id {
+                Some(x) => OperatingSystemVariant::OsImage(x),
+                None => OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
+                    ipxe_script: os_ipxe_script,
+                }),
+            },
             run_provisioning_instructions_on_every_boot: os_always_boot_with_ipxe,
             phone_home_enabled: os_phone_home_enabled,
+            user_data: os_user_data,
         };
 
         let tenant_config = TenantConfig {
@@ -478,20 +482,21 @@ WHERE s.network_config->>'loopback_ip'=$1";
     ) -> Result<(), CarbideError> {
         let next_version = expected_version.increment();
 
-        let os_ipxe_script;
-        let os_user_data;
+        let mut os_ipxe_script = String::new();
+        let os_user_data = config.os.user_data;
+        let mut os_image_id = None;
         match &config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                os_ipxe_script = &ipxe.ipxe_script;
-                os_user_data = &ipxe.user_data;
+                os_ipxe_script = ipxe.ipxe_script.clone();
             }
+            OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
         }
 
         let query = "UPDATE instances SET config_version=$1,
             os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5,
-            keyset_ids=$6,
-            name=$7, description=$8, labels=$9::json
-            WHERE id=$10 AND config_version=$11
+            os_image_id=$6, keyset_ids=$7,
+            name=$8, description=$9, labels=$10::json
+            WHERE id=$11 AND config_version=$12
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(next_version)
@@ -499,6 +504,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(os_user_data)
             .bind(config.os.run_provisioning_instructions_on_every_boot)
             .bind(config.os.phone_home_enabled)
+            .bind(os_image_id)
             .bind(config.tenant.tenant_keyset_ids)
             .bind(&metadata.name)
             .bind(&metadata.description)
@@ -531,18 +537,19 @@ WHERE s.network_config->>'loopback_ip'=$1";
     ) -> Result<(), CarbideError> {
         let next_version = expected_version.increment();
 
-        let os_ipxe_script;
-        let os_user_data;
+        let mut os_ipxe_script = String::new();
+        let os_user_data = os.user_data;
+        let mut os_image_id = None;
         match &os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                os_ipxe_script = &ipxe.ipxe_script;
-                os_user_data = &ipxe.user_data;
+                os_ipxe_script = ipxe.ipxe_script.clone();
             }
+            OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
         }
 
         let query = "UPDATE instances SET config_version=$1,
-            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5
-            WHERE id=$6 AND config_version=$7
+            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5, os_image_id=$6
+            WHERE id=$7 AND config_version=$8
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(next_version)
@@ -550,6 +557,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(os_user_data)
             .bind(os.run_provisioning_instructions_on_every_boot)
             .bind(os.phone_home_enabled)
+            .bind(os_image_id)
             .bind(instance_id)
             .bind(expected_version)
             .fetch_one(txn.deref_mut())
@@ -771,13 +779,14 @@ impl<'a> NewInstance<'a> {
         // None means we haven't registered the Host at UFM yet
         let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
 
-        let os_ipxe_script;
-        let os_user_data;
+        let mut os_ipxe_script = String::new();
+        let os_user_data = self.config.os.user_data.clone();
+        let mut os_image_id = None;
         match &self.config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                os_ipxe_script = &ipxe.ipxe_script;
-                os_user_data = &ipxe.user_data;
+                os_ipxe_script = ipxe.ipxe_script.clone();
             }
+            OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
         }
 
         let storage_status_observation = Option::<InstanceStorageStatusObservation>::None;
@@ -787,6 +796,7 @@ impl<'a> NewInstance<'a> {
                         machine_id,
                         os_user_data,
                         os_ipxe_script,
+                        os_image_id,
                         os_always_boot_with_ipxe,
                         tenant_org,
                         use_custom_pxe_on_boot,
@@ -807,13 +817,14 @@ impl<'a> NewInstance<'a> {
                         storage_config_version,
                         storage_status_observation
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14, $15, $16, $17, $18::json, $19, $20, $21::json, $22, $23::json)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
             .bind(self.machine_id.to_string())
             .bind(os_user_data)
             .bind(os_ipxe_script)
+            .bind(os_image_id)
             .bind(self.config.os.run_provisioning_instructions_on_every_boot)
             .bind(self.config.tenant.tenant_organization_id.as_str())
             .bind(sqlx::types::Json(&self.config.network))

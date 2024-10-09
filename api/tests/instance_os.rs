@@ -38,7 +38,7 @@ fn verify_os_in_tenant_config(
     match &expected_os.variant {
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            expected_tenant_config.user_data = ipxe.user_data.clone();
+            expected_tenant_config.user_data = expected_os.user_data.clone();
         }
         _ => panic!("Unexpected OS type"),
     }
@@ -57,6 +57,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
@@ -102,6 +103,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let updated_os_1 = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: true,
+        user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
@@ -132,6 +134,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let updated_os_2 = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData3".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
@@ -204,10 +207,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let invalid_os = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "".to_string(),
-                user_data: Some("SomeRandomData2".to_string()),
+                user_data: None,
             },
         )),
     };
@@ -248,7 +252,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
     match &os_config.variant {
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
-            tenant_config.user_data = ipxe.user_data.clone();
+            tenant_config.user_data = os_config.user_data.clone();
             tenant_config.always_boot_with_custom_ipxe =
                 os_config.run_provisioning_instructions_on_every_boot;
             tenant_config.phone_home_enabled = os_config.phone_home_enabled;

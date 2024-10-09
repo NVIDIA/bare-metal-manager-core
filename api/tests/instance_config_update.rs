@@ -44,7 +44,7 @@ fn assert_config_equals(
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             let tenant = expected.tenant.as_mut().unwrap();
             tenant.custom_ipxe = ipxe.ipxe_script.clone();
-            tenant.user_data = ipxe.user_data.clone();
+            tenant.user_data = expected.os.as_ref().unwrap().user_data.clone();
             tenant.always_boot_with_custom_ipxe = expected
                 .os
                 .as_ref()
@@ -78,6 +78,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
@@ -138,6 +139,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let updated_os_1 = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: true,
+        user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
@@ -260,6 +262,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let updated_os_2 = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData3".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
@@ -379,6 +382,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
@@ -414,6 +418,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let invalid_os = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "".to_string(),

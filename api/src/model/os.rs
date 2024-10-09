@@ -10,20 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
-
 use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpxeOperatingSystem {
     /// The iPXE script which is booted into
     pub ipxe_script: String,
-
-    /// Optional user-data that is associated with the iPXE script
-    /// This can be a cloud-init script
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<String>,
 }
 
 impl TryFrom<rpc::forge::IpxeOperatingSystem> for IpxeOperatingSystem {
@@ -32,7 +27,6 @@ impl TryFrom<rpc::forge::IpxeOperatingSystem> for IpxeOperatingSystem {
     fn try_from(config: rpc::forge::IpxeOperatingSystem) -> Result<Self, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
-            user_data: config.user_data,
         })
     }
 }
@@ -45,7 +39,7 @@ impl TryFrom<IpxeOperatingSystem> for rpc::forge::IpxeOperatingSystem {
     ) -> Result<rpc::forge::IpxeOperatingSystem, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
-            user_data: config.user_data,
+            user_data: None,
         })
     }
 }
@@ -67,10 +61,14 @@ impl IpxeOperatingSystem {
 pub enum OperatingSystemVariant {
     /// An operating system that is booted into via iPXE
     Ipxe(IpxeOperatingSystem),
+    OsImage(Uuid),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatingSystem {
+    /// cloud-init user data for any OS variant, preferred
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_data: Option<String>,
     /// The specific OS variant
     pub variant: OperatingSystemVariant,
 
@@ -111,9 +109,16 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
             .ok_or(RpcDataConversionError::MissingArgument(
                 "OperatingSystem::variant",
             ))?;
+        let mut ipxe_user_data = None;
         let variant = match variant {
             rpc::forge::operating_system::Variant::Ipxe(ipxe) => {
+                ipxe_user_data = ipxe.user_data.clone();
                 OperatingSystemVariant::Ipxe(ipxe.try_into()?)
+            }
+            rpc::forge::operating_system::Variant::OsImageId(id) => {
+                OperatingSystemVariant::OsImage(Uuid::try_from(id).map_err(|e| {
+                    RpcDataConversionError::InvalidUuid("os_image_id: ", e.to_string())
+                })?)
             }
         };
 
@@ -122,6 +127,7 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
             phone_home_enabled: config.phone_home_enabled,
             run_provisioning_instructions_on_every_boot: config
                 .run_provisioning_instructions_on_every_boot,
+            user_data: config.user_data.or(ipxe_user_data),
         })
     }
 }
@@ -132,7 +138,12 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
     fn try_from(config: OperatingSystem) -> Result<rpc::forge::OperatingSystem, Self::Error> {
         let variant = match config.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                rpc::forge::operating_system::Variant::Ipxe(ipxe.try_into()?)
+                let mut ipxe: rpc::forge::IpxeOperatingSystem = ipxe.try_into()?;
+                ipxe.user_data = config.user_data.clone();
+                rpc::forge::operating_system::Variant::Ipxe(ipxe)
+            }
+            OperatingSystemVariant::OsImage(id) => {
+                rpc::forge::operating_system::Variant::OsImageId(id.into())
             }
         };
 
@@ -141,6 +152,7 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
             phone_home_enabled: config.phone_home_enabled,
             run_provisioning_instructions_on_every_boot: config
                 .run_provisioning_instructions_on_every_boot,
+            user_data: config.user_data.clone(),
         })
     }
 }
@@ -150,6 +162,7 @@ impl OperatingSystem {
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         match &self.variant {
             OperatingSystemVariant::Ipxe(ipxe) => ipxe.validate(),
+            OperatingSystemVariant::OsImage(_id) => Ok(()),
         }
     }
 
