@@ -344,6 +344,8 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 .await?;
                             }
 
+                            let is_success = handler_outcome.is_ok();
+
                             // If the state handler neither transitioned nor returned no error,
                             // but the object is stuck in the state for longer than the defined SLA,
                             // then transform the outcome into an error
@@ -365,13 +367,25 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 _ => handler_outcome,
                             };
 
-                            if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                            if is_success {
+                                // Commit transaction only when handler returned the Success. 
+                                if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                                    let db_outcome = handler_outcome.as_ref().into();
+                                    io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                                }
+                                txn.commit()
+                                    .await
+                                    .map_err(StateHandlerError::TransactionError)?;
+                            } else if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                                // Whatever is the reason, outcome must be stored in db.
+                                let _ = txn.rollback().await;
+                                let mut txn = services.pool.begin().await?;
                                 let db_outcome = handler_outcome.as_ref().into();
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                                txn.commit()
+                                    .await
+                                    .map_err(StateHandlerError::TransactionError)?;
                             }
-                            txn.commit()
-                                .await
-                                .map_err(StateHandlerError::TransactionError)?;
 
                             // Only emit the next state as metric if the transaction was actually
                             // committed and we are sure we reached the next state
