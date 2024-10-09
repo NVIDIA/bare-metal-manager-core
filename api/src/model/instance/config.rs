@@ -64,11 +64,11 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                     Some(tenant) => OperatingSystem {
                         variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
                             ipxe_script: tenant.custom_ipxe.clone(),
-                            user_data: tenant.user_data.clone(),
                         }),
                         run_provisioning_instructions_on_every_boot: tenant
                             .always_boot_with_custom_ipxe,
                         phone_home_enabled: tenant.phone_home_enabled,
+                        user_data: tenant.user_data.clone(),
                     },
                     None => {
                         return Err(RpcDataConversionError::MissingArgument(
@@ -119,9 +119,12 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
         match &config.os.variant {
             crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                 tenant.custom_ipxe = ipxe.ipxe_script.clone();
-                tenant.user_data = ipxe.user_data.clone();
+            }
+            crate::model::os::OperatingSystemVariant::OsImage(_id) => {
+                // tenant details are already in os images and not applicable here
             }
         };
+        tenant.user_data = config.os.user_data.clone();
         tenant.always_boot_with_custom_ipxe = config.os.run_provisioning_instructions_on_every_boot;
         tenant.phone_home_enabled = config.os.phone_home_enabled;
 

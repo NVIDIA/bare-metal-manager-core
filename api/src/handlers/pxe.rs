@@ -25,7 +25,6 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::ReprovisionState;
-use crate::model::os::OperatingSystemVariant;
 use crate::CarbideError;
 use forge_uuid::machine::MachineInterfaceId;
 
@@ -197,12 +196,8 @@ pub(crate) async fn get_cloud_init_instructions(
                 })?
                 .to_owned();
 
-            let user_data = match instance.config.os.variant {
-                OperatingSystemVariant::Ipxe(ipxe) => ipxe.user_data,
-            };
-
             rpc::CloudInitInstructions {
-                custom_cloud_init: user_data,
+                custom_cloud_init: instance.config.os.user_data,
                 discovery_instructions: None,
                 metadata: Some(rpc::CloudInitMetaData {
                     instance_id: instance.id.to_string(),

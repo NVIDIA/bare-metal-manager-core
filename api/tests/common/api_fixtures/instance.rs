@@ -130,6 +130,7 @@ pub fn default_os_config() -> rpc::forge::OperatingSystem {
     rpc::forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe".to_string(),

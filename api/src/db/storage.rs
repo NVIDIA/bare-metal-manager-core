@@ -757,16 +757,13 @@ impl<'r> sqlx::FromRow<'r, PgRow> for StorageVolume {
 
 impl<'r> sqlx::FromRow<'r, PgRow> for OsImage {
     fn from_row(row: &'r PgRow) -> Result<Self, Error> {
-        let vol_id: String = row.try_get("volume_id")?;
-        let mut volume_id: Option<Uuid> = None;
+        let volume_id: Option<Uuid> = row.try_get("volume_id")?;
         let mut create_volume = false;
         let tenant_organization_id: String = row.try_get("organization_id")?;
         let status: String = row.try_get("status")?;
         let cap: i64 = row.try_get("capacity")?;
         let capacity = if cap == 0 { None } else { Some(cap as u64) };
-        if !vol_id.is_empty() {
-            let id = Uuid::from_str(&vol_id).map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-            volume_id = Some(id);
+        if volume_id.is_some() {
             create_volume = true;
         }
         Ok(OsImage {

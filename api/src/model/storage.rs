@@ -811,6 +811,7 @@ impl FromStr for OsImageStatus {
             "Failed" => Ok(OsImageStatus::Failed),
             "Ready" => Ok(OsImageStatus::Ready),
             "Disabled" => Ok(OsImageStatus::Disabled),
+            "" => Ok(OsImageStatus::Uninitialized),
             _ => Err(RpcDataConversionError::InvalidValue(
                 "OsImageStatus".to_string(),
                 s.to_string(),

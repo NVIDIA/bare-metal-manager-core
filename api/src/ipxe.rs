@@ -3,6 +3,7 @@ use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::model::machine::{DpuInitState, FailureCause, FailureDetails, ReprovisionState};
+use crate::model::storage::OsImage;
 use crate::{
     db::{
         self,
@@ -14,6 +15,9 @@ use crate::{
 };
 use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
+
+const QCOW_IMAGER_IPXE: &str =
+    "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
 
 pub struct PxeInstructions;
 
@@ -250,9 +254,54 @@ exit ||
                                 .run_provisioning_instructions_on_every_boot
                                 || instance.use_custom_pxe_on_boot
                             {
-                                ipxe.ipxe_script
+                                let mut tenant_ipxe = ipxe.ipxe_script;
+                                let vendor_serial_console = format!(" console={console}");
+                                if !tenant_ipxe.contains(&vendor_serial_console) {
+                                    let idx = tenant_ipxe.find(" console=");
+                                    if let Some(x) = idx {
+                                        // insert correct serial console into custom ipxe before any other console=tty* specified
+                                        tenant_ipxe.insert_str(x, &vendor_serial_console);
+                                    } else {
+                                        // this is a strange ipxe script with no console=tty defined, leave it as is
+                                    }
+                                }
+                                tenant_ipxe
                             } else {
                                 "exit".to_string()
+                            }
+                        }
+                        crate::model::os::OperatingSystemVariant::OsImage(id) => {
+                            let os_image = OsImage::get(txn, id).await?;
+                            if os_image.attributes.create_volume {
+                                // this is a block storage os image
+                                // boot will be via the block storage snapshot volume
+                                // no ipxe script for os imaging
+                                "exit".to_string()
+                            } else {
+                                let mut qcow_imaging_ipxe = format!(
+                                    "{} console={} image_url={} image_sha={}",
+                                    QCOW_IMAGER_IPXE,
+                                    console,
+                                    os_image.attributes.source_url,
+                                    os_image.attributes.digest
+                                );
+                                if let Some(x) = os_image.attributes.auth_token {
+                                    qcow_imaging_ipxe += format!("image_auth_token={x}").as_str();
+                                }
+                                if let Some(x) = os_image.attributes.auth_type {
+                                    qcow_imaging_ipxe += format!("image_auth_type={x}").as_str();
+                                }
+                                if let Some(x) = os_image.attributes.rootfs_id {
+                                    qcow_imaging_ipxe += format!("rootfs_uuid={x}").as_str();
+                                }
+                                if let Some(x) = os_image.attributes.rootfs_label {
+                                    qcow_imaging_ipxe += format!("rootfs_label={x}").as_str();
+                                }
+                                if let Some(x) = os_image.attributes.boot_disk {
+                                    qcow_imaging_ipxe += format!("image_disk={x}").as_str();
+                                }
+                                qcow_imaging_ipxe += "\r\nboot";
+                                qcow_imaging_ipxe
                             }
                         }
                     }
