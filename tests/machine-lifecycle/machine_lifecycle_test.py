@@ -138,10 +138,10 @@ instance_uuid = instance["id"]
 print(f"Instance {instance_uuid} creation success")
 admin_cli.wait_for_machine_assigned_ready(machine_under_test, timeout=60 * 10)
 
-print("Sleeping for 20 minutes for instance installation...")
+print("Sleeping for 30 minutes for instance installation...")
 # The problem is that here, there will be an instance reboot, and we want to wait until
 # after that before attempting to test out SSH connection.
-time.sleep(60 * 20)
+time.sleep(60 * 30)
 
 instance_ip_address = ngc.wait_for_instance_ip(instance_uuid, subnet_uuid, timeout=60 * 20)
 
