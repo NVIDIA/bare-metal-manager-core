@@ -1266,35 +1266,24 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 }
             }
-            cfg::carbide_options::MachineValidationCommand::Validation(results_command) => {
-                match results_command {
-                    cfg::carbide_options::MachineValidationResultsCommand::Runs(runs) => match runs
-                    {
-                        cfg::carbide_options::ShowMachineValidationRuns::Show(opts) => {
-                            machine_validation::handle_runs_show(
-                                opts,
-                                config.format,
-                                api_config,
-                                config.internal_page_size,
-                            )
-                            .await?;
-                        }
-                    },
-                    cfg::carbide_options::MachineValidationResultsCommand::Results(results) => {
-                        match results {
-                            cfg::carbide_options::ShowMachineValidationResults::Show(opts) => {
-                                machine_validation::handle_results_show(
-                                    opts,
-                                    config.format,
-                                    api_config,
-                                    config.internal_page_size,
-                                    config.extended,
-                                )
-                                .await?;
-                            }
-                        }
-                    }
-                }
+            cfg::carbide_options::MachineValidationCommand::Results(opts) => {
+                machine_validation::handle_results_show(
+                    opts,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                    config.extended,
+                )
+                .await?;
+            }
+            cfg::carbide_options::MachineValidationCommand::Runs(opts) => {
+                machine_validation::handle_runs_show(
+                    opts,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?;
             }
             cfg::carbide_options::MachineValidationCommand::OnDemand(on_demand_command) => {
                 match on_demand_command {
