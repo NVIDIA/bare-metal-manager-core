@@ -9,21 +9,70 @@ use axum::routing::get;
 use axum::Router;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Request, Response};
-use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter, ObservableGauge};
+use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge};
 use opentelemetry::KeyValue;
 use tower::ServiceBuilder;
 use tracing::Span;
 
 use prometheus::{Encoder, TextEncoder};
 
-pub struct MetricsState {
+pub mod config;
+pub use config::{get_dpu_agent_meter, get_prometheus_registry};
+
+pub struct AgentMetricsState {
     meter: Meter,
-
-    agent_start_time: Gauge<u64>,
-    machine_boot_time: Gauge<u64>,
-
     http_counter: Counter<u64>,
     http_req_latency_histogram: Histogram<f64>,
+}
+
+impl AgentMetricsState {
+    // Record the boot time of the machine we're running on as a Unix timestamp.
+    // This only needs to be called once per lifetime of the Meter (which is
+    // probably the same as the process lifetime).
+    pub fn record_machine_boot_time(&self, timestamp: u64) {
+        self.meter
+            .u64_observable_counter("machine_boot_time_seconds")
+            .with_description("Timestamp of this machine's last boot")
+            .with_callback(move |machine_boot_time| {
+                machine_boot_time.observe(timestamp, &[]);
+            })
+            .init();
+    }
+
+    // Record the agent process's start time as a Unix timestamp. This only
+    // needs to be called once per lifetime of the Meter (which is probably the
+    // same as the process lifetime).
+    pub fn record_agent_start_time(&self, timestamp: u64) {
+        self.meter
+            .u64_observable_counter("agent_start_time_seconds")
+            .with_description("Timestamp of the agent process's last start")
+            .with_callback(move |agent_start_time| {
+                agent_start_time.observe(timestamp, &[]);
+            })
+            .init();
+    }
+}
+
+pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
+    let http_counter = meter
+        .u64_counter("http_requests")
+        .with_description("Total number of HTTP requests made.")
+        .init();
+    let http_req_latency_histogram: Histogram<f64> = meter
+        .f64_histogram("request_latency")
+        .with_description("HTTP request latency")
+        .with_unit("ms")
+        .init();
+
+    Arc::new(AgentMetricsState {
+        meter: meter.clone(),
+        http_counter,
+        http_req_latency_histogram,
+    })
+}
+
+pub struct NetworkMonitorMetricsState {
+    meter: Meter,
 
     // Metrics for network monitoring
     network_reachable: ObservableGauge<u64>,
@@ -37,15 +86,44 @@ pub struct MetricsState {
     machine_id: String,
 }
 
-impl MetricsState {
-    // Record the boot time of the machine we're running on as a Unix timestamp.
-    pub fn record_machine_boot_time(&self, timestamp: u64) {
-        self.machine_boot_time.record(timestamp, &[]);
-    }
+impl NetworkMonitorMetricsState {
+    pub fn initialize(meter: Meter, machine_id: String) -> Arc<Self> {
+        let network_reachable: ObservableGauge<u64> = meter
+            .u64_observable_gauge("forge_dpu_agent_network_reachable")
+            .with_description("Network reachability status (1 for reachable, 0 for unreachable)")
+            .init();
+        let network_latency = meter
+            .f64_histogram("forge_dpu_agent_network_latency")
+            .with_unit("ms")
+            .init();
+        let network_loss_percent = meter
+            .f64_histogram("forge_dpu_agent_network_loss_percentage")
+            .with_description("Percentage of failed pings out of total 5 pings")
+            .init();
+        let network_monitor_error = meter
+            .u64_counter("forge_dpu_agent_network_monitor_error")
+            .with_description("Network monitor errors which are unrelated to network connectivity")
+            .init();
+        let network_communication_error = meter
+            .u64_counter("forge_dpu_agent_network_communication_error")
+            .with_description("Network monitor errors related to ping dpu")
+            .init();
+        let network_reachable_map = ArcSwapOption::const_empty();
 
-    // Record the agent process's start time as a Unix timestamp.
-    pub fn record_agent_start_time(&self, timestamp: u64) {
-        self.agent_start_time.record(timestamp, &[]);
+        let state = Arc::new(Self {
+            meter,
+            network_reachable,
+            network_latency,
+            network_loss_percent,
+            network_monitor_error,
+            network_communication_error,
+            network_reachable_map,
+            machine_id,
+        });
+
+        state.register_callback();
+
+        state
     }
 
     /// Records network latency between two DPUs as milliseconds.
@@ -163,65 +241,6 @@ impl MetricsState {
     }
 }
 
-pub fn create_metrics(meter: Meter, machine_id: String) -> Arc<MetricsState> {
-    let machine_boot_time = meter
-        .u64_gauge("machine_boot_time_seconds")
-        .with_description("Timestamp of this machine's last boot")
-        .init();
-    let agent_start_time = meter
-        .u64_gauge("agent_start_time_seconds")
-        .with_description("Timestamp of the agent process's last start")
-        .init();
-
-    let http_counter = meter
-        .u64_counter("http_requests")
-        .with_description("Total number of HTTP requests made.")
-        .init();
-    let http_req_latency_histogram: Histogram<f64> = meter
-        .f64_histogram("request_latency")
-        .with_description("HTTP request latency")
-        .with_unit("ms")
-        .init();
-
-    let network_reachable: ObservableGauge<u64> = meter
-        .u64_observable_gauge("forge_dpu_agent_network_reachable")
-        .with_description("Network reachability status (1 for reachable, 0 for unreachable)")
-        .init();
-    let network_latency = meter
-        .f64_histogram("forge_dpu_agent_network_latency")
-        .with_unit("ms")
-        .init();
-    let network_loss_percent = meter
-        .f64_histogram("forge_dpu_agent_network_loss_percentage")
-        .with_description("Percentage of failed pings out of total 5 pings")
-        .init();
-    let network_monitor_error = meter
-        .u64_counter("forge_dpu_agent_network_monitor_error")
-        .with_description("Network monitor errors which are unrelated to network connectivity")
-        .init();
-
-    let network_communication_error = meter
-        .u64_counter("forge_dpu_agent_network_communication_error")
-        .with_description("Network monitor errors related to ping dpu")
-        .init();
-
-    Arc::new(MetricsState {
-        meter: meter.clone(),
-        machine_boot_time,
-        agent_start_time,
-        network_reachable_map: ArcSwapOption::const_empty(),
-        http_counter,
-        http_req_latency_histogram,
-        machine_id,
-
-        network_reachable,
-        network_latency,
-        network_loss_percent,
-        network_monitor_error,
-        network_communication_error,
-    })
-}
-
 pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
     Router::new()
         .route("/", get(export_metrics))
@@ -242,11 +261,11 @@ async fn export_metrics(State(registry): State<prometheus::Registry>) -> Respons
         .unwrap()
 }
 pub trait WithTracingLayer {
-    fn with_tracing_layer(self, metrics: Arc<MetricsState>) -> Router;
+    fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
 }
 
 impl WithTracingLayer for Router {
-    fn with_tracing_layer(self, metrics: Arc<MetricsState>) -> Router {
+    fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router {
         let metrics_copy = metrics.clone();
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<Body>, _span: &Span| {

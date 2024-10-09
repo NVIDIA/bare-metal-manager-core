@@ -31,9 +31,6 @@ use forge_host_support::registration;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use opentelemetry::KeyValue;
-use opentelemetry_sdk::metrics;
-use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use rand::Rng;
 use tokio::process::Command as TokioCommand;
 use tokio::signal::unix::{signal, SignalKind};
@@ -47,7 +44,10 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
 use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterStateImpl};
-use crate::instrumentation::{create_metrics, get_metrics_router, MetricsState, WithTracingLayer};
+use crate::instrumentation::{
+    create_metrics, get_dpu_agent_meter, get_metrics_router, get_prometheus_registry,
+    AgentMetricsState, WithTracingLayer,
+};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::{get_host_boot_timestamp, UrlResolver};
@@ -101,40 +101,39 @@ pub async fn run(
         ),
     );
 
-    let metrics = options
-        .enable_metadata_service
-        .then(|| {
-            spawn_metadata_service(
-                agent.metadata_service.address.clone(),
-                agent.telemetry.metrics_address.clone(),
-                instance_metadata_state.clone(),
-                machine_id.to_string(),
-            )
-            .map_err(|e| eyre::eyre!("Failed to run metadata service: {:#}", e))
-            .ok()
-        })
-        .flatten();
+    let agent_meter = get_dpu_agent_meter();
+    let metrics = create_metrics(agent_meter);
+
+    if options.enable_metadata_service {
+        spawn_metadata_service(
+            agent.metadata_service.address.clone(),
+            agent.telemetry.metrics_address.clone(),
+            metrics.clone(),
+            instance_metadata_state.clone(),
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to run metadata service: {:#}", e);
+        });
+    }
 
     // Some of these metrics only need to be set once, let's take care of them
     // now.
-    if let Some(ref metrics) = metrics {
-        match process_start_time.duration_since(UNIX_EPOCH) {
-            Ok(time_since_epoch) => {
-                let timestamp = time_since_epoch.as_secs();
-                metrics.record_agent_start_time(timestamp);
-            }
-            Err(e) => {
-                tracing::warn!("Error calculating process start timestamp: {e:#}");
-            }
+    match process_start_time.duration_since(UNIX_EPOCH) {
+        Ok(time_since_epoch) => {
+            let timestamp = time_since_epoch.as_secs();
+            metrics.record_agent_start_time(timestamp);
         }
+        Err(e) => {
+            tracing::warn!("Error calculating process start timestamp: {e:#}");
+        }
+    }
 
-        match get_host_boot_timestamp() {
-            Ok(timestamp) => {
-                metrics.record_machine_boot_time(timestamp);
-            }
-            Err(e) => {
-                tracing::warn!("Error getting host boot timestamp: {e:#}");
-            }
+    match get_host_boot_timestamp() {
+        Ok(timestamp) => {
+            metrics.record_machine_boot_time(timestamp);
+        }
+        Err(e) => {
+            tracing::warn!("Error getting host boot timestamp: {e:#}");
         }
     }
 
@@ -238,12 +237,19 @@ pub async fn run(
         .and_then(|response| response.dpu_network_pinger_type.as_ref())
         .and_then(|value| NetworkPingerType::from_str(value).ok());
 
+    let agent_meter = get_dpu_agent_meter();
+    let network_monitor_metrics_state =
+        crate::instrumentation::NetworkMonitorMetricsState::initialize(
+            agent_meter,
+            String::from(machine_id),
+        );
+
     let network_monitor_handle: Option<JoinHandle<()>> = match network_pinger_type {
         Some(pinger_type) => {
             tracing::debug!("Starting network monitor with {} pinger", pinger_type);
             let mut network_monitor = network_monitor::NetworkMonitor::new(
                 machine_id.to_string(),
-                metrics,
+                Some(network_monitor_metrics_state),
                 Arc::from(pinger_type),
             );
             let forge_api_clone = forge_api.clone();
@@ -900,59 +906,14 @@ async fn start_inventory_updater(
 fn spawn_metadata_service(
     metadata_service_address: String,
     metrics_address: String,
+    metrics_state: Arc<AgentMetricsState>,
     state: Arc<InstanceMetadataRouterStateImpl>,
-    machine_id: String,
-) -> Result<Arc<MetricsState>, Box<dyn std::error::Error>> {
-    // This defines attributes that are set on the exported logs **and** metrics
-    let service_name = KeyValue::new(SERVICE_NAME, "dpu-agent");
-    let service_namespace = KeyValue::new(SERVICE_NAMESPACE, "forge-system");
-    let service_telemetry_attributes =
-        opentelemetry_sdk::Resource::new([service_name, service_namespace]);
-
-    // Set up OpenTelemetry metrics export via prometheus
-
-    // This sets the global meter provider
-    // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
-    // for tracking milliseconds
-    // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
-    let prometheus_registry = prometheus::Registry::new();
-    let metrics_exporter = opentelemetry_prometheus::exporter()
-        .with_registry(prometheus_registry.clone())
-        .without_scope_info()
-        .without_target_info()
-        .build()?;
-    let meter_provider = metrics::SdkMeterProvider::builder()
-        .with_reader(metrics_exporter)
-        .with_resource(service_telemetry_attributes)
-        .with_view(create_metric_view_for_retry_histograms(
-            "*_(attempts|retries)_*",
-        )?)
-        .with_view(metrics::new_view(
-            metrics::Instrument::new().name("*_network_latency*"),
-            metrics::Stream::new().aggregation(metrics::Aggregation::ExplicitBucketHistogram {
-                boundaries: vec![
-                    0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 5.0, 10.0, 100.0, 500.0, 1000.0,
-                ],
-                record_min_max: true,
-            }),
-        )?)
-        .with_view(metrics::new_view(
-            metrics::Instrument::new().name("*_network_loss_percentage*"),
-            metrics::Stream::new().aggregation(metrics::Aggregation::ExplicitBucketHistogram {
-                boundaries: vec![0.2, 0.4, 0.6, 0.8, 1.0],
-                record_min_max: true,
-            }),
-        )?)
-        .build();
-    // After this call `global::meter()` will be available
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
-
-    let meter = opentelemetry::global::meter("forge-dpu-agent");
-
+) -> Result<(), Box<dyn std::error::Error>> {
     let instance_metadata_state = state.clone();
 
-    let metrics_state = create_metrics(meter, machine_id);
-    metrics_state.register_callback();
+    let prometheus_registry = get_prometheus_registry();
+    // let meter = get_dpu_agent_meter();
+    // let metrics_state = create_metrics(meter);
 
     start_server(
         metadata_service_address,
@@ -973,9 +934,7 @@ fn spawn_metadata_service(
     start_server(
         metrics_address,
         Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
-    )?;
-
-    Ok(metrics_state)
+    )
 }
 
 /// Spawns a background task to run an axum server listening on given socket, and returns.
@@ -990,25 +949,6 @@ fn start_server(address: String, router: Router) -> Result<(), Box<dyn std::erro
     });
 
     Ok(())
-}
-
-/// Configures a View for Histograms that describe retries or attempts for operations
-/// The view reconfigures the histogram to use a small set of buckets that track
-/// the exact amount of retry attempts up to 3, and 2 additional buckets up to 10.
-/// This is more useful than the default histogram range where the lowest sets of
-/// buckets are 0, 5, 10, 25
-fn create_metric_view_for_retry_histograms(
-    name_filter: &str,
-) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
-    let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
-    criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
-    let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
-        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
-            boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
-            record_min_max: true,
-        },
-    );
-    opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks

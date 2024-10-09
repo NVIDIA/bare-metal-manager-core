@@ -23,7 +23,7 @@ use tokio::task;
 use tokio::time::{self, Duration, Instant};
 
 use crate::hbn;
-use crate::instrumentation::MetricsState;
+use crate::instrumentation::NetworkMonitorMetricsState;
 
 // @TODO: this should be able to be configured
 const MAX_PINGS_PER_DPU: u32 = 5; // Number of pings for each DPU in each check cycle
@@ -74,15 +74,15 @@ impl DpuPingResult {
 
 /// Network monitor struct handles network connectivity checks
 pub struct NetworkMonitor {
-    machine_id: String,                 // DPU id
-    metrics: Option<Arc<MetricsState>>, // Metrics for monitoring
-    pinger: Arc<dyn Ping>,              // Pinger that help ping DPUs and get results
+    machine_id: String,                               // DPU id
+    metrics: Option<Arc<NetworkMonitorMetricsState>>, // Metrics for monitoring
+    pinger: Arc<dyn Ping>,                            // Pinger that help ping DPUs and get results
 }
 
 impl NetworkMonitor {
     pub fn new(
         machine_id: String,
-        metrics: Option<Arc<MetricsState>>,
+        metrics: Option<Arc<NetworkMonitorMetricsState>>,
         pinger: Arc<dyn Ping>,
     ) -> Self {
         Self {

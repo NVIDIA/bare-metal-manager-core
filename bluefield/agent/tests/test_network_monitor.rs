@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use agent::instrumentation::create_metrics;
+use agent::instrumentation::NetworkMonitorMetricsState;
 use agent::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
@@ -91,7 +91,8 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     // Initialize the test metric meter
     info!("Initializing test meter");
     let test_meter = TestMeter::default();
-    let metrics_states = create_metrics(test_meter.meter(), machine_id.to_string());
+    let metrics_states =
+        NetworkMonitorMetricsState::initialize(test_meter.meter(), machine_id.into());
 
     // Initialize network monitor
     let forge_api_clone = forge_api.clone();
