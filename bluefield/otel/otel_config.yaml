@@ -36,24 +36,46 @@ receivers:
             info: 'INFO'
             debug: 'DEBUG'
 
-  prometheus:
+  prometheus/fmds:
     config:
       scrape_configs:
-        - job_name: 'otel-collector'
+        - job_name: 'forge-metrics'
           scrape_interval: 10s
-          file_sd_configs:
-            - files: ["/etc/otelcol-contrib/fd_configs/fd_discovery.yaml"]
-          relabel_configs:
-            - source_labels: [__address__]
-              regex: '[^:]+(:\d+)'
-              target_label: __port
-            - source_labels: [ipaddress, __port]
-              separator: ''
-              regex: '(.*)'
-              target_label: instance
-            - regex: '^ipaddress$'
-              action: labeldrop
+          static_configs:
+            - targets: ['0.0.0.0:8888']
+              labels:
+                component: "fmds"
+
+  prometheus/dts:
+    config:
+      scrape_configs:
+        - job_name: 'doca-telemetry'
+          scrape_interval: 1m
+          static_configs:
+            - targets: ['0.0.0.0:9100']
+              labels:
+                component: "dts"
           metric_relabel_configs:
+            # This filter limits the set of DOCA metrics exported from the DPU
+            # to keep CPU and memory load in check on the site controller.
+            # Metrics are limited to categories of interest:
+            #   - port state
+            #   - interface flapping
+            #   - interface errors
+            #   - interface drops
+            #
+            # 'regex: >-' syntax converts newlines into single space, which the
+            # Prometheus regular expression parser can't handle. The multiline
+            # regex needs to be concatenated into a single-line string with no
+            # delimiting whitespace at all.
+            - source_labels: [__name__]
+              regex: "^(?:hw_port_state|\
+                ib_port_state|\
+                link_downed|\
+                link_error_recovery|\
+                .*_eth_(?:rx|tx)(?:_.*)?_errors|\
+                .*_eth_(?:rx|tx)_dropped)$"
+              action: keep
             # Apply the prefix to a new label called "prefix"
             - source_labels: [__name__]
               regex: '^(.*)_eth_(?:rx|tx)(?:_.*)?_errors$'
@@ -163,6 +185,25 @@ processors:
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
           - set(body, body["MESSAGE"])
           - delete_key(attributes, "level")
+  transform/metrics-dts:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - |
+            set(attributes["category"], "doca_eth_dropped")
+            where IsMatch(metric.name, "^eth_(?:rx|tx)_dropped$")
+          - |
+            set(attributes["category"], "doca_eth_errors")
+            where IsMatch(metric.name, "^eth_(?:rx|tx)(?:_.*)?_errors$")
+          - |
+            set(attributes["category"], "doca_flapping")
+            where metric.name == "link_downed"
+            or metric.name == "link_error_recovery"
+          - |
+            set(attributes["category"], "doca_ports")
+            where metric.name == "hw_port_state"
+            or metric.name == "ib_port_state"
 
 exporters:
   otlp/site:
@@ -195,11 +236,19 @@ service:
         - resource/logs-hbn
         - batch/logs
       exporters: [otlp/site]
-    metrics:
-      receivers: [prometheus]
+    metrics/fmds:
+      receivers: [prometheus/fmds]
       processors:
         - memory_limiter
         - resourcedetection
+        - batch/metrics
+      exporters: [otlp/site, prometheus]
+    metrics/dts:
+      receivers: [prometheus/dts]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - transform/metrics-dts
         - batch/metrics
       exporters: [otlp/site, prometheus]
     metrics/hostmetrics:

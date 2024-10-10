@@ -211,7 +211,6 @@ script = '''
   cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
   cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
-  cp misc/prometheus_fd_discovery "forge-dpu_${vers}/usr/bin"
   cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
   cp -r misc/DEBIAN "forge-dpu_${vers}/"
   sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
@@ -242,7 +241,6 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
-    cp misc/prometheus_fd_discovery "forge-dpu_${vers}/usr/bin"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
@@ -273,7 +271,6 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
-    cp misc/prometheus_fd_discovery "forge-dpu_${vers}/usr/bin"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
