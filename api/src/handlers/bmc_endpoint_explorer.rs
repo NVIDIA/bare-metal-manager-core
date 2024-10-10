@@ -13,7 +13,7 @@
 use std::net::SocketAddr;
 
 use mac_address::MacAddress;
-use rpc::forge::{DoesSiteExplorerHaveCredentialsResponse, ForgeSetupDiff, ForgeSetupStatus};
+use rpc::forge::{BmcCredentialStatusResponse, ForgeSetupDiff, ForgeSetupStatus};
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
 
@@ -90,10 +90,10 @@ pub(crate) async fn redfish_power_control(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn does_site_explorer_have_credentials(
+pub(crate) async fn bmc_credential_status(
     api: &Api,
     request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
-) -> Result<Response<DoesSiteExplorerHaveCredentialsResponse>, tonic::Status> {
+) -> Result<Response<BmcCredentialStatusResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let (_bmc_addr, bmc_mac_address) = resolve_bmc_interface(&req).await?;
@@ -104,7 +104,7 @@ pub(crate) async fn does_site_explorer_have_credentials(
         .have_credentials(&machine_interface)
         .await;
 
-    Ok(Response::new(DoesSiteExplorerHaveCredentialsResponse {
+    Ok(Response::new(BmcCredentialStatusResponse {
         have_credentials,
     }))
 }

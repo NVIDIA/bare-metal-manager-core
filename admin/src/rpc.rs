@@ -16,9 +16,9 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::{
-    self as rpc, BmcEndpointRequest, DoesSiteExplorerHaveCredentialsResponse,
-    IsBmcInManagedHostResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSegmentSearchConfig, VpcVirtualizationType,
+    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IsBmcInManagedHostResponse,
+    MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
+    NetworkSegmentSearchConfig, VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -1391,18 +1391,18 @@ pub async fn is_bmc_in_managed_host(
     .await
 }
 
-pub async fn does_site_explorer_have_credentials(
+pub async fn bmc_credential_status(
     api_config: &ApiConfig<'_>,
     address: &str,
     mac_address: Option<MacAddress>,
-) -> CarbideCliResult<DoesSiteExplorerHaveCredentialsResponse> {
+) -> CarbideCliResult<BmcCredentialStatusResponse> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
         });
         let have_credentials = client
-            .does_site_explorer_have_credentials(request)
+            .bmc_credential_status(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .into_inner();
