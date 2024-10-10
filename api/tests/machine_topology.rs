@@ -13,17 +13,19 @@ use carbide::{
     db::{
         self,
         machine::{Machine, MachineSearchConfig},
+        machine_interface::associate_interface_with_dpu_machine,
         machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
-    model::{hardware_info::HardwareInfo, machine::machine_id::from_hardware_info},
+    model::hardware_info::HardwareInfo,
+    model::machine::machine_id::{from_hardware_info, try_parse_machine_id},
 };
 use forge_uuid::{domain::DomainId, machine::MachineId};
 
 pub mod common;
 use carbide::db::{network_segment, ObjectColumnFilter};
 use common::api_fixtures::{
-    create_managed_host, create_test_env, host::create_host_hardware_info,
+    create_managed_host, create_test_env, dpu::create_dpu_machine, host::create_host_hardware_info,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use lazy_static::lazy_static;
@@ -49,6 +51,25 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
+    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_machine_id = ::rpc::MachineId {
+        id: dpu_machine_id.id.replace("fm100d", "fm100p"),
+    };
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+
+    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        .await
+        .unwrap();
+
+    let iface = iface.get(&host_machine_id);
+    let iface = iface.unwrap().clone().remove(0);
+    db::machine_interface::delete(&iface.id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
     let segment = NetworkSegment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
@@ -68,12 +89,16 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await
     .unwrap();
+
     let hardware_info = create_host_hardware_info(&host_sim.config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
     let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
         .await
         .unwrap();
 
+    associate_interface_with_dpu_machine(&iface.id, &dpu_machine_id, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
