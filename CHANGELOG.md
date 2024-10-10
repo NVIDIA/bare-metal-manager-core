@@ -8,12 +8,14 @@
   for tenant usage have been added. These complement the existing `forge_available_gpus_count`,
   `forge_assigned_gpus_count`, `sum(forge_machines_per_state{fresh="true"})` and
   `sum(forge_machines_per_state{fresh="true", state="assigned"})` metrics:
-    - `forge_allocatable_gpus_count`: Tracks the amount of GPUs wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
-    - `forge_allocatable_hosts_count`: Tracks the amount of Hosts wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
+  - `forge_allocatable_gpus_count`: Tracks the amount of GPUs wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
+  - `forge_allocatable_hosts_count`: Tracks the amount of Hosts wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
 
 ### Changed
 
 ### Fixed
+
+- Hosts were getting repeatedly queued for updates when they were not needed.  [https://nvbugspro.nvidia.com/bug/4892326](https://nvbugspro.nvidia.com/bug/4892326)
 
 ### Removed
 
