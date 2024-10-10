@@ -2217,11 +2217,9 @@ pub async fn add_update_machine_validation_external_config(
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::AddUpdateMachineValidationExternalConfigRequest {
-            config: Some(rpc::MachineValidationExternalConfig {
-                name,
-                description: Some(description),
-                config,
-            }),
+            name,
+            description: Some(description),
+            config,
         });
         client
             .add_update_machine_validation_external_config(request)

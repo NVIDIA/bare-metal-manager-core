@@ -343,14 +343,11 @@ pub(crate) async fn add_update_machine_validation_external_config(
     })?;
     let req: rpc::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
 
-    let Some(config) = req.config else {
-        return Err(CarbideError::MissingArgument("Config").into());
-    };
     let _ = MachineValidationExternalConfig::create_or_update(
         &mut txn,
-        &config.name,
-        &config.description.unwrap_or_default(),
-        &config.config,
+        &req.name,
+        &req.description.unwrap_or_default(),
+        &req.config,
     )
     .await;
 
@@ -476,4 +473,26 @@ pub(crate) async fn on_demand_machine_validation(
             "Cannot stop an on-demand validation request",
         )),
     }
+}
+
+pub(crate) async fn get_machine_validation_external_configs(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_machine_validation_external_configs ",
+            e,
+        ))
+    })?;
+    let ret = MachineValidationExternalConfig::find_configs(&mut txn).await?;
+    Ok(tonic::Response::new(
+        rpc::GetMachineValidationExternalConfigsResponse {
+            names: ret.into_iter().map(|p| p.name).collect(),
+        },
+    ))
 }
