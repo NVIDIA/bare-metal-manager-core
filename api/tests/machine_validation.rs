@@ -17,8 +17,9 @@ use carbide::{
         MachineState, ManagedHostState,
     },
 };
+use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
-use std::time::SystemTime;
+use std::{str::FromStr, time::SystemTime};
 
 mod common;
 use common::api_fixtures::{
@@ -400,24 +401,9 @@ async fn create_update_external_config(
     env.api
         .add_update_machine_validation_external_config(tonic::Request::new(
             rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
-                config: Some(rpc::forge::MachineValidationExternalConfig {
-                    name: name.to_string(),
-                    description: Some(desc.to_string()),
-                    config: input.as_bytes().to_vec(),
-                }),
-            },
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-    env.api
-        .add_update_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
-                config: Some(rpc::forge::MachineValidationExternalConfig {
-                    name: name.to_string(),
-                    description: Some(desc.to_string()),
-                    config: input.as_bytes().to_vec(),
-                }),
+                name: name.to_string(),
+                description: Some(desc.to_string()),
+                config: input.as_bytes().to_vec(),
             },
         ))
         .await
@@ -433,8 +419,52 @@ async fn create_update_external_config(
         .await
         .unwrap()
         .into_inner();
+
     assert_eq!(res.config.clone().unwrap().name, name);
     assert_eq!(res.config.clone().unwrap().description.unwrap(), desc);
+    assert_eq!(
+        ConfigVersion::from_str(&res.config.clone().unwrap().version)?.version_nr(),
+        1
+    );
     assert_eq!(res.config.unwrap().config, input.as_bytes().to_vec());
+    // Update one more time
+    env.api
+        .add_update_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
+                name: name.to_string(),
+                description: Some(desc.to_string()),
+                config: input.as_bytes().to_vec(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let res_next = env
+        .api
+        .get_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::GetMachineValidationExternalConfigRequest {
+                name: name.to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(res_next.config.clone().unwrap().name, name);
+    assert_eq!(res_next.config.clone().unwrap().description.unwrap(), desc);
+    assert_eq!(
+        ConfigVersion::from_str(&res_next.config.clone().unwrap().version)?.version_nr(),
+        2
+    );
+    assert_eq!(res_next.config.unwrap().config, input.as_bytes().to_vec());
+    let res_list = env
+        .api
+        .get_machine_validation_external_configs(tonic::Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(res_list.names[0], "shoreline");
+    assert_eq!(res_list.names.len(), 1);
+
     Ok(())
 }

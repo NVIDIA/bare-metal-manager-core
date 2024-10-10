@@ -48,8 +48,9 @@ use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
     add_update_machine_validation_external_config, get_machine_validation_external_config,
-    get_machine_validation_results, get_machine_validation_runs, mark_machine_validation_complete,
-    on_demand_machine_validation, persist_validation_result,
+    get_machine_validation_external_configs, get_machine_validation_results,
+    get_machine_validation_runs, mark_machine_validation_complete, on_demand_machine_validation,
+    persist_validation_result,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::logging::log_limiter::LogLimiter;
@@ -3738,6 +3739,12 @@ impl Forge for Api {
         get_machine_validation_external_config(self, request).await
     }
 
+    async fn get_machine_validation_external_configs(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
+        get_machine_validation_external_configs(self, request).await
+    }
     async fn add_update_machine_validation_external_config(
         &self,
         request: tonic::Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
