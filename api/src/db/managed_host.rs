@@ -113,14 +113,20 @@ pub async fn load_by_machine_ids(
         let instance = instances_by_host_id.remove(&host_machine_id);
         let managed_state = host_snapshot.current.state.clone();
 
-        let mut snapshot = ManagedHostStateSnapshot {
+        let snapshot = ManagedHostStateSnapshot::create(
             host_snapshot,
             dpu_snapshots,
             instance,
             managed_state,
-            aggregate_health: health_report::HealthReport::empty("".to_string()),
-        };
-        snapshot.derive_aggregate_health(options.hardware_health);
+            options.hardware_health,
+        )
+        .map_err(|x| DatabaseError {
+            file: file!(),
+            line: line!(),
+            query: "managed_host creation".to_string(),
+            source: sqlx::error::Error::Protocol(x.to_string()),
+        })?;
+
         snapshots_by_host_id.insert(host_machine_id, snapshot);
     }
 
@@ -199,14 +205,20 @@ pub async fn load_by_instance_snapshots(
 
         let instance = instance_snapshots_by_machine_id.remove(&host_machine_id);
         let managed_state = host_machine.current.state.clone();
-        let mut snapshot = ManagedHostStateSnapshot {
-            host_snapshot: host_machine,
+        let snapshot = ManagedHostStateSnapshot::create(
+            host_machine,
             dpu_snapshots,
             instance,
             managed_state,
-            aggregate_health: health_report::HealthReport::empty("".to_string()),
-        };
-        snapshot.derive_aggregate_health(options.hardware_health);
+            options.hardware_health,
+        )
+        .map_err(|x| DatabaseError {
+            file: file!(),
+            line: line!(),
+            query: "managed_host creation".to_string(),
+            source: sqlx::error::Error::Protocol(x.to_string()),
+        })?;
+
         managed_hosts.push(snapshot);
     }
 

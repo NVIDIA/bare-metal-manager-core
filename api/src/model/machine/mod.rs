@@ -88,6 +88,15 @@ pub enum NotAllocatableReason {
     HealthAlert(Box<health_report::HealthProbeAlert>),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ManagedHostStateSnapshotError {
+    #[error("Missing attached dpu id in primary interface. Machine id: {0}")]
+    AttachedDpuIdMissing(MachineId),
+
+    #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
+    MissingPrimaryDpu(MachineId, MachineId),
+}
+
 impl ManagedHostStateSnapshot {
     /// Returns `Ok` if the Host can be used for Tenant allocations
     ///
@@ -250,6 +259,68 @@ impl ManagedHostStateSnapshot {
         }
 
         true
+    }
+
+    /// Sort the dpu snapshots in a way that primary DPU remains at first position.
+    pub fn sort_dpu_snapshots(&mut self) -> Result<(), ManagedHostStateSnapshotError> {
+        let primary_dpu_id = self
+            .host_snapshot
+            .interfaces
+            .iter()
+            .find_map(|x| {
+                if x.is_primary {
+                    Some(x.attached_dpu_machine_id.clone())
+                } else {
+                    None
+                }
+            })
+            .flatten();
+
+        if let Some(primary_dpu_id) = primary_dpu_id {
+            let index = self
+                .dpu_snapshots
+                .iter()
+                .position(|x| x.machine_id == primary_dpu_id)
+                .ok_or_else(|| {
+                    ManagedHostStateSnapshotError::MissingPrimaryDpu(
+                        self.host_snapshot.machine_id.clone(),
+                        primary_dpu_id,
+                    )
+                })?;
+
+            if index != 0 {
+                let snapshot = self.dpu_snapshots.remove(index);
+                self.dpu_snapshots.insert(0, snapshot);
+            }
+        } else if !self.dpu_snapshots.is_empty() {
+            // If it is not Zero-DPU case, return failure.
+            return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
+                self.host_snapshot.machine_id.clone(),
+            ));
+        };
+
+        Ok(())
+    }
+
+    pub fn create(
+        host_snapshot: MachineSnapshot,
+        dpu_snapshots: Vec<MachineSnapshot>,
+        instance: Option<InstanceSnapshot>,
+        managed_state: ManagedHostState,
+        hardware_health: HardwareHealthReportsConfig,
+    ) -> Result<Self, ManagedHostStateSnapshotError> {
+        let mut snapshot = ManagedHostStateSnapshot {
+            host_snapshot,
+            dpu_snapshots,
+            instance,
+            managed_state,
+            aggregate_health: health_report::HealthReport::empty("".to_string()),
+        };
+
+        snapshot.sort_dpu_snapshots()?;
+        snapshot.derive_aggregate_health(hardware_health);
+
+        Ok(snapshot)
     }
 }
 
