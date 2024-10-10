@@ -19,7 +19,7 @@ use chrono::{DateTime, Utc};
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
 };
-use libredfish::model::power::{PowerSupply, Voltages};
+use libredfish::model::power::{PowerControl, PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
 use libredfish::model::thermal::{Fan, Temperature};
@@ -288,6 +288,97 @@ fn export_power_supplies(
     Ok(())
 }
 
+fn export_power_control(
+    meter: Meter,
+    power_control: Vec<PowerControl>,
+    power_state: PowerState,
+    machine_id: &str,
+) -> Result<(), HealthError> {
+    let power_state_value: i64 = match power_state {
+        PowerState::On => 1,
+        _ => 0,
+    };
+    if power_state_value == 0 {
+        return Ok(());
+    }
+    let power_capacity_sensors = meter
+        .f64_observable_gauge("hw.power_control.capacity")
+        .with_description("Power Capacity of this host")
+        .with_unit(Unit::new("Watts"))
+        .init();
+    let power_acinput_sensors = meter
+        .f64_observable_gauge("hw.power_control.acinput")
+        .with_description("Power AC Input for this host")
+        .with_unit(Unit::new("Watts"))
+        .init();
+    let power_average_consumed_sensors = meter
+        .f64_observable_gauge("hw.power_control.average")
+        .with_description("Average Power Consumed for this host")
+        .with_unit(Unit::new("Watts"))
+        .init();
+    let power_min_consumed_sensors = meter
+        .f64_observable_gauge("hw.power_control.min")
+        .with_description("Min Power Consumed for this host")
+        .with_unit(Unit::new("Watts"))
+        .init();
+    let power_max_consumed_sensors = meter
+        .f64_observable_gauge("hw.power_control.max")
+        .with_description("Max Power Consumed for this host")
+        .with_unit(Unit::new("Watts"))
+        .init();
+    for power_ctrl in power_control {
+        if power_ctrl.member_id != "0" {
+            continue;
+        }
+        if let Some(watts) = power_ctrl.power_capacity_watts.as_ref() {
+            power_capacity_sensors.observe(
+                *watts,
+                &[
+                    KeyValue::new("hw.id", "power_capacity_watts".to_string()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
+        if let Some(watts) = power_ctrl.power_consumed_watts.as_ref() {
+            power_acinput_sensors.observe(
+                *watts,
+                &[
+                    KeyValue::new("hw.id", "power_consumed_watts".to_string()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
+        if power_ctrl.power_metrics.is_some() {
+            power_average_consumed_sensors.observe(
+                power_ctrl
+                    .power_metrics
+                    .clone()
+                    .unwrap()
+                    .average_consumed_watts as f64,
+                &[
+                    KeyValue::new("hw.id", "average_consumed_watts".to_string()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+            power_min_consumed_sensors.observe(
+                power_ctrl.power_metrics.clone().unwrap().min_consumed_watts as f64,
+                &[
+                    KeyValue::new("hw.id", "min_consumed_watts".to_string()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+            power_max_consumed_sensors.observe(
+                power_ctrl.power_metrics.clone().unwrap().max_consumed_watts as f64,
+                &[
+                    KeyValue::new("hw.id", "max_consumed_watts".to_string()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
+    }
+    Ok(())
+}
+
 fn export_gpu_sensors(
     meter: Meter,
     gpu_sensors: Vec<GPUSensors>,
@@ -446,6 +537,7 @@ pub async fn export_metrics(
     if let (Ok(power), Ok(power_state)) = (health.power, health.power_state) {
         export_voltages(meter.clone(), power.voltages, machine_id)?;
         export_power_supplies(meter.clone(), power.power_supplies, power_state, machine_id)?;
+        export_power_control(meter.clone(), power.power_control, power_state, machine_id)?;
     }
 
     if let Some(thermal) = dpu_health.thermal {
