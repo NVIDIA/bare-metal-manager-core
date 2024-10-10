@@ -1388,12 +1388,11 @@ impl Forge for Api {
         crate::handlers::site_explorer::is_bmc_in_managed_host(self, request).await
     }
 
-    async fn does_site_explorer_have_credentials(
+    async fn bmc_credential_status(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
-    ) -> Result<Response<rpc::DoesSiteExplorerHaveCredentialsResponse>, tonic::Status> {
-        crate::handlers::bmc_endpoint_explorer::does_site_explorer_have_credentials(self, request)
-            .await
+    ) -> Result<Response<rpc::BmcCredentialStatusResponse>, tonic::Status> {
+        crate::handlers::bmc_endpoint_explorer::bmc_credential_status(self, request).await
     }
 
     async fn re_explore_endpoint(
@@ -2867,6 +2866,38 @@ impl Forge for Api {
         Ok(tonic::Response::new(rpc_pairs))
     }
 
+    async fn find_mac_address_by_bmc_ip(
+        &self,
+        request: Request<rpc::BmcIp>,
+    ) -> Result<tonic::Response<rpc::MacAddressBmcIp>, Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+        let bmc_ip = req.bmc_ip;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_mac_address_by_bmc_ip",
+                e,
+            ))
+        })?;
+
+        let interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip.parse().unwrap())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine_interface",
+                id: bmc_ip.clone(),
+            })?;
+
+        Ok(tonic::Response::new(rpc::MacAddressBmcIp {
+            bmc_ip,
+            mac_address: interface.mac_address.to_string(),
+        }))
+    }
+
     #[cfg(not(feature = "tss-esapi"))]
     async fn bind_attest_key(
         &self,
@@ -3999,44 +4030,36 @@ async fn validate_and_complete_bmc_endpoint_request(
 ) -> Result<rpc::BmcEndpointRequest, tonic::Status> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
-            let (machine_id, topology) = MachineTopology::find_latest_machine_by_bmc_ip(
+            let interface = db::machine_interface::find_by_ip(
                 txn,
-                &bmc_endpoint_request.ip_address,
+                bmc_endpoint_request.ip_address.parse().unwrap(),
             )
             .await
             .map_err(CarbideError::from)?
             .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine",
+                kind: "machine_interface",
                 id: bmc_endpoint_request.ip_address.clone(),
             })?;
 
-            let bmc_mac = match (
-                bmc_endpoint_request.mac_address,
-                topology.topology().bmc_info.mac,
-            ) {
-                // Topology record found for the IP but no MAC in the topology data?
-                (_, None) => {
-                    return Err(CarbideError::GenericError(format!("BMC endpoint for {} ({machine_id}) found but does not have associated MAC", bmc_endpoint_request.ip_address).to_string()) 
-                    .into());
-                }
+            let bmc_mac = match bmc_endpoint_request.mac_address {
+                // No MAC in the request, use the interface MAC
+                None => interface.mac_address.to_string(),
 
-                // No MAC passed in but MAC found for the IP passed in?
-                (None, Some(bmc_info_mac)) => bmc_info_mac.to_string(),
-
-                // If MAC passed in _and_ MAC found for IP passed in, then the MACs should match.
-                (Some(request_mac), Some(bmc_info_mac)) => {
-                    if request_mac
+                // MAC passed in the request, check if it matches the interface MAC
+                Some(request_mac) => {
+                    let parsed_mac = request_mac
                         .parse::<MacAddress>()
-                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
-                        != bmc_info_mac
-                    {
+                        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+
+                    if parsed_mac != interface.mac_address {
                         return Err(CarbideError::BmcMacIpMismatch {
                             requested_ip: bmc_endpoint_request.ip_address.clone(),
                             requested_mac: request_mac,
-                            found_mac: bmc_info_mac.to_string(),
+                            found_mac: interface.mac_address.to_string(),
                         }
                         .into());
                     }
+
                     request_mac
                 }
             };

@@ -69,12 +69,27 @@
 		<td>
 			<table align="left">
 				<tr>
-					<td>
+					<td style="width: 15%;">
 						<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
-							<input style="margin-left: 0" type="submit" value="Forge Setup">
+							<input style="margin-left: 0; width: 100%;" type="submit" value="Forge Setup">
 						</form>
 					</td>
 					<td><em>Current Status</em> - {{ forge_setup_status }}</td>
+				</tr>
+			</table>
+		</td>
+	</tr>
+	<tr>
+		<th>Credentials</th>
+		<td>
+			<table align="left">
+				<tr>
+					<td style="width: 15%;">
+						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials">
+							<input style="margin-left: 0; background: #ff4136" type="submit" value="Clear Credentials">
+						</form>
+					</td>
+					<td> <em>Current Status</em> - {{ credentials_set }}</td>
 				</tr>
 			</table>
 		</td>

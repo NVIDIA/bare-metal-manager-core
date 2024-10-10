@@ -131,6 +131,7 @@ service Forge {
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
+  rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
   rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
   rpc IdentifyMac(IdentifyMacRequest) returns (IdentifyMacResponse);
   rpc IdentifySerial(IdentifySerialRequest) returns (IdentifySerialResponse);
@@ -176,8 +177,8 @@ service Forge {
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
   // IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
   rpc IsBmcInManagedHost(BmcEndpointRequest) returns (IsBmcInManagedHostResponse);
-  // DoesSiteExplorerHaveCredentials returns true if site explorer has the credentials to login to this BMC
-  rpc DoesSiteExplorerHaveCredentials(BmcEndpointRequest) returns (DoesSiteExplorerHaveCredentialsResponse);
+  // BmcCredentialStatus returns true if site explorer has the credentials to login to this BMC
+  rpc BmcCredentialStatus(BmcEndpointRequest) returns (BmcCredentialStatusResponse);
   // Explore an individual BMC and show the report
   // The results of this exploration call will not be persisted in the database
   rpc Explore(BmcEndpointRequest) returns (site_explorer.EndpointExplorationReport);
@@ -394,7 +395,7 @@ service Forge {
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
   // Get Forge Setup Status
   rpc FetchForgeSetupStatus(ForgeSetupStatusRequest) returns (ForgeSetupStatus);
-  
+
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
 }
@@ -2852,6 +2853,15 @@ message BmcIpList {
   repeated string bmc_ips = 1;
 }
 
+message BmcIp {
+  string bmc_ip = 1;
+}
+
+message MacAddressBmcIp {
+  string bmc_ip = 1;
+  string mac_address = 2;
+}
+
 message MachineIdBmcIpPairs {
   repeated MachineIdBmcIp pairs = 1;
 }
@@ -3311,6 +3321,6 @@ message IsBmcInManagedHostResponse {
   bool in_managed_host = 1;
 }
 
-message DoesSiteExplorerHaveCredentialsResponse {
+message BmcCredentialStatusResponse {
   bool have_credentials = 1;
 }

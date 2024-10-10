@@ -355,10 +355,12 @@ struct ExploredEndpointDetail {
     has_exploration_error: bool,
     last_exploration_error: String,
     forge_setup_status: String,
+    credentials_set: String,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
     forge_setup_status: ForgeSetupStatus,
+    credentials_set: String,
 }
 
 impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
@@ -373,6 +375,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
                 .is_some(),
             forge_setup_status: forge_setup_status_to_string(&endpoint_info.forge_setup_status),
             endpoint: endpoint_info.endpoint,
+            credentials_set: endpoint_info.credentials_set,
         }
     }
 }
@@ -463,9 +466,44 @@ pub async fn detail(
         }
     };
 
+    let req = tonic::Request::new(forgerpc::BmcIp {
+        bmc_ip: endpoint_ip.clone(),
+    });
+    let mac_address = state
+        .find_mac_address_by_bmc_ip(req)
+        .await
+        .map(|res| res.into_inner().mac_address)
+        .unwrap_or_default();
+
+    let credentials_set = if mac_address.is_empty() {
+        "Not Configured".to_string()
+    } else {
+        match state
+            .bmc_credential_status(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: Some(mac_address),
+            }))
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(response) => {
+                if response.have_credentials {
+                    "Configured".to_string()
+                } else {
+                    "Not Configured".to_string()
+                }
+            }
+            Err(err) => {
+                tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_credential_status");
+                "Not Configured".to_string()
+            }
+        }
+    };
+
     let endpoint_info = ExploredEndpointInfo {
         endpoint,
         forge_setup_status,
+        credentials_set,
     };
 
     let display = ExploredEndpointDetail::from(endpoint_info);
@@ -623,6 +661,43 @@ pub async fn clear_last_exploration_error(
         .map(|response| response.into_inner())
     {
         tracing::error!(%err, endpoint_ip = %endpoint_ip, "clear_last_exploration_error_endpoint");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
+pub async fn clear_bmc_credentials(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    let req = tonic::Request::new(forgerpc::BmcIp {
+        bmc_ip: endpoint_ip.clone(),
+    });
+    let mac_address = match state.find_mac_address_by_bmc_ip(req).await {
+        Ok(res) => res.into_inner().mac_address,
+        Err(err) => {
+            tracing::error!(%err, "find_mac_address_by_bmc_ip");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error find_mac_address_by_bmc_ip",
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(err) = state
+        .delete_credential(tonic::Request::new(rpc::forge::CredentialDeletionRequest {
+            credential_type: rpc::CredentialType::RootBmcByMacAddress.into(),
+            username: None,
+            mac_address: Some(mac_address),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "clear_bmc_credentials");
         return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
     }
 

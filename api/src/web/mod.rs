@@ -95,6 +95,10 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
                 "/explored-endpoint/:endpoint_ip/forge-setup",
                 post(explored_endpoint::forge_setup),
             )
+            .route(
+                "/explored-endpoint/:endpoint_ip/clear-credentials",
+                post(explored_endpoint::clear_bmc_credentials),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))

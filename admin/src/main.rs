@@ -790,8 +790,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             SiteExplorer::HaveCredentials(opts) => {
                 let have_credentials =
-                    rpc::does_site_explorer_have_credentials(api_config, &opts.address, opts.mac)
-                        .await?;
+                    rpc::bmc_credential_status(api_config, &opts.address, opts.mac).await?;
                 println!("{}", have_credentials.have_credentials);
             }
         },
