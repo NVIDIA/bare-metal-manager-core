@@ -11,9 +11,18 @@
  */
 
 use super::DatabaseError;
-use crate::cfg::{Firmware, FirmwareConfig};
+use crate::cfg::{Firmware, FirmwareComponentType, FirmwareConfig};
+use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use std::{collections::BTreeMap, ops::DerefMut};
+use std::{collections::HashMap, default::Default, ops::DerefMut};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+struct DbDesiredFirmwareVersions {
+    /// Parsed versions, serializtion override means it will always be sorted
+    #[serde(default, serialize_with = "utils::ordered_map")]
+    pub versions: HashMap<FirmwareComponentType, String>,
+}
 
 /// snapshot_desired_firmware will replace the desired_firmware table with one matching the given FirmwareConfig
 pub async fn snapshot_desired_firmware(
@@ -38,15 +47,10 @@ async fn snapshot_desired_firmware_for_model(
 ) -> Result<(), DatabaseError> {
     let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
 
-    let Ok(versions) = build_versions(model) else {
-        tracing::error!("Bad serialize {:?}", model.components);
-        return Ok(());
-    };
-
     sqlx::query(query)
         .bind(model.vendor.to_pascalcase())
         .bind(model.model.clone())
-        .bind(versions)
+        .bind(sqlx::types::Json(&build_versions(model)))
         .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -54,58 +58,82 @@ async fn snapshot_desired_firmware_for_model(
     Ok(())
 }
 
-fn build_versions(model: &Firmware) -> Result<String, serde_json::Error> {
+fn build_versions(model: &Firmware) -> DbDesiredFirmwareVersions {
     // Using a BTreeMap instead of a hash means that this will be sorted by the key
-    let mut versions = BTreeMap::new();
+    let mut versions: DbDesiredFirmwareVersions = Default::default();
     for (component_type, component) in &model.components {
         for firmware in &component.known_firmware {
             if firmware.default {
-                versions.insert(component_type, firmware.version.clone());
+                versions
+                    .versions
+                    .insert(*component_type, firmware.version.clone());
                 break;
             }
         }
     }
-    serde_json::to_string(&versions)
+    versions
 }
 
 #[cfg(test)]
-mod test {
-    use crate::{
-        cfg::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry},
-        db::desired_firmware::build_versions,
-    };
-    use std::collections::HashMap;
+use sqlx::FromRow;
 
-    #[test]
-    fn test_build_versions() -> Result<(), serde_json::Error> {
-        let mut fw = Firmware {
-            vendor: bmc_vendor::BMCVendor::Unknown,
-            model: "T".to_string(),
-            ordering: vec![],
-            components: HashMap::default(),
-        };
-        let known = FirmwareEntry {
-            version: "1.0".to_string(),
-            mandatory_upgrade_from_priority: None,
-            default: true,
-            filename: None,
-            url: None,
-            checksum: None,
-            install_only_specified: false,
-        };
-        let component = FirmwareComponent {
-            current_version_reported_as: None,
-            preingest_upgrade_when_below: None,
-            known_firmware: vec![known],
-        };
-        fw.components
-            .insert(FirmwareComponentType::Cec, component.clone());
-        fw.components
-            .insert(FirmwareComponentType::Uefi, component.clone());
-        fw.components
-            .insert(FirmwareComponentType::Bmc, component.clone());
-        let expected = r#"{"bmc":"1.0","cec":"1.0","uefi":"1.0"}"#;
-        assert_eq!(build_versions(&fw)?, expected);
-        Ok(())
-    }
+#[cfg(test)]
+#[derive(FromRow)]
+struct AsStrings {
+    pub versions: String,
+}
+
+#[cfg(test)]
+#[sqlx::test]
+pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    // Source config is hacky, but we just need to have 3 different components in unsorted order
+    let src_cfg_str = r#"
+model = "PowerEdge R750"
+vendor = "Dell"
+
+[components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "1.13.3"
+
+[[components.uefi.known_firmware]]
+version = "1.13.3"
+url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
+default = true
+
+[components.bmc]
+current_version_reported_as = "^Installed-.*__iDRAC."
+
+[[components.bmc.known_firmware]]
+version = "7.10.30.00"
+url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+default = true
+
+
+[components.cec]
+current_version_reported_as = "^Installed-.*__iDRAC."
+
+[[components.cec.known_firmware]]
+version = "8.10.30.00"
+url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+default = true
+    "#;
+
+    let mut config: FirmwareConfig = Default::default();
+    config.merge_from_string(src_cfg_str.to_string())?;
+
+    println!("{config:?}");
+    let mut txn = pool.begin().await?;
+    snapshot_desired_firmware(&mut txn, &config).await?;
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let query = r#"SELECT versions->>'Versions' AS versions FROM desired_firmware;"#;
+
+    let versions_all: Vec<AsStrings> = sqlx::query_as(query).fetch_all(txn.deref_mut()).await?;
+    let versions = versions_all.first().unwrap().versions.clone();
+
+    let expected = r#"{"bmc": "7.10.30.00", "cec": "8.10.30.00", "uefi": "1.13.3"}"#;
+
+    assert_eq!(expected, versions);
+    Ok(())
 }

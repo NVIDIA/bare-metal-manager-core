@@ -47,7 +47,7 @@ impl HostMachineUpdate {
         WHERE machines.id LIKE 'fm100h%'
             AND machines.controller_state->>'state' = 'ready'
             AND machines.host_reprovisioning_requested IS NULL
-            AND desired_firmware.versions != explored_endpoints.exploration_report->>'Versions'
+            AND desired_firmware.versions->>'Versions' != explored_endpoints.exploration_report->>'Versions'
             AND (machines.firmware_autoupdate = TRUE{})
         ;"#,
             from_global

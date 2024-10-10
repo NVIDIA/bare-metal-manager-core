@@ -16,6 +16,7 @@ use carbide::{
     cfg::FirmwareComponentType,
     db::{
         explored_endpoints::DbExploredEndpoint,
+        host_machine_update::HostMachineUpdate,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
         DatabaseError,
@@ -654,6 +655,8 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .unwrap()
         .unwrap();
     assert!(host.host_reprovisioning_requested().is_none()); // Should be cleared or we'd right back in
+    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
+    assert!(reqs.is_empty());
     txn.commit().await.unwrap();
 
     assert_eq!(
