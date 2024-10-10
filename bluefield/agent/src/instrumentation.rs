@@ -31,7 +31,7 @@ impl AgentMetricsState {
     // probably the same as the process lifetime).
     pub fn record_machine_boot_time(&self, timestamp: u64) {
         self.meter
-            .u64_observable_counter("machine_boot_time_seconds")
+            .u64_observable_gauge("machine_boot_time_seconds")
             .with_description("Timestamp of this machine's last boot")
             .with_callback(move |machine_boot_time| {
                 machine_boot_time.observe(timestamp, &[]);
@@ -44,7 +44,7 @@ impl AgentMetricsState {
     // same as the process lifetime).
     pub fn record_agent_start_time(&self, timestamp: u64) {
         self.meter
-            .u64_observable_counter("agent_start_time_seconds")
+            .u64_observable_gauge("agent_start_time_seconds")
             .with_description("Timestamp of the agent process's last start")
             .with_callback(move |agent_start_time| {
                 agent_start_time.observe(timestamp, &[]);
