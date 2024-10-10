@@ -1073,6 +1073,7 @@ impl MachineStateHandler {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
+        let original_state = &state.managed_state;
         let managed_host_state = match &state.managed_state {
             ManagedHostState::HostReprovision { reprovision_state } => reprovision_state,
             ManagedHostState::Ready => &HostReprovisionState::CheckingFirmware,
@@ -1085,7 +1086,7 @@ impl MachineStateHandler {
         };
         match managed_host_state {
             HostReprovisionState::CheckingFirmware => {
-                self.host_checking_fw(state, services, machine_id, txn)
+                self.host_checking_fw(state, services, machine_id, original_state, txn)
                     .await
             }
             HostReprovisionState::WaitingForFirmwareUpgrade {
@@ -1142,11 +1143,19 @@ impl MachineStateHandler {
         state: &ManagedHostStateSnapshot,
         services: &StateHandlerServices,
         machine_id: &MachineId,
+        original_state: &ManagedHostState,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let ret = self
+        let mut ret = self
             .host_checking_fw_noclear(state, services, machine_id, txn)
             .await?;
+
+        if ret == Some(original_state.clone()) {
+            // host_checking_fw_noclear can return Ready to indicate that we're moving out of CheckingFirmware,
+            // but we also take this path when we're actually in Ready - for that case, return Ok(None) so that
+            // we don't keep retransitioning to the same state.
+            ret = None;
+        }
 
         // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
         if let Some(ret) = &ret {
