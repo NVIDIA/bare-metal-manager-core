@@ -1841,7 +1841,6 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
         }
         ManagedHostState::HostInit { machine_state } => match machine_state {
             MachineState::Init => StateSla::no_sla(),
-            MachineState::WaitingForDiscovery => StateSla::no_sla(),
             _ => StateSla::with_sla(
                 std::time::Duration::from_secs(slas::HOST_INIT),
                 time_in_state,
