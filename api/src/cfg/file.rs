@@ -1005,7 +1005,7 @@ impl FirmwareGlobal {
         16
     }
     pub fn firmware_directory_default() -> PathBuf {
-        PathBuf::from("/opt/carbide/fw")
+        PathBuf::from("/opt/carbide/firmware")
     }
 }
 
