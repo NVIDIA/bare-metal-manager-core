@@ -549,7 +549,8 @@ pub async fn run(
                     &tenant_peers,
                     started_at,
                     has_changed_configs,
-                    conf.min_dpu_functioning_links,
+                    conf.min_dpu_functioning_links.unwrap_or(2),
+                    &conf.route_servers,
                 )
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
