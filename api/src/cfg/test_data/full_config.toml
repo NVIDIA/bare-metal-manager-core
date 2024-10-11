@@ -100,16 +100,16 @@ max_concurrency = 777
 [firmware_global]
 autoupdate = false
 host_enable_autoupdate = [
-    "AAEJOIEFIJL",
-    "AJELIJVLNE",
-    "ALJIFJSEVDI",
-    "fm100dsg80d2f4tq4tt5m8hgib5pcldrm3gvefbduau7gjoitgc0iqg3lpg",
+  "AAEJOIEFIJL",
+  "AJELIJVLNE",
+  "ALJIFJSEVDI",
+  "fm100dsg80d2f4tq4tt5m8hgib5pcldrm3gvefbduau7gjoitgc0iqg3lpg",
 ]
 host_disable_autoupdate = [
-    "FJLSIELIAF",
-    "FVLIWEGLWJE",
-    "FFULIJWCL",
-    "fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0",
+  "FJLSIELIAF",
+  "FVLIWEGLWJE",
+  "FFULIJWCL",
+  "fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0",
 ]
 run_interval = "20s"
 max_uploads = 3
@@ -129,28 +129,28 @@ ordering = ["bmc", "cec"]
 preingest_upgrade_when_below = "23.10"
 current_version_reported_as = ".*"
 known_firmware = [
-    { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg", default = true },
+  { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg", default = true },
 ]
 
 [dpu_models.bluefield2.components.cec]
 preingest_upgrade_when_below = "4-15"
 current_version_reported_as = ".*"
 known_firmware = [
-    { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg", default = true },
+  { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg", default = true },
 ]
 
 [dpu_models.bluefield3.components.bmc]
 preingest_upgrade_when_below = "23.10"
 current_version_reported_as = ".*"
 known_firmware = [
-    { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg", default = true },
+  { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg", default = true },
 ]
 
 [dpu_models.bluefield3.components.cec]
 preingest_upgrade_when_below = "00.02.0152.0000"
 current_version_reported_as = "(\\d+\\.?)+"
 known_firmware = [
-    { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg", default = true },
+  { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg", default = true },
 ]
 
 [host_models.dell_r750]
@@ -162,15 +162,15 @@ ordering = ["uefi", "bmc"]
 current_version_reported_as = "^Installed-.*__iDRAC."
 preingest_upgrade_when_below = "0.5"
 known_firmware = [
-    { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+  { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
 
 [host_models.dell_r750.components.uefi]
 current_version_reported_as = "^Installed-.*__BIOS.Setup."
 preingest_upgrade_when_below = "0.5"
 known_firmware = [
-    { version = "0.9", mandatory_upgrade_from_priority = "security" },
-    { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+  { version = "0.9", mandatory_upgrade_from_priority = "security" },
+  { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
 
 [host_models.dell_r750_plus]
@@ -182,19 +182,19 @@ ordering = ["uefi", "bmc"]
 current_version_reported_as = "^Installed-.*__iDRAC."
 preingest_upgrade_when_below = "0.5"
 known_firmware = [
-    { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+  { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
 
 [host_models.dell_r750_plus.components.uefi]
 current_version_reported_as = "^Installed-.*__BIOS.Setup."
 preingest_upgrade_when_below = "0.5"
 known_firmware = [
-    { version = "0.9", mandatory_upgrade_from_priority = "security" },
-    { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+  { version = "0.9", mandatory_upgrade_from_priority = "security" },
+  { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
 
 [multi_dpu]
-enabled=false
+enabled = false
 
 [measured_boot_collector]
 enabled = false

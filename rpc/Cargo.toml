@@ -8,7 +8,7 @@ authors.workspace = true
 [dependencies]
 chrono = { version = "0.4.34", features = ["serde"] }
 eyre = "0.6"
-hyper = { version = "0.14.30", features = ["full"]}
+hyper = { version = "0.14.30", features = ["full"] }
 hyper-rustls = { version = "0.24", features = ["http1", "http2"] }
 lazy_static = "1.4"
 mac_address = "*"

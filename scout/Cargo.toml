@@ -32,7 +32,10 @@ tryhard = "0.5.1"
 tss-esapi = "7.5.0"
 uname = "0.1"
 uuid = "1.0"
-reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream" ] }
+reqwest = { version = "*", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+] }
 futures-util = "0.3"
 prost-types = "0.12.6"
 

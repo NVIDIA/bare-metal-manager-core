@@ -12,5 +12,3 @@ description = "Reloads postgres in the running container"
 workspace = false
 command = "docker-compose"
 args = ["exec", "postgresql", "kill", "-HUP", "1"]
-
-

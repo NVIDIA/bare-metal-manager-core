@@ -8,8 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 [env]
-REPO_ROOT = { script = ["dirname $(cargo locate-project --message-format plain --workspace)"] }
-FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem"}
+REPO_ROOT = { script = [
+  "dirname $(cargo locate-project --message-format plain --workspace)",
+] }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
 BFB_NAME = "bf-bundle-2.7.0-44_24.04_ubuntu-22.04_prod.bfb"
@@ -18,11 +20,15 @@ URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local
 DOCA_VERSION = "2.7.0"
 HBN_VERSION = "2.2.0"
 HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v1/zip"
-IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always --long)}"] }
+IPXE_BANNER_VERSION = { script = [
+  "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
+] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.2.0-doca2.7.0"
 DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.17.0-doca2.7.0"
 K8S_PAUSE_URI = "k8s.gcr.io/pause:3.9"
-DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always --long | cut -c 2-)"] }
+DPU_AGENT_PKG_VERSION = { script = [
+  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+] }
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
@@ -36,114 +42,111 @@ BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/B
 BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
 
 [tasks.upload-bfb-artifacts-to-urm]
-env = {	"BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
+env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
 run_task = "internal-upload-bfb-artifacts-to-urm"
 
 # Do not directly call this as the variables are set in a non internal task
 [tasks.internal-upload-bfb-artifacts-to-urm]
 dependencies = [
-	"bfb-cleanup-tmp",
-	"bfb-create-tmp",
-	"bfb-download",
-	"bfb-mv-to-build-dir",
-	"bfb-hbn-download",
-	"k8s-pause-download",
-	"bfb-telemetry-download",
-	"bfb-hbn-export",
-	"kubelet-pause-export",
-	"bfb-telemetry-export",
-	"download-hbn-installer-to-bfb",
-	"upload-artifacts-to-artifactory",
+  "bfb-cleanup-tmp",
+  "bfb-create-tmp",
+  "bfb-download",
+  "bfb-mv-to-build-dir",
+  "bfb-hbn-download",
+  "k8s-pause-download",
+  "bfb-telemetry-download",
+  "bfb-hbn-export",
+  "kubelet-pause-export",
+  "bfb-telemetry-export",
+  "download-hbn-installer-to-bfb",
+  "upload-artifacts-to-artifactory",
 ]
 
 [tasks.bfb-mv-to-build-dir]
 command = "mv"
-args = [
-	"/tmp/bfb-dump/${BFB_NAME}",
-	"${BUILD_LOCATION}"
-]
+args = ["/tmp/bfb-dump/${BFB_NAME}", "${BUILD_LOCATION}"]
 
 [tasks.upload-artifacts-to-artifactory]
 command = "jf"
 args = [
-    "rt",
-    "upload",
-    "./*",
-    "sw-forge-admins-generic/build-artifacts/${HBN_VERSION}/",
-    "--server-id=urm",
+  "rt",
+  "upload",
+  "./*",
+  "sw-forge-admins-generic/build-artifacts/${HBN_VERSION}/",
+  "--server-id=urm",
 ]
-cwd = "${BUILD_LOCATION}"  # jf will try to upload the full path specified if the tool is executed out of the target directory
+cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
 
 
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
-        "mkdir-static-x86_64",
-        "cleanup-pxe-submodule",
-        { name = "build-cli", path = "${REPO_ROOT}" },
-        "build",
-        "create-ephemeral-image-x86_64",
-        "ipxe-x86_64",
+  "mkdir-static-x86_64",
+  "cleanup-pxe-submodule",
+  { name = "build-cli", path = "${REPO_ROOT}" },
+  "build",
+  "create-ephemeral-image-x86_64",
+  "ipxe-x86_64",
 ]
 
 [tasks.build-boot-artifacts-minikube-x86_64]
 dependencies = [
-        "mkdir-static-x86_64",
-        { name = "build-cli-ci", path = "${REPO_ROOT}" },
-        "create-ephemeral-image-x86_64",
-        "ipxe-x86_64",
+  "mkdir-static-x86_64",
+  { name = "build-cli-ci", path = "${REPO_ROOT}" },
+  "create-ephemeral-image-x86_64",
+  "ipxe-x86_64",
 ]
 
 [tasks.build-boot-artifacts-x86_64-ci]
 dependencies = [
-        "mkdir-static-x86_64",
-        { name = "build-cli-ci", path = "${REPO_ROOT}" },
-        "ipxe-x86_64-ci",
+  "mkdir-static-x86_64",
+  { name = "build-cli-ci", path = "${REPO_ROOT}" },
+  "ipxe-x86_64-ci",
 ]
 
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
-	"mkdir-static-aarch64",
-        "cleanup-pxe-submodule",
-	"bfb-aarch64",
-	"ipxe-aarch64",
-	"setup-apt-repo",
-	"setup-firmware-repo",
+  "mkdir-static-aarch64",
+  "cleanup-pxe-submodule",
+  "bfb-aarch64",
+  "ipxe-aarch64",
+  "setup-apt-repo",
+  "setup-firmware-repo",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
 dependencies = [
-	"mkdir-static-aarch64",
-	{ name = "build-cli-ci", path = "${REPO_ROOT}" },
-	"bfb-aarch64-ci",
-	"ipxe-aarch64-ci",
-	"setup-apt-repo",
-	"setup-firmware-repo",
+  "mkdir-static-aarch64",
+  { name = "build-cli-ci", path = "${REPO_ROOT}" },
+  "bfb-aarch64-ci",
+  "ipxe-aarch64-ci",
+  "setup-apt-repo",
+  "setup-firmware-repo",
 ]
 
 [tasks.create-ephemeral-image-x86_64-ci]
 category = "Ephemeral Image"
 dependencies = [
-	"mkosi-clean-qcow-imager",
-	"mkosi-clean-scout-x86_64",
-	"copy-forge-scout-ci-x86_64",
-	"copy-forge-prod-root-ca-x86_64",
-	"mkosi-build-scout-x86_64",
-	"mkosi-build-qcow-imager",
-	"mkosi-copy-qcow-imager-to-webroot-x86_64",
-	"mkosi-copy-scout-to-webroot-x86_64",
+  "mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-x86_64",
+  "copy-forge-scout-ci-x86_64",
+  "copy-forge-prod-root-ca-x86_64",
+  "mkosi-build-scout-x86_64",
+  "mkosi-build-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-x86_64",
+  "mkosi-copy-scout-to-webroot-x86_64",
 ]
 
 [tasks.create-ephemeral-image-x86_64]
 category = "Ephemeral Image"
 dependencies = [
-	"mkosi-clean-qcow-imager",
-	"mkosi-clean-scout-x86_64",
-	"copy-forge-scout-x86_64",
-	"copy-forge-dev-root-ca-x86_64",
-	"mkosi-build-scout-x86_64",
-	"mkosi-build-qcow-imager",
-	"mkosi-copy-qcow-imager-to-webroot-x86_64",
-	"mkosi-copy-scout-to-webroot-x86_64",
+  "mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-x86_64",
+  "copy-forge-scout-x86_64",
+  "copy-forge-dev-root-ca-x86_64",
+  "mkosi-build-scout-x86_64",
+  "mkosi-build-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-x86_64",
+  "mkosi-copy-scout-to-webroot-x86_64",
 ]
 
 [tasks.cleanup-pxe-submodule]
@@ -176,114 +179,98 @@ script = '''
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-	"-f",
-	"${FORGE_CA_PATH}",
-	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "-f",
+  "${FORGE_CA_PATH}",
+  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
-	"-f",
-	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+  "-f",
+  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
+  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/release/forge-scout",
-	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/release/forge-scout",
+  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
 [tasks.copy-forge-scout-ci-x86_64]
 category = "Copy Forge Scout in CI"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/debug/forge-scout",
-	"mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/debug/forge-scout",
+  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
 [tasks.mkosi-clean-artifacts]
 category = "Ephemeral Image"
-dependencies = [
-	"mkosi-clean-qcow-imager",
-	"mkosi-clean-scout"
-]
+dependencies = ["mkosi-clean-qcow-imager", "mkosi-clean-scout"]
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-	"--profile", "qcow-imager",
-	"clean"
-]
+args = ["--profile", "qcow-imager", "clean"]
 
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-	"--profile", "scout-x86_64",
-	"clean"
-]
+args = ["--profile", "scout-x86_64", "clean"]
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
-	"-c",
-    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 build"
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
 category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
-	"-c",
-    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager build"
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
 args = [
-	"mkosi.output/qcow-imager.efi",
-	"static/blobs/internal/x86_64/qcow-imager.efi"
+  "mkosi.output/qcow-imager.efi",
+  "static/blobs/internal/x86_64/qcow-imager.efi",
 ]
-dependencies = [
-	"mkdir-static-x86_64"
-]
+dependencies = ["mkdir-static-x86_64"]
 
 [tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
-args = [
-	"mkosi.output/scout.efi",
-	"static/blobs/internal/x86_64/scout.efi"
-]
-dependencies = [
-	"mkdir-static-x86_64"
-]
+args = ["mkosi.output/scout.efi", "static/blobs/internal/x86_64/scout.efi"]
+dependencies = ["mkdir-static-x86_64"]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
-	"ipxe-config",
-	"ipxe-patch-measured-boot",
-	"ipxe-install-efi-x86_64",
+  "ipxe-config",
+  "ipxe-patch-measured-boot",
+  "ipxe-install-efi-x86_64",
 ]
 
 [tasks.ipxe-x86_64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
-	"ipxe-config",
-	"ipxe-patch-measured-boot",
-	"ipxe-install-efi-x86_64",
+  "ipxe-config",
+  "ipxe-patch-measured-boot",
+  "ipxe-install-efi-x86_64",
 ]
 
 [tasks.ipxe-config]
@@ -323,106 +310,117 @@ script = '''
 category = "iPXE Kernel"
 description = "Copy the x86_64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
-args = ["ipxe/upstream/src/bin-x86_64-efi/snponly.efi", "static/blobs/internal/x86_64/ipxe.efi"]
-dependencies = [
-	"ipxe-build-efi-x86_64",
+args = [
+  "ipxe/upstream/src/bin-x86_64-efi/snponly.efi",
+  "static/blobs/internal/x86_64/ipxe.efi",
 ]
+dependencies = ["ipxe-build-efi-x86_64"]
 
 [tasks.ipxe-aarch64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = [
-    "ipxe-config",
-    "ipxe-patch-mlnx",
-    "ipxe-install-efi-aarch64",
-]
+dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-install-efi-aarch64"]
 
 [tasks.ipxe-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = [
-    "ipxe-config",
-    "ipxe-patch-mlnx",
-    "ipxe-install-efi-aarch64-ci",
-]
+dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-install-efi-aarch64-ci"]
 
 [tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
-args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch64/ipxe.efi"]
-dependencies = [
-	"ipxe-build-efi-aarch64",
+args = [
+  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
+  "static/blobs/internal/aarch64/ipxe.efi",
 ]
+dependencies = ["ipxe-build-efi-aarch64"]
 
 [tasks.ipxe-install-efi-aarch64-ci]
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
-args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch64/ipxe.efi"]
-dependencies = [
-	"ipxe-build-efi-aarch64-ci",
+args = [
+  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
+  "static/blobs/internal/aarch64/ipxe.efi",
 ]
+dependencies = ["ipxe-build-efi-aarch64-ci"]
 
 # This requires the GNU `ld`. It fails with LLVM's `lld`.
 [tasks.ipxe-build-efi-x86_64]
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/snponly.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
+args = [
+  "bin-x86_64-efi/snponly.efi",
+  "VERSION=${IPXE_BANNER_VERSION}",
+  "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
+  "DEBUG=tls",
+]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "CROSS_COMPILE=aarch64-linux-gnu-", "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=snp,tls"]
+args = [
+  "CROSS_COMPILE=aarch64-linux-gnu-",
+  "bin-arm64-efi/ipxe.efi",
+  "VERSION=${IPXE_BANNER_VERSION}",
+  "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
+  "DEBUG=snp,tls",
+]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=snp,tls"]
+args = [
+  "bin-arm64-efi/ipxe.efi",
+  "VERSION=${IPXE_BANNER_VERSION}",
+  "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
+  "DEBUG=snp,tls",
+]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
-env = {	"BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = "internal-bfb-aarch64-ci"
 
 [tasks.bfb-aarch64]
-env = {	"BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
+env = { "BFB_LOCATION" = "${URM_LOCATION}", "HBN_CONFIG_URL" = "${URM_LOCATION}/doca_container_configs.zip" }
 run_task = "internal-bfb-aarch64"
 
 [tasks.internal-bfb-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
-	"bfb-cleanup-tmp",
-	"bfb-create-tmp",
-	"bfb-download",
-	"bfbtools-download",
-	"bfb-extract",
-	"bfb-extract-efi-ci",
-	"download-docker-containers",
-	"bfb-extract-ifconfig",
-	"bfb-add-scout-to-bfb-ci",
-	"bfb-add-debs-to-bfb",
-	"bfb-add-nvinit-setup-to-bfb",
-	"bfb-add-prod-forge-root-ca-to-bfb",
-	"download-hbn-installer-to-bfb",
-	"mkdir-hbn-folder-in-bfb",
-	"unzip-hbn-folder-in-bfb",
-	"mv-hbn-configs-to-bfb",
-	"mv-hbn-scripts-to-bfb",
-	"cleanup-hbn-scripts",
-	{ name = "build-forge-dpu-deb-ci", path="${REPO_ROOT}/bluefield" },
-	"cp-forge-dpu-package-to-bfb",
-	"bfb-copy-efi",
-	"bfb-remove-extracted-efi",
-	"replace-bfpxe-script",
-	"bfb-rebuild-rootfs",
-	"bfb-copy-rootfs",
+  "bfb-cleanup-tmp",
+  "bfb-create-tmp",
+  "bfb-download",
+  "bfbtools-download",
+  "bfb-extract",
+  "bfb-extract-efi-ci",
+  "download-docker-containers",
+  "bfb-extract-ifconfig",
+  "bfb-add-scout-to-bfb-ci",
+  "bfb-add-debs-to-bfb",
+  "bfb-add-nvinit-setup-to-bfb",
+  "bfb-add-prod-forge-root-ca-to-bfb",
+  "download-hbn-installer-to-bfb",
+  "mkdir-hbn-folder-in-bfb",
+  "unzip-hbn-folder-in-bfb",
+  "mv-hbn-configs-to-bfb",
+  "mv-hbn-scripts-to-bfb",
+  "cleanup-hbn-scripts",
+  { name = "build-forge-dpu-deb-ci", path = "${REPO_ROOT}/bluefield" },
+  "cp-forge-dpu-package-to-bfb",
+  "bfb-copy-efi",
+  "bfb-remove-extracted-efi",
+  "replace-bfpxe-script",
+  "bfb-rebuild-rootfs",
+  "bfb-copy-rootfs",
 ]
 
 [tasks.internal-bfb-aarch64]
@@ -430,54 +428,50 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 workspace = false
 dependencies = [
-	"bfb-cleanup-tmp",
-	"bfb-create-tmp",
-	"bfb-download",
-	"bfbtools-download",
-	"bfb-extract",
-	"bfb-extract-efi",
-	"download-docker-containers",
-	"bfb-extract-ifconfig",
-	"bfb-add-scout-to-bfb",
-	"bfb-add-debs-to-bfb",
-	"bfb-add-nvinit-setup-to-bfb",
-	"bfb-add-dev-forge-root-ca-to-bfb",
-	"download-hbn-installer-to-bfb",
-	"mkdir-hbn-folder-in-bfb",
-	"unzip-hbn-folder-in-bfb",
-	"mv-hbn-configs-to-bfb",
-	"mv-hbn-scripts-to-bfb",
-	"cleanup-hbn-scripts",
-	{ name = "build-forge-dpu-deb-local", path="${REPO_ROOT}/bluefield" },
-	"cp-forge-dpu-package-to-bfb",
-	"bfb-copy-efi",
-	"bfb-remove-extracted-efi",
-	"replace-bfpxe-script",
-	"bfb-rebuild-rootfs",
-	"bfb-copy-rootfs",
+  "bfb-cleanup-tmp",
+  "bfb-create-tmp",
+  "bfb-download",
+  "bfbtools-download",
+  "bfb-extract",
+  "bfb-extract-efi",
+  "download-docker-containers",
+  "bfb-extract-ifconfig",
+  "bfb-add-scout-to-bfb",
+  "bfb-add-debs-to-bfb",
+  "bfb-add-nvinit-setup-to-bfb",
+  "bfb-add-dev-forge-root-ca-to-bfb",
+  "download-hbn-installer-to-bfb",
+  "mkdir-hbn-folder-in-bfb",
+  "unzip-hbn-folder-in-bfb",
+  "mv-hbn-configs-to-bfb",
+  "mv-hbn-scripts-to-bfb",
+  "cleanup-hbn-scripts",
+  { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
+  "cp-forge-dpu-package-to-bfb",
+  "bfb-copy-efi",
+  "bfb-remove-extracted-efi",
+  "replace-bfpxe-script",
+  "bfb-rebuild-rootfs",
+  "bfb-copy-rootfs",
 ]
 
 [tasks.bfb-cleanup-tmp]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "rm"
-args = [ "-rf", "${BUILD_LOCATION}" ]
+args = ["-rf", "${BUILD_LOCATION}"]
 
 [tasks.bfb-create-tmp]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "mkdir"
-args = [ "-p", "${BUILD_LOCATION}" ]
+args = ["-p", "${BUILD_LOCATION}"]
 
 [tasks.bfb-download]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "curl"
-args = [
-	"${BFB_LOCATION}/${BFB_NAME}",
-	"--output",
-	"${BFB_NAME}",
-]
+args = ["${BFB_LOCATION}/${BFB_NAME}", "--output", "${BFB_NAME}"]
 cwd = "/tmp/bfb-dump"
 
 [tasks.bfbtools-download]
@@ -485,9 +479,9 @@ category = "iPXE Kernel"
 description = "Download the BFB tools on aarch64 gitlab runner"
 command = "curl"
 args = [
-	"https://raw.githubusercontent.com/Mellanox/bfscripts/master/mlx-mkbfb",
-	"--output",
-	"mlx-mkbfb",
+  "https://raw.githubusercontent.com/Mellanox/bfscripts/master/mlx-mkbfb",
+  "--output",
+  "mlx-mkbfb",
 ]
 cwd = "/tmp/bfb-dump"
 
@@ -495,49 +489,39 @@ cwd = "/tmp/bfb-dump"
 category = "iPXE Kernel"
 description = "Download the hbn doca container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"pull",
-    	"--platform=linux/arm64",
-	"${DOCA_HBN_URI}",
-]
+args = ["pull", "--platform=linux/arm64", "${DOCA_HBN_URI}"]
 
 [tasks.bfb-telemetry-download]
 category = "iPXE Kernel"
 description = "Download the doca telemetry container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"pull",
-    	"--platform=linux/arm64",
-	"${DOCA_TELEMETRY_URI}",
-]
+args = ["pull", "--platform=linux/arm64", "${DOCA_TELEMETRY_URI}"]
 
 [tasks.k8s-pause-download]
 category = "iPXE Kernel"
 description = "Download the kubelet pause container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"pull",
-    	"--platform=linux/arm64",
-	"${K8S_PAUSE_URI}",
-]
+args = ["pull", "--platform=linux/arm64", "${K8S_PAUSE_URI}"]
 
 [tasks.bfb-extract]
 category = "iPXE Kernel"
 description = "Extract the BFB on aarch64 gitlab runner"
 command = "python3"
-args = [ "mlx-mkbfb", "-x", "${BFB_NAME}" ]
+args = ["mlx-mkbfb", "-x", "${BFB_NAME}"]
 cwd = "/tmp/bfb-dump"
 
 [tasks.bfb-extract-efi]
 category = "iPXE Kernel"
 description = "Extract the BFB initramfs on aarch64 gitlab runner"
-script = [ "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | doas cpio -id && doas chown -R $USER ." ]
+script = [
+  "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | doas cpio -id && doas chown -R $USER .",
+]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-extract-efi-ci]
 category = "iPXE Kernel"
 description = "Extract the BFB initramfs on aarch64 gitlab runner"
-script = [ "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id" ]
+script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id"]
 cwd = "${BUILD_LOCATION}"
 
 
@@ -545,33 +529,21 @@ cwd = "${BUILD_LOCATION}"
 category = "iPXE Kernel"
 description = "export the hbn doca container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"save",
-	"--output=doca_hbn.tar",
-	"${DOCA_HBN_URI}",
-]
+args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URI}"]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-telemetry-export]
 category = "iPXE Kernel"
 description = "export the hbn telemetry container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"save",
-	"--output=doca_telemetry.tar",
-	"${DOCA_TELEMETRY_URI}",
-]
+args = ["save", "--output=doca_telemetry.tar", "${DOCA_TELEMETRY_URI}"]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.kubelet-pause-export]
 category = "iPXE Kernel"
 description = "export the kubelet pause container on aarch64 gitlab runner"
 command = "docker"
-args = [
-	"save",
-	"--output=pause.tar",
-	"${K8S_PAUSE_URI}",
-]
+args = ["save", "--output=pause.tar", "${K8S_PAUSE_URI}"]
 cwd = "${BUILD_LOCATION}"
 
 
@@ -580,8 +552,8 @@ category = "iPXE Kernel"
 description = "Download all the docker containers from artifactory"
 command = "curl"
 args = [
-	"--remote-name-all",
-	"${URM_LOCATION}/{doca_hbn,doca_telemetry,pause}.tar",
+  "--remote-name-all",
+  "${URM_LOCATION}/{doca_hbn,doca_telemetry,pause}.tar",
 ]
 cwd = "${BUILD_LOCATION}"
 
@@ -590,11 +562,7 @@ cwd = "${BUILD_LOCATION}"
 category = "iPXE Kernel"
 description = "extract ifconfig from ubuntu tar"
 command = "tar"
-args = [
-	"xJf",
-	"ubuntu/image.tar.xz",
-	"./usr/sbin/ifconfig",
-]
+args = ["xJf", "ubuntu/image.tar.xz", "./usr/sbin/ifconfig"]
 cwd = "${BUILD_LOCATION}"
 
 
@@ -602,18 +570,15 @@ cwd = "${BUILD_LOCATION}"
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
-args = [
-	"${FORGE_CA_PATH}",
-	"${BUILD_LOCATION}/forge_root.pem",
-]
+args = ["${FORGE_CA_PATH}", "${BUILD_LOCATION}/forge_root.pem"]
 
 [tasks.bfb-add-dev-forge-root-ca-to-bfb]
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
 args = [
-	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-	"${BUILD_LOCATION}/forge_root.pem",
+  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
+  "${BUILD_LOCATION}/forge_root.pem",
 ]
 
 [tasks.cleanup-old-debs]
@@ -621,13 +586,13 @@ category = "iPXE Kernel"
 description = "remove all the old debs in the target folder"
 command = "find"
 args = [
-    "${REPO_ROOT}/pxe/debs",
-    "-type",
-    "f",
-    "-not",
-    "-name",
-    "libnss-exec_0.2.0-1_arm64.deb",
-    "-delete"
+  "${REPO_ROOT}/pxe/debs",
+  "-type",
+  "f",
+  "-not",
+  "-name",
+  "libnss-exec_0.2.0-1_arm64.deb",
+  "-delete",
 ]
 
 [tasks.download-debs-for-bfb]
@@ -635,117 +600,85 @@ category = "iPXE Kernel"
 description = "wget the debs to nvinit_setup"
 command = "wget"
 args = [
-    "-i",
-    "${REPO_ROOT}/pxe/wget_deb_urls",
-    "--directory-prefix=${REPO_ROOT}/pxe/debs",
+  "-i",
+  "${REPO_ROOT}/pxe/wget_deb_urls",
+  "--directory-prefix=${REPO_ROOT}/pxe/debs",
 ]
 cwd = "${REPO_ROOT}/pxe"
-dependencies = [
-    "cleanup-old-debs"
-]
+dependencies = ["cleanup-old-debs"]
 
 [tasks.bfb-add-debs-to-bfb]
 category = "iPXE Kernel"
 description = "Add debs folder to the bfb"
 command = "cp"
-args = [
-    "-R",
-    "${REPO_ROOT}/pxe/debs",
-    "${BUILD_LOCATION}",
-]
-dependencies = [
-    "download-debs-for-bfb",
-]
+args = ["-R", "${REPO_ROOT}/pxe/debs", "${BUILD_LOCATION}"]
+dependencies = ["download-debs-for-bfb"]
 
 [tasks.bfb-add-nvinit-setup-to-bfb]
 category = "iPXE Kernel"
 description = "Add nvinit_setup folder to the bfb"
 command = "cp"
-args = [
-    "-R",
-    "${REPO_ROOT}/pxe/nvinit_setup",
-    "${BUILD_LOCATION}",
-]
+args = ["-R", "${REPO_ROOT}/pxe/nvinit_setup", "${BUILD_LOCATION}"]
 
 [tasks.bfb-add-scout-to-bfb-ci]
 category = "iPXE Kernel"
 description = "Add the scout to the bfb"
 command = "cp"
-args = [
-	"${REPO_ROOT}/target/debug/forge-scout",
-	"${BUILD_LOCATION}",
-]
+args = ["${REPO_ROOT}/target/debug/forge-scout", "${BUILD_LOCATION}"]
 
 [tasks.bfb-add-scout-to-bfb]
 category = "iPXE Kernel"
 description = "Add the scout to the bfb"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
-	"${BUILD_LOCATION}",
+  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
+  "${BUILD_LOCATION}",
 ]
-dependencies = [
-	{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
-]
+dependencies = [{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" }]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN installer to the bfb"
 command = "curl"
 args = [
-	"-L",
-	"${HBN_CONFIG_URL}",
-	"--output",
-	"${BUILD_LOCATION}/doca_container_configs.zip",
+  "-L",
+  "${HBN_CONFIG_URL}",
+  "--output",
+  "${BUILD_LOCATION}/doca_container_configs.zip",
 ]
 
 [tasks.mkdir-hbn-folder-in-bfb]
 category = "iPXE Kernel"
 description = "Make the HBN script target directory to the bfb"
 command = "mkdir"
-args = [
-	"${BUILD_LOCATION}/doca_container_configs",
-]
+args = ["${BUILD_LOCATION}/doca_container_configs"]
 
 [tasks.unzip-hbn-folder-in-bfb]
 category = "iPXE Kernel"
 description = "Unzip the HBN scripts to a temp directory"
 command = "unzip"
-args = [
-	"${BUILD_LOCATION}/doca_container_configs.zip",
-	"-d",
-	"temp"
-]
+args = ["${BUILD_LOCATION}/doca_container_configs.zip", "-d", "temp"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mv-hbn-configs-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN configs to the bfb"
 command = "mv"
-args = [
-	"temp/scripts/doca_hbn/${HBN_VERSION}/",
-	"scripts",
-]
+args = ["temp/scripts/doca_hbn/${HBN_VERSION}/", "scripts"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mv-hbn-scripts-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN scripts to the bfb"
 command = "mv"
-args = [
-	"temp/configs/${DOCA_VERSION}/",
-	"configs",
-]
+args = ["temp/configs/${DOCA_VERSION}/", "configs"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.cleanup-hbn-scripts]
 category = "iPXE Kernel"
 description = "Cleanup the HBN scripts"
 command = "rm"
-args = [
-	"-rf",
-	"temp",
-]
+args = ["-rf", "temp"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.cp-forge-dpu-package-to-bfb]
@@ -753,8 +686,8 @@ category = "iPXE Kernel"
 description = "Copy aarch64 EFI iPXE debian file"
 command = "cp"
 args = [
-	"${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb",
-	"${BUILD_LOCATION}/forge-dpu.deb",
+  "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb",
+  "${BUILD_LOCATION}/forge-dpu.deb",
 ]
 
 [tasks.setup-apt-repo]
@@ -788,9 +721,7 @@ Architecture: arm64" > Release
 
 [tasks.setup-firmware-repo]
 category = "iPXE Kernel"
-dependencies = [
-	"mkdir-static-x86_64",
-]
+dependencies = ["mkdir-static-x86_64"]
 description = "Download vendor specific firmware packages"
 script = [
   "echo Downloading nvidia firmware",
@@ -806,45 +737,56 @@ cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
 command = "cp"
-args = [ "/tmp/bfb-dump/dump-image-v0", "carbide.efi"]
+args = ["/tmp/bfb-dump/dump-image-v0", "carbide.efi"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-remove-extracted-efi]
 category = "iPXE Kernel"
 description = "Remove the BFB efi kernel on aarch64 gitlab runner"
 command = "rm"
-args = [ "-fr", "${BUILD_LOCATION}/dump-image-v0"]
+args = ["-fr", "${BUILD_LOCATION}/dump-image-v0"]
 
 [tasks.bfb-rebuild-rootfs]
 category = "iPXE Kernel"
 description = "Rebuild the BFB root fs on aarch64 gitlab runner"
-script = [ "find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0" ]
+script = [
+  "find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0",
+]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-copy-rootfs]
 category = "iPXE Kernel"
 description = "Copy the BFB root fs on aarch64 gitlab runner"
 command = "cp"
-args = [ "/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
+args = ["/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.container-boot-artifacts-x86_64-ci]
 category = "iPXE Kernel"
 description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-prod-x86_64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = [
+  "-t",
+  "boot-artifacts-prod-x86_64:${CI_JOB_ID}",
+  "-f",
+  "${CI_PROJECT_DIR}/pxe/Dockerfile",
+  "${CI_PROJECT_DIR}/pxe",
+]
 
 [tasks.container-boot-artifacts-aarch64-ci]
 category = "iPXE Kernel"
 description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-prod-aarch64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = [
+  "-t",
+  "boot-artifacts-prod-aarch64:${CI_JOB_ID}",
+  "-f",
+  "${CI_PROJECT_DIR}/pxe/Dockerfile",
+  "${CI_PROJECT_DIR}/pxe",
+]
 
 [tasks.replace-bfpxe-script]
 category = "iPXE Kernel"
 description = "Switch bfpxe script from bfb to custom one"
 command = "cp"
-args = [
-	"${REPO_ROOT}/pxe/bfpxe",
-	"${BUILD_LOCATION}/usr/bin/bfpxe"
-]
+args = ["${REPO_ROOT}/pxe/bfpxe", "${BUILD_LOCATION}/usr/bin/bfpxe"]
