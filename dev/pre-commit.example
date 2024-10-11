@@ -57,6 +57,7 @@ declare -a rust_files=()
 files=$(git diff-index --name-only HEAD)
 echo 'Formatting source files'
 command -v rustfmt >/dev/null 2>&1 || { echo >&2 "Rustfmt is required but it's not installed. Aborting."; exit 1; }
+command -v taplo >/dev/null 2>&1 || { echo >&2 "Taplo is required but it's not installed. Aborting."; exit 1; }
 for file in $files; do
     if [ ! -f "${file}" ]; then
         continue
@@ -64,6 +65,13 @@ for file in $files; do
     echo "Formatting ${file}"
     if [[ "${file}" == *.rs ]]; then
         rustfmt --edition 2021 --check "${file}"
+        if [ $? -ne 0 ]; then
+            echo "Formatting required, ABORTING COMMIT."
+            exit 2
+        fi
+    fi
+    if [[ "${file}" == *.toml ]]; then
+        taplo fmt --check "${file}"
         if [ $? -ne 0 ]; then
             echo "Formatting required, ABORTING COMMIT."
             exit 2

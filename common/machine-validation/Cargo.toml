@@ -27,7 +27,10 @@ utils = { path = "../../common/utils" }
 tonic = { workspace = true }
 chrono = { version = "0.4.34", features = ["serde"] }
 tracing = "0.1.40"
-reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream" ] }
+reqwest = { version = "*", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+] }
 futures-util = "0.3"
 prost-types = "0.12.6"
 flate2 = "1.0.30"

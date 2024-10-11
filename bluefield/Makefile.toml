@@ -35,15 +35,10 @@ script = '''
   rm -rf ${REPO_ROOT}/bluefield/otel/ocb-build
   echo Cleanup completed.
 '''
-dependencies = [
-  "cleanup-go",
-]
+dependencies = ["cleanup-go"]
 
 [tasks.clean]
-dependencies = [
-  "cleanup-local-pkg-files",
-  "cleanup-custom-otelcol-build",
-]
+dependencies = ["cleanup-local-pkg-files", "cleanup-custom-otelcol-build"]
 
 [tasks.build-dpu-agent]
 category = "Build"
@@ -142,16 +137,10 @@ script = '''
   GOOS=linux GOARCH=arm64 ./ocb --config ocb_config.yaml
   rm ocb_config.yaml
 '''
-dependencies = [
-  "check-otelcol-builder",
-  "download-go",
-]
+dependencies = ["check-otelcol-builder", "download-go"]
 
 [tasks.build-otelcol-and-clean]
-dependencies = [
-  "build-otelcol",
-  "cleanup-go",
-]
+dependencies = ["build-otelcol", "cleanup-go"]
 
 [tasks.stage-otelcol]
 category = "Build"
@@ -163,15 +152,10 @@ script = '''
   mkdir -p $bin
   mv ${REPO_ROOT}/bluefield/otel/ocb-build/otelcol-contrib ${bin}
 '''
-dependencies = [
-  "build-otelcol-and-clean",
-]
+dependencies = ["build-otelcol-and-clean"]
 
 [tasks.stage-otelcol-and-clean]
-dependencies = [
-  "stage-otelcol",
-  "cleanup-custom-otelcol-build",
-]
+dependencies = ["stage-otelcol", "cleanup-custom-otelcol-build"]
 
 [tasks.include-otelcol]
 category = "Build"
@@ -218,7 +202,7 @@ script = '''
 dependencies = [
   "build-dpu-agent",
   { name = "build-dhcp-server", path = "${REPO_ROOT}/dhcp-server" },
-  "include-otelcol"
+  "include-otelcol",
 ]
 
 [tasks.setup-forge-dpu-deb]
@@ -248,7 +232,7 @@ script = '''
 dependencies = [
   "build-dpu-agent-ci",
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
-  "include-otelcol"
+  "include-otelcol",
 ]
 
 [tasks.setup-forge-dpu-deb-ci]
@@ -278,7 +262,7 @@ script = '''
 dependencies = [
   "build-dpu-agent-ci",
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
-  "include-otelcol"
+  "include-otelcol",
 ]
 
 [tasks.build-forge-dpu-deb-local]

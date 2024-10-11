@@ -9,7 +9,9 @@
 # its affiliates is strictly prohibited.
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
-REPO_ROOT = { script = ["dirname $(cargo locate-project --message-format plain --workspace)"] }
+REPO_ROOT = { script = [
+  "dirname $(cargo locate-project --message-format plain --workspace)",
+] }
 CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
   "CARBIDE_ENVIRONMENT",
 ] } }
@@ -171,7 +173,14 @@ category = "Docker Compose"
 description = "Build the runtime container base image for Carbide components"
 workspace = false
 command = "docker"
-args = ["build", "-t", "carbide-runtime:latest", ".", "-f", "dev/docker/Dockerfile.build-container-x86_64"]
+args = [
+  "build",
+  "-t",
+  "carbide-runtime:latest",
+  ".",
+  "-f",
+  "dev/docker/Dockerfile.build-container-x86_64",
+]
 env = { "DOCKER_BUILDKIT" = "1" }
 
 [tasks.fullstack-up]
@@ -284,7 +293,10 @@ dependencies = [
 [tasks.pre-commit-verify]
 description = "Runs the same set of tasks CI will."
 category = "CI"
-dependencies = ["pre-commit-verify-workspace", "build-and-test-release-container-services"]
+dependencies = [
+  "pre-commit-verify-workspace",
+  "build-and-test-release-container-services",
+]
 
 [tasks.pre-commit-verify-workspace]
 workspace = false
@@ -325,7 +337,13 @@ fi
 '''
 
 [tasks.build-release]
-args = ["build", "--release", "--features", "carbide-api/tss-esapi", "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )"]
+args = [
+  "build",
+  "--release",
+  "--features",
+  "carbide-api/tss-esapi",
+  "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+]
 
 [tasks.build-and-test-release-container-services]
 workspace = false
@@ -337,7 +355,7 @@ workspace = false
 # do not require everything.
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
-  "test-flow", # Then run all tests
+  "test-flow",     # Then run all tests
 ]
 
 [tasks.clippy-ci-flow]

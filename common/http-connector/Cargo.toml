@@ -8,13 +8,17 @@ authors.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hickory-resolver = { version = "0.24.0"}
-tokio = { workspace = true, features=["rt", "macros"] }
+hickory-resolver = { version = "0.24.0" }
+tokio = { workspace = true, features = ["rt", "macros"] }
 log = "0.4.19"
 tracing = "0.1.40"
 socket2 = "0.5.5"
-hyper = { version = "0.14.30", default-features = false, features = ["client", "runtime", "tcp"] }
-hyper-rustls = { version = "0.24", default-features = false, optional = true}
+hyper = { version = "0.14.30", default-features = false, features = [
+  "client",
+  "runtime",
+  "tcp",
+] }
+hyper-rustls = { version = "0.24", default-features = false, optional = true }
 pin-project-lite = "0.2.11"
 futures-util = "0.3.28"
 tower-service = "0.3.2"
@@ -25,5 +29,10 @@ tryhard = "0.5.1"
 dsocket = { path = "../dsocket" }
 
 [dev-dependencies]
-hyper = { version = "0.14", default-features = false, features = ["client", "tcp", "http1", "http2"] }
-tokio = { workspace=true, features = ["rt", "macros"] }
+hyper = { version = "0.14", default-features = false, features = [
+  "client",
+  "tcp",
+  "http1",
+  "http2",
+] }
+tokio = { workspace = true, features = ["rt", "macros"] }

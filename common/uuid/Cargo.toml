@@ -14,15 +14,15 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 sha2 = "0.10.3"
 sqlx = { version = "0.7.1", features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 thiserror = "1.0"
 tonic = { workspace = true }
@@ -30,4 +30,4 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 
 rpc = { path = "../../rpc" }
-utils = {path = "../utils" }
+utils = { path = "../utils" }

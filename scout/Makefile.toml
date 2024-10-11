@@ -10,7 +10,9 @@
 
 [env]
 # e.g. 2023.09-72-g1641d986
-DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always --long | cut -c 2-)"] }
+DPU_AGENT_PKG_VERSION = { script = [
+  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+] }
 
 [tasks.build-forge-scout]
 category = "Build"
@@ -30,7 +32,4 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
 '''
-dependencies = [
-    { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
-]
-
+dependencies = [{ name = "build-cross-docker-image", path = "${REPO_ROOT}" }]
