@@ -47,6 +47,7 @@ ngc_environment = ngc.ENVS[site.environment]
 os.environ["NGC_CLI_API_URL"] = ngc_environment.api_url
 os.environ["NGC_CLI_API_KEY"] = ngc_api_key
 os.environ["NGC_CLI_ORG"] = ngc_environment.tenant_org_name
+os.environ["NGC_CLI_DEBUG_LOG"] = "ngc_cli_debug.log"
 
 # Check the initial state is good before we get started
 print(f"Checking {machine_under_test} is Ready...")
