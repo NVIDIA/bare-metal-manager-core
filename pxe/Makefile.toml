@@ -14,7 +14,7 @@ REPO_ROOT = { script = [
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
-BFB_NAME = "bf-bundle-2.7.0-44_24.04_ubuntu-22.04_prod.bfb"
+BFB_NAME = "bf-bundle-2.7.0-33_24.04_ubuntu-22.04_prod.bfb"
 BFB_UPSTREAM_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
 DOCA_VERSION = "2.7.0"
