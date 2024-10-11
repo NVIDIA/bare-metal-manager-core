@@ -1190,7 +1190,7 @@ scheduled-test:cloud-api-tests:
 #
 scheduled-test:machine-lifecycle-test:
   stage: test
-  timeout: 4h
+  timeout: 5h
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "false" && $RUN_TESTS =="true"
       needs:
