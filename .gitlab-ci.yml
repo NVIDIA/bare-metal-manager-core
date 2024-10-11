@@ -1247,6 +1247,10 @@ scheduled-test:machine-lifecycle-test:
           --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
           "${SNIPPET_URL}"
       fi
+  artifacts:
+    when: always
+    paths:
+      - ngc_cli_debug.log
 
 #
 # Runs a test that spins up a single-node Forge control plane (i.e. a dev environment) directly on the GitLab runner and
