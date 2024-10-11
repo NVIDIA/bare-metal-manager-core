@@ -87,7 +87,7 @@ fn managed_host_to_row(
                 x.ethernet_interfaces
                     .iter()
                     .find_map(|x| {
-                        if x.id() == "oob_net0" {
+                        if x.id().contains("oob") {
                             x.mac_address.clone()
                         } else {
                             None
@@ -351,7 +351,7 @@ fn print_managed_host_info(
                 x.ethernet_interfaces
                     .iter()
                     .find_map(|x| {
-                        if x.id() == "oob_net0" {
+                        if x.id().contains("oob") {
                             x.mac_address.clone()
                         } else {
                             None
