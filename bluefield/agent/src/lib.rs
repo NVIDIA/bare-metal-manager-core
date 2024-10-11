@@ -146,7 +146,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // it may fail when the real one would succeed for single-port setups.
         Some(AgentCommand::Health) => {
             let health_report =
-                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, None).await;
+                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, 2, &[]).await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
