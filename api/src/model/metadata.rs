@@ -137,3 +137,136 @@ impl Metadata {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fail_invalid_metadata() {
+        // Good metadata
+        let metadata = Metadata {
+            name: "nice_name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
+        };
+
+        assert!(metadata.validate().is_ok());
+
+        // And now lots of bad metadata
+
+        // name too short
+        let metadata = Metadata {
+            name: "x".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // name too long
+        let metadata = Metadata {
+            name: [0; 257]
+                .iter()
+                .fold(String::new(), |name, _| name + "a")
+                .to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // non-ascii name
+        let metadata = Metadata {
+            name: "것봐".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // Empty key
+        let metadata = Metadata {
+            name: "nice name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("".to_string(), "val1".to_string())]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // Non-ascii key
+        let metadata = Metadata {
+            name: "nice name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("것봐".to_string(), "val1".to_string())]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // Key too big
+        let metadata = Metadata {
+            name: "nice name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([(
+                [0; 256]
+                    .iter()
+                    .fold(String::new(), |name, _| name + "a")
+                    .to_string(),
+                "val1".to_string(),
+            )]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // Value too big
+        let metadata = Metadata {
+            name: "nice name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([(
+                "key1".to_string(),
+                [0; 256]
+                    .iter()
+                    .fold(String::new(), |name, _| name + "a")
+                    .to_string(),
+            )]),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+
+        // Too many labels
+        let metadata = Metadata {
+            name: "nice name".to_string(),
+            description: "anything is fine".to_string(),
+            labels: "abcdefghijk"
+                .chars()
+                .map(|c| (c.to_string(), "x".to_string()))
+                .collect(),
+        };
+
+        assert!(matches!(
+            metadata.validate(),
+            Err(ConfigValidationError::InvalidValue(_))
+        ));
+    }
+}

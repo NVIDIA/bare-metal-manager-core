@@ -17,8 +17,9 @@ use config_version::ConfigVersion;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use ::rpc::errors::RpcDataConversionError;
+use crate::model::metadata::Metadata;
 use forge_uuid::instance::InstanceId;
+use rpc::errors::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {
@@ -26,19 +27,22 @@ pub enum TenantError {
     PublickeyValidationFailed(InstanceId, String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tenant {
     pub organization_id: TenantOrganizationId,
+    pub metadata: Metadata,
     pub version: ConfigVersion,
 }
 
-impl From<Tenant> for rpc::forge::Tenant {
-    fn from(src: Tenant) -> Self {
-        Self {
-            tenant_content: Some(rpc::forge::TenantContent {}),
+impl TryFrom<Tenant> for rpc::forge::Tenant {
+    type Error = RpcDataConversionError;
+
+    fn try_from(src: Tenant) -> Result<Self, Self::Error> {
+        Ok(Self {
             organization_id: src.organization_id.to_string(),
+            metadata: Some(src.metadata.try_into()?),
             version: src.version.version_string(),
-        }
+        })
     }
 }
 
@@ -46,9 +50,9 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
     type Error = RpcDataConversionError;
 
     fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
-        let _tenant_content = src
-            .tenant_content
-            .ok_or(RpcDataConversionError::MissingArgument("tenant content"))?;
+        let metadata = src
+            .metadata
+            .ok_or(RpcDataConversionError::MissingArgument("metadata"))?;
         let version = src
             .version
             .parse::<ConfigVersion>()
@@ -61,44 +65,51 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
 
         Ok(Self {
             organization_id,
+            metadata: metadata.try_into()?,
             version,
         })
     }
 }
 
-impl From<Tenant> for rpc::forge::CreateTenantResponse {
-    fn from(value: Tenant) -> Self {
-        rpc::forge::CreateTenantResponse {
+impl TryFrom<Tenant> for rpc::forge::CreateTenantResponse {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: Tenant) -> Result<Self, Self::Error> {
+        Ok(rpc::forge::CreateTenantResponse {
             tenant: Some(rpc::forge::Tenant {
                 organization_id: value.organization_id.0,
-                tenant_content: None,
+                metadata: Some(value.metadata.try_into()?),
                 version: value.version.to_string(),
             }),
-        }
+        })
     }
 }
 
-impl From<Tenant> for rpc::forge::FindTenantResponse {
-    fn from(value: Tenant) -> Self {
-        rpc::forge::FindTenantResponse {
+impl TryFrom<Tenant> for rpc::forge::FindTenantResponse {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: Tenant) -> Result<Self, Self::Error> {
+        Ok(rpc::forge::FindTenantResponse {
             tenant: Some(rpc::forge::Tenant {
                 organization_id: value.organization_id.0,
-                tenant_content: None,
+                metadata: Some(value.metadata.try_into()?),
                 version: value.version.to_string(),
             }),
-        }
+        })
     }
 }
 
-impl From<Tenant> for rpc::forge::UpdateTenantResponse {
-    fn from(value: Tenant) -> Self {
-        rpc::forge::UpdateTenantResponse {
+impl TryFrom<Tenant> for rpc::forge::UpdateTenantResponse {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: Tenant) -> Result<Self, Self::Error> {
+        Ok(rpc::forge::UpdateTenantResponse {
             tenant: Some(rpc::forge::Tenant {
                 organization_id: value.organization_id.0,
-                tenant_content: None,
+                metadata: Some(value.metadata.try_into()?),
                 version: value.version.to_string(),
             }),
-        }
+        })
     }
 }
 

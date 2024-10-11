@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::ops::DerefMut;
+use std::{collections::HashMap, ops::DerefMut};
 
 use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
@@ -19,9 +19,12 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 use super::instance::Instance;
 use super::ObjectFilter;
 use crate::db::DatabaseError;
-use crate::model::tenant::{
-    Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier,
-    TenantPublicKeyValidationRequest, UpdateTenantKeyset,
+use crate::model::{
+    metadata::Metadata,
+    tenant::{
+        Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier,
+        TenantPublicKeyValidationRequest, UpdateTenantKeyset,
+    },
 };
 use crate::{CarbideError, CarbideResult};
 use ::rpc::forge as rpc;
@@ -29,13 +32,15 @@ use ::rpc::forge as rpc;
 impl Tenant {
     pub async fn create_and_persist(
         organization_id: String,
+        metadata: Metadata,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Self, DatabaseError> {
         let version = ConfigVersion::initial();
-        let query = "INSERT INTO tenants (organization_id, version) VALUES ($1, $2) RETURNING *";
+        let query = "INSERT INTO tenants (organization_id, organization_name, version) VALUES ($1, $2, $3) RETURNING *";
 
         sqlx::query_as(query)
             .bind(organization_id)
+            .bind(metadata.name)
             .bind(version)
             .fetch_one(txn.deref_mut())
             .await
@@ -58,6 +63,7 @@ impl Tenant {
 
     pub async fn update(
         organization_id: String,
+        metadata: Metadata,
         if_version_match: Option<ConfigVersion>,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> CarbideResult<Self> {
@@ -77,12 +83,13 @@ impl Tenant {
         let next_version = current_version.increment();
 
         let query = "UPDATE tenants
-            SET version=$1
-            WHERE organization_id=$2 AND version=$3
+            SET version=$1, organization_name=$2
+            WHERE organization_id=$3 AND version=$4
             RETURNING *";
 
         sqlx::query_as(query)
             .bind(next_version)
+            .bind(metadata.name)
             .bind(organization_id)
             .bind(current_version)
             .fetch_one(txn.deref_mut())
@@ -99,10 +106,16 @@ impl Tenant {
 impl<'r> sqlx::FromRow<'r, PgRow> for Tenant {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let organization_id: String = row.try_get("organization_id")?;
+        let name: String = row.try_get("organization_name")?;
         Ok(Self {
             organization_id: organization_id
                 .try_into()
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            metadata: Metadata {
+                name,
+                description: String::new(), // We're using metadata for consistency,
+                labels: HashMap::new(), // but description and labels might never be used for Tenant
+            },
             version: row.try_get("version")?,
         })
     }

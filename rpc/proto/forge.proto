@@ -2497,12 +2497,11 @@ message LinkData {
   optional uint32 carrier_down_count = 6;
 }
 
-message TenantContent {
-}
+
 
 message Tenant {
   string organization_id = 1;
-  TenantContent tenant_content = 2;
+  Metadata metadata = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
   string version = 3;
 }
@@ -2510,14 +2509,16 @@ message Tenant {
 message CreateTenantRequest {
   // this organization ID must be globally unique
   string organization_id = 1;
+  Metadata metadata = 2;
+
 }
-message CreateTenantResponse {
+message CreateTenantResponse {  
   Tenant tenant = 1;
 }
 
 message UpdateTenantRequest {
   string organization_id = 1;
-  TenantContent tenant_content = 2;
+  Metadata metadata = 2;
 
   // if this field is set and non-empty, the request will only update the tenant if the version matches the server's view,
   // otherwise it will return a concurrency related error.

@@ -11,14 +11,14 @@
  */
 pub mod common;
 
-use common::api_fixtures::{create_test_env, TestEnv};
-use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
-
 use crate::common::api_fixtures::{
     create_managed_host,
     instance::{create_instance, single_interface_network_config},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
+use common::api_fixtures::{create_test_env, TestEnv};
+use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
+use tonic::Code;
 
 #[ctor::ctor]
 fn setup() {
@@ -28,16 +28,71 @@ fn setup() {
 #[sqlx::test]
 async fn test_tenant(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+
+    // Reject generally invalid metadata with just a name that is too short
     let tenant_create = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Org".to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "x".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(tenant_create.code(), Code::InvalidArgument);
+
+    // Reject metadata that is invalid specifically for a tenant
+    let tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "Name".to_string(),
+                description: "should not be stored".to_string(),
+                labels: vec![rpc::forge::Label {
+                    key: "aaa".to_string(),
+                    value: Some("bbb".to_string()),
+                }],
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(tenant_create.code(), Code::InvalidArgument);
+    assert!(tenant_create.message().contains("description"));
+
+    // Now perform a good create
+    let tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "Name".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!(tenant_create.tenant.unwrap().organization_id, "Org");
+    let tenant = tenant_create.tenant.unwrap();
+
+    assert_eq!(tenant.organization_id, "Org");
+    assert_eq!(
+        tenant.metadata.unwrap(),
+        rpc::forge::Metadata {
+            name: "Name".to_string(),
+            // Until/unless we actually start using labels and descriptions for Tenant,
+            // these should come back empty
+            labels: vec![],
+            description: "".to_string(),
+        }
+    );
 
     let find_tenant = env
         .api
@@ -48,23 +103,108 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(find_tenant.tenant.clone().unwrap().organization_id, "Org");
+    let tenant = find_tenant.tenant.unwrap();
 
-    let version = find_tenant.tenant.unwrap().version;
+    assert_eq!(tenant.organization_id, "Org");
+    assert_eq!(
+        tenant.metadata.unwrap(),
+        rpc::forge::Metadata {
+            name: "Name".to_string(),
+            // Until/unless we actually start using labels and descriptions for Tenant,
+            // these should come back empty
+            labels: vec![],
+            description: "".to_string(),
+        }
+    );
+
+    let version = tenant.version;
+
+    // Reject generally invalid metadata with just a name that is too short
+    let update_tenant = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "x".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            if_version_match: Some(version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant.code(), Code::InvalidArgument);
+
+    // Reject metadata that is invalid specifically for a tenant
+    let update_tenant = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "AnotherName".to_string(),
+                description: "should not be stored".to_string(),
+                labels: vec![rpc::forge::Label {
+                    key: "aaa".to_string(),
+                    value: Some("bbb".to_string()),
+                }],
+            }),
+            if_version_match: Some(version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant.code(), Code::InvalidArgument);
+    assert!(update_tenant.message().contains("description"));
+
+    // Now perform a good update
 
     let update_tenant = env
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
-            tenant_content: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "AnotherName".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
             if_version_match: Some(version.clone()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    println!("{:?}", update_tenant);
-    assert_ne!(version, update_tenant.tenant.unwrap().version);
+    let tenant = update_tenant.tenant.unwrap();
+    let version = tenant.version.clone();
+
+    assert_eq!(tenant.organization_id, "Org");
+    assert_eq!(
+        tenant.metadata.unwrap(),
+        rpc::forge::Metadata {
+            // Make sure the name changed.
+            name: "AnotherName".to_string(),
+            // Until/unless we actually start using labels and descriptions for Tenant,
+            // these should come back empty
+            labels: vec![],
+            description: "".to_string(),
+        }
+    );
+
+    //
+    // Make sure we get back an error if metadata isn't sent.
+    //
+    let update_tenant_err = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "Org".to_string(),
+            metadata: None,
+            if_version_match: Some(version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant_err.code(), tonic::Code::InvalidArgument);
+    assert!(update_tenant_err.message().contains("metadata"));
 }
 
 async fn create_keyset(
