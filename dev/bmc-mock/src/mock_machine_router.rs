@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
-use libredfish::{Chassis, EthernetInterface, NetworkAdapter};
+use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -21,6 +21,8 @@ lazy_static! {
     static ref UEFI_DEVICE_PATH_MAC_ADDRESS_REGEX: Regex =
         Regex::new(r"(?<prefix>.*MAC\()(?<mac>[[:alnum:]]+)(?<suffix>,.*)$").unwrap();
 }
+
+const MAT_DPU_PCIE_DEVICE_PREFIX: &str = "mat_dpu";
 
 #[derive(Debug, Clone)]
 struct MockWrapperState {
@@ -71,6 +73,10 @@ pub fn wrap_router_with_mock_machine(
         .route(
             rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id/NetworkDeviceFunctions/:function_id"),
             get(get_chassis_network_adapters_network_device_function),
+        )
+        .route(
+            rf!("Chassis/:chassis_id/PCIeDevices/:pcie_device_id"),
+            get(get_pcie_device),
         )
         .route(rf!("Systems/:system_id"), get(get_system))
         .route(
@@ -453,14 +459,118 @@ async fn get_chassis_network_adapters_network_device_function(
     Ok(Bytes::from(json))
 }
 
+async fn get_pcie_device(
+    State(mut state): State<MockWrapperState>,
+    Path((chassis_id, pcie_device_id)): Path<(String, String)>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let MachineInfo::Host(host) = &state.machine_info else {
+        return state.call_inner_router(request).await;
+    };
+
+    if !pcie_device_id.starts_with(MAT_DPU_PCIE_DEVICE_PREFIX) {
+        return state.call_inner_router(request).await;
+    }
+
+    let Some(dpu_index) = pcie_device_id
+        .chars()
+        .last()
+        .and_then(|c| c.to_digit(10))
+        .map(|i| i as usize)
+    else {
+        tracing::error!("Invalid Pcie Device ID: {}", pcie_device_id);
+        return state.call_inner_router(request).await;
+    };
+
+    let Some(dpu) = host.dpus.get(dpu_index - 1) else {
+        tracing::error!("Request for Pcie Device ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request", pcie_device_id, host.dpus.len());
+        return state.call_inner_router(request).await;
+    };
+
+    // Mock a BF3 for all mocked DPUs. Response modeled from a real Dell in dev (10.217.132.202)
+    let pcie_device = PCIeDevice {
+        odata: OData {
+            odata_id: format!(
+                "/redfish/v1/Chassis/{}/PCIeDevices/{}",
+                chassis_id, pcie_device_id
+            ),
+            odata_type: "#PCIeDevice.v1_5_0.PCIeDevice".to_string(),
+            odata_etag: None,
+            odata_context: Some("/redfish/v1/$metadata#PCIeDevice.PCIeDevice".to_string()),
+        },
+        description: Some(
+            "MT43244 BlueField-3 integrated ConnectX-7 network controller".to_string(),
+        ),
+        firmware_version: Some("32.41.1000".to_string()),
+        id: Some(pcie_device_id.to_string()),
+        manufacturer: Some("Mellanox Technologies".to_string()),
+        gpu_vendor: None,
+        name: Some("MT43244 BlueField-3 integrated ConnectX-7 network controller".to_string()),
+        part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+        serial_number: Some(dpu.serial.clone()),
+        status: Some(libredfish::model::SystemStatus {
+            health: Some("OK".to_string()),
+            health_rollup: Some("OK".to_string()),
+            state: Some("Enabled".to_string()),
+        }),
+        slot: None,
+        pcie_functions: None,
+    };
+
+    Ok(Bytes::from(serde_json::to_string(&pcie_device)?))
+}
+
 async fn get_system(
     State(mut state): State<MockWrapperState>,
-    Path(_system_id): Path<String>,
+    Path(system_id): Path<String>,
     request: Request<Body>,
 ) -> MockWrapperResult {
     let inner_response = state.call_inner_router(request).await?;
     let mut system = serde_json::from_slice::<ComputerSystem>(&inner_response)?;
     system.serial_number = state.machine_info.product_serial();
+
+    let MachineInfo::Host(host) = state.machine_info.clone() else {
+        return Ok(Bytes::from(serde_json::to_string(&system)?));
+    };
+
+    // Modify the Pcie Device List
+    // 1) Include a new entry for every mocked DPU in the host
+    // 2) Remove all unmocked DPU entries from the list
+
+    // (1): Create a new pcie device for the mocked DPUs in this host
+    let mut pcie_devices = Vec::new();
+    for index in 1..=host.dpus.len() {
+        pcie_devices.push(ODataId {
+            odata_id: format!(
+                "/redfish/v1/Chassis/{}/PCIeDevices/{}_{}",
+                &system_id, MAT_DPU_PCIE_DEVICE_PREFIX, index
+            ),
+        });
+    }
+
+    // (2) Remove any Pcie devices from the host's original list that refer to unmocked DPUs
+    for device in system.pcie_devices {
+        let upstream_response = state
+            .call_inner_router(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(device.odata_id.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await?;
+
+        let pcie_device: PCIeDevice = serde_json::from_slice(&upstream_response).unwrap();
+        // Keep all default PCIE devices. Just remove any of the DPU entries
+        if pcie_device
+            .manufacturer
+            .is_some_and(|manufacturer| manufacturer != *"Mellanox Technologies".to_string())
+        {
+            pcie_devices.push(device);
+        }
+    }
+
+    system.pcie_devices = pcie_devices;
     Ok(Bytes::from(serde_json::to_string(&system)?))
 }
 

@@ -603,15 +603,15 @@ impl SiteExplorer {
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
             let mut expected_num_dpus_attached_to_host = 0;
-            for chassis in ep.report.chassis.iter() {
-                for net_adapter in chassis.network_adapters.iter() {
-                    if net_adapter.is_bluefield() {
+            for system in ep.report.systems.iter() {
+                for pcie_device in system.pcie_devices.iter() {
+                    if pcie_device.is_bluefield() {
                         // is_bluefield currently returns true if a network adapter is BF2 DPU, BF3 DPU, or BF3 Super NIC
                         expected_num_dpus_attached_to_host += 1;
                     }
 
-                    if net_adapter.serial_number.is_some() {
-                        let sn = net_adapter.serial_number.as_ref().unwrap().trim();
+                    if pcie_device.serial_number.is_some() {
+                        let sn = pcie_device.serial_number.as_ref().unwrap().trim();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(dpu_ep, ep) {
