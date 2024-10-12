@@ -297,6 +297,18 @@ pub struct PCIeDevice {
     pub status: Option<SystemStatus>,
 }
 
+impl PCIeDevice {
+    // is_bluefield returns whether the device is a Bluefield
+    pub fn is_bluefield(&self) -> bool {
+        let Some(model) = &self.part_number else {
+            // TODO: maybe model this as an enum that has "Indeterminable" if there's no model
+            // but for now it's 'technically' true
+            return false;
+        };
+
+        is_bluefield_model(model)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct SystemStatus {
@@ -1073,16 +1085,7 @@ impl NetworkAdapter {
             return false;
         };
 
-        let normalized_model = model.to_lowercase();
-
-        normalized_model.contains("bluefield")
-            // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
-            || normalized_model.starts_with("900-9d3b6")
-            // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
-            || normalized_model.starts_with("900-9d3b4")
-            // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
-            // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
-            || normalized_model.starts_with("mbf2")
+        is_bluefield_model(model)
     }
 }
 
@@ -1162,6 +1165,20 @@ impl From<Option<bool>> for MachineExpectation {
             _ => MachineExpectation::Unexpected,
         }
     }
+}
+
+// is_bluefield_model returns true if the passed in string is a bluefield model
+fn is_bluefield_model(model: &str) -> bool {
+    let normalized_model = model.to_lowercase();
+
+    normalized_model.contains("bluefield")
+        // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
+        || normalized_model.starts_with("900-9d3b6")
+        // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
+        || normalized_model.starts_with("900-9d3b4")
+        // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
+        // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
+        || normalized_model.starts_with("mbf2")
 }
 
 #[cfg(test)]
