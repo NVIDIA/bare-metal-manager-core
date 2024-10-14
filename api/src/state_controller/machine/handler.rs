@@ -2642,7 +2642,7 @@ impl DpuMachineStateHandler {
         &self,
         // passing in dpu_machine_id only for testing
         dpu_machine_id: &MachineId,
-        dpu_redfish_client: Box<dyn Redfish>,
+        dpu_redfish_client: &dyn Redfish,
     ) -> Result<bool, StateHandlerError> {
         let secure_boot_status = dpu_redfish_client.get_secure_boot().await.map_err(|e| {
             StateHandlerError::RedfishError {
@@ -2802,27 +2802,72 @@ impl DpuMachineStateHandler {
                                 )));
                             }
 
-                            if self
-                                .is_secure_boot_disabled(dpu_machine_id, dpu_redfish_client)
-                                .await?
+                            match self
+                                .is_secure_boot_disabled(
+                                    dpu_machine_id,
+                                    dpu_redfish_client.as_ref(),
+                                )
+                                .await
                             {
-                                next_state = DpuDiscoveringState::SetUefiHttpBoot
-                                    .next_state(&state.managed_state, dpu_machine_id)?;
-                            } else {
-                                // TODO (spyda): fine tune this limit
-                                if *count > 10 {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
-                                            "Carbide failed disable secure boot on DPU {dpu_machine_id} after trying {count} times; waiting for manual intervention",                                
-                                        )));
+                                Ok(is_secure_boot_disabled) => {
+                                    if is_secure_boot_disabled {
+                                        next_state = DpuDiscoveringState::SetUefiHttpBoot
+                                            .next_state(&state.managed_state, dpu_machine_id)?;
+                                    } else {
+                                        next_state = DpuDiscoveringState::DisableSecureBoot {
+                                            disable_secure_boot_state: Some(
+                                                DisableSecureBootState::DisableSecureBoot,
+                                            ),
+                                            count: *count,
+                                        }
+                                        .next_state(&state.managed_state, dpu_machine_id)?;
+                                    }
                                 }
+                                Err(StateHandlerError::MissingData { object_id, missing }) => {
+                                    tracing::info!(
+                                        "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
+                                        object_id, missing
+                                    );
 
-                                next_state = DpuDiscoveringState::DisableSecureBoot {
-                                    disable_secure_boot_state: Some(
-                                        DisableSecureBootState::DisableSecureBoot,
-                                    ),
-                                    count: *count,
+                                    /***
+                                     * If the DPU's BMC comes up after UEFI client was run on an ARM
+                                     * there is a known issue where the redfish query for the secure boot
+                                     * status comes back incomplete.
+                                     * Example:
+                                     * {
+                                            "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
+                                            "@odata.type": "#SecureBoot.v1_1_0.SecureBoot",
+                                            "Description": "The UEFI Secure Boot associated with this system.",
+                                            "Id": "SecureBoot",
+                                            "Name": "UEFI Secure Boot",
+                                            "SecureBootDatabases": {
+                                                "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases"
+                                        }
+
+                                    (missing the SecureBootEnable and SecureBootCurrentBoot fields)
+                                    The known work around for this issue is to reboot the DPU's ARM. There is a pending FR
+                                    to fix this on the hardware level.
+                                    ***/
+
+                                    dpu_redfish_client
+                                        .power(SystemPowerControl::ForceRestart)
+                                        .await
+                                        .map_err(|e| StateHandlerError::RedfishError {
+                                            operation: "force_restart",
+                                            error: e,
+                                        })?;
+
+                                    next_state = DpuDiscoveringState::DisableSecureBoot {
+                                        disable_secure_boot_state: Some(
+                                            DisableSecureBootState::CheckSecureBootStatus,
+                                        ),
+                                        count: *count + 1,
+                                    }
+                                    .next_state(&state.managed_state, dpu_machine_id)?;
                                 }
-                                .next_state(&state.managed_state, dpu_machine_id)?;
+                                Err(e) => {
+                                    return Err(e);
+                                }
                             }
                         }
                         DisableSecureBootState::DisableSecureBoot => {
