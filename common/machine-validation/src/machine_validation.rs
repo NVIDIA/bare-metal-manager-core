@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::MachineValidation;
 use crate::MachineValidationError;
+use crate::MachineValidationFilter;
 use crate::MachineValidationManager;
 use crate::MachineValidationOptions;
 use crate::IMAGE_LIST_FILE;
@@ -427,6 +428,7 @@ impl MachineValidation {
         context: String,
         uuid: String,
         execute_tests_sequentially: bool,
+        machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         Self::get_container_images().await?;
         if execute_tests_sequentially {
@@ -436,6 +438,11 @@ impl MachineValidation {
                     info!("-- Category {}", category_name);
                     for (test_name, command) in category {
                         if !command.contexts.contains(&context) {
+                            continue;
+                        }
+                        if !machine_validation_filter.allowed_tests.is_empty()
+                            && !machine_validation_filter.allowed_tests.contains(&test_name)
+                        {
                             continue;
                         }
                         let result = MachineValidation::execute_machinevalidation_command(

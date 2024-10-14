@@ -49,9 +49,9 @@ use crate::{
             HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
-            MeasuringState, NextReprovisionState, PerformPowerOperation, ReprovisionState,
-            RetryInfo, UefiSetupInfo, UefiSetupState,
+            MachineSnapshot, MachineState, MachineValidationFilter, ManagedHostState,
+            ManagedHostStateSnapshot, MeasuringState, NextReprovisionState, PerformPowerOperation,
+            ReprovisionState, RetryInfo, UefiSetupInfo, UefiSetupState,
         },
         site_explorer::ExploredEndpoint,
     },
@@ -495,16 +495,32 @@ impl MachineStateHandler {
                         txn,
                     )
                     .await?;
-                    let validation_id = MachineValidation::create_new_run(
-                        txn,
-                        &state.host_snapshot.machine_id,
-                        "OnDemand".to_string(),
-                    )
-                    .await?;
+                    let machine_validation =
+                        match MachineValidation::find_active_machine_validation_by_machine_id(
+                            txn,
+                            host_machine_id,
+                        )
+                        .await
+                        {
+                            Ok(data) => data,
+                            Err(e) => {
+                                tracing::info!(
+                                    error = %e,
+                                    "find_active_machine_validation_by_machine_id"
+                                );
+                                Machine::set_machine_validation_request(txn, host_machine_id, true)
+                                    .await
+                                    .map_err(StateHandlerError::from)?;
+                                // Health Alert ?
+                                // Rare screnario, if something googfed up in DB
+                                return Ok(StateHandlerOutcome::DoNothing);
+                            }
+                        };
+
                     let next_state = ManagedHostState::HostInit {
                         machine_state: MachineState::MachineValidating {
                             context: "OnDemand".to_string(),
-                            id: validation_id,
+                            id: machine_validation.id,
                             completed: 1,
                             total: 1,
                             is_enabled: self
@@ -656,6 +672,7 @@ impl MachineStateHandler {
                             txn,
                             &state.host_snapshot.machine_id,
                             "Cleanup".to_string(),
+                            MachineValidationFilter::default(),
                         )
                         .await?;
                         // Link to machine
@@ -857,16 +874,32 @@ impl MachineStateHandler {
                             Machine::clear_failure_details(machine_id, txn)
                                 .await
                                 .map_err(StateHandlerError::from)?;
-                            let validation_id = MachineValidation::create_new_run(
+                            let machine_validation =
+                            match MachineValidation::find_active_machine_validation_by_machine_id(
                                 txn,
-                                &state.host_snapshot.machine_id,
-                                "OnDemand".to_string(),
+                                host_machine_id,
                             )
-                            .await?;
+                            .await
+                            {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    tracing::info!(
+                                        error = %e,
+                                        "find_active_machine_validation_by_machine_id"
+                                    );
+                                    Machine::set_machine_validation_request(txn, host_machine_id, true)
+                                        .await
+                                        .map_err(StateHandlerError::from)?;
+                                    // Health Alert ? 
+                                    // Rare screnario, if something googfed up in DB
+                                    return Ok(StateHandlerOutcome::DoNothing);
+                                }
+                            };
+
                             let next_state = ManagedHostState::HostInit {
                                 machine_state: MachineState::MachineValidating {
                                     context: "OnDemand".to_string(),
-                                    id: validation_id,
+                                    id: machine_validation.id,
                                     completed: 1,
                                     total: 1,
                                     is_enabled: self
@@ -4000,6 +4033,7 @@ impl StateHandler for HostMachineStateHandler {
                                         txn,
                                         &state.host_snapshot.machine_id,
                                         "Discovery".to_string(),
+                                        MachineValidationFilter::default(),
                                     )
                                     .await?;
                                     let next_state = ManagedHostState::HostInit {
@@ -4062,12 +4096,12 @@ impl StateHandler for HostMachineStateHandler {
                     is_enabled,
                 } => {
                     tracing::trace!(
-                        "context = {} id = {} completed = {} total = {}, is_enabled = {}",
+                        "context = {} id = {} completed = {} total = {}, is_enabled = {} ",
                         context,
                         id,
                         completed,
                         total,
-                        is_enabled
+                        is_enabled,
                     );
                     if !rebooted(&state.host_snapshot) {
                         let status = trigger_reboot_if_needed(
@@ -4818,6 +4852,7 @@ async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bo
 
     on_demand_machine_validation_request
 }
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;

@@ -14,7 +14,7 @@ use std::time::SystemTime;
 
 use carbide::{
     db::machine::Machine,
-    model::{machine::CleanupState, machine::MachineState, machine::ManagedHostState},
+    model::machine::{CleanupState, MachineState, ManagedHostState},
 };
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};

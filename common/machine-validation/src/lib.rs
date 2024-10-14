@@ -58,6 +58,13 @@ pub struct MachineValidationOptions {
 pub struct MachineValidation {
     options: MachineValidationOptions,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct MachineValidationFilter {
+    pub tags: Vec<String>,
+    pub allowed_tests: Vec<String>,
+}
+
 pub struct MachineValidationManager {}
 
 impl MachineValidationManager {
@@ -159,6 +166,7 @@ impl MachineValidationManager {
         options: MachineValidationOptions,
         context: String,
         uuid: String,
+        machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         let mc = MachineValidation::new(options);
         match Self::get_machine_validation_config_files().await {
@@ -176,7 +184,15 @@ impl MachineValidationManager {
         mc.clone()
             .download_external_config(mvc.external_configs)
             .await?;
-        mc.run(machine_id, mvc.suite, context, uuid, true).await?;
+        mc.run(
+            machine_id,
+            mvc.suite,
+            context,
+            uuid,
+            true,
+            machine_validation_filter,
+        )
+        .await?;
 
         Ok(())
     }

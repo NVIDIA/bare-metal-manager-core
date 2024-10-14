@@ -1535,7 +1535,10 @@ CREATE TABLE public.machine_validation (
     machine_id character varying(64) NOT NULL,
     start_time timestamp with time zone DEFAULT now() NOT NULL,
     name character varying(64),
-    end_time timestamp with time zone
+    end_time timestamp with time zone,
+    filter JSONB,
+    context character varying(64)
+
 );
 
 

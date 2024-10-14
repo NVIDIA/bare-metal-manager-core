@@ -1803,4 +1803,7 @@ pub struct MachineValidationOnDemandOptions {
 
     #[clap(long, help = "Results history")]
     pub tags: Option<Vec<String>>,
+
+    #[clap(long, help = "Allowed tests")]
+    pub allowed_tests: Option<Vec<String>>,
 }

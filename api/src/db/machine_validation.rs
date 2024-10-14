@@ -15,7 +15,9 @@ use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::{db::DatabaseError, CarbideError, CarbideResult};
+use crate::{
+    db::DatabaseError, model::machine::MachineValidationFilter, CarbideError, CarbideResult,
+};
 
 use super::{
     machine::{Machine, MachineSearchConfig},
@@ -28,15 +30,30 @@ use forge_uuid::machine::MachineId;
 // MachineValidation
 //
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct MachineValidation {
     pub id: Uuid,
     pub machine_id: MachineId,
     pub name: String,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
+    pub filter: Option<MachineValidationFilter>,
 }
 
+impl<'r> FromRow<'r, PgRow> for MachineValidation {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let filter: Option<sqlx::types::Json<MachineValidationFilter>> = row.try_get("filter")?;
+
+        Ok(MachineValidation {
+            id: row.try_get("id")?,
+            machine_id: row.try_get("machine_id")?,
+            name: row.try_get("name")?,
+            start_time: row.try_get("start_time")?,
+            end_time: row.try_get("end_time")?,
+            filter: filter.map(|x| x.0),
+        })
+    }
+}
 impl MachineValidation {
     async fn find_by<'a>(
         txn: &mut Transaction<'_, Postgres>,
@@ -109,20 +126,26 @@ impl MachineValidation {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         context: String,
+        filter: MachineValidationFilter,
     ) -> Result<Uuid, DatabaseError> {
         let id = uuid::Uuid::new_v4();
         let query = "
         INSERT INTO machine_validation (
             id,
             name,
-            machine_id
+            machine_id,
+            filter,
+            context,
+            end_time
         )
-        VALUES ($1, $2, $3)
+        VALUES ($1, $2, $3, $4, $5, NULL)
         ON CONFLICT DO NOTHING";
         let _ = sqlx::query(query)
             .bind(id)
             .bind(format!("Test_{}", machine_id))
             .bind(machine_id)
+            .bind(sqlx::types::Json(filter))
+            .bind(context.clone())
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -153,6 +176,41 @@ impl MachineValidation {
         .await
         .map_err(CarbideError::from)
     }
+
+    pub async fn find_active_machine_validation_by_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> CarbideResult<Self> {
+        let ret = Self::find_by_machine_id(txn, machine_id).await?;
+        for iter in ret {
+            if iter.end_time.is_none() {
+                return Ok(iter);
+            }
+        }
+        Err(CarbideError::InvalidArgument(format!(
+            "Not active machine validation in  {:?} ",
+            machine_id
+        )))
+    }
+
+    pub async fn find_by_id(
+        txn: &mut Transaction<'_, Postgres>,
+        validation_id: &Uuid,
+    ) -> CarbideResult<Self> {
+        let machine_validation =
+            MachineValidation::find_by(txn, ObjectFilter::One(validation_id.to_string()), "id")
+                .await
+                .map_err(CarbideError::from)?;
+
+        if !machine_validation.is_empty() {
+            return Ok(machine_validation[0].clone());
+        }
+        Err(CarbideError::InvalidArgument(format!(
+            "Validaion Id not found  {:?} ",
+            validation_id
+        )))
+    }
+
     pub async fn find_all(
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<MachineValidation>> {
@@ -435,6 +493,26 @@ impl MachineValidationResult {
     ) -> CarbideResult<Option<String>> {
         let db_results =
             MachineValidationResult::find_by_machine_id(txn, machine_id, false).await?;
+
+        for result in db_results {
+            if result.exit_code != 0 {
+                return Ok(Some(format!("{} is failed", result.name)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn validate_current_context(
+        txn: &mut Transaction<'_, Postgres>,
+        id: &rpc::Uuid,
+    ) -> CarbideResult<Option<String>> {
+        let db_results = MachineValidationResult::find_by(
+            txn,
+            ObjectFilter::List(&[id.to_string()]),
+            "machine_validation_id",
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
         for result in db_results {
             if result.exit_code != 0 {
