@@ -372,6 +372,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 }
             }
         }
+        ClearNvram => {
+            redfish.clear_nvram().await?;
+        }
     }
     Ok(())
 }

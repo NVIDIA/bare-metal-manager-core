@@ -1097,6 +1097,10 @@ impl Redfish for RedfishSimClient {
     async fn enable_rshim_bmc(&self) -> Result<(), RedfishError> {
         Ok(())
     }
+
+    async fn clear_nvram(&self) -> Result<(), RedfishError> {
+        Ok(())
+    }
 }
 
 #[async_trait]

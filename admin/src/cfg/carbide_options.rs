@@ -682,6 +682,8 @@ pub enum RedfishCommand {
     DisableIpmiOverLan,
     // Get Base Mac Address (DPU only)
     GetBaseMacAddress,
+    // Clear Nvram (Viking only)
+    ClearNvram,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
