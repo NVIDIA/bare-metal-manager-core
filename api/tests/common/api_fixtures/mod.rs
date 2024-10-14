@@ -1285,12 +1285,15 @@ pub async fn get_machine_validation_runs(
 pub async fn on_demand_machine_validation(
     env: &TestEnv,
     machine_id: rpc::common::MachineId,
+    tags: Vec<String>,
+    allowed_tests: Vec<String>,
 ) -> rpc::forge::MachineValidationOnDemandResponse {
     env.api
         .on_demand_machine_validation(Request::new(rpc::forge::MachineValidationOnDemandRequest {
             machine_id: Some(machine_id),
             action: rpc::forge::machine_validation_on_demand_request::Action::Start.into(),
-            tags: Vec::new(),
+            tags,
+            allowed_tests,
         }))
         .await
         .unwrap()

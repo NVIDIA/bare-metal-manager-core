@@ -1973,6 +1973,19 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
     }
 }
 
+/// Represents the machine validation test filter
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct MachineValidationFilter {
+    pub tags: Vec<String>,
+    pub allowed_tests: Vec<String>,
+}
+
+impl Display for MachineValidationFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;

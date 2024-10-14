@@ -3279,9 +3279,12 @@ message MachineValidationOnDemandRequest {
     Stop = 1;
   }
   Action action = 3;
+  repeated string allowed_tests = 4;
 }
 
-message MachineValidationOnDemandResponse { }
+message MachineValidationOnDemandResponse {
+  common.UUID validation_id = 1;
+}
 
 message AdminPowerControlRequest {
   enum SystemPowerControl {

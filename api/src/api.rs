@@ -43,6 +43,7 @@ use crate::cfg::CarbideConfig;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
+use crate::db::machine_validation::MachineValidation;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
@@ -1502,28 +1503,42 @@ impl Forge for Api {
                             total: _,
                             is_enabled,
                         },
-                } => (
-                    Action::MachineValidation,
-                    Some(
-                        rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
-                            pair: [
-                                KeyValuePair {
-                                    key: "Context".to_string(),
-                                    value: context,
-                                },
-                                KeyValuePair {
-                                    key: "ValidationId".to_string(),
-                                    value: id.to_string(),
-                                },
-                                KeyValuePair {
-                                    key: "IsEnabled".to_string(),
-                                    value: is_enabled.to_string(),
-                                },
-                            ]
-                            .to_vec(),
-                        },
-                    ),
-                ),
+                } => {
+                    tracing::info!(
+                        " context : {} id: {} is_enabled: {}",
+                        context,
+                        id,
+                        is_enabled
+                    );
+                    let machine_validation = MachineValidation::find_by_id(&mut txn, &id).await?;
+                    (
+                        Action::MachineValidation,
+                        Some(
+                            rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
+                                pair: [
+                                    KeyValuePair {
+                                        key: "Context".to_string(),
+                                        value: context,
+                                    },
+                                    KeyValuePair {
+                                        key: "ValidationId".to_string(),
+                                        value: id.to_string(),
+                                    },
+                                    KeyValuePair {
+                                        key: "IsEnabled".to_string(),
+                                        value: is_enabled.to_string(),
+                                    },
+                                    KeyValuePair {
+                                        key: "MachineValidationFilter".to_string(),
+                                        value: serde_json::to_string(&machine_validation.filter)
+                                            .map_err(CarbideError::from)?,
+                                    },
+                                ]
+                                .to_vec(),
+                            },
+                        ),
+                    )
+                }
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 }

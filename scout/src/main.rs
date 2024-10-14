@@ -237,6 +237,8 @@ async fn handle_action(
             let mut context = "Discovery".to_string();
             let mut id = "".to_string();
             let mut is_enabled = false;
+            let mut machine_validation_filter =
+                ::machine_validation::MachineValidationFilter::default();
             for item in controller_response.data.unwrap().pair {
                 if item.key == "Context" {
                     context = item.value;
@@ -244,11 +246,24 @@ async fn handle_action(
                     id = item.value;
                 } else if item.key == "IsEnabled" {
                     is_enabled = item.value.parse().unwrap_or(true);
+                } else if item.key == "MachineValidationFilter" {
+                    machine_validation_filter = match serde_json::from_str(&item.value) {
+                        Ok(filter) => filter,
+                        Err(_) => ::machine_validation::MachineValidationFilter::default(),
+                    };
                 }
             }
             let mut ret: Result<(), CarbideClientError> = Ok(());
             if is_enabled {
-                ret = match machine_validation::run(config, machine_id, id.clone(), context).await {
+                ret = match machine_validation::run(
+                    config,
+                    machine_id,
+                    id.clone(),
+                    context,
+                    machine_validation_filter,
+                )
+                .await
+                {
                     Ok(_) => {
                         tracing::info!("Machine validation completed");
                         Ok(())

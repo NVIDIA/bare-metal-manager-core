@@ -19,7 +19,7 @@ use crate::{
     },
     model::machine::{
         machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
-        MachineState, ManagedHostState,
+        MachineState, MachineValidationFilter, ManagedHostState,
     },
     CarbideError,
 };
@@ -139,7 +139,7 @@ pub(crate) async fn mark_machine_validation_complete(
         None => "Success".to_owned(),
     };
 
-    let result = match MachineValidationResult::validate(&mut txn, &machine_id).await? {
+    let result = match MachineValidationResult::validate_current_context(&mut txn, rpc_id).await? {
         Some(error_message) => {
             Machine::update_failure_details_by_machine_id(
                 &machine_id,
@@ -167,7 +167,7 @@ pub(crate) async fn mark_machine_validation_complete(
         ))
     })?;
 
-    tracing::trace!(
+    tracing::info!(
         %machine_id,
         result, "machine_validation_completed:machine_validation_results",
     );
@@ -445,6 +445,19 @@ pub(crate) async fn on_demand_machine_validation(
             // Check state
             match machine.current_state() {
                 ManagedHostState::Ready | ManagedHostState::Failed { .. } => {
+                    let validation_id = MachineValidation::create_new_run(
+                        &mut txn,
+                        &machine_id,
+                        "OnDemand".to_string(),
+                        MachineValidationFilter {
+                            tags: req.tags,
+                            allowed_tests: req.allowed_tests,
+                        },
+                    )
+                    .await
+                    .map_err(CarbideError::from)?;
+                    tracing::trace!(validation_id = %validation_id);
+
                     // Update machine_validation_request.
                     Machine::set_machine_validation_request(&mut txn, &machine_id, true)
                         .await
@@ -459,7 +472,9 @@ pub(crate) async fn on_demand_machine_validation(
                         ))
                     })?;
                     Ok(tonic::Response::new(
-                        rpc::MachineValidationOnDemandResponse {},
+                        rpc::MachineValidationOnDemandResponse {
+                            validation_id: Some(validation_id.into()),
+                        },
                     ))
                 }
                 _ => {
