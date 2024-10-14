@@ -107,6 +107,7 @@ dependencies = [
 dependencies = [
   "mkdir-static-aarch64",
   "cleanup-pxe-submodule",
+  { name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
   "bfb-aarch64",
   "ipxe-aarch64",
   "setup-apt-repo",
@@ -149,6 +150,32 @@ dependencies = [
   "mkosi-copy-scout-to-webroot-x86_64",
 ]
 
+[tasks.create-ephemeral-image-aarch64-ci]
+category = "Ephemeral Image"
+dependencies = [
+	#"mkosi-clean-qcow-imager",
+	"mkosi-clean-scout-aarch64",
+	"copy-forge-scout-ci-aarch64",
+	"copy-forge-prod-root-ca-aarch64",
+	"mkosi-build-scout-aarch64",
+	#"mkosi-build-qcow-imager",
+	#"mkosi-copy-qcow-imager-to-webroot-aarch64",
+	"mkosi-copy-scout-to-webroot-aarch64",
+]
+
+[tasks.create-ephemeral-image-aarch64]
+category = "Ephemeral Image"
+dependencies = [
+	#"mkosi-clean-qcow-imager",
+	"mkosi-clean-scout-aarch64",
+	"copy-forge-scout-aarch64",
+	"copy-forge-dev-root-ca-aarch64",
+	"mkosi-build-scout-aarch64",
+	#"mkosi-build-qcow-imager",
+	#"mkosi-copy-qcow-imager-to-webroot-aarch64",
+	"mkosi-copy-scout-to-webroot-aarch64",
+]
+
 [tasks.cleanup-pxe-submodule]
 category = "ipxe"
 cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
@@ -184,6 +211,15 @@ args = [
   "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
+[tasks.copy-forge-prod-root-ca-aarch64]
+category = "Copy Forge Root CA in CI"
+command = "cp"
+args = [
+	"-f",
+	"${FORGE_CA_PATH}",
+	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+]
+
 [tasks.copy-forge-dev-root-ca-x86_64]
 category = "Copy Forge Root CA"
 command = "cp"
@@ -191,6 +227,15 @@ args = [
   "-f",
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
   "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/forge_root.pem",
+]
+
+[tasks.copy-forge-dev-root-ca-aarch64]
+category = "Copy Forge Root CA"
+command = "cp"
+args = [
+	"-f",
+	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
+	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
@@ -201,6 +246,14 @@ args = [
   "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
+[tasks.copy-forge-scout-aarch64]
+category = "Copy Forge Scout locally"
+command = "cp"
+args = [
+	"${REPO_ROOT}/target/release/forge-scout",
+	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
+]
+
 [tasks.copy-forge-scout-ci-x86_64]
 category = "Copy Forge Scout in CI"
 command = "cp"
@@ -209,9 +262,13 @@ args = [
   "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
 ]
 
-[tasks.mkosi-clean-artifacts]
-category = "Ephemeral Image"
-dependencies = ["mkosi-clean-qcow-imager", "mkosi-clean-scout"]
+[tasks.copy-forge-scout-ci-aarch64]
+category = "Copy Forge Scout in CI"
+command = "cp"
+args = [
+	"${REPO_ROOT}/target/debug/forge-scout",
+	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
+]
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
@@ -223,6 +280,14 @@ category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = ["--profile", "scout-x86_64", "clean"]
 
+[tasks.mkosi-clean-scout-aarch64]
+category = "Ephemeral Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = [
+	"--profile", "scout-aarch64",
+	"clean"
+]
+
 # `depmod` on our runners is in `/sbin`, so add to PATH
 [tasks.mkosi-build-scout-x86_64]
 category = "Ephemeral Image"
@@ -230,6 +295,14 @@ command = "/bin/bash"
 args = [
   "-c",
   "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-x86_64 build",
+]
+
+[tasks.mkosi-build-scout-aarch64]
+category = "Ephemeral Image"
+command = "/bin/bash"
+args = [
+	"-c",
+    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-aarch64 build"
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -249,11 +322,33 @@ args = [
 ]
 dependencies = ["mkdir-static-x86_64"]
 
+[tasks.mkosi-copy-qcow-imager-to-webroot-aarch64]
+category = "Ephemeral Image"
+command = "cp"
+args = [
+	"mkosi.output/qcow-imager.efi",
+	"static/blobs/internal/aarch64/qcow-imager.efi"
+]
+dependencies = [
+	"mkdir-static-x86_64"
+]
+
 [tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
 args = ["mkosi.output/scout.efi", "static/blobs/internal/x86_64/scout.efi"]
 dependencies = ["mkdir-static-x86_64"]
+
+[tasks.mkosi-copy-scout-to-webroot-aarch64]
+category = "Ephemeral Image"
+command = "cp"
+args = [
+	"mkosi.output/scout.efi",
+	"static/blobs/internal/aarch64/scout.efi"
+]
+dependencies = [
+	"mkdir-static-aarch64"
+]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
