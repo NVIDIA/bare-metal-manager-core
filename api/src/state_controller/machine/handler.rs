@@ -913,7 +913,7 @@ impl MachineStateHandler {
                                     Machine::set_machine_validation_request(txn, host_machine_id, true)
                                         .await
                                         .map_err(StateHandlerError::from)?;
-                                    // Health Alert ? 
+                                    // Health Alert ?
                                     // Rare screnario, if something googfed up in DB
                                     return Ok(StateHandlerOutcome::DoNothing);
                                 }
