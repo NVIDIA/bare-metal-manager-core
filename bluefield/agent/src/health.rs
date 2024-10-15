@@ -307,6 +307,17 @@ async fn check_network_stats(
     min_healthy_links: u32,
     route_servers: &[String],
 ) {
+    // If BGP daemon is not enabled, we will get a bunch of bogus alerts shown
+    // that are not helpful to anyone. Since showing `BgpDaemonEnabled` already
+    // covers the core problem - don't bother with the remaining checks.
+    if hr
+        .alerts
+        .iter()
+        .any(|alert| alert.id == *probe_ids::BgpDaemonEnabled)
+    {
+        return;
+    }
+
     let mut health_data = BgpHealthData::default();
 
     // `vtysh` is the Free Range Routing (FRR) shell.
