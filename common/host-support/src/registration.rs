@@ -88,10 +88,13 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         tracing::info!("Attempting to discover_machine (attempt: {})", attempt);
 
         // Create a new connection off of the ForgeTlsClient.
-        let mut connection = client
-            .build(self.api_url.to_string())
-            .await
-            .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
+        let mut connection = match client.build(self.api_url.to_string()).await {
+            Ok(forge_client) => forge_client,
+            Err(e) => {
+                tracing::error!("could not create tls client: {:?}", e);
+                return Err(RegistrationError::TransportError(e.to_string()));
+            }
+        };
         tracing::debug!("register_machine client connection {:?}", connection);
 
         // Create a new request with the provided MachineDiscoveryInfo.

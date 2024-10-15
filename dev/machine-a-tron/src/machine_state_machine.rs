@@ -40,6 +40,7 @@ pub struct MachineStateMachine {
     app_context: MachineATronContext,
     dhcp_client: DhcpRelayClient,
     bmc_registration_mode: BmcRegistrationMode,
+    tpm_ek_certificate: Option<Vec<u8>>,
 }
 
 /// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
@@ -82,6 +83,7 @@ impl MachineStateMachine {
         dhcp_client: DhcpRelayClient,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         bmc_listen_mode: BmcRegistrationMode,
+        tpm_ek_certificate: Option<Vec<u8>>,
     ) -> MachineStateMachine {
         MachineStateMachine {
             state: MachineState::BmcInit,
@@ -93,6 +95,7 @@ impl MachineStateMachine {
             app_context,
             dhcp_client,
             bmc_registration_mode: bmc_listen_mode,
+            tpm_ek_certificate,
         }
     }
 
@@ -441,6 +444,7 @@ impl MachineStateMachine {
                 product_serial: self.machine_info.product_serial(),
                 chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
                 host_mac_address: self.machine_info.host_mac_address(),
+                tpm_ek_certificate: self.tpm_ek_certificate.clone(),
             },
         )
         .await?;

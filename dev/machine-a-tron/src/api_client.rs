@@ -110,6 +110,7 @@ pub struct MockDiscoveryData {
     pub network_interface_macs: Vec<String>,
     pub product_serial: Option<String>,
     pub chassis_serial: Option<String>,
+    pub tpm_ek_certificate: Option<Vec<u8>>,
     pub host_mac_address: Option<MacAddress>,
 }
 
@@ -125,6 +126,7 @@ pub async fn discover_machine(
         product_serial,
         chassis_serial,
         host_mac_address,
+        tpm_ek_certificate,
     } = discovery_data;
     /*
     tracing::info!(
@@ -158,8 +160,11 @@ pub async fn discover_machine(
         }
     }
     if machine_type == MachineType::Host {
-        discovery_data.tpm_ek_certificate =
-            Some(BASE64_STANDARD.encode(machine_interface_id.to_string()));
+        discovery_data.tpm_ek_certificate = Some(BASE64_STANDARD.encode(
+            tpm_ek_certificate.ok_or(ClientApiError::ConfigError(
+                "No TPM EK certificate waa supplied".to_string(),
+            ))?,
+        ));
         discovery_data.dpu_info = None;
     } else if let Some(ref mut dpu_info) = discovery_data.dpu_info {
         if let Some(host_mac_address) = host_mac_address {

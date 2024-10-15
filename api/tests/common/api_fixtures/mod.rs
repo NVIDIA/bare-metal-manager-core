@@ -88,6 +88,7 @@ use forge_uuid::machine::MachineId;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use rcgen::{generate_simple_self_signed, CertifiedKey};
 use regex::Regex;
 use rpc::forge::{
     forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
@@ -171,13 +172,13 @@ impl TestEnv {
     /// Generates a simulation for Host+DPU pair
     pub fn start_managed_host_sim(&self) -> ManagedHostSim {
         // TODO: Also add unique serial numbers, etc
-        let host_cert_data: [u8; 32] = rand::random();
+        let random_cert = create_random_self_signed_cert();
         let config = ManagedHostConfig {
             dpu_bmc_mac_address: mac_address_pool::DPU_BMC_MAC_ADDRESS_POOL.allocate(),
             dpu_oob_mac_address: mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL.allocate(),
             host_bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
             host_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
-            host_tpm_ek_cert: TpmEkCertificate::from(host_cert_data.to_vec()),
+            host_tpm_ek_cert: TpmEkCertificate::from(random_cert),
         };
 
         // TODO: This will in the future also spin up redfish mocks for these components
@@ -1334,4 +1335,12 @@ where
             .handle_object_state(object_id, state, controller_state, txn, ctx)
             .await
     }
+}
+
+fn create_random_self_signed_cert() -> Vec<u8> {
+    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
+
+    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)
+        .expect("Failed to generate self-signed cert");
+    cert.der().to_vec()
 }

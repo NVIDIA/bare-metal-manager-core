@@ -196,6 +196,41 @@ pub enum CarbideCommand {
     Storage(StorageActions),
     #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
     OsImage(OsImageActions),
+
+    #[clap(about = "Manage TPM CA certificates", subcommand)]
+    TpmCa(TpmCa),
+}
+
+#[derive(Parser, Debug)]
+pub enum TpmCa {
+    #[clap(about = "Show all TPM CA certificates")]
+    Show,
+    #[clap(about = "Delete TPM CA certificate with a given id")]
+    Delete(TpmCaDbId),
+    #[clap(about = "Add TPM CA certificate encoded in DER/CER/PEM format in a given file")]
+    Add(TpmCaFile),
+    #[clap(about = "Show TPM EK certificates for which there is no CA match")]
+    ShowUnmatchedEk,
+    #[clap(about = "Add all certificates in a dir as CA certificates")]
+    AddBulk(TpmCaDir),
+}
+
+#[derive(Parser, Debug)]
+pub struct TpmCaDir {
+    #[clap(short, long, help = "Directory path containing all CA certs")]
+    pub dirname: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct TpmCaDbId {
+    #[clap(short, long, help = "TPM CA id obtained from the show command")]
+    pub ca_id: i32,
+}
+
+#[derive(Parser, Debug)]
+pub struct TpmCaFile {
+    #[clap(short, long, help = "File name containing certificate in DER format")]
+    pub filename: String,
 }
 
 #[derive(Parser, Debug)]

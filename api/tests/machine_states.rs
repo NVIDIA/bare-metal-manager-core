@@ -16,18 +16,26 @@ use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
-use carbide::model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, MachineState, ManagedHostState,
-};
+use carbide::model::hardware_info::TpmEkCertificate;
+use carbide::model::machine::machine_id::try_parse_machine_id;
+use carbide::model::machine::{DpuInitState, FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandlerBuilder,
 };
-use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use common::api_fixtures::{
-    create_managed_host, create_test_env, create_test_env_with_config, get_config,
-    machine_validation_completed,
+use common::api_fixtures::dpu::{
+    create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
+use common::api_fixtures::host::create_host_machine;
+use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
+use common::api_fixtures::{
+    create_managed_host, create_test_env, machine_validation_completed, TestEnv,
+};
+use forge_uuid::machine::MachineId;
+
+use carbide::model::machine::{FailureCause, FailureSource};
+use common::api_fixtures::{create_test_env_with_config, get_config};
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
 use std::collections::HashMap;
 use tonic::Request;
@@ -761,7 +769,18 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     config.attestation_enabled = true;
     let env = create_test_env_with_config(pool, Some(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    // add CA cert to pass attestation process
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    env.api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert");
+
+    let (host_machine_id, _dpu_machine_id) =
+        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -777,7 +796,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     // At this point there is an attested/measured machine in Ready state,
     // so get its bundle, retire it, run another iteration, and make sure
-    // its retired.
+    // it's retired.
     let bundles_response = env
         .api
         .show_measurement_bundles(Request::new(
@@ -845,13 +864,175 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
+// this is mostly copied from the one above
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool) {
+    // For this test case, we'll flip on attestation, which will
+    // introduce the measurement states into the state machine (which
+    // also includes additional steps that happen during `create_managed_host`.
+    let mut config = get_config();
+    config.attestation_enabled = true;
+    let env = create_test_env_with_config(pool, Some(config)).await;
+
+    // add CA cert to pass attestation process
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    let inserted_cert = env
+        .api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert")
+        .into_inner();
+
+    let (host_machine_id, _dpu_machine_id) =
+        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    // This is kind of redundant since `create_managed_host` returns a machine
+    // in Ready state, but, just to be super explicit...
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+
+    // At this point there is an attested/measured machine in Ready state,
+    // so get its bundle, retire it, run another iteration, and make sure
+    // it's retired.
+
+    // But before retiring the bundle, remove the ca cert, this will unmatch the ek
+    // cert - this should have no effect on moving away from the ready state
+    let delete_ca_certs_request = tonic::Request::new(TpmCaCertId {
+        ca_cert_id: inserted_cert.id.unwrap().ca_cert_id,
+    });
+    env.api
+        .tpm_delete_ca_cert(delete_ca_certs_request)
+        .await
+        .unwrap();
+
+    // ... and now retire the bundle
+    let bundles_response = env
+        .api
+        .show_measurement_bundles(Request::new(
+            rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(1, bundles_response.bundles.len());
+    let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
+    assert_eq!(bundle.state, MeasurementBundleState::Active);
+    let mut txn = env.pool.begin().await.unwrap();
+    let retired_bundle = MeasurementBundle::set_state_for_id(
+        &mut txn,
+        bundle.bundle_id,
+        MeasurementBundleState::Retired,
+    )
+    .await
+    .unwrap();
+    assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
+    assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
+    txn.commit().await.unwrap();
+
+    // now trigger the state transition
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    // and confirm that it is actually in the retired state
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsRetired { .. },
+                ..
+            },
+            ..
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    // now, try to move into a ready state by reactivating the bundle - this will fail
+    // due to the lack of ca cert
+    let mut txn = env.pool.begin().await.unwrap();
+    let reactivated_bundle = MeasurementBundle::set_state_for_id(
+        &mut txn,
+        retired_bundle.bundle_id,
+        MeasurementBundleState::Active,
+    )
+    .await
+    .unwrap();
+    assert_eq!(retired_bundle.bundle_id, reactivated_bundle.bundle_id);
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    // check that it has failed as intended due to the lack of ca cert
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                ..
+            },
+            ..
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    // ... and now re-insert the ca cert
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    env.api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert");
+
+    // ... and trigger the state transition
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+}
+
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.attestation_enabled = true;
     let env = create_test_env_with_config(pool, Some(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    // add CA cert to pass attestation process
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    env.api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert");
+
+    let (host_machine_id, _dpu_machine_id) =
+        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let snapshot = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
@@ -954,4 +1135,19 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
                 .time
         );
     }
+}
+
+async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> (MachineId, MachineId) {
+    let mut host_sim = env.start_managed_host_sim();
+
+    host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
+
+    let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;
+
+    (
+        try_parse_machine_id(&host_machine_id).unwrap(),
+        dpu_machine_id,
+    )
 }

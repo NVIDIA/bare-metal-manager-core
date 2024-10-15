@@ -2734,3 +2734,70 @@ pub async fn update_os_image(
     })
     .await
 }
+
+pub async fn tpm_ca_add_cert(
+    api_config: &ApiConfig<'_>,
+    ca_cert_bytes: &[u8],
+) -> CarbideCliResult<rpc::TpmCaAddedCaStatus> {
+    with_forge_client(api_config, |mut client| async move {
+        // call tpm_add_ca_cert
+        let request = tonic::Request::new(rpc::TpmCaCert {
+            ca_cert: ca_cert_bytes.to_vec(),
+        });
+        let ca_cert_id = client
+            .tpm_add_ca_cert(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(ca_cert_id)
+    })
+    .await
+}
+
+pub async fn tpm_ca_show(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<Vec<rpc::TpmCaCertDetail>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+        let ca_certs = client
+            .tpm_show_ca_certs(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(ca_certs.tpm_ca_cert_details)
+    })
+    .await
+}
+
+pub async fn tpm_unmatched_ek_show(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<Vec<rpc::TpmEkCertStatus>> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+        let unmatched_eks = client
+            .tpm_show_unmatched_ek_certs(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(unmatched_eks.tpm_ek_cert_statuses)
+    })
+    .await
+}
+
+pub async fn tpm_ca_delete_cert(
+    api_config: &ApiConfig<'_>,
+    ca_cert_id: i32,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        // call tpm_add_ca_cert
+        let request = tonic::Request::new(rpc::TpmCaCertId { ca_cert_id });
+        client
+            .tpm_delete_ca_cert(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}

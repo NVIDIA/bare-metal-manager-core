@@ -6,6 +6,7 @@ use crate::api_client::ClientApiError;
 use crate::host_machine::HostMachineActor;
 use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
+use rcgen::{generate_simple_self_signed, CertifiedKey};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
 use std::collections::HashSet;
@@ -217,4 +218,12 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
     } else {
         Ok(true)
     }
+}
+
+pub fn create_random_self_signed_cert() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
+
+    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)?;
+
+    Ok(cert.der().to_vec())
 }

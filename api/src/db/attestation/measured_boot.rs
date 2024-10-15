@@ -59,12 +59,10 @@ impl SecretAkPub {
     ) -> CarbideResult<Option<Self>> {
         let query = "SELECT * FROM attestation_secret_ak_pub WHERE secret = ($1)";
 
-        let res = sqlx::query_as(query)
+        sqlx::query_as(query)
             .bind(secret.as_slice())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
-
-        Ok(res)
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 }

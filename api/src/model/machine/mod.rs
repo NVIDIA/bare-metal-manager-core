@@ -1031,6 +1031,8 @@ pub enum FailureCause {
     // retired bundle can be moved out of retirement, whereas
     // a revoked bundle cannot.
     MeasurementsRevoked { err: String },
+
+    MeasurementsCAValidationFailed { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1412,6 +1414,9 @@ impl Display for FailureCause {
             FailureCause::MeasurementsRetired { .. } => write!(f, "MeasurementsRetired"),
             FailureCause::MeasurementsRevoked { .. } => write!(f, "MeasurementsRevoked"),
             FailureCause::MachineValidation { .. } => write!(f, "MachineValidation"),
+            FailureCause::MeasurementsCAValidationFailed { .. } => {
+                write!(f, "MeasurementsCAValidationFailed")
+            }
         }
     }
 }

@@ -58,6 +58,7 @@ impl DpuMachine {
             dhcp_client,
             bmc_control_tx.clone(),
             bmc_listen_mode,
+            None,
         );
         DpuMachine {
             mat_id,

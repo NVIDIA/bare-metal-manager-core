@@ -50,3 +50,4 @@ rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
 forge-tls = { path = "../../common/tls" }
 utils = { path = "../../common/utils" }
+rcgen = "0.13.1"

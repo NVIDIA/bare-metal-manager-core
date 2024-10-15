@@ -44,7 +44,6 @@ use crate::logging::{
 use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 
 pub mod api;
-#[cfg(feature = "tss-esapi")]
 pub mod attestation;
 pub mod auth;
 pub mod cfg;

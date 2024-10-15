@@ -52,6 +52,7 @@ use cfg::carbide_options::SetAction;
 use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::TenantKeySetOptions;
+use cfg::carbide_options::TpmCa;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
@@ -92,6 +93,7 @@ mod rpc;
 mod site_explorer;
 mod storage;
 mod tenant_keyset;
+mod tpm;
 mod uefi;
 mod version;
 mod vpc;
@@ -1375,6 +1377,19 @@ async fn main() -> color_eyre::Result<()> {
                 storage::os_image_update(os_image, api_config).await?
             }
         },
+        CarbideCommand::TpmCa(subcmd) => match subcmd {
+            TpmCa::Show => tpm::show_ca_certs(api_config).await?,
+            TpmCa::Delete(delete_opts) => {
+                tpm::delete_ca_cert(delete_opts.ca_id, api_config).await?
+            }
+            TpmCa::Add(add_opts) => {
+                tpm::add_ca_cert_filename(&add_opts.filename, api_config).await?
+            }
+            TpmCa::AddBulk(add_opts) => {
+                tpm::add_ca_cert_bulk(&add_opts.dirname, api_config).await?
+            }
+            TpmCa::ShowUnmatchedEk => tpm::show_unmatched_ek_certs(api_config).await?,
+        },
     }
 
     Ok(())
@@ -1663,6 +1678,38 @@ mod tests {
             "my-pw",
             "--username",
             "me"
+        ])
+        .is_ok());
+    }
+
+    #[test]
+    fn forge_admin_cli_tpm_ca_test() {
+        assert!(CarbideOptions::try_parse_from(["forge-admin-cli", "tpm-ca", "show"]).is_ok());
+
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "tpm-ca",
+            "add",
+            "--filename",
+            "/tmp/somefile.cer"
+        ])
+        .is_ok());
+
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "tpm-ca",
+            "add-bulk",
+            "--dirname",
+            "/tmp"
+        ])
+        .is_ok());
+
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "tpm-ca",
+            "delete",
+            "--ca-id",
+            "4"
         ])
         .is_ok());
     }

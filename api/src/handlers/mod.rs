@@ -30,4 +30,5 @@ pub mod route_server;
 pub mod site_explorer;
 pub mod tenant;
 pub mod tenant_keyset;
+pub mod tpm_ca;
 pub mod vpc;

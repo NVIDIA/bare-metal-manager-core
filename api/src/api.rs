@@ -16,6 +16,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "tss-esapi")]
+use crate::db::attestation as db_attest;
+pub use ::rpc::common as rpc_common;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::BmcEndpointRequest;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
@@ -39,6 +42,7 @@ use tss_esapi::{
 };
 
 use self::rpc::forge_server::Forge;
+use crate::attestation as attest;
 use crate::cfg::CarbideConfig;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
@@ -69,8 +73,6 @@ use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
-#[cfg(feature = "tss-esapi")]
-use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
     auth,
     db::{
@@ -596,14 +598,6 @@ impl Forge for Api {
         })?;
         log_machine_id(&stable_machine_id);
 
-        if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
-            return Err(CarbideError::InvalidArgument(format!(
-                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
-                interface_id
-            ))
-            .into());
-        }
-
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -618,6 +612,32 @@ impl Forge for Api {
             ?interface_id,
             "discover_machine loading interface"
         );
+
+        if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
+                interface_id
+            ))
+            .into());
+        } else if !hardware_info.is_dpu() {
+            // this means we do have an EK cert for a host
+
+            // get the EK cert from incoming message
+            let tpm_ek_cert =
+                hardware_info
+                    .tpm_ek_certificate
+                    .as_ref()
+                    .ok_or(CarbideError::InvalidArgument(
+                        "tpm_ek_cert is empty".to_string(),
+                    ))?;
+
+            attest::match_insert_new_ek_cert_status_against_ca(
+                &mut txn,
+                tpm_ek_cert,
+                &stable_machine_id,
+            )
+            .await?;
+        }
 
         let interface =
             db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
@@ -2975,7 +2995,7 @@ impl Forge for Api {
         let (cli_cred_blob, cli_secret) =
             attest::cli_make_cred(ek_pub_rsa, &request.get_ref().ak_name, &secret_bytes)?;
 
-        SecretAkPub::insert(
+        db_attest::SecretAkPub::insert(
             &mut txn,
             &Vec::from(secret_bytes),
             &request.get_ref().ak_pub,
@@ -3015,6 +3035,8 @@ impl Forge for Api {
     ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
         log_request_data(&request);
 
+        // TODO: consider if this code can be turned into a templated function and reused
+        // in bind_attest_key
         let machine_id = match &request.get_ref().machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
@@ -3033,7 +3055,9 @@ impl Forge for Api {
         })?;
 
         let ak_pub_bytes =
-            match SecretAkPub::get_by_secret(&mut txn, &request.get_ref().credential).await? {
+            match db_attest::SecretAkPub::get_by_secret(&mut txn, &request.get_ref().credential)
+                .await?
+            {
                 Some(entry) => entry.ak_pub,
                 None => {
                     return Err(Status::from(CarbideError::AttestationVerifyQuoteError(
@@ -3098,8 +3122,8 @@ impl Forge for Api {
 
         // If we've reached this point, we can now clean up
         // now ephemeral secret data from the database, and send
-        // of the PCR values as a MeasurementReport.
-        SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
+        // off the PCR values as a MeasurementReport.
+        db_attest::SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
 
         let pcr_values: measured_boot::interface::common::PcrRegisterValueVec = request
             .into_inner()
@@ -4011,6 +4035,35 @@ impl Forge for Api {
         request: tonic::Request<rpc::MachineValidationOnDemandRequest>,
     ) -> Result<tonic::Response<rpc::MachineValidationOnDemandResponse>, Status> {
         on_demand_machine_validation(self, request).await
+    }
+
+    async fn tpm_add_ca_cert(
+        &self,
+        request: Request<rpc::TpmCaCert>,
+    ) -> Result<Response<rpc::TpmCaAddedCaStatus>, tonic::Status> {
+        crate::handlers::tpm_ca::tpm_add_ca_cert(&self.database_connection, request).await
+    }
+
+    async fn tpm_show_ca_certs(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
+        crate::handlers::tpm_ca::tpm_show_ca_certs(&self.database_connection, &request).await
+    }
+
+    async fn tpm_show_unmatched_ek_certs(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
+        crate::handlers::tpm_ca::tpm_show_unmatched_ek_certs(&self.database_connection, &request)
+            .await
+    }
+
+    async fn tpm_delete_ca_cert(
+        &self,
+        request: Request<rpc::TpmCaCertId>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::tpm_ca::tpm_delete_ca_cert(&self.database_connection, request).await
     }
 }
 
