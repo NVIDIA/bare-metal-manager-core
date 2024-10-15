@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc4-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...trunk)
+
+## Added
+
+## Changed
+
+## Fixed
+
+## Removed
+
+## [v2024.10.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc6-0...v2024.10.11-rc2-0)
 
 ### Added
 
@@ -10,14 +20,45 @@
   `sum(forge_machines_per_state{fresh="true", state="assigned"})` metrics:
   - `forge_allocatable_gpus_count`: Tracks the amount of GPUs wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
   - `forge_allocatable_hosts_count`: Tracks the amount of Hosts wich are not yet used by tenants, but which would be immediately ready for usage. This requires the underlying Machines to be in Ready state, as well as the Machine to be healthy.
+- A Scout Image for ARM machines is now being built to support ARM based CPUs
+- The Forge Admin CLI added a `clear-nvram` functionality to help recover DGX H100 machines
+- For measured boot, the signature on the measurement bundle will be checked against a trusted certificate authority.
+- HPE machines can now be ingested by Site Explorer
+- Explored Endpoints on the Admin UI can now clear the vault credentials
+- Metrics are now generated for power consumption rate
+- Added a new API for updating Operating Systems for curated images [FORGE-4277](https://jirasw.nvidia.com/browse/FORGE-4277)
+- The Admin UI now has a button on an endpoint to reconfigure the UEFI settings for Forge (i.e. `forge_setup`)
 
 ### Changed
+
+- DPU-based BGP health probes are more detailed as to what is failing the health checked:
+    - `BgpPeeringTor` contains information about which ToR lost a BGP session
+    - `BgpPeeringRouteServer` contains information when a session to the centralized Route Server is lost.
+    - `UnexpectedBgpPeer` contains information about a peer that is unknown
+    - `BgpStats` contains stats about BGP session information
+- Machines in `HostInit/WaitingForDiscovery` state now have a 30 minute SLA.
+- Site Explorer will only create one machine at a time to avoid a thundering herd problem.
+- All hardware-health emitted metrics standardized on the prefix of `hardware_health_`.
+    - This affects: `forge_hardware_health_monitor_iteration_latency`
 
 ### Fixed
 
 - Hosts were getting repeatedly queued for updates when they were not needed.  [https://nvbugspro.nvidia.com/bug/4892326](https://nvbugspro.nvidia.com/bug/4892326)
+- Mac addresses are now displayed properly in the `forge-admin-cli site-explorer` command.
+- Fixed an issue with machine state handler where the machine state could be corrupted
+- Additional resiliency in configuring the UEFI settings on DGX H100.
 
-### Removed
+## [v2024.09.27-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc5-0...v2024.09.27-rc6-0)
+
+### Fixed
+
+- Create only one machine per site explorer run to avoid overloading the pxe server
+
+## [v2024.09.27-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc4-0...v2024.09.27-rc5-0)
+
+### Fixed
+
+- Improvements in the ingestion of Viking servers
 
 ## [v2024.09.27-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc3-0...v2024.09.27-rc4-0)
 
