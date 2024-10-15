@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::api_throttler::ApiThrottler;
 use crate::dpu_machine::DpuMachineActor;
 use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
+use crate::machine_utils::create_random_self_signed_cert;
 use crate::{
     api_client,
     config::{MachineATronContext, MachineConfig},
@@ -80,6 +81,7 @@ impl HostMachine {
             dhcp_client.clone(),
             bmc_control_tx.clone(),
             bmc_listen_mode,
+            Some(create_random_self_signed_cert().unwrap()),
         );
 
         HostMachine {

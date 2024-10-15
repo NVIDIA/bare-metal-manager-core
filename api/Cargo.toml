@@ -106,7 +106,6 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.7"
 version-compare = "0.1.1"
 x509-parser = { version = "0.15.1", features = ["verify"] }
-x509-certificate = "0.23.1"
 
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
@@ -122,6 +121,7 @@ rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
 duration-str = "0.7.1"
 prost-types = "0.12.6"
+rcgen = "0.13.1"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

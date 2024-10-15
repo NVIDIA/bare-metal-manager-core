@@ -19,11 +19,13 @@ use std::process::Command;
 use std::str;
 use tempdir::TempDir;
 
-use crate::db::machine::Machine;
-use crate::db::machine::MachineSearchConfig;
+use crate::attestation::get_ek_cert_by_machine_id;
 use crate::model::hardware_info::TpmEkCertificate;
 use forge_uuid::machine::MachineId;
-use x509_certificate::certificate::X509Certificate;
+
+use x509_parser::certificate::X509Certificate;
+use x509_parser::prelude::FromDer;
+use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
 use tss_esapi::structures::Attest;
 use tss_esapi::structures::AttestInfo;
@@ -340,34 +342,9 @@ pub async fn compare_pub_key_against_cert(
     machine_id: &MachineId,
     ek_pub: &Vec<u8>,
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
-    // fetch machine from the db
-    let machine = Machine::find_one(
-        txn,
-        machine_id,
-        MachineSearchConfig {
-            include_dpus: true,
-            ..MachineSearchConfig::default()
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or_else(|| {
-        CarbideError::AttestationBindKeyError(format!("Machine id {machine_id} not found."))
-    })?;
+    let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
 
-    // obtain an ek cert
-    let tpm_ek_cert = machine
-        .hardware_info()
-        .ok_or_else(|| {
-            CarbideError::AttestationBindKeyError("Hardware Info not found.".to_string())
-        })?
-        .tpm_ek_certificate
-        .as_ref()
-        .ok_or_else(|| {
-            CarbideError::AttestationBindKeyError("TPM EK Certificate not found.".to_string())
-        })?;
-
-    do_compare_pub_key_against_cert(tpm_ek_cert, ek_pub)
+    do_compare_pub_key_against_cert(&tpm_ek_cert, ek_pub)
 }
 
 pub fn do_compare_pub_key_against_cert(
@@ -375,16 +352,27 @@ pub fn do_compare_pub_key_against_cert(
     ek_pub: &Vec<u8>,
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     // compare the pub key and the cert
-    let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not unmarshall EK Cert: {0}", e))
-    })?;
+    let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
+        .map_err(|e| {
+            CarbideError::AttestationBindKeyError(format!("Could not unmarshall EK Cert: {0}", e))
+        })?
+        .1;
 
-    let pub_key_cert_data = cert.rsa_public_key_data().map_err(|e| {
+    let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
         CarbideError::AttestationBindKeyError(format!("Could not get EK Cert Data: {0}", e))
     })?;
 
+    let ek_cert_modulus = match pub_key_cert_data {
+        x509_parser_pub_key::RSA(rsa_pub_key) => rsa_pub_key.modulus,
+        _rest => {
+            return Err(CarbideError::AttestationBindKeyError(
+                "TPM EK is not in RSA format".to_string(),
+            ))
+        }
+    };
+
     // now, we construct the actual public key from the modulus and exponent
-    let modulus = BigUint::from_bytes_be(pub_key_cert_data.modulus.as_slice());
+    let modulus = BigUint::from_bytes_be(ek_cert_modulus);
     let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
     // pub_key_cert has a different type from pub_key_cert_data, even though their type names

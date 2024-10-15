@@ -1,0 +1,170 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::Path,
+};
+
+use crate::{rpc, CarbideCliError};
+use ::rpc::forge_tls_client::ApiConfig;
+use x509_parser::certificate::X509Certificate;
+use x509_parser::pem::parse_x509_pem;
+use x509_parser::prelude::FromDer;
+use x509_parser::validate::*;
+
+pub async fn show_ca_certs(api_config: &ApiConfig<'_>) -> Result<(), CarbideCliError> {
+    let ca_certs = rpc::tpm_ca_show(api_config).await?;
+    println!("{}", serde_json::to_string_pretty(&ca_certs)?);
+
+    Ok(())
+}
+
+pub async fn delete_ca_cert(
+    ca_cert_id: i32,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    rpc::tpm_ca_delete_cert(api_config, ca_cert_id).await
+}
+
+pub async fn add_ca_cert_filename(
+    filename: &str,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    let filepath = Path::new(filename);
+    let is_pem = filepath.with_extension("pem").is_file();
+    let is_der =
+        filepath.with_extension("cer").is_file() || filepath.with_extension("der").is_file();
+
+    if !is_der && !is_pem {
+        return Err(CarbideCliError::GenericError(
+            "The certificate must exist and be with PEM or CER or DER extension".to_string(),
+        ));
+    }
+
+    add_ca_cert_individual(filepath, is_pem, api_config).await
+}
+
+async fn add_ca_cert_individual(
+    filepath: &Path,
+    is_pem: bool,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    println!("Adding CA Certificate {0}", filepath.to_string_lossy());
+    let mut ca_file = File::open(filepath).map_err(CarbideCliError::IOError)?;
+
+    let mut ca_file_bytes: Vec<u8> = Vec::new();
+    ca_file
+        .read_to_end(&mut ca_file_bytes)
+        .map_err(CarbideCliError::IOError)?;
+
+    let ca_file_bytes_der;
+    if is_pem {
+        // convert pem to der to normalize
+        let res = parse_x509_pem(&ca_file_bytes);
+        match res {
+            Ok((rem, pem)) => {
+                if !rem.is_empty() && (pem.label != *"CERTIFICATE") {
+                    return Err(CarbideCliError::GenericError(
+                        "PEM certificate validation failed".to_string(),
+                    ));
+                }
+
+                ca_file_bytes_der = pem.contents;
+            }
+            _ => {
+                return Err(CarbideCliError::GenericError(
+                    "Could not parse PEM certificate".to_string(),
+                ))
+            }
+        }
+    } else {
+        ca_file_bytes_der = ca_file_bytes;
+    }
+
+    validate_ca_cert(&ca_file_bytes_der)?;
+
+    let ca_cert_id_response = rpc::tpm_ca_add_cert(api_config, &ca_file_bytes_der).await?;
+
+    println!(
+        "Successfully added CA Certificate {0} with id {1}. {2} EK certs have been matched",
+        filepath.to_string_lossy(),
+        ca_cert_id_response
+            .id
+            .map(|v| v.ca_cert_id.to_string())
+            .unwrap_or("*CA ID has not been returned*".to_string()),
+        ca_cert_id_response.matched_ek_certs
+    );
+
+    Ok(())
+}
+
+fn validate_ca_cert(ca_cert_bytes: &[u8]) -> Result<(), CarbideCliError> {
+    let ca_cert = X509Certificate::from_der(ca_cert_bytes)
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
+        .1;
+
+    let mut logger = VecLogger::default();
+
+    if !X509StructureValidator.validate(&ca_cert, &mut logger) {
+        return Err(CarbideCliError::GenericError(
+            "Validation Error".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+pub async fn add_ca_cert_bulk(
+    dirname: &str,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    let dirpath = Path::new(dirname);
+
+    // read all files ending with .cer/.der
+    // call add individually for each one of them
+
+    let dir_entry_iter = fs::read_dir(dirpath)
+        .map_err(CarbideCliError::IOError)?
+        .flatten();
+
+    for dir_entry in dir_entry_iter {
+        if dir_entry.path().with_extension("cer").is_file()
+            || dir_entry.path().with_extension("der").is_file()
+        {
+            if let Err(e) =
+                add_ca_cert_individual(dir_entry.path().as_path(), false, api_config).await
+            {
+                // we log the error but continue the iteration
+                eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
+            }
+        }
+        if dir_entry.path().with_extension("pem").is_file() {
+            if let Err(e) =
+                add_ca_cert_individual(dir_entry.path().as_path(), true, api_config).await
+            {
+                // we log the error but continue the iteration
+                eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn show_unmatched_ek_certs(api_config: &ApiConfig<'_>) -> Result<(), CarbideCliError> {
+    let unmatched_eks = rpc::tpm_unmatched_ek_show(api_config).await?;
+    println!("{}", serde_json::to_string_pretty(&unmatched_eks)?);
+
+    Ok(())
+}

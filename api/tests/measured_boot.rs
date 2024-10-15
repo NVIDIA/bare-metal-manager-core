@@ -21,7 +21,7 @@ pub mod tests {
 
     use carbide::attestation::cli_make_cred;
     use carbide::attestation::do_compare_pub_key_against_cert;
-    //use carbide::attestation::extract_cred_secret;
+
     use carbide::model::hardware_info::TpmEkCertificate;
     use carbide::model::machine::machine_id::try_parse_machine_id;
     use common::api_fixtures::create_test_env;
@@ -592,7 +592,7 @@ pub mod tests {
                 AttestationBindKeyError(d) => {
                     assert_eq!(
                         d,
-                        "Could not unmarshall EK Cert: error when decoding ASN.1 data: trailing data (at position 556)"
+                        "Could not unmarshall EK Cert: Parsing Error: NomError(Eof)"
                     )
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),

@@ -401,6 +401,49 @@ service Forge {
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
+
+  // TPM CA certs Management
+  //rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
+  rpc TpmAddCaCert(TpmCaCert) returns (TpmCaAddedCaStatus);
+  rpc TpmShowCaCerts(google.protobuf.Empty) returns (TpmCaCertDetailCollection);
+  rpc TpmShowUnmatchedEkCerts(google.protobuf.Empty) returns (TpmEkCertStatusCollection);
+  rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
+}
+
+message TpmCaAddedCaStatus{
+  TpmCaCertId id = 1;
+  int32 matched_ek_certs = 2;
+}
+
+message TpmCaCertId{
+  int32 ca_cert_id = 1;
+}
+
+message TpmEkCertStatus{
+  string serial_num = 1;
+  common.MachineId machine_id = 2;
+  string issuer = 3;
+  optional string issuer_ca_url = 4;
+}
+
+message TpmEkCertStatusCollection{
+  repeated TpmEkCertStatus tpm_ek_cert_statuses = 1;
+}
+
+message TpmCaCert{
+  // TPM's CA cert in DER encoding
+  bytes ca_cert = 1;
+}
+
+message TpmCaCertDetail{
+  int32 ca_cert_id = 1;
+  string not_valid_before = 2;
+  string not_valid_after = 3;
+  string ca_cert_subject = 4;
+}
+
+message TpmCaCertDetailCollection{
+  repeated TpmCaCertDetail tpm_ca_cert_details = 1;
 }
 
 message BindRequest{

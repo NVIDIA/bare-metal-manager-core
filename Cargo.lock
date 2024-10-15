@@ -50,6 +50,7 @@ dependencies = [
  "tracing-subscriber",
  "utils",
  "uuid 1.8.0",
+ "x509-parser",
 ]
 
 [[package]]
@@ -637,16 +638,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bcder"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c627747a6774aab38beb35990d88309481378558875a41da1a4b2e373c906ef0"
-dependencies = [
- "bytes",
- "smallvec",
-]
-
-[[package]]
 name = "binascii"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -871,6 +862,7 @@ dependencies = [
  "prometheus",
  "prost-types",
  "rand 0.8.5",
+ "rcgen",
  "regex",
  "reqwest 0.11.27",
  "rpc",
@@ -902,7 +894,6 @@ dependencies = [
  "uuid 1.8.0",
  "vaultrs",
  "version-compare 0.1.1",
- "x509-certificate",
  "x509-parser",
 ]
 
@@ -3652,6 +3643,7 @@ dependencies = [
  "mac_address",
  "rand 0.8.5",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest 0.11.27",
  "rpc",
@@ -5153,6 +5145,19 @@ checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54077e1872c46788540de1ea3d7f4ccb1983d12f9aa909b234468676c1a36779"
+dependencies = [
+ "pem",
+ "ring 0.17.8",
+ "rustls-pki-types",
+ "time",
+ "yasna",
 ]
 
 [[package]]
@@ -8200,25 +8205,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "x509-certificate"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66534846dec7a11d7c50a74b7cdb208b9a581cad890b7866430d438455847c85"
-dependencies = [
- "bcder",
- "bytes",
- "chrono",
- "der",
- "hex",
- "pem",
- "ring 0.17.8",
- "signature",
- "spki",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
 name = "x509-parser"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8254,6 +8240,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 dependencies = [
  "is-terminal",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
 ]
 
 [[package]]
