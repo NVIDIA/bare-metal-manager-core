@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::VecDeque;
+
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -362,8 +362,7 @@ async fn main() -> color_eyre::Result<()> {
                     )
                     .into());
                 }
-                let mut assigned_machine_ids: HashSet<String> = HashSet::new();
-                let machine_ids: Vec<_> =
+                let mut machine_ids: VecDeque<_> =
                     rpc::find_machine_ids(api_config, Some(forgerpc::MachineType::Host), false)
                         .await
                         .unwrap()
@@ -373,12 +372,8 @@ async fn main() -> color_eyre::Result<()> {
                         .collect();
 
                 for i in 0..allocate_request.number.unwrap_or(1) {
-                    let Some(hid_for_instance) = machine::get_next_free_machine(
-                        &api_config.clone(),
-                        &machine_ids,
-                        &assigned_machine_ids,
-                    )
-                    .await
+                    let Some(hid_for_instance) =
+                        machine::get_next_free_machine(&api_config.clone(), &mut machine_ids).await
                     else {
                         tracing::error!("No available machines.");
                         break;
@@ -395,7 +390,6 @@ async fn main() -> color_eyre::Result<()> {
                     .await
                     {
                         Ok(_) => {
-                            assigned_machine_ids.insert(hid_for_instance.clone());
                             tracing::info!("allocate_instance was successful. ");
                         }
                         Err(e) => {
