@@ -16,14 +16,15 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
+use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
+use utils::models::arch::CpuArchitecture;
 
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::model::try_convert_vec;
-use ::rpc::errors::RpcDataConversionError;
-use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HardwareInfo {
@@ -35,7 +36,7 @@ pub struct HardwareInfo {
     pub cpus: Vec<Cpu>,
     #[serde(default)]
     pub block_devices: Vec<BlockDevice>,
-    pub machine_type: String,
+    pub machine_type: CpuArchitecture,
     #[serde(default)]
     pub nvme_devices: Vec<NvmeDevice>,
     #[serde(default)]
@@ -601,7 +602,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: info.machine_type,
+            machine_type: info.machine_type.into(),
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
@@ -625,7 +626,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: info.machine_type,
+            machine_type: info.machine_type.into(),
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info
                 .dmi_data
@@ -668,15 +669,10 @@ pub enum HardwareInfoError {
 impl HardwareInfo {
     /// Returns whether the machine is deemed to be a DPU based on some properties
     pub fn is_dpu(&self) -> bool {
-        let dmi_data = &self.dmi_data;
-        let machine_type = &self.machine_type;
-
-        const ARM_TYPE: &str = "aarch64";
-        if machine_type != ARM_TYPE {
+        if self.machine_type != CpuArchitecture::Aarch64 {
             return false;
         }
-
-        dmi_data.as_ref().map_or(false, |dmi| {
+        self.dmi_data.as_ref().map_or(false, |dmi| {
             dmi.board_name.to_lowercase().contains("bluefield")
         })
     }

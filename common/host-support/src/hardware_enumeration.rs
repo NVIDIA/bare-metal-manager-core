@@ -14,11 +14,12 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::Path,
-    str::{FromStr, Utf8Error},
+    str::Utf8Error,
 };
 
 use ::rpc::machine_discovery as rpc_discovery;
 use ::utils::cmd::CmdError;
+use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use base64::prelude::*;
 use libudev::Device;
 use rpc::machine_discovery::MemoryDevice;
@@ -43,27 +44,6 @@ const BF3_CPU_PART: &str = "0xd42";
 const NVIDIA_VENDOR_ID: &str = "0x10de";
 const NVIDIA_VENDOR_DRIVER: &str = "nvidia";
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum CpuArchitecture {
-    Aarch64,
-    X86_64,
-}
-
-impl FromStr for CpuArchitecture {
-    type Err = HardwareEnumerationError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let arch = match s {
-            "aarch64" => Ok(CpuArchitecture::Aarch64),
-            "x86_64" => Ok(CpuArchitecture::X86_64),
-            _ => Err(HardwareEnumerationError::UnsupportedCpuArchitecture(
-                s.to_string(),
-            )),
-        }?;
-        Ok(arch)
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum HardwareEnumerationError {
     #[error("Hardware enumeration error: {0}")]
@@ -72,7 +52,7 @@ pub enum HardwareEnumerationError {
     UdevError(#[from] libudev::Error),
     #[error("Udev string {0} is not a valid MAC address")]
     InvalidMacAddress(String),
-    #[error("CPU architecture {0} is not supported")]
+    #[error("{0}")]
     UnsupportedCpuArchitecture(String),
     #[error("Command error {0}")]
     CmdError(#[from] CmdError),
@@ -261,7 +241,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     // uname to detect type
     let info = uname().map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
-    let arch = info.machine.parse()?;
+    let arch = info
+        .machine
+        .parse()
+        .map_err(|e: UnsupportedCpuArchitecture| {
+            HardwareEnumerationError::UnsupportedCpuArchitecture(e.0)
+        })?;
 
     // IBs
     let ibs = discovery_ibs()?;
@@ -424,6 +409,13 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                         })?,
                     node: 0,
                 });
+            }
+            CpuArchitecture::Unknown => {
+                tracing::error!(
+                    cpu_num,
+                    arch = info.machine,
+                    "CPU has unsupported architecture. Ignoring."
+                );
             }
         }
     }
@@ -668,7 +660,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         block_devices: disks,
         nvme_devices: nvmes,
         dmi_data: Some(dmi),
-        machine_type: info.machine.as_str().to_owned(),
+        machine_type: arch.into(),
         tpm_ek_certificate,
         dpu_info: dpu_vpd,
         gpus,

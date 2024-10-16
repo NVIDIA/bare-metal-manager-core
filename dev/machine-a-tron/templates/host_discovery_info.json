@@ -22,7 +22,7 @@
       "pci_bus_id": "00000000:17:00.0"
     }
   ],
-  "machine_type": "x86_64",
+  "machine_type": 1,
   "nvme_devices": [],
   "memory_devices": [
     {
