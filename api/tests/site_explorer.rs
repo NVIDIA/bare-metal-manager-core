@@ -55,6 +55,7 @@ use rpc::{
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
+use utils::models::arch::CpuArchitecture;
 
 use crate::common::{
     api_fixtures::{
@@ -1928,7 +1929,7 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine.hardware_info().unwrap().machine_type,
-        "aarch64".to_string()
+        CpuArchitecture::Aarch64,
     );
     assert_eq!(
         dpu_machine.bmc_info().ip.clone().unwrap(),

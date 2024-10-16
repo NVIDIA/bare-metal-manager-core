@@ -112,6 +112,13 @@ services:
     #  name it correctly, commit it, and edit the xzcat line below
     #  xzcat /app/code/dev/dev_db_20240813.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
     #
+    # Manual (auto-load was removed):
+    # - Same DB export as before
+    # - Delete the carbide-migrations service/container definition above
+    # - docker-compose up
+    # - Once `postgresql` is up:
+    #   `PGPASSWORD=notforprod psql -h 172.20.0.16 -U carbide_development < db.sql`
+    #
     command:
       - sh
       - -c

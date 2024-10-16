@@ -12,10 +12,12 @@
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
 use config_version::ConfigVersion;
+use forge_uuid::machine::{MachineId, MachineType};
 use libredfish::RedfishError;
 use mac_address::MacAddress;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use utils::models::arch::CpuArchitecture;
 
 use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::model::hardware_info::HardwareInfoError;
@@ -28,7 +30,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-use forge_uuid::machine::{MachineId, MachineType};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -479,7 +480,7 @@ impl ExploredDpu {
         Ok(HardwareInfo {
             dmi_data: Some(dmi_data),
             dpu_info: Some(dpu_data),
-            machine_type: "aarch64".to_string(),
+            machine_type: CpuArchitecture::Aarch64,
             ..Default::default()
         })
     }
@@ -666,7 +667,7 @@ impl EndpointExplorationReport {
                 dmi_data: Some(dmi_data),
                 // This field should not be read, machine_id::from_hardware_info_with_type should not
                 // need this, only the dmi_data.
-                machine_type: "DO_NOT_USE".to_string(),
+                machine_type: CpuArchitecture::Unknown,
                 ..Default::default()
             };
 
