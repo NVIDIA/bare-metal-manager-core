@@ -34,7 +34,7 @@ use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 
 use crate::{
     api::Api,
-    auth,
+    attestation, auth,
     cfg::CarbideConfig,
     db::DatabaseError,
     db_init, ethernet_virtualization,
@@ -476,6 +476,9 @@ pub async fn start_api(
         meter.clone(),
     );
     let _measured_boot_collector_handle = measured_boot_collector.start()?;
+
+    // we need to create ek_cert_status entries for all existing machines
+    attestation::backfill_ek_cert_status_for_existing_machines(&db_pool).await?;
 
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(
