@@ -223,7 +223,7 @@ pub async fn advance_created_instance_into_ready_state(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        2,
+        3,
         &mut txn,
         ManagedHostState::Assigned {
             instance_state: carbide::model::machine::InstanceState::Ready,
