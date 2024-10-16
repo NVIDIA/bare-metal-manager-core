@@ -19,10 +19,14 @@ pub use measured_boot::{
 };
 
 pub mod tpm_ca_cert;
+use sqlx::Pool;
 pub use tpm_ca_cert::extract_ca_fields;
 pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
 
 use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine_topology::MachineTopology;
+use crate::db::DatabaseError;
+use crate::db::ObjectFilter;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::CarbideError;
 use crate::CarbideResult;
@@ -57,4 +61,57 @@ pub async fn get_ek_cert_by_machine_id(
         .ok_or_else(|| CarbideError::GenericError("TPM EK Certificate not found.".to_string()))?;
 
     Ok(tpm_ek_cert.clone())
+}
+
+pub async fn backfill_ek_cert_status_for_existing_machines(
+    db_pool: &Pool<Postgres>,
+) -> CarbideResult<()> {
+    // get all machines that are not DPU
+    // for each machine
+    // - get hardware info and extract tpm ek cert
+    // - call match_insert_new_ek_cert_status_against_ca()
+
+    let mut txn = db_pool
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin backfill ek cert status", e))?;
+
+    let machines: Vec<forge_uuid::machine::MachineId> = Machine::find(
+        &mut txn,
+        ObjectFilter::All,
+        MachineSearchConfig {
+            include_dpus: false,
+            include_history: false,
+            include_predicted_host: false,
+            only_maintenance: false,
+            exclude_hosts: false,
+        },
+    )
+    .await?
+    .iter()
+    .map(|machine| machine.id().clone())
+    .collect();
+
+    if !machines.is_empty() {
+        let topologies = MachineTopology::find_latest_by_machine_ids(&mut txn, &machines).await?;
+        for topology in topologies {
+            let (machine_id, topology) = topology;
+            let tpm_ek_cert = &topology.topology().discovery_data.info.tpm_ek_certificate;
+
+            if tpm_ek_cert.is_some() {
+                tpm_ca_cert::match_insert_new_ek_cert_status_against_ca(
+                    &mut txn,
+                    tpm_ek_cert.as_ref().unwrap(),
+                    &machine_id,
+                )
+                .await?;
+            }
+        }
+    }
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit backfill ek cert status", e))?;
+
+    Ok(())
 }
