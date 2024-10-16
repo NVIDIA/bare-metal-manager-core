@@ -4334,7 +4334,12 @@ impl StateHandler for InstanceStateHandler {
                         )
                         .await?;
                     }
-
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForRebootToReady,
+                    };
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                InstanceState::WaitingForRebootToReady => {
                     // Reboot host
                     handler_host_power_control(
                         state,
