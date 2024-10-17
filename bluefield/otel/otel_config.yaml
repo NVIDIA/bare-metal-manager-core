@@ -43,8 +43,6 @@ receivers:
           scrape_interval: 10s
           static_configs:
             - targets: ['0.0.0.0:8888']
-              labels:
-                component: "fmds"
 
   prometheus/dts:
     config:
@@ -53,8 +51,6 @@ receivers:
           scrape_interval: 1m
           static_configs:
             - targets: ['0.0.0.0:9100']
-              labels:
-                component: "dts"
           metric_relabel_configs:
             # This filter limits the set of DOCA metrics exported from the DPU
             # to keep CPU and memory load in check on the site controller.
@@ -155,13 +151,23 @@ processors:
     spike_limit_percentage: 20
   resource/logs-journald:
     attributes:
-      - key: group
+      - key: component
         value: journald
         action: upsert
   resource/logs-hbn:
     attributes:
-      - key: group
+      - key: component
         value: hbn
+        action: upsert
+  resource/metrics-dts:
+    attributes:
+      - key: component
+        value: dts
+        action: upsert
+  resource/metrics-fmds:
+    attributes:
+      - key: component
+        value: fmds
         action: upsert
   resourcedetection:
     # Add hostname at the resource level
@@ -241,6 +247,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/metrics-fmds
         - batch/metrics
       exporters: [otlp/site, prometheus]
     metrics/dts:
@@ -248,6 +255,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/metrics-dts
         - transform/metrics-dts
         - batch/metrics
       exporters: [otlp/site, prometheus]
