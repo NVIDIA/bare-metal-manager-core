@@ -193,8 +193,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{fresh=\"true\",override_type=\"merge\"} 0".to_string(),
-            "{fresh=\"true\",override_type=\"override\"} 0".to_string()
+            "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 0".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
         ]
     );
 
@@ -267,8 +269,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
-            "{fresh=\"true\",override_type=\"override\"} 0".to_string()
+            "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 0".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
         ]
     );
 
@@ -315,8 +319,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{fresh=\"true\",override_type=\"merge\"} 1".to_string(),
-            "{fresh=\"true\",override_type=\"override\"} 1".to_string()
+            "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 1".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 1".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
         ]
     );
 

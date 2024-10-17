@@ -74,14 +74,18 @@ pub struct MachineStateControllerIterationMetrics {
     pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
     pub hosts_allocatable: usize,
     pub hosts_total: usize,
-    pub hosts_healthy: usize,
-    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>), usize>,
-    pub unhealthy_hosts_by_classification_id: HashMap<String, usize>,
-    /// The amount of configured `merge` overrides
-    pub num_merge_overrides: usize,
-    /// The amount of configured `override` overrides
-    pub num_override_overrides: usize,
+    /// The amount of hosts by Health status (healthy==true) and assignment status
+    pub hosts_healthy: HashMap<(bool, IsAssignedToTenant), usize>,
+    /// The amount of unhealthy hosts by Probe ID, Probe Target and assignment status
+    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsAssignedToTenant), usize>,
+    /// The amount of unhealthy hosts by Alert classification and assignment status
+    pub unhealthy_hosts_by_classification_id: HashMap<(String, IsAssignedToTenant), usize>,
+    /// The amount of configured overrides by type (merge vs override) and assignment status
+    pub num_overrides: HashMap<(&'static str, IsAssignedToTenant), usize>,
 }
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct IsAssignedToTenant(bool);
 
 #[derive(Debug)]
 pub struct MachineMetricsEmitter {
@@ -272,9 +276,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics.dpus_up += object_metrics.dpus_up;
         iteration_metrics.dpus_healthy += object_metrics.dpus_healthy;
 
-        if object_metrics.health_probe_alerts.is_empty() {
-            iteration_metrics.hosts_healthy += 1;
-        }
+        let is_healthy = object_metrics.health_probe_alerts.is_empty();
+        let is_assigned = IsAssignedToTenant(object_metrics.assigned_to_tenant.is_some());
+        *iteration_metrics
+            .hosts_healthy
+            .entry((is_healthy, is_assigned))
+            .or_default() += 1;
 
         iteration_metrics.available_gpus += object_metrics.available_gpus;
         if object_metrics.is_allocatable {
@@ -318,18 +325,24 @@ impl MetricsEmitter for MachineMetricsEmitter {
         for (probe_id, target) in &object_metrics.health_probe_alerts {
             *iteration_metrics
                 .unhealthy_hosts_by_probe_id
-                .entry((probe_id.to_string(), target.clone()))
+                .entry((probe_id.to_string(), target.clone(), is_assigned))
                 .or_default() += 1;
         }
         for classification in &object_metrics.health_alert_classifications {
             *iteration_metrics
                 .unhealthy_hosts_by_classification_id
-                .entry(classification.to_string())
+                .entry((classification.to_string(), is_assigned))
                 .or_default() += 1;
         }
-        iteration_metrics.num_merge_overrides += object_metrics.num_merge_overrides;
+        *iteration_metrics
+            .num_overrides
+            .entry(("merge", is_assigned))
+            .or_default() += object_metrics.num_merge_overrides;
         if object_metrics.override_override_enabled {
-            iteration_metrics.num_override_overrides += 1;
+            *iteration_metrics
+                .num_overrides
+                .entry(("override", is_assigned))
+                .or_default() += 1;
         }
 
         for (version, count) in object_metrics.agent_versions.iter() {
@@ -426,20 +439,28 @@ impl MetricsEmitter for MachineMetricsEmitter {
         );
 
         let mut health_status_attr = attributes.to_vec();
-        health_status_attr.push(KeyValue::new("healthy", "true".to_string()));
-        observer.observe_u64(
-            &self.hosts_health_status_gauge,
-            iteration_metrics.hosts_healthy as u64,
-            &health_status_attr,
-        );
-        health_status_attr.last_mut().unwrap().value = "false".to_string().into();
-        observer.observe_u64(
-            &self.hosts_health_status_gauge,
-            (iteration_metrics
-                .hosts_total
-                .saturating_sub(iteration_metrics.hosts_healthy)) as u64,
-            &health_status_attr,
-        );
+        health_status_attr.push(KeyValue::new("healthy", "".to_string()));
+        health_status_attr.push(KeyValue::new("assigned", "".to_string()));
+        let health_status_attr_len = health_status_attr.len();
+        // The HashMap access is used here instead of iterating order to make sure that
+        // all 4 combinations always emit metrics. No metric will be absent in case
+        // no host falls into that category
+        for healthy in [true, false] {
+            for assigned in [true, false] {
+                let count = iteration_metrics
+                    .hosts_healthy
+                    .get(&(healthy, IsAssignedToTenant(assigned)))
+                    .cloned()
+                    .unwrap_or_default();
+                health_status_attr[health_status_attr_len - 2].value = healthy.to_string().into();
+                health_status_attr[health_status_attr_len - 1].value = assigned.to_string().into();
+                observer.observe_u64(
+                    &self.hosts_health_status_gauge,
+                    count as u64,
+                    &health_status_attr,
+                );
+            }
+        }
 
         let mut failed_health_check_attr = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
@@ -467,10 +488,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut probe_id_attr = attributes.to_vec();
         probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
         probe_id_attr.push(KeyValue::new("probe_target", "".to_string()));
+        probe_id_attr.push(KeyValue::new("assigned", "".to_string()));
         let probe_id_attr_len = probe_id_attr.len();
-        for ((probe, target), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
-            probe_id_attr[probe_id_attr_len - 2].value = probe.clone().into();
-            probe_id_attr[probe_id_attr_len - 1].value = target.clone().unwrap_or_default().into();
+        for ((probe, target, assigned), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+            probe_id_attr[probe_id_attr_len - 3].value = probe.clone().into();
+            probe_id_attr[probe_id_attr_len - 2].value = target.clone().unwrap_or_default().into();
+            probe_id_attr[probe_id_attr_len - 1].value = assigned.0.to_string().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_probe_id_gauge,
                 *count as u64,
@@ -480,8 +503,15 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut probe_classification_attr = attributes.to_vec();
         probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
-        for (classification, count) in &iteration_metrics.unhealthy_hosts_by_classification_id {
-            probe_classification_attr.last_mut().unwrap().value = classification.clone().into();
+        probe_classification_attr.push(KeyValue::new("assigned", "".to_string()));
+        let probe_classification_attr_len = probe_classification_attr.len();
+        for ((classification, assigned), count) in
+            &iteration_metrics.unhealthy_hosts_by_classification_id
+        {
+            probe_classification_attr[probe_classification_attr_len - 2].value =
+                classification.clone().into();
+            probe_classification_attr[probe_classification_attr_len - 1].value =
+                assigned.0.to_string().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_classification_gauge,
                 *count as u64,
@@ -491,17 +521,28 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut override_type_attr = attributes.to_vec();
         override_type_attr.push(KeyValue::new("override_type", "merge".to_string()));
-        observer.observe_u64(
-            &self.hosts_health_overrides_gauge,
-            iteration_metrics.num_merge_overrides as u64,
-            &override_type_attr,
-        );
-        override_type_attr.last_mut().unwrap().value = "override".into();
-        observer.observe_u64(
-            &self.hosts_health_overrides_gauge,
-            iteration_metrics.num_override_overrides as u64,
-            &override_type_attr,
-        );
+        override_type_attr.push(KeyValue::new("assigned", "".to_string()));
+        let override_type_attr_len = override_type_attr.len();
+        // The HashMap access is used here instead of iterating order to make sure that
+        // all 4 combinations always emit metrics. No metric will be absent in case
+        // no host falls into that category
+        for override_type in ["merge", "override"] {
+            for assigned in [true, false] {
+                let count = iteration_metrics
+                    .num_overrides
+                    .get(&(override_type, IsAssignedToTenant(assigned)))
+                    .cloned()
+                    .unwrap_or_default();
+                override_type_attr[override_type_attr_len - 2].value =
+                    override_type.to_string().into();
+                override_type_attr[override_type_attr_len - 1].value = assigned.to_string().into();
+                observer.observe_u64(
+                    &self.hosts_health_overrides_gauge,
+                    count as u64,
+                    &override_type_attr,
+                );
+            }
+        }
 
         let mut agent_version_attrs = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
@@ -588,7 +629,7 @@ mod tests {
                 available_gpus: 0,
                 assigned_to_tenant: Some("a".parse().unwrap()),
                 dpus_up: 1,
-                dpus_healthy: 1,
+                dpus_healthy: 0,
                 dpu_health_probe_alerts: HashMap::from_iter([(
                     ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
                     1,
@@ -598,7 +639,10 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(1))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
-                health_probe_alerts: HashSet::new(),
+                health_probe_alerts: HashSet::from_iter([(
+                    "FileExists".parse().unwrap(),
+                    Some("def.txt".to_string()),
+                )]),
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 override_override_enabled: false,
@@ -613,6 +657,14 @@ mod tests {
                 dpu_health_probe_alerts: HashMap::from_iter([
                     (("bgp".parse().unwrap(), None), 1),
                     (("ntp".parse().unwrap(), None), 1),
+                    (
+                        ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
+                        1,
+                    ),
+                    (
+                        ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
+                        1,
+                    ),
                 ]),
                 dpu_firmware_versions: HashMap::new(),
                 machine_inventory_component_versions: HashMap::from_iter([(
@@ -626,8 +678,18 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine a".to_string(), Some(2))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
-                health_probe_alerts: HashSet::new(),
-                health_alert_classifications: HashSet::new(),
+                health_probe_alerts: HashSet::from_iter([
+                    ("bgp".parse().unwrap(), None),
+                    ("ntp".parse().unwrap(), None),
+                    ("FileExists".parse().unwrap(), Some("def.txt".to_string())),
+                    ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
+                ]),
+                health_alert_classifications: [
+                    "Class1".parse().unwrap(),
+                    "Class3".parse().unwrap(),
+                ]
+                .into_iter()
+                .collect(),
                 num_merge_overrides: 0,
                 override_override_enabled: false,
                 is_allocatable: true,
@@ -651,13 +713,8 @@ mod tests {
                 client_certificate_expiry: HashMap::from_iter([("machine b".to_string(), Some(3))]),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
-                health_probe_alerts: [("BgpStats".parse().unwrap(), None)].into_iter().collect(),
-                health_alert_classifications: [
-                    "Class1".parse().unwrap(),
-                    "Class3".parse().unwrap(),
-                ]
-                .into_iter()
-                .collect(),
+                health_probe_alerts: HashSet::new(),
+                health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 1,
                 override_override_enabled: true,
                 is_allocatable: false,
@@ -703,13 +760,18 @@ mod tests {
                 agent_versions: HashMap::new(),
                 dpus_up: 1,
                 dpus_healthy: 0,
-                dpu_health_probe_alerts: HashMap::from_iter([
-                    (("bgp".parse().unwrap(), None), 1),
+                dpu_health_probe_alerts: [
+                    (("BgpStats".parse().unwrap(), None), 1),
                     (
-                        ("FileExists".parse().unwrap(), Some("abc.txt".to_string())),
+                        (
+                            "HeartbeatTimeout".parse().unwrap(),
+                            Some("forge-dpu-agent".to_string()),
+                        ),
                         1,
                     ),
-                ]),
+                ]
+                .into_iter()
+                .collect(),
                 dpu_firmware_versions: HashMap::from_iter([("v4".to_string(), 1)]),
                 machine_inventory_component_versions: HashMap::from_iter([
                     (
@@ -756,8 +818,11 @@ mod tests {
                 assigned_to_tenant: None,
                 agent_versions: HashMap::new(),
                 dpus_up: 2,
-                dpus_healthy: 2,
-                dpu_health_probe_alerts: HashMap::from_iter([(("bgp".parse().unwrap(), None), 2)]),
+                dpus_healthy: 0,
+                dpu_health_probe_alerts: HashMap::from_iter([(
+                    ("BgpStats".parse().unwrap(), None),
+                    2,
+                )]),
                 dpu_firmware_versions: HashMap::from_iter([
                     ("v4".to_string(), 1),
                     ("v5".to_string(), 1),
@@ -823,7 +888,7 @@ mod tests {
         assert_eq!(iteration_metrics.allocatable_gpus, 3);
         assert_eq!(iteration_metrics.available_gpus, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);
-        assert_eq!(iteration_metrics.dpus_healthy, 5);
+        assert_eq!(iteration_metrics.dpus_healthy, 2);
         assert_eq!(
             &iteration_metrics.machine_reboot_attempts_in_booting_with_discovery_image,
             &[0, 1, 2]
@@ -835,10 +900,18 @@ mod tests {
         assert_eq!(
             iteration_metrics.unhealthy_dpus_by_probe_id,
             HashMap::from_iter([
-                (("bgp".to_string(), None), 4),
+                (("BgpStats".parse().unwrap(), None), 3),
+                (("bgp".to_string(), None), 1),
                 (("ntp".to_string(), None), 1),
                 (("FileExists".to_string(), Some("abc.txt".to_string())), 1),
-                (("FileExists".to_string(), Some("def.txt".to_string())), 1)
+                (("FileExists".to_string(), Some("def.txt".to_string())), 2),
+                (
+                    (
+                        "HeartbeatTimeout".parse().unwrap(),
+                        Some("forge-dpu-agent".to_string()),
+                    ),
+                    1,
+                ),
             ])
         );
         assert_eq!(
@@ -851,30 +924,67 @@ mod tests {
         );
 
         assert_eq!(iteration_metrics.hosts_total, 6);
-        assert_eq!(iteration_metrics.hosts_healthy, 3);
+        assert_eq!(
+            iteration_metrics.hosts_healthy,
+            HashMap::from_iter([
+                ((true, IsAssignedToTenant(true)), 1),
+                ((false, IsAssignedToTenant(true)), 2),
+                ((true, IsAssignedToTenant(false)), 1),
+                ((false, IsAssignedToTenant(false)), 2),
+            ])
+        );
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_probe_id,
             HashMap::from_iter([
-                (("BgpStats".parse().unwrap(), None), 3),
+                (
+                    ("BgpStats".parse().unwrap(), None, IsAssignedToTenant(false)),
+                    2
+                ),
+                (("bgp".to_string(), None, IsAssignedToTenant(true)), 1),
+                (("ntp".to_string(), None, IsAssignedToTenant(true)), 1),
+                (
+                    (
+                        "FileExists".to_string(),
+                        Some("abc.txt".to_string()),
+                        IsAssignedToTenant(true)
+                    ),
+                    1
+                ),
+                (
+                    (
+                        "FileExists".to_string(),
+                        Some("def.txt".to_string()),
+                        IsAssignedToTenant(true)
+                    ),
+                    2
+                ),
                 (
                     (
                         "HeartbeatTimeout".parse().unwrap(),
-                        Some("forge-dpu-agent".to_string())
+                        Some("forge-dpu-agent".to_string()),
+                        IsAssignedToTenant(false)
                     ),
-                    1
+                    1,
                 ),
             ])
         );
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_classification_id,
             HashMap::from_iter([
-                ("Class1".parse().unwrap(), 3),
-                ("Class2".parse().unwrap(), 2),
-                ("Class3".parse().unwrap(), 1),
+                (("Class1".parse().unwrap(), IsAssignedToTenant(true)), 1),
+                (("Class1".parse().unwrap(), IsAssignedToTenant(false)), 2),
+                (("Class2".parse().unwrap(), IsAssignedToTenant(false)), 2),
+                (("Class3".parse().unwrap(), IsAssignedToTenant(true)), 1),
             ])
         );
-        assert_eq!(iteration_metrics.num_merge_overrides, 2);
-        assert_eq!(iteration_metrics.num_override_overrides, 2);
+        assert_eq!(
+            iteration_metrics.num_overrides,
+            HashMap::from_iter([
+                (("merge", IsAssignedToTenant(true)), 0),
+                (("merge", IsAssignedToTenant(false)), 2),
+                (("override", IsAssignedToTenant(false)), 2),
+            ])
+        );
 
         assert_eq!(
             iteration_metrics.machine_inventory_component_versions,
