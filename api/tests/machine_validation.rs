@@ -24,6 +24,7 @@ use std::{str::FromStr, time::SystemTime};
 mod common;
 use common::api_fixtures::{
     create_test_env, forge_agent_control, get_machine_validation_results,
+    get_machine_validation_runs,
     host::create_host_with_machine_validation,
     instance::{create_instance, delete_instance, single_interface_network_config},
     machine_validation_completed,
@@ -375,12 +376,37 @@ async fn test_machine_validation_get_results(
     )
     .await;
 
+    let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;
+    assert_eq!(runs.runs.len(), 1);
+    assert_eq!(
+        runs.runs[0].context.clone().unwrap_or_default(),
+        "Discovery".to_owned()
+    );
+    let discovery_validation_id = runs.runs[0].validation_id.clone();
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 
-    let results = get_machine_validation_results(&env, host_remote_id, true).await;
+    // one for cleanup and one for discovery
+    let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;
+    assert_eq!(runs.runs.len(), 2);
+
+    let results =
+        get_machine_validation_results(&env, Some(host_remote_id.clone()), true, None).await;
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
+    let cleanup_validation_id = results.results[1].validation_id.clone();
+
+    // find using validation id
+    let results = get_machine_validation_results(&env, None, true, discovery_validation_id).await;
+    assert_eq!(results.results.len(), 1);
+    assert_eq!(results.results[0].name, machine_validation_result.name);
+
+    // find using machine and validation id
+    let results =
+        get_machine_validation_results(&env, Some(host_remote_id), true, cleanup_validation_id)
+            .await;
+    assert_eq!(results.results.len(), 1);
+    assert_eq!(results.results[0].name, "instance".to_owned());
 
     let machine = env
         .find_machines(Some(host_machine_id.to_string().into()), None, false)

@@ -1770,10 +1770,18 @@ pub enum MachineValidationCommand {
     ExternalConfig(MachineValidationExternalConfigCommand),
     #[clap(about = "Ondemand Validation", subcommand, visible_alias = "mvo")]
     OnDemand(MachineValidationOnDemandCommand),
-    #[clap(about = "Display machine validation results of individual runs")]
-    Results(ShowMachineValidationResultsOptions),
-    #[clap(about = "Display all machine validation runs")]
-    Runs(ShowMachineValidationRunsOptions),
+    #[clap(
+        about = "Display machine validation results of individual runs",
+        subcommand,
+        visible_alias = "mvr"
+    )]
+    Results(MachineValidationResultsCommand),
+    #[clap(
+        about = "Display all machine validation runs",
+        subcommand,
+        visible_alias = "mvt"
+    )]
+    Runs(MachineValidationRunsCommand),
 }
 #[derive(Parser, Debug)]
 pub enum MachineValidationExternalConfigCommand {
@@ -1801,23 +1809,51 @@ pub struct MachineValidationExternalConfigAddOptions {
 }
 
 #[derive(Parser, Debug)]
-#[clap(disable_help_flag = true)]
-pub struct ShowMachineValidationRunsOptions {
-    #[clap(long, action = clap::ArgAction::HelpLong)]
-    help: Option<bool>,
-
-    #[clap(default_value(""), help = "Show machine validation runs of a machine")]
-    pub machine: Option<String>,
+pub enum MachineValidationRunsCommand {
+    #[clap(about = "Show Runs")]
+    Show(ShowMachineValidationRunsOptions),
 }
 
 #[derive(Parser, Debug)]
-#[clap(disable_help_flag = true)]
-pub struct ShowMachineValidationResultsOptions {
-    #[clap(long, action = clap::ArgAction::HelpLong)]
-    help: Option<bool>,
+pub struct ShowMachineValidationRunsOptions {
+    #[clap(short = 'm', long, help = "Show machine validation runs of a machine")]
+    pub machine: Option<String>,
 
-    #[clap(help = "Show machine validation result of a machine")]
-    pub machine: String,
+    #[clap(long, default_value = "false", help = "run history")]
+    pub history: bool,
+}
+#[derive(Parser, Debug)]
+pub enum MachineValidationResultsCommand {
+    #[clap(about = "Show results")]
+    Show(ShowMachineValidationResultsOptions),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
+    "validation_id",
+    "test_name",
+    "machine",
+    ])))]
+pub struct ShowMachineValidationResultsOptions {
+    #[clap(
+        short = 'm',
+        long,
+        group = "group",
+        help = "Show machine validation result of a machine"
+    )]
+    pub machine: Option<String>,
+
+    #[clap(short = 'v', long, group = "group", help = "Machine validation id")]
+    pub validation_id: Option<String>,
+
+    #[clap(
+        short = 't',
+        long,
+        group = "group",
+        requires("validation_id"),
+        help = "Name of the test case"
+    )]
+    pub test_name: Option<String>,
 
     #[clap(long, default_value = "false", help = "Results history")]
     pub history: bool,
