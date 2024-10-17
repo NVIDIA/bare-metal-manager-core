@@ -36,6 +36,8 @@ pub struct HardwareInfo {
     pub cpus: Vec<Cpu>,
     #[serde(default)]
     pub block_devices: Vec<BlockDevice>,
+    // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
+    // the DB, so renaming it requires a migration or custom Serialize impl.
     pub machine_type: CpuArchitecture,
     #[serde(default)]
     pub nvme_devices: Vec<NvmeDevice>,
@@ -597,12 +599,26 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             })
             .transpose()?;
 
+        let machine_arch = match info.machine_arch {
+            // new
+            Some(arch) => arch.into(),
+            // old
+            None => {
+                tracing::warn!("DiscoveryInfo missing machine_arch.");
+                info.machine_type.parse().unwrap_or_else(|e| {
+                    // Unfortunately we don't have the machine_id here.
+                    tracing::error!(error = %e, "Error parsing grpc DiscoveryInfo");
+                    CpuArchitecture::Unknown
+                })
+            }
+        };
+
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: info.machine_type.into(),
+            machine_type: machine_arch,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
@@ -626,7 +642,8 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
             cpus: try_convert_vec(info.cpus)?,
             block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: info.machine_type.into(),
+            machine_type: info.machine_type.to_string(),
+            machine_arch: Some(info.machine_type.into()),
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info
                 .dmi_data
