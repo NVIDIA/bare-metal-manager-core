@@ -387,7 +387,8 @@ pub fn pretty_cmd(c: &Command) -> String {
 // a DPU. This is intended for use with unit testing
 // and local development only.
 fn fill_fake_dpu_info(hardware_info: &mut DiscoveryInfo) {
-    hardware_info.machine_type = CpuArchitecture::Aarch64.into();
+    hardware_info.machine_type = CpuArchitecture::Aarch64.to_string(); // old
+    hardware_info.machine_arch = Some(CpuArchitecture::Aarch64.into()); // new
     if let Some(dmi) = hardware_info.dmi_data.as_mut() {
         dmi.board_name = "BlueField SoC".to_string();
         if dmi.product_serial.is_empty() {

@@ -13,8 +13,8 @@ message DiscoveryInfo {
   // Enumerates discovered block devices on the host
   repeated BlockDevice block_devices = 3;
 
-  // The CPU architecture of the machine as reported by `uname`
-  CpuArchitecture machine_type = 4;
+  // Deprecated. Prefer machine_arch.
+  string machine_type = 4;
 
   // Enumerates NVMe devices on the host
   repeated NvmeDevice nvme_devices = 5;
@@ -44,6 +44,9 @@ message DiscoveryInfo {
 
   // output of dmidecode -t 43 (TPM description)
   optional TpmDescription tpm_description = 13;
+
+  // The CPU architecture of the machine as reported by `uname`
+  optional CpuArchitecture machine_arch = 14;
 }
 
 message TpmDescription {

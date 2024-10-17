@@ -36,6 +36,18 @@ pub enum CpuArchitecture {
     Unknown,
 }
 
+impl std::fmt::Display for CpuArchitecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use CpuArchitecture::*;
+        let s = match self {
+            Aarch64 => "aarch64",
+            X86_64 => "x86_64",
+            _ => "",
+        };
+        write!(f, "{s}")
+    }
+}
+
 impl FromStr for CpuArchitecture {
     type Err = UnsupportedCpuArchitecture;
 

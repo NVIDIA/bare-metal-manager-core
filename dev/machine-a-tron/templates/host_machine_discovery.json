@@ -77,7 +77,7 @@
         "frequency": "400.00"
       }
     ],
-    "machine_type": 1,
+    "machine_type": "x86_64",
     "nvme_devices": [],
     "block_devices": [
       {
