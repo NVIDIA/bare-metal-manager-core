@@ -6,6 +6,12 @@
 
 ## Changed
 
+- The following set of host health related metrics gained an additional attribute `assigned` which indicates whether the host that the metric references is in an assigned state (used as an instance by a tenant):
+    - `forge_hosts_health_status_count`
+    - `forge_hosts_unhealthy_by_probe_id_count`
+    - `forge_hosts_health_overrides_count`
+    - `forge_hosts_unhealthy_by_classification_count`
+
 ## Fixed
 
 ## Removed
