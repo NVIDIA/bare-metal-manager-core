@@ -19,6 +19,7 @@ use axum::Json;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use utils::managed_host_display::to_time;
 
 use super::filters;
 use crate::api::Api;
@@ -272,6 +273,7 @@ struct MachineDetail {
     time_in_state: String,
     state_sla: String,
     time_in_state_above_sla: bool,
+    last_reboot: String,
     state_reason: String,
     machine_type: String,
     is_host: bool,
@@ -419,6 +421,13 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .as_ref()
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
+            last_reboot: to_time(
+                m.last_reboot_time.clone(),
+                &rpc::MachineId {
+                    id: machine_id.clone(),
+                },
+            )
+            .unwrap_or("N/A".to_string()),
             state_reason: m
                 .state_reason
                 .as_ref()

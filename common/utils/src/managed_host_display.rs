@@ -556,7 +556,7 @@ fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
 // - Parse the timestamp into a chrono::Time and format as string.
 // - Or return empty string
 // machine_id is only for logging a more useful error.
-fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
+pub fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
     match t {
         None => None,
         Some(tt) => match SystemTime::try_from(tt) {

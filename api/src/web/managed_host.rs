@@ -615,7 +615,7 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             is_link_ref: maint_ref.starts_with("http"),
             maintenance_reference: maint_ref,
             maintenance_start_time: m.maintenance_start_time.unwrap_or_default(),
-            host_last_reboot_time: m.host_last_reboot_time.unwrap_or(UNKNOWN.to_string()),
+            host_last_reboot_time: m.host_last_reboot_time.unwrap_or("N/A".to_string()),
             health: m.health,
             health_overrides: m.health_overrides,
             dpus: m
