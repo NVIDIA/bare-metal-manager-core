@@ -2233,13 +2233,23 @@ pub async fn add_update_machine_validation_external_config(
 
 pub async fn get_machine_validation_results(
     api_config: &ApiConfig<'_>,
-    machine_id: String,
+    arg_machine_id: Option<String>,
     history: bool,
+    arg_validation_id: Option<String>,
 ) -> CarbideCliResult<rpc::MachineValidationResultList> {
+    let mut machine_id: Option<::rpc::common::MachineId> = None;
+    if let Some(id) = arg_machine_id {
+        machine_id = Some(::rpc::common::MachineId { id })
+    }
+    let mut validation_id: Option<::rpc::common::Uuid> = None;
+    if let Some(value) = arg_validation_id {
+        validation_id = Some(::rpc::common::Uuid { value })
+    }
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineValidationGetRequest {
-            machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+            machine_id,
             include_history: history,
+            validation_id,
         });
         let details = client
             .get_machine_validation_results(request)
@@ -2366,14 +2376,17 @@ pub async fn update_storage_cluster(
 
 pub async fn get_machine_validation_runs(
     api_config: &ApiConfig<'_>,
-    machine_id: Option<String>,
+    arg_machine_id: Option<String>,
+    include_history: bool,
 ) -> CarbideCliResult<rpc::MachineValidationRunList> {
+    let mut machine_id: Option<::rpc::common::MachineId> = None;
+    if let Some(id) = arg_machine_id {
+        machine_id = Some(::rpc::common::MachineId { id })
+    }
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineValidationRunListGetRequest {
-            machine_id: Some(::rpc::common::MachineId {
-                id: machine_id.unwrap_or_default(),
-            }),
-            include_history: false,
+            machine_id,
+            include_history,
         });
         let details = client
             .get_machine_validation_runs(request)

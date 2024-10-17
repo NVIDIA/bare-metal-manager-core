@@ -3265,8 +3265,9 @@ message MachineValidationResultList {
 }
 
 message MachineValidationGetRequest {
-  common.MachineId machine_id = 1;  
+  optional common.MachineId machine_id = 1;  
   bool include_history = 2;
+  optional common.UUID validation_id = 3;
 }
 
 message MachineValidationRun {
@@ -3275,6 +3276,7 @@ message MachineValidationRun {
   google.protobuf.Timestamp start_time = 3;
   google.protobuf.Timestamp end_time = 4;
   string name = 5;
+  optional string context = 6;
 }
 
 message MachineSetAutoUpdateRequest {

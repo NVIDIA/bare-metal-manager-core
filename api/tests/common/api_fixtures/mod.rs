@@ -1251,13 +1251,15 @@ pub async fn persist_machine_validation_result(
 /// Emulates the `get_machine_validation_results` request of a Host
 pub async fn get_machine_validation_results(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: Option<rpc::common::MachineId>,
     include_history: bool,
+    validation_id: Option<rpc::common::Uuid>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
-            machine_id: Some(machine_id),
+            machine_id,
             include_history,
+            validation_id,
         }))
         .await
         .unwrap()

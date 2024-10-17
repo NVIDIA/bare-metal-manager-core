@@ -38,6 +38,7 @@ pub struct MachineValidation {
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub filter: Option<MachineValidationFilter>,
+    pub context: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidation {
@@ -50,6 +51,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             name: row.try_get("name")?,
             start_time: row.try_get("start_time")?,
             end_time: row.try_get("end_time")?,
+            context: row.try_get("context")?,
             filter: filter.map(|x| x.0),
         })
     }
@@ -164,6 +166,54 @@ impl MachineValidation {
 
         Ok(id)
     }
+
+    pub async fn find(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        include_history: bool,
+    ) -> CarbideResult<Vec<MachineValidation>> {
+        if include_history {
+            return Self::find_by_machine_id(txn, machine_id).await;
+        };
+        let machine = match Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
+        {
+            Err(err) => {
+                tracing::warn!(%machine_id, error = %err, "failed loading machine");
+                return Err(CarbideError::InvalidArgument(
+                    "err loading machine".to_string(),
+                ));
+            }
+            Ok(None) => {
+                tracing::info!(%machine_id, "machine not found");
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                });
+            }
+            Ok(Some(m)) => m,
+        };
+        let discovery_machine_validation_id = machine
+            .discovery_machine_validation_id()
+            .unwrap_or_default();
+        let cleanup_machine_validation_id =
+            machine.cleanup_machine_validation_id().unwrap_or_default();
+
+        let on_demand_machine_validation_id = machine
+            .on_demand_machine_validation_id()
+            .unwrap_or_default();
+        MachineValidation::find_by(
+            txn,
+            ObjectFilter::List(&[
+                cleanup_machine_validation_id.to_string(),
+                discovery_machine_validation_id.to_string(),
+                on_demand_machine_validation_id.to_string(),
+            ]),
+            "id",
+        )
+        .await
+        .map_err(CarbideError::from)
+    }
+
     pub async fn find_by_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -232,6 +282,7 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             name: value.name,
             start_time,
             end_time,
+            context: value.context,
             machine_id: Some(rpc::common::MachineId {
                 id: value.machine_id.to_string(),
             }),
@@ -520,6 +571,19 @@ impl MachineValidationResult {
             }
         }
         Ok(None)
+    }
+
+    pub async fn find_by_validation_id(
+        txn: &mut Transaction<'_, Postgres>,
+        id: &uuid::Uuid,
+    ) -> CarbideResult<Vec<MachineValidationResult>> {
+        MachineValidationResult::find_by(
+            txn,
+            ObjectFilter::List(&[id.to_string()]),
+            "machine_validation_id",
+        )
+        .await
+        .map_err(CarbideError::from)
     }
 }
 

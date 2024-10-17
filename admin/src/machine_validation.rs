@@ -68,7 +68,8 @@ async fn show_runs(
     api_config: &ApiConfig<'_>,
     args: ShowMachineValidationRunsOptions,
 ) -> CarbideCliResult<()> {
-    let runs = match rpc::get_machine_validation_runs(api_config, args.machine).await {
+    let runs = match rpc::get_machine_validation_runs(api_config, args.machine, args.history).await
+    {
         Ok(runs) => runs,
         Err(e) => return Err(e),
     };
@@ -83,7 +84,7 @@ async fn show_runs(
 fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["Id", "MachineId", "StartTime", "EndTime",]);
+    table.set_titles(row!["Id", "MachineId", "StartTime", "EndTime", "Context"]);
 
     for run in runs.runs {
         let end_time = if let Some(run_end_time) = run.end_time {
@@ -96,6 +97,7 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
             run.machine_id.unwrap_or_default(),
             run.start_time.unwrap_or_default(),
             end_time,
+            run.context.unwrap_or_default(),
         ]);
     }
 
@@ -124,11 +126,23 @@ async fn show_results(
     api_config: &ApiConfig<'_>,
     args: ShowMachineValidationResultsOptions,
 ) -> CarbideCliResult<()> {
-    let results =
-        match rpc::get_machine_validation_results(api_config, args.machine, args.history).await {
-            Ok(results) => results,
-            Err(e) => return Err(e),
-        };
+    let mut results = match rpc::get_machine_validation_results(
+        api_config,
+        args.machine,
+        args.history,
+        args.validation_id,
+    )
+    .await
+    {
+        Ok(results) => results,
+        Err(e) => return Err(e),
+    };
+
+    if args.test_name.is_some() {
+        results
+            .results
+            .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&results).unwrap());
     } else {
@@ -142,11 +156,22 @@ async fn show_results_details(
     api_config: &ApiConfig<'_>,
     args: ShowMachineValidationResultsOptions,
 ) -> CarbideCliResult<()> {
-    let results =
-        match rpc::get_machine_validation_results(api_config, args.machine, args.history).await {
-            Ok(results) => results,
-            Err(e) => return Err(e),
-        };
+    let mut results = match rpc::get_machine_validation_results(
+        api_config,
+        args.machine,
+        args.history,
+        args.validation_id,
+    )
+    .await
+    {
+        Ok(results) => results,
+        Err(e) => return Err(e),
+    };
+    if args.test_name.is_some() {
+        results
+            .results
+            .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&results).unwrap());
     } else {
@@ -162,12 +187,20 @@ async fn show_results_details(
 fn convert_results_to_nice_table(results: forgerpc::MachineValidationResultList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["RunID", "Name", "ExitCode", "StartTime", "EndTime",]);
+    table.set_titles(row![
+        "RunID",
+        "Name",
+        "Context",
+        "ExitCode",
+        "StartTime",
+        "EndTime",
+    ]);
 
     for result in results.results {
         table.add_row(row![
             result.validation_id.clone().unwrap_or_default(),
             result.name,
+            result.context,
             result.exit_code,
             result.start_time.unwrap_or_default(),
             result.end_time.unwrap_or_default(),

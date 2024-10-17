@@ -1261,25 +1261,29 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 }
             }
-            cfg::carbide_options::MachineValidationCommand::Results(opts) => {
-                machine_validation::handle_results_show(
-                    opts,
-                    config.format,
-                    api_config,
-                    config.internal_page_size,
-                    config.extended,
-                )
-                .await?;
-            }
-            cfg::carbide_options::MachineValidationCommand::Runs(opts) => {
-                machine_validation::handle_runs_show(
-                    opts,
-                    config.format,
-                    api_config,
-                    config.internal_page_size,
-                )
-                .await?;
-            }
+            cfg::carbide_options::MachineValidationCommand::Results(cmd) => match cmd {
+                cfg::carbide_options::MachineValidationResultsCommand::Show(options) => {
+                    machine_validation::handle_results_show(
+                        options,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                        config.extended,
+                    )
+                    .await?;
+                }
+            },
+            cfg::carbide_options::MachineValidationCommand::Runs(cmd) => match cmd {
+                cfg::carbide_options::MachineValidationRunsCommand::Show(options) => {
+                    machine_validation::handle_runs_show(
+                        options,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                    )
+                    .await?;
+                }
+            },
             cfg::carbide_options::MachineValidationCommand::OnDemand(on_demand_command) => {
                 match on_demand_command {
                     cfg::carbide_options::MachineValidationOnDemandCommand::Start(options) => {
