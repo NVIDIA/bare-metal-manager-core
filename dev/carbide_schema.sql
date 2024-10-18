@@ -1866,7 +1866,8 @@ ALTER TABLE public.tenant_keysets OWNER TO carbide_development;
 
 CREATE TABLE public.tenants (
     organization_id text NOT NULL,
-    version character varying(64) NOT NULL
+    version character varying(64) NOT NULL,
+    organization_name text
 );
 
 

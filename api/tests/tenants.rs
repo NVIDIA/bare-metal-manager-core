@@ -207,6 +207,71 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert!(update_tenant_err.message().contains("metadata"));
 }
 
+#[sqlx::test]
+async fn test_find_tenant_ids(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    for x in 0..10 {
+        let _tenant_create = env
+            .api
+            .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+                organization_id: format!("fh{x}{x}abcdw"),
+                metadata: Some(rpc::forge::Metadata {
+                    name: format!("tenant_{}", x),
+                    description: "".to_string(),
+                    labels: vec![],
+                }),
+            }))
+            .await;
+    }
+
+    let find_tenant = env
+        .api
+        .find_tenant_organization_ids(tonic::Request::new(rpc::forge::TenantSearchFilter {
+            tenant_organization_name: Some("tenant_3".to_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let tenant_id = find_tenant.tenant_organization_ids;
+
+    assert_eq!(tenant_id.len(), 1);
+    assert_eq!(tenant_id.first().cloned(), Some("fh33abcdw".to_string()));
+
+    let tenant_object = env
+        .api
+        .find_tenants_by_organization_ids(tonic::Request::new(
+            rpc::forge::TenantByOrganizationIdsRequest {
+                organization_ids: vec!["fh33abcdw".to_string()],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(tenant_object.tenants.len(), 1);
+    assert_eq!(
+        tenant_object.tenants.first().unwrap().metadata,
+        Some(rpc::forge::Metadata {
+            name: "tenant_3".to_string(),
+            description: "".to_string(),
+            labels: vec![],
+        })
+    );
+
+    let find_all_tenants = env
+        .api
+        .find_tenant_organization_ids(tonic::Request::new(rpc::forge::TenantSearchFilter {
+            tenant_organization_name: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(find_all_tenants.tenant_organization_ids.len(), 10);
+}
+
 async fn create_keyset(
     env: &TestEnv,
     organization_id: String,
