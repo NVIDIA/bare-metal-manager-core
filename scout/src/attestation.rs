@@ -369,7 +369,7 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
     let mut ctx = match create_context_from_path(path) {
         Ok(ctx) => ctx,
         Err(e) => {
-            tracing::error!("GetTpmDescription: Could not create TPM context: {e}");
+            tracing::error!("GetTpmDescription: Could not create TPM context (path={path}): {e}");
             return None;
         }
     };
@@ -377,7 +377,9 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
     let (capabilities, _more) = match ctx.get_capability(CapabilityType::TpmProperties, 0, 80) {
         Ok(tuple) => tuple,
         Err(e) => {
-            tracing::error!("GetTpmDescription: could not get TPM capability data: {e}");
+            tracing::error!(
+                "GetTpmDescription: Could not get TPM capability data (path={path}): {e}"
+            );
             return None;
         }
     };
@@ -385,7 +387,7 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
     let tpm_properties = match capabilities.clone() {
         TpmProperties(property_list) => property_list,
         _ => {
-            tracing::error!("Failed to call get TpmProperties");
+            tracing::error!("Failed to call get TpmProperties (path: {path})");
             return None;
         }
     };
@@ -432,7 +434,7 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
         && vendor_2 == String::default()
         && spec_version == String::default()
     {
-        tracing::error!("GetTpmDescription: could not extract tpm description");
+        tracing::error!("GetTpmDescription: Could not extract tpm description (path={path})");
         return None;
     }
 
