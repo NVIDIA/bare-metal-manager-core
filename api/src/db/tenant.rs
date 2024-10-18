@@ -29,6 +29,8 @@ use crate::model::{
 use crate::{CarbideError, CarbideResult};
 use ::rpc::forge as rpc;
 
+type OrganizationID = String;
+
 impl Tenant {
     pub async fn create_and_persist(
         organization_id: String,
@@ -100,6 +102,29 @@ impl Tenant {
                 }
                 error => CarbideError::from(DatabaseError::new(file!(), line!(), query, error)),
             })
+    }
+
+    pub async fn find_tenant_organization_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        search_config: rpc::TenantSearchFilter,
+    ) -> Result<Vec<OrganizationID>, DatabaseError> {
+        let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
+
+        if let Some(tenant_org_name) = &search_config.tenant_organization_name {
+            qb.push(" WHERE organization_name = ");
+            qb.push_bind(tenant_org_name);
+        }
+
+        let tenant_organization_ids: Vec<OrganizationID> = qb
+            .build_query_as::<(String,)>()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_tenant_organization_ids", e))?
+            .into_iter()
+            .map(|row| row.0)
+            .collect();
+
+        Ok(tenant_organization_ids)
     }
 }
 
@@ -357,4 +382,16 @@ impl TenantPublicKeyValidationRequest {
 
         self.validate_key(keysets).map_err(CarbideError::from)
     }
+}
+
+pub async fn load_by_organization_ids(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    organization_ids: &[String],
+) -> Result<Vec<Tenant>, DatabaseError> {
+    let query = "SELECT * from tenants WHERE organization_id = ANY($1)";
+    sqlx::query_as(query)
+        .bind(organization_ids)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }

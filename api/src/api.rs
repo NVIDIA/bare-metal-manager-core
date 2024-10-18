@@ -68,6 +68,7 @@ use crate::model::machine::{
     FailureSource, ManagedHostState, ManagedHostStateSnapshot,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
+use crate::model::tenant::Tenant;
 use crate::redfish::RedfishAuth;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
@@ -1094,6 +1095,81 @@ impl Forge for Api {
         Ok(tonic::Response::new(snapshot_map_to_rpc_machines(
             snapshots,
         )))
+    }
+
+    async fn find_tenant_organization_ids(
+        &self,
+        request: Request<rpc::TenantSearchFilter>,
+    ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
+        log_request_data(&request);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_tenant_ids",
+                e,
+            ))
+        })?;
+
+        let search_config = request.into_inner();
+
+        let tenant_org_ids = Tenant::find_tenant_organization_ids(&mut txn, search_config)
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
+            tenant_organization_ids: tenant_org_ids.into_iter().collect(),
+        }))
+    }
+
+    async fn find_tenants_by_organization_ids(
+        &self,
+        request: Request<rpc::TenantByOrganizationIdsRequest>,
+    ) -> Result<Response<rpc::TenantList>, Status> {
+        log_request_data(&request);
+        let request = request.into_inner();
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_tenants_by_organization_ids",
+                e,
+            ))
+        })?;
+
+        let tenant_organization_ids: Vec<String> = request.organization_ids;
+
+        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
+        if tenant_organization_ids.len() > max_find_by_ids {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no more than {max_find_by_ids} IDs can be accepted"
+            ))
+            .into());
+        } else if tenant_organization_ids.is_empty() {
+            return Err(CarbideError::InvalidArgument(
+                "at least one ID must be provided".to_string(),
+            )
+            .into());
+        }
+
+        let tenants: Vec<rpc::Tenant> =
+            db::tenant::load_by_organization_ids(&mut txn, &tenant_organization_ids)
+                .await
+                .map_err(CarbideError::from)?
+                .into_iter()
+                .filter_map(|tenant| rpc::Tenant::try_from(tenant).ok())
+                .collect();
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end find_tenants_by_organization_ids",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(rpc::TenantList { tenants }))
     }
 
     // DEPRECATED: use find_machine_ids and find_machines_by_ids instead

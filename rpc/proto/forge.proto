@@ -129,6 +129,8 @@ service Forge {
   rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
+  rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
+  rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
@@ -1518,6 +1520,22 @@ message MachineSearchConfig {
   bool only_maintenance = 4;
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
+}
+
+message TenantByOrganizationIdsRequest {
+  repeated string organization_ids = 1;
+}
+
+message TenantSearchFilter {
+  optional string tenant_organization_name = 1;
+}
+
+message TenantList {
+  repeated Tenant tenants= 1;
+}
+
+message TenantOrganizationIdList {
+  repeated string tenant_organization_ids = 1;
 }
 
 message MachineSearchQuery {
