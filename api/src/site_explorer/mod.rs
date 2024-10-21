@@ -1570,7 +1570,8 @@ impl SiteExplorer {
         //
         // If this fails, and we continue seeing the BIOS attributes come up as empty after twenty minutes (providing plenty of time)
         // for the DPU to come back up after the reboot, lets try resetting the BMC to see if it helps.
-        if error.is_dpu_missing_bios_attributes()
+
+        if error.is_dpu_redfish_bios_response_invalid()
             && time_since_redfish_reboot.num_hours() > rate_limit_hours
             && !is_managed_host_created_for_endpoint
             && self

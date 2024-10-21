@@ -789,10 +789,13 @@ pub enum EndpointExplorationError {
     #[error("Error: {details}")]
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
+
+    #[error("Invalid Redfish response for DPU BIOS: {details}")]
+    #[serde(rename_all = "PascalCase")]
+    InvalidDpuRedfishBiosResponse { details: String },
 }
 
 pub const DPU_BIOS_ATTRIBUTES_MISSING: &str = "DPU has an empty BIOS attributes";
-pub const HOST_BIOS_ATTRIBUTES_MISSING: &str = "Host has an empty BIOS attributes";
 
 impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
@@ -802,15 +805,17 @@ impl EndpointExplorationError {
 
     pub fn is_redfish(&self) -> bool {
         matches!(self, EndpointExplorationError::RedfishError { .. })
+            || matches!(
+                self,
+                EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. }
+            )
     }
 
-    pub fn is_dpu_missing_bios_attributes(&self) -> bool {
-        match self {
-            EndpointExplorationError::RedfishError { details } => {
-                details == DPU_BIOS_ATTRIBUTES_MISSING
-            }
-            _ => false,
-        }
+    pub fn is_dpu_redfish_bios_response_invalid(&self) -> bool {
+        matches!(
+            self,
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. }
+        )
     }
 }
 
