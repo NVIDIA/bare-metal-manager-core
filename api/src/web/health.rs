@@ -10,24 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
-use std::sync::Arc;
-
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportOverride, InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
-    RemoveHealthReportOverrideRequest,
+    forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
+    MachinesByIdsRequest, OverrideMode, RemoveHealthReportOverrideRequest,
 };
+use std::{str::FromStr, sync::Arc};
 
+use super::{filters, machine::get_machine_type};
 use crate::api::Api;
-use forge_uuid::machine::MachineId;
-
-use super::machine::get_machine_type;
 
 #[derive(Template)]
 #[template(path = "machine_health.html")]
@@ -45,58 +41,7 @@ struct DisplayedOverrideOrigin {
 
 struct LabeledHealthReport {
     label: String,
-    report: Option<DisplayedHealthReport>,
-}
-
-struct DisplayedHealthReport {
-    successes: Vec<HealthProbeSuccess>,
-    alerts: Vec<HealthProbeAlert>,
-}
-struct HealthProbeAlert {
-    id: String,
-    target: String,
-    in_alert_since: String,
-    message: String,
-    tenant_message: String,
-    classifications: Vec<String>,
-}
-struct HealthProbeSuccess {
-    id: String,
-    target: String,
-}
-
-impl From<rpc::health::HealthReport> for DisplayedHealthReport {
-    fn from(value: rpc::health::HealthReport) -> Self {
-        Self {
-            successes: value.successes.into_iter().map(|s| s.into()).collect(),
-            alerts: value.alerts.into_iter().map(|s| s.into()).collect(),
-        }
-    }
-}
-
-impl From<rpc::health::HealthProbeAlert> for HealthProbeAlert {
-    fn from(value: rpc::health::HealthProbeAlert) -> Self {
-        Self {
-            id: value.id,
-            target: value.target.unwrap_or_default(),
-            in_alert_since: value
-                .in_alert_since
-                .map(|t| t.to_string())
-                .unwrap_or_default(),
-            message: value.message,
-            tenant_message: value.tenant_message.unwrap_or_default(),
-            classifications: value.classifications,
-        }
-    }
-}
-
-impl From<rpc::health::HealthProbeSuccess> for HealthProbeSuccess {
-    fn from(value: rpc::health::HealthProbeSuccess) -> Self {
-        Self {
-            id: value.id,
-            target: value.target.unwrap_or_default(),
-        }
-    }
+    report: Option<health_report::HealthReport>,
 }
 
 /// View machine
@@ -161,7 +106,10 @@ pub async fn health(
                     .to_string()
                     + " "
                     + hr.source.as_str(),
-                report: Some(hr.into()),
+                report: Some(
+                    hr.try_into()
+                        .unwrap_or_else(health_report::HealthReport::malformed_report),
+                ),
             })
         })
         .collect::<Vec<_>>();
@@ -184,7 +132,10 @@ pub async fn health(
     };
     reports.push(LabeledHealthReport {
         label: "Aggregate Health".to_string(),
-        report: machine.health.map(DisplayedHealthReport::from),
+        report: machine.health.map(|health| {
+            HealthReport::try_from(health)
+                .unwrap_or_else(health_report::HealthReport::malformed_report)
+        }),
     });
 
     let request = tonic::Request::new(rpc_machine_id.clone());
@@ -204,7 +155,10 @@ pub async fn health(
     };
     reports.push(LabeledHealthReport {
         label: "Hardware Health".to_string(),
-        report: hw_report.report.map(DisplayedHealthReport::from),
+        report: hw_report.report.map(|health| {
+            HealthReport::try_from(health)
+                .unwrap_or_else(health_report::HealthReport::malformed_report)
+        }),
     });
 
     let request = tonic::Request::new(MachinesByIdsRequest {
@@ -233,7 +187,10 @@ pub async fn health(
                 "DPU Health {}",
                 dpu.id.map(|id| id.to_string()).unwrap_or_default()
             ),
-            report: dpu.health.map(DisplayedHealthReport::from),
+            report: dpu.health.map(|health| {
+                HealthReport::try_from(health)
+                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+            }),
         })
     }
 
