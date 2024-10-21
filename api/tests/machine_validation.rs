@@ -419,7 +419,7 @@ async fn test_machine_validation_get_results(
 }
 
 #[sqlx::test]
-async fn create_update_external_config(
+async fn test_create_update_external_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
@@ -498,6 +498,24 @@ async fn create_update_external_config(
         .into_inner();
     assert_eq!(res_list.names[0], "shoreline");
     assert_eq!(res_list.names.len(), 1);
+
+    // remove
+    env.api
+        .remove_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::RemoveMachineValidationExternalConfigRequest {
+                name: res_list.names[0].clone(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let remove_res_list = env
+        .api
+        .get_machine_validation_external_configs(tonic::Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(remove_res_list.names.len(), 0);
 
     Ok(())
 }

@@ -536,3 +536,25 @@ pub(crate) async fn get_machine_validation_external_configs(
         },
     ))
 }
+
+pub(crate) async fn remove_machine_validation_external_config(
+    api: &Api,
+    request: tonic::Request<rpc::RemoveMachineValidationExternalConfigRequest>,
+) -> Result<tonic::Response<()>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin remove_machine_validation_external_config ",
+            e,
+        ))
+    })?;
+
+    let _ = MachineValidationExternalConfig::remove_config(&mut txn, &req.name).await?;
+    txn.commit().await.unwrap();
+
+    Ok(tonic::Response::new(()))
+}

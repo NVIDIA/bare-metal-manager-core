@@ -1259,6 +1259,9 @@ async fn main() -> color_eyre::Result<()> {
                         )
                         .await?;
                     }
+                    cfg::carbide_options::MachineValidationExternalConfigCommand::Remove(opts) => {
+                        machine_validation::remove_external_config(api_config, opts.name).await?;
+                    }
                 }
             }
             cfg::carbide_options::MachineValidationCommand::Results(cmd) => match cmd {

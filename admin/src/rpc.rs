@@ -2814,3 +2814,20 @@ pub async fn tpm_ca_delete_cert(
     })
     .await
 }
+
+pub async fn remove_machine_validation_external_config(
+    api_config: &ApiConfig<'_>,
+    name: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request =
+            tonic::Request::new(rpc::RemoveMachineValidationExternalConfigRequest { name });
+        client
+            .remove_machine_validation_external_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}

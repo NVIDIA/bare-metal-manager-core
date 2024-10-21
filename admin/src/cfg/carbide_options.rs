@@ -1790,6 +1790,9 @@ pub enum MachineValidationExternalConfigCommand {
 
     #[clap(about = "Update External config")]
     AddUpdate(MachineValidationExternalConfigAddOptions),
+
+    #[clap(about = "Remove External config")]
+    Remove(MachineValidationExternalConfigRemoveOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1806,6 +1809,11 @@ pub struct MachineValidationExternalConfigAddOptions {
     pub name: String,
     #[clap(short, long, help = "description of the file to update")]
     pub description: String,
+}
+#[derive(Parser, Debug)]
+pub struct MachineValidationExternalConfigRemoveOptions {
+    #[clap(short, long, help = "Machine validation external config name")]
+    pub name: String,
 }
 
 #[derive(Parser, Debug)]
