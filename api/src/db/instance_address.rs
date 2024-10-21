@@ -24,9 +24,11 @@ use super::{
 };
 use super::{network_segment, DatabaseError, ObjectColumnFilter};
 
-use crate::db::network_segment::NetworkSegmentSearchConfig;
+use crate::db::network_prefix::NetworkPrefix;
+use crate::db::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::instance::config::network::InstanceNetworkConfig;
+use crate::model::instance::config::network::{InstanceInterfaceConfig, InstanceNetworkConfig};
+use crate::model::machine::MachineSnapshot;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
@@ -183,6 +185,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         txn: &mut Transaction<'_, Postgres>,
         instance_id: InstanceId,
         instance_network: &InstanceNetworkConfig,
+        machine_snapshot: &MachineSnapshot,
     ) -> CarbideResult<InstanceNetworkConfig> {
         let mut updated_config = instance_network.clone();
 
@@ -229,19 +232,24 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 }
             };
 
-            let mut circuit_id = segment
+            let valid_prefixes = segment
                 .prefixes
                 .iter()
-                .filter_map(|x| {
-                    if x.prefix.is_ipv4() {
-                        x.circuit_id.to_owned()
-                    } else {
-                        None
-                    }
-                })
+                .filter(|x| x.prefix.is_ipv4() && x.circuit_id.is_some())
+                .cloned()
                 .collect_vec();
 
-            if circuit_id.is_empty() {
+            if valid_prefixes.len() > 1 {
+                return Err(CarbideError::FindOneReturnedManyResultsError(
+                    segment.id.into(),
+                ));
+            }
+
+            let Some((Some(circuit_id), Some(network_prefix))) = valid_prefixes
+                .into_iter()
+                .next()
+                .map(|p| (p.circuit_id.as_ref().cloned(), Some(p)))
+            else {
                 tracing::error!(
                     segment_id = %segment.id,
                     "Circuit id is not yet updated for segment",
@@ -249,60 +257,55 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 return Err(CarbideError::FindOneReturnedNoResultsError(
                     segment.id.into(),
                 ));
-            } else if circuit_id.len() > 1 {
-                return Err(CarbideError::FindOneReturnedManyResultsError(
-                    segment.id.into(),
-                ));
-            }
-            let circuit_id = circuit_id.remove(0);
+            };
 
-            // Use the UsedOverlayNetworkIpResolver, which specifically looks at
-            // the instance addresses table in the database for finding
-            // the next available IP prefix allocation (with [assumed] support for
-            // allocations of varying-sized networks).
-            let dhcp_handler: Box<dyn UsedIpResolver + Send> =
-                Box::new(UsedOverlayNetworkIpResolver {
-                    segment_id: segment.id,
-                });
+            // Hydrate iface with network addresses, returning the assigned addresses
+            let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
+                // For host-inband network segments, the instance interface *is* the host interface,
+                // and we simply use the hosts's address.
+                iface.assign_ips_from((machine_snapshot, &network_prefix))?
+            } else {
+                // Use the UsedOverlayNetworkIpResolver, which specifically looks at
+                // the instance addresses table in the database for finding
+                // the next available IP prefix allocation (with [assumed] support for
+                // allocations of varying-sized networks).
+                let dhcp_handler: Box<dyn UsedIpResolver + Send> =
+                    Box::new(UsedOverlayNetworkIpResolver {
+                        segment_id: segment.id,
+                    });
 
-            // TODO(chet): FNN will be leveraging the IpAllocator to allocate
-            // a /30 for a tenant instance (or, at least, something other than
-            // a /32). For now, hard-code 32 as the length -- the plan is to
-            // update the InstanceInterfaceConfig to request the prefix_length.
-            let allocated_addresses = IpAllocator::new(
-                &mut inner_txn,
-                segment,
-                dhcp_handler,
-                AddressSelectionStrategy::Automatic,
-                32,
-            )
-            .await?;
+                // TODO(chet): FNN will be leveraging the IpAllocator to allocate
+                // a /30 for a tenant instance (or, at least, something other than
+                // a /32). For now, hard-code 32 as the length -- the plan is to
+                // update the InstanceInterfaceConfig to request the prefix_length.
+                let ip_allocator = IpAllocator::new(
+                    &mut inner_txn,
+                    segment,
+                    dhcp_handler,
+                    AddressSelectionStrategy::Automatic,
+                    32,
+                )
+                .await?;
+
+                iface.assign_ips_from(ip_allocator)?
+            };
 
             let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address, prefix)
                          VALUES ($1::uuid, $2, $3::inet, $4::cidr)";
-            for (prefix_id, allocated_prefix) in allocated_addresses {
-                let allocated_prefix = allocated_prefix?;
 
-                // This is used to populate the database (and the InstanceInterfaceConfig
-                // ip_addrs) with the host IP, meaning, if the instance-allocated prefix
-                // is a /32 IpNetwork, it will be the IP. If it's a /30 (say, for FNN), it
-                // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
-                // as the visibly-assigned IP address for the instance.
-                let host_ip = get_host_ip(&allocated_prefix)?;
-
+            for address in addresses {
                 sqlx::query(query)
                     .bind(instance_id)
-                    .bind(circuit_id.to_owned())
-                    .bind(host_ip)
-                    .bind(allocated_prefix)
+                    .bind(&circuit_id)
+                    // eg. 10.3.2.1/30
+                    .bind(address.ip())
+                    // eg. 10.3.2.0/30
+                    .bind(IpNetwork::new(address.network(), address.prefix())?)
                     .fetch_all(&mut *inner_txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
                     })?;
-
-                iface.ip_addrs.insert(prefix_id, host_ip);
-                iface.interface_prefixes.insert(prefix_id, allocated_prefix);
             }
         }
 
@@ -402,6 +405,117 @@ WHERE network_segments.id = $1::uuid";
     }
 }
 
+/// Get IP addresses from Source, write them to self, and return them. Currently can come from an
+/// IpAllocator, or from a host snapshot.
+trait AssignIpsFrom<Source> {
+    fn assign_ips_from(&mut self, source: Source) -> CarbideResult<Vec<IpNetwork>>;
+}
+
+impl AssignIpsFrom<(&MachineSnapshot, &NetworkPrefix)> for InstanceInterfaceConfig {
+    // Zero-dpu config: For machines without DPUs, the machines's interface will be on an
+    // HostInband network segment, which will be the same segment as the instance wants. In
+    // this case, the host's interface *is* the instance interface, so we copy the config from it.
+    fn assign_ips_from(
+        &mut self,
+        source: (&MachineSnapshot, &NetworkPrefix),
+    ) -> CarbideResult<Vec<IpNetwork>> {
+        let (machine_snapshot, network_prefix) = source;
+
+        // Find which interface on the machine is in this prefix
+        let host_interfaces_in_instance_segment = machine_snapshot
+            .interfaces
+            .iter()
+            .filter(|i| i.segment_id == self.network_segment_id)
+            .collect::<Vec<_>>();
+
+        if host_interfaces_in_instance_segment.len() > 1 {
+            tracing::error!("Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config.");
+            return Err(CarbideError::FindOneReturnedManyResultsError(
+                self.network_segment_id.0,
+            ));
+        }
+
+        let Some(inband_host_interface) = host_interfaces_in_instance_segment.into_iter().next()
+        else {
+            return Err(CarbideError::InvalidConfiguration(
+                ConfigValidationError::NetworkSegmentUnavailableOnHost,
+            ));
+        };
+
+        let matching_addresses = inband_host_interface
+            .addresses
+            .iter()
+            .cloned()
+            .filter(|a| network_prefix.prefix.contains(*a))
+            .collect::<Vec<_>>();
+
+        if matching_addresses.len() > 1 {
+            tracing::warn!(
+                machine_id = %machine_snapshot.machine_id,
+                prefix = %network_prefix.prefix,
+                "Multiple IP addresses on managed host in the same network prefix, picking the first one to assign to instance"
+            )
+        }
+
+        let Some(address) = matching_addresses.into_iter().next() else {
+            return Err(CarbideError::InvalidConfiguration(
+                ConfigValidationError::NetworkSegmentUnavailableOnHost,
+            ));
+        };
+
+        self.ip_addrs.insert(network_prefix.id.into(), address);
+
+        self.host_inband_mac_address = Some(inband_host_interface.mac_address);
+
+        // Also write out the gateway for the network segment's prefix. Unlike the interface_prefixes
+        // field (which is a /32 or /30 for just this instance, for hosts with DPUs),
+        // segment_gateway is the gateway for the entire network segment.
+        //
+        // This is currently only used for zero-DPU instances, where the instance's interface is
+        // equivalent to the host's interface, and the tenant needs to know the gateway and prefix
+        // to use for configuration.
+        if let Some(prefix_gateway) = network_prefix.gateway {
+            // gateway_as_network is the IP address of the gateway with the prefix length
+            // appended. Example:
+            // prefix_gateway: 192.168.1.1
+            // network_prefix.prefix: 192.168.1.0/24
+            // gateway_as_network: 192.168.1.1/24
+            let gateway_as_network =
+                IpNetwork::new(prefix_gateway, network_prefix.prefix.prefix())?;
+            self.network_segment_gateways
+                .insert(network_prefix.id.into(), gateway_as_network);
+        }
+
+        Ok(vec![IpNetwork::new(
+            address,
+            network_prefix.prefix.prefix(),
+        )?])
+    }
+}
+
+impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
+    fn assign_ips_from(&mut self, ip_allocator: IpAllocator) -> CarbideResult<Vec<IpNetwork>> {
+        let mut addresses = Vec::new();
+        for (prefix_id, allocated_prefix) in ip_allocator {
+            let allocated_prefix = allocated_prefix?;
+
+            // This is used to populate the database (and the InstanceInterfaceConfig
+            // ip_addrs) with the host IP, meaning, if the instance-allocated prefix
+            // is a /32 IpNetwork, it will be the IP. If it's a /30 (say, for FNN), it
+            // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
+            // as the visibly-assigned IP address for the instance.
+            let host_ip = get_host_ip(&allocated_prefix)?;
+            self.ip_addrs.insert(prefix_id.into(), host_ip);
+            self.interface_prefixes
+                .insert(prefix_id.into(), allocated_prefix);
+
+            addresses.push(IpNetwork::new(host_ip, allocated_prefix.prefix())?);
+        }
+
+        Ok(addresses)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +576,8 @@ mod tests {
                     network_segment_id,
                     ip_addrs: HashMap::default(),
                     interface_prefixes: HashMap::default(),
+                    network_segment_gateways: HashMap::default(),
+                    host_inband_mac_address: None,
                 }
             })
             .collect();

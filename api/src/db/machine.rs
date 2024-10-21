@@ -514,7 +514,7 @@ impl Machine {
         relay: IpAddr,
     ) -> Result<Option<MachineId>, DatabaseError> {
         let query = "
-SELECT m.id FROM
+    SELECT m.id FROM
     machines m
     INNER JOIN machine_interfaces mi
         ON m.id = mi.machine_id

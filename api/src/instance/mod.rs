@@ -187,8 +187,13 @@ pub async fn allocate_instance(
     // tenant?
 
     // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
-    let updated_network_config =
-        InstanceAddress::allocate(&mut txn, instance.id, &request.config.network).await?;
+    let updated_network_config = InstanceAddress::allocate(
+        &mut txn,
+        instance.id,
+        &request.config.network,
+        &mh_snapshot.host_snapshot,
+    )
+    .await?;
 
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1

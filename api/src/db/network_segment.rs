@@ -110,12 +110,22 @@ impl NetworkSegment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(rename_all = "lowercase")]
+#[sqlx(rename_all = "snake_case")]
 #[sqlx(type_name = "network_segment_type_t")]
 pub enum NetworkSegmentType {
     Tenant = 0,
     Admin,
     Underlay,
+    HostInband,
+}
+
+impl NetworkSegmentType {
+    pub fn is_tenant(&self) -> bool {
+        matches!(
+            self,
+            NetworkSegmentType::Tenant | NetworkSegmentType::HostInband
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -138,6 +148,7 @@ impl TryFrom<i32> for NetworkSegmentType {
             x if x == rpc::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
             x if x == rpc::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
             x if x == rpc::NetworkSegmentType::Underlay as i32 => NetworkSegmentType::Underlay,
+            x if x == rpc::NetworkSegmentType::HostInband as i32 => NetworkSegmentType::HostInband,
             _ => {
                 return Err(RpcDataConversionError::InvalidNetworkSegmentType(value));
             }
@@ -152,6 +163,7 @@ impl FromStr for NetworkSegmentType {
             "tenant" => NetworkSegmentType::Tenant,
             "admin" => NetworkSegmentType::Admin,
             "tor" => NetworkSegmentType::Underlay,
+            "host_inband" => NetworkSegmentType::HostInband,
             _ => {
                 return Err(CarbideError::DatabaseTypeConversionError(format!(
                     "Invalid segment type {} reveived from Database.",
@@ -168,6 +180,7 @@ impl fmt::Display for NetworkSegmentType {
             Self::Tenant => write!(f, "tenant"),
             Self::Admin => write!(f, "admin"),
             Self::Underlay => write!(f, "tor"),
+            Self::HostInband => write!(f, "host_inband"),
         }
     }
 }
@@ -524,6 +537,22 @@ impl NetworkSegment {
         Ok(all_records)
     }
 
+    pub async fn find_and_index_by_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        network_segment_ids: &[NetworkSegmentId],
+        search_config: NetworkSegmentSearchConfig,
+    ) -> Result<HashMap<NetworkSegmentId, Self>, DatabaseError> {
+        Ok(Self::find_by(
+            txn,
+            ObjectColumnFilter::List(IdColumn, network_segment_ids),
+            search_config,
+        )
+        .await?
+        .into_iter()
+        .map(|x| (x.id, x))
+        .collect::<HashMap<_, _>>())
+    }
+
     async fn update_prefix_into_network_segment_list(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         search_config: NetworkSegmentSearchConfig,
@@ -556,7 +585,7 @@ impl NetworkSegment {
 
                 if search_config.include_num_free_ips && !record.prefixes.is_empty() {
                     let dhcp_handler: Box<dyn UsedIpResolver + Send> =
-                        if record.segment_type == NetworkSegmentType::Tenant {
+                        if record.segment_type.is_tenant() {
                             // Note on UsedOverlayNetworkIpResolver:
                             // In this case, the IpAllocator isn't being used to iterate to get
                             // the next available prefix_length allocation -- it's actually just

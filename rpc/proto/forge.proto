@@ -900,6 +900,7 @@ enum NetworkSegmentType {
   TENANT = 0;
   ADMIN = 1;
   UNDERLAY = 2;
+  HOST_INBAND = 3;
 }
 
 message NetworkSegment {

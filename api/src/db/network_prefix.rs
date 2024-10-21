@@ -9,8 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::IpAddr;
-use std::ops::DerefMut;
+use std::{
+    fmt::{Display, Formatter},
+    net::IpAddr,
+    ops::DerefMut,
+};
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
@@ -135,6 +138,7 @@ impl NetworkPrefix {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
     /*
      * Return a list of `NetworkPrefix`es for a segment.
      */
@@ -239,11 +243,38 @@ impl NetworkPrefix {
     }
 }
 
-#[derive(Debug, Clone, Copy, FromRow)]
-pub struct NetworkPrefixId(uuid::Uuid);
+// Note: we don't implement Serialize/Deserialize intentionally. We don't want to accidentally
+// serialize the NewType itself, only the uuid.
+#[derive(Debug, Clone, Copy, FromRow, Hash, PartialOrd, Ord, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct NetworkPrefixId(pub uuid::Uuid);
+
+impl Display for NetworkPrefixId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl From<NetworkPrefixId> for uuid::Uuid {
     fn from(id: NetworkPrefixId) -> Self {
         id.0
+    }
+}
+
+impl From<&NetworkPrefixId> for uuid::Uuid {
+    fn from(id: &NetworkPrefixId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for NetworkPrefixId {
+    fn from(value: uuid::Uuid) -> Self {
+        NetworkPrefixId(value)
+    }
+}
+
+impl From<&uuid::Uuid> for NetworkPrefixId {
+    fn from(value: &uuid::Uuid) -> Self {
+        NetworkPrefixId(*value)
     }
 }

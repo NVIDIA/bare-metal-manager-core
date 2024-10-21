@@ -12,6 +12,7 @@
 
 use std::net::IpAddr;
 
+use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
@@ -22,13 +23,13 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     instance::{
         config::network::{
-            validate_interface_function_ids, InstanceNetworkConfig, InterfaceFunctionId,
+            validate_interface_function_ids, InstanceInterfaceConfig, InstanceNetworkConfig,
+            InterfaceFunctionId,
         },
         status::SyncState,
     },
     SerializableMacAddress, StatusValidationError,
 };
-use ::rpc::errors::RpcDataConversionError;
 
 /// Status of the networking subsystem of an instance
 ///
@@ -98,7 +99,13 @@ impl InstanceNetworkStatus {
     ) -> Self {
         let observations = match observations {
             Some(observations) => observations,
-            None => return Self::unsynchronized_for_config(&config),
+            None => {
+                return if config.is_host_inband() {
+                    Self::synchronized_from_host_interfaces(config.value.interfaces.clone())
+                } else {
+                    Self::unsynchronized_for_config(&config)
+                }
+            }
         };
 
         if observations.config_version != config.version {
@@ -173,6 +180,18 @@ impl InstanceNetworkStatus {
             configs_synced: SyncState::Pending,
         }
     }
+
+    /// Creates an `InstanceNetworkStatus` report for cases where all interfaces on the instance are
+    /// host-inband (and we do not expect any observations.)
+    fn synchronized_from_host_interfaces(interfaces: Vec<InstanceInterfaceConfig>) -> Self {
+        Self {
+            interfaces: interfaces
+                .into_iter()
+                .map(InstanceInterfaceStatus::from_host_inband_interface)
+                .collect(),
+            configs_synced: SyncState::Synced,
+        }
+    }
 }
 
 /// The actual status of a single network interface of an instance
@@ -203,6 +222,47 @@ pub struct InstanceInterfaceStatus {
 
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     pub gateways: Vec<IpNetwork>,
+}
+
+impl InstanceInterfaceStatus {
+    /// Create a "synthetic" InstanceInterfaceStatus using an InstanceInterfaceConfig as a seed.
+    /// Host-inband interfaces do not get real network status observations, so we construct status
+    /// ourselves from the host interface's config.
+    pub fn from_host_inband_interface(mut value: InstanceInterfaceConfig) -> Self {
+        let (prefix_ids, addresses): (Vec<_>, Vec<_>) = value.ip_addrs.into_iter().unzip();
+
+        // For each NetworkPrefixId we saw in ip_addrs, get that entry from the
+        // network_segment_gateways map. Collecting them into an Option<Vec<IpNetwork>> returns None
+        // if any of them were not found.
+        let gateways = prefix_ids
+            .iter()
+            .map(|id| if let Some(gw) = value.network_segment_gateways.remove(id) {
+                Some(gw)
+            } else {
+                tracing::warn!("Missing gateway in InstanceInterfaceConfig for network prefix {id}, gateways field will be empty.");
+                None
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default();
+
+        // Build a map of prefixes by taking the gateway field (which already is an IpNetwork e.g.
+        // 10.1.2.1/24) and building an IpNetwork from the gateway's prefix (e.g. 10.1.2.0/24)
+        let prefixes = gateways
+            .iter()
+            // Unwrap safety: This only fails if the prefix length passed to IpNetwork::new() is
+            // invalid, which can't happen because we're getting it from another (valid)
+            // IpNetwork.
+            .map(|gw| IpNetwork::new(gw.network(), gw.prefix()).unwrap())
+            .collect();
+
+        Self {
+            function_id: value.function_id,
+            mac_address: value.host_inband_mac_address,
+            addresses,
+            prefixes,
+            gateways,
+        }
+    }
 }
 
 impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
@@ -390,9 +450,13 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 mod tests {
     use std::{collections::HashMap, fmt::Write};
 
-    use super::*;
-    use crate::model::instance::config::network::InstanceInterfaceConfig;
     use forge_uuid::network::NetworkSegmentId;
+
+    use super::*;
+    use crate::{
+        db::network_prefix::NetworkPrefixId,
+        model::instance::config::network::InstanceInterfaceConfig,
+    };
 
     #[test]
     fn deserialize_old_network_status_observation() {
@@ -494,7 +558,8 @@ mod tests {
     fn network_config() -> InstanceNetworkConfig {
         let base_uuid: NetworkSegmentId =
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-        let prefix_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400");
+        let prefix_uuid: NetworkPrefixId =
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400").into();
 
         InstanceNetworkConfig {
             interfaces: vec![
@@ -506,30 +571,105 @@ mod tests {
                         prefix_uuid,
                         "127.0.0.1/32".parse().unwrap(),
                     )]),
+                    network_segment_gateways: HashMap::from([(
+                        prefix_uuid,
+                        "127.0.0.1/32".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
                         "127.0.0.2".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
                         "127.0.0.2/32".parse().unwrap(),
                     )]),
+                    network_segment_gateways: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        "127.0.0.2/32".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
                     network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
                         "127.0.0.3".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
                         "127.0.0.3/32".parse().unwrap(),
                     )]),
+                    network_segment_gateways: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        "127.0.0.3/32".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: None,
+                },
+            ],
+        }
+    }
+
+    fn host_inband_network_config() -> InstanceNetworkConfig {
+        let base_uuid: NetworkSegmentId =
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let prefix_uuid: NetworkPrefixId =
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400").into();
+
+        InstanceNetworkConfig {
+            interfaces: vec![
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Physical {},
+                    network_segment_id: base_uuid,
+                    ip_addrs: HashMap::from([(prefix_uuid, "127.0.1.2".parse().unwrap())]),
+                    interface_prefixes: HashMap::from([(
+                        prefix_uuid,
+                        "127.0.1.0/24".parse().unwrap(),
+                    )]),
+                    network_segment_gateways: HashMap::from([(
+                        prefix_uuid,
+                        "127.0.1.1/24".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
+                },
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
+                    ip_addrs: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        "127.0.2.2".parse().unwrap(),
+                    )]),
+                    interface_prefixes: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        "127.0.2.0/24".parse().unwrap(),
+                    )]),
+                    network_segment_gateways: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        "127.0.2.1/24".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
+                },
+                InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
+                    ip_addrs: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        "127.0.3.2".parse().unwrap(),
+                    )]),
+                    interface_prefixes: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        "127.0.3.0/24".parse().unwrap(),
+                    )]),
+                    network_segment_gateways: HashMap::from([(
+                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        "127.0.3.1/24".parse().unwrap(),
+                    )]),
+                    host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                 },
             ],
         }
@@ -626,6 +766,35 @@ mod tests {
         }
     }
 
+    fn expected_host_inband_status() -> InstanceNetworkStatus {
+        InstanceNetworkStatus {
+            interfaces: vec![
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::Physical {},
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
+                    addresses: vec!["127.0.1.2".parse().unwrap()],
+                    prefixes: vec!["127.0.1.0/24".parse().unwrap()],
+                    gateways: vec!["127.0.1.1/24".parse().unwrap()],
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::Virtual { id: 1 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
+                    addresses: vec!["127.0.2.2".parse().unwrap()],
+                    prefixes: vec!["127.0.2.0/24".parse().unwrap()],
+                    gateways: vec!["127.0.2.1/24".parse().unwrap()],
+                },
+                InstanceInterfaceStatus {
+                    function_id: InterfaceFunctionId::Virtual { id: 2 },
+                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
+                    addresses: vec!["127.0.3.2".parse().unwrap()],
+                    prefixes: vec!["127.0.3.0/24".parse().unwrap()],
+                    gateways: vec!["127.0.3.1/24".parse().unwrap()],
+                },
+            ],
+            configs_synced: SyncState::Synced,
+        }
+    }
+
     #[test]
     fn network_status_without_observations() {
         let config = network_config();
@@ -662,5 +831,17 @@ mod tests {
             Some(&observation),
         );
         assert_eq!(status, unsynced_status())
+    }
+
+    #[test]
+    fn network_status_host_inband_interface_config() {
+        let config = host_inband_network_config();
+        let version = ConfigVersion::initial();
+        let status = InstanceNetworkStatus::from_config_and_observation(
+            Versioned::new(&config, version.increment()),
+            // No observations
+            None,
+        );
+        assert_eq!(status, expected_host_inband_status())
     }
 }

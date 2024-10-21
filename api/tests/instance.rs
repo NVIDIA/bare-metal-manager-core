@@ -173,6 +173,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         assert_eq!(iface.interface_prefixes.len(), 1);
         iface.ip_addrs.clear();
         iface.interface_prefixes.clear();
+        iface.network_segment_gateways.clear();
     }
     assert_eq!(
         network_config_no_addresses,
@@ -1265,7 +1266,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .get(pf_segment)
         .expect("Could not find matching interface_prefixes entry for pf_segment from ip_addrs.");
 
-    let pf_gw = NetworkPrefix::find(&mut txn, *pf_segment)
+    let pf_gw = NetworkPrefix::find(&mut txn, pf_segment.into())
         .await
         .ok()
         .and_then(|pfx| pfx.gateway_cidr())

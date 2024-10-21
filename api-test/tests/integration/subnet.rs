@@ -14,14 +14,21 @@ use std::net::SocketAddr;
 
 use super::grpcurl::{grpcurl, grpcurl_id};
 
-pub fn create(carbide_api_addr: SocketAddr, vpc_id: &str) -> eyre::Result<String> {
+pub fn create(
+    carbide_api_addr: SocketAddr,
+    vpc_id: &str,
+    domain_id: &str,
+    prefix_octet: u8,
+    host_inband_network: bool,
+) -> eyre::Result<String> {
     tracing::info!("Creating network segment");
 
     let data = serde_json::json!({
         "vpc_id": { "value": vpc_id },
         "name": "tenant1",
-        "segment_type": "TENANT",
-        "prefixes": [{"prefix":"10.10.10.0/24", "gateway": "10.10.10.1", "reserve_first": 10}]
+        "subdomain_id": { "value": domain_id },
+        "segment_type": if host_inband_network { "HOST_INBAND" } else { "TENANT" },
+        "prefixes": [{"prefix":format!("10.10.{prefix_octet}.0/24"), "gateway": format!("10.10.{prefix_octet}.1"), "reserve_first": 10}]
     });
     let segment_id = grpcurl_id(carbide_api_addr, "CreateNetworkSegment", &data.to_string())?;
     tracing::info!("Network Segment created with ID {segment_id}");
