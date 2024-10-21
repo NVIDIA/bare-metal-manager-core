@@ -42,10 +42,10 @@
 		{% for alert in health.alerts %}
 		<tr>
 			<td>{{ alert.id }}</td>
-			<td>{{ alert.target }}</td>
-			<td>{{ alert.in_alert_since }}</td>
+			<td>{{ alert.target|option_fmt }}</td>
+			<td>{{ alert.in_alert_since|option_fmt }}</td>
 			<td>{{ alert.message }}</td>
-			<td>{{ alert.tenant_message }}</td>
+			<td>{{ alert.tenant_message|option_fmt }}</td>
 			<td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td>
 		</tr>
 		{% endfor %}
@@ -67,7 +67,7 @@
 			{% for success in health.successes %}
 			<tr>
 				<td>{{ success.id }}</td>
-				<td>{{ success.target }}</td>
+				<td>{{ success.target|option_fmt }}</td>
 			</tr>
 			{% endfor %}
 		</tbody>
