@@ -64,11 +64,17 @@ impl MachineValidationExternalConfig {
         name: &str,
     ) -> CarbideResult<Self> {
         let query = "SELECT * FROM machine_validation_external_config WHERE name=$1";
-        sqlx::query_as(query)
+        match sqlx::query_as(query)
             .bind(name)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+        {
+            Ok(val) => Ok(val),
+            Err(_) => Err(CarbideError::NotFoundError {
+                kind: "machine_validation_external_config",
+                id: name.to_owned(),
+            }),
+        }
     }
 
     pub async fn save(
@@ -131,6 +137,24 @@ impl MachineValidationExternalConfig {
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(names)
+    }
+
+    pub async fn remove_config(
+        txn: &mut Transaction<'_, Postgres>,
+        name: &str,
+    ) -> CarbideResult<Self> {
+        let query = "DELETE FROM machine_validation_external_config WHERE name=$1 RETURNING *";
+        match sqlx::query_as(query)
+            .bind(name)
+            .fetch_one(txn.deref_mut())
+            .await
+        {
+            Ok(val) => Ok(val),
+            Err(_) => Err(CarbideError::NotFoundError {
+                kind: "machine_validation_external_config",
+                id: name.to_owned(),
+            }),
+        }
     }
 }
 #[cfg(test)]

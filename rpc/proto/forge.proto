@@ -390,6 +390,9 @@ service Forge {
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
+  
+  // Remove ExternalConfig
+  rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
 
   // Bmc Endpoint Explorer Actions
   // Reset a BMC
@@ -3333,7 +3336,9 @@ message AddUpdateMachineValidationExternalConfigRequest {
     optional string description = 2;
     bytes config = 3;
 }
-
+message RemoveMachineValidationExternalConfigRequest {
+    string name = 1;
+}
 message MachineValidationOnDemandRequest {
   common.MachineId machine_id = 1;
   repeated string tags = 2;

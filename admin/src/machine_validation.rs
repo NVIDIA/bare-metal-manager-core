@@ -269,3 +269,11 @@ pub async fn on_demand_machine_validation(
         .await?;
     Ok(())
 }
+pub async fn remove_external_config(
+    api_config: &ApiConfig<'_>,
+    name: String,
+) -> CarbideCliResult<()> {
+    // Read the file data from disk
+    rpc::remove_machine_validation_external_config(api_config, name).await?;
+    Ok(())
+}
