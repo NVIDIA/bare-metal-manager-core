@@ -20,11 +20,20 @@ use std::{
     net::IpAddr,
 };
 
+use crate::db::network_segment::NetworkSegmentType;
+use crate::logging::setup::Logging;
+use crate::logging::{
+    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    setup::create_metrics,
+    setup::setup_logging,
+};
+use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 use ::rpc::errors::RpcDataConversionError;
 use config_version::{ConfigVersion, ConfigVersionParseError};
 use dhcp::allocation::DhcpError;
 use eyre::WrapErr;
 use forge_uuid::machine::MachineId;
+use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 use model::{
     hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
@@ -34,14 +43,6 @@ use tokio::sync::oneshot::{Receiver, Sender};
 use tonic::Status;
 use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
-
-use crate::logging::setup::Logging;
-use crate::logging::{
-    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-    setup::create_metrics,
-    setup::setup_logging,
-};
-use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 
 pub mod api;
 pub mod attestation;
@@ -148,6 +149,9 @@ pub enum CarbideError {
 
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
+
+    #[error("Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}")]
+    PredictedHostWrongNetworkSegment(MacAddress, NetworkSegmentId, NetworkSegmentType),
 
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),

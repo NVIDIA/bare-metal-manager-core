@@ -13,6 +13,7 @@ use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
 use config_version::ConfigVersion;
 use forge_uuid::machine::{MachineId, MachineType};
+use itertools::Itertools;
 use libredfish::RedfishError;
 use mac_address::MacAddress;
 use regex::Regex;
@@ -118,6 +119,7 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.as_slice())
             .filter_map(|e| e.mac_address)
+            .dedup()
             .collect()
     }
 }

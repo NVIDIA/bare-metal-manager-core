@@ -16,6 +16,7 @@ pub use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
+use crate::db::{machine_interface, predicted_machine_interface::PredictedMachineInterface};
 use crate::{
     cfg::HostHealthConfig,
     db::{
@@ -156,9 +157,30 @@ pub async fn discover_dhcp(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let existing_machine = Machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
-        .await
-        .map_err(CarbideError::from)?;
+    let existing_machine_id =
+        match Machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(existing_machine) => Some(existing_machine),
+            None => {
+                if let Some(expected_interface) =
+                    PredictedMachineInterface::find_by_mac_address(&mut txn, parsed_mac)
+                        .await
+                        .map_err(CarbideError::from)?
+                {
+                    machine_interface::move_predicted_machine_interface_to_machine(
+                        &mut txn,
+                        &expected_interface,
+                        relay_ip,
+                    )
+                    .await?;
+                    Some(expected_interface.machine_id)
+                } else {
+                    None
+                }
+            }
+        };
 
     // Instance handling. None means no instance found matching with dhcp request.
     if let Some(response) = handle_dhcp_for_instance(
@@ -179,7 +201,7 @@ pub async fn discover_dhcp(
 
     let machine_interface = db::machine_interface::find_or_create_machine_interface(
         &mut txn,
-        existing_machine,
+        existing_machine_id,
         parsed_mac,
         parsed_relay,
     )

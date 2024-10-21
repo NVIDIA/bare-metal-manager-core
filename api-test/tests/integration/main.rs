@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use std::future::Future;
 use std::net::TcpListener;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -29,6 +29,7 @@ use futures::FutureExt;
 use grpcurl::grpcurl;
 use host::machine_validation_completed;
 use itertools::Itertools;
+use sqlx::types::mac_address::MacAddress;
 use sqlx::{Postgres, Row};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -36,6 +37,7 @@ use tokio::time::sleep;
 use crate::utils::IntegrationTestEnvironment;
 
 mod api_server;
+mod domain;
 mod dpu;
 pub mod grpcurl;
 mod host;
@@ -146,7 +148,8 @@ async fn test_integration() -> eyre::Result<()> {
     upgrade::confirm_upgraded(db_pool.clone(), &dpu_info.machine_id).await?;
 
     let vpc_id = vpc::create(carbide_api_addr)?;
-    let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
+    let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
+    let segment_id = subnet::create(carbide_api_addr, &vpc_id, &domain_id, 10, false)?;
 
     // Create instance with phone_home enabled
 
@@ -275,14 +278,37 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     .await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
-    let segment_id = subnet::create(carbide_api_addr, &tenant1_vpc)?;
+    let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
+    let managed_segment_id = subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 10, false)?;
+    let host_inband_segment_id =
+        subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 11, true)?;
 
     // Run several tests in parallel.
     let all_tests = join_all([
-        test_machine_a_tron_multidpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
-        test_machine_a_tron_zerodpu(&test_env, &bmc_address_registry, &segment_id).boxed(),
-        test_machine_a_tron_singledpu_nic_mode(&test_env, &bmc_address_registry, &segment_id)
-            .boxed(),
+        test_machine_a_tron_multidpu(
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_zerodpu(
+            &test_env,
+            &bmc_address_registry,
+            &host_inband_segment_id,
+            // Relay IP in host-inband net
+            Ipv4Addr::new(10, 10, 11, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_singledpu_nic_mode(
+            &test_env,
+            &bmc_address_registry,
+            &host_inband_segment_id,
+            // Relay IP in host-inband  net
+            Ipv4Addr::new(10, 10, 11, 2),
+        )
+        .boxed(),
     ]);
 
     tokio::select! {
@@ -302,84 +328,15 @@ async fn test_machine_a_tron_multidpu(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
-) -> eyre::Result<()> {
-    run_machine_a_tron_test(1, 2, false, test_env, bmc_mock_registry, |machine_actor| {
-        let segment_id = segment_id.to_string();
-        let carbide_api_addr = test_env.carbide_api_addr;
-        async move {
-            machine_actor
-                .wait_until_machine_up_with_api_state("Ready")
-                .await?;
-            let machine_id = machine_actor
-                .observed_machine_id()
-                .await?
-                .expect("Machine ID should be set if host is ready")
-                .to_string();
-            tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
-            let instance_id = instance::create(
-                carbide_api_addr,
-                &machine_id,
-                &segment_id,
-                None,
-                false,
-                false,
-            )?;
-
-            machine_actor
-                .wait_until_machine_up_with_api_state("Assigned/Ready")
-                .await?;
-
-            let instance_json = instance::get_instance_json_by_machine_id(
-                carbide_api_addr,
-                machine_actor
-                    .observed_machine_id()
-                    .await?
-                    .expect("HostMachine should have a Machine ID once it's in ready state")
-                    .to_string()
-                    .as_str(),
-            )?;
-            let serde_json::Value::Object(interface) =
-                &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
-            else {
-                panic!("Allocated instance does not have interface configuration")
-            };
-
-            let serde_json::Value::Array(addrs) = &interface["addresses"] else {
-                panic!("Interface does not have addresses")
-            };
-            assert_eq!(addrs.len(), 1);
-
-            let serde_json::Value::Array(gateways) = &interface["gateways"] else {
-                panic!("Interface does not have gateways set")
-            };
-            assert_eq!(gateways.len(), 1);
-
-            tracing::info!(
-                "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
-            );
-            instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
-
-            machine_actor
-                .wait_until_machine_up_with_api_state("Ready")
-                .await?;
-            tracing::info!("Machine {machine_id} has made it to Ready again, all done");
-            Ok::<(), eyre::Report>(())
-        }
-    })
-    .await
-}
-
-async fn test_machine_a_tron_zerodpu(
-    test_env: &IntegrationTestEnvironment,
-    bmc_mock_registry: &BmcMockRegistry,
-    segment_id: &str,
+    admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
         1,
-        0,
+        2,
         false,
         test_env,
         bmc_mock_registry,
+        admin_dhcp_relay_address,
         |machine_actor| {
             let segment_id = segment_id.to_string();
             let carbide_api_addr = test_env.carbide_api_addr;
@@ -424,12 +381,12 @@ async fn test_machine_a_tron_zerodpu(
                 let serde_json::Value::Array(addrs) = &interface["addresses"] else {
                     panic!("Interface does not have addresses")
                 };
-                assert_eq!(addrs.len(), 0, "Interface should have no addresses, since we don't get network config from zero-dpu hosts");
+                assert_eq!(addrs.len(), 1);
 
                 let serde_json::Value::Array(gateways) = &interface["gateways"] else {
                     panic!("Interface does not have gateways set")
                 };
-                assert_eq!(gateways.len(), 0, "Interface should have no gateways, since we don't get network config from zero-dpu hosts");
+                assert_eq!(gateways.len(), 1);
 
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
@@ -444,13 +401,99 @@ async fn test_machine_a_tron_zerodpu(
             }
         },
     )
-        .await
+    .await
+}
+
+async fn test_machine_a_tron_zerodpu(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    segment_id: &str,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        1,
+        0,
+        false,
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_actor| {
+            let carbide_api_addr = test_env.carbide_api_addr;
+            async move {
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                let machine_id = machine_actor
+                    .observed_machine_id()
+                    .await?
+                    .expect("Machine ID should be set if host is ready")
+                    .to_string();
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                let instance_id = instance::create(
+                    carbide_api_addr,
+                    &machine_id,
+                    segment_id,
+                    None,
+                    false,
+                    false,
+                )?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Assigned/Ready")
+                    .await?;
+
+                let instance_json = instance::get_instance_json_by_machine_id(
+                    carbide_api_addr,
+                    machine_actor
+                        .observed_machine_id()
+                        .await?
+                        .expect("HostMachine should have a Machine ID once it's in ready state")
+                        .to_string()
+                        .as_str(),
+                )?;
+                let serde_json::Value::Object(interface) =
+                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
+                else {
+                    panic!("Allocated instance does not have interface configuration")
+                };
+
+                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
+                    panic!("Interface does not have addresses")
+                };
+                assert_eq!(addrs.len(), 1, "Interface should have a single address");
+
+                let serde_json::Value::String(mac_address) = &interface["macAddress"] else {
+                    panic!("Interface does not have MAC address set")
+                };
+                if let Err(e) = MacAddress::from_str(mac_address.as_str()) {
+                    panic!("Invalid mac address: {mac_address}: {e}");
+                };
+                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
+                    panic!("Interface does not have gateways set")
+                };
+                assert_eq!(gateways.len(), 1, "Interface should have a single gateway");
+
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
+
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+    .await
 }
 
 async fn test_machine_a_tron_singledpu_nic_mode(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
+    admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
         1,
@@ -458,6 +501,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         true,
         test_env,
         bmc_mock_registry,
+        admin_dhcp_relay_address,
         |machine_actor| {
             let segment_id = segment_id.to_string();
             let carbide_api_addr = test_env.carbide_api_addr;
@@ -502,12 +546,18 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                 let serde_json::Value::Array(addrs) = &interface["addresses"] else {
                     panic!("Interface does not have addresses")
                 };
-                assert_eq!(addrs.len(), 0, "Interface should have no addresses, since we don't get network config from zero-dpu hosts");
+                assert_eq!(addrs.len(), 1, "Interface should have a single address");
 
+                let serde_json::Value::String(mac_address) = &interface["macAddress"] else {
+                    panic!("Interface does not have MAC address set")
+                };
+                if let Err(e) = MacAddress::from_str(mac_address.as_str()) {
+                    panic!("Invalid mac address: {mac_address}: {e}");
+                };
                 let serde_json::Value::Array(gateways) = &interface["gateways"] else {
                     panic!("Interface does not have gateways set")
                 };
-                assert_eq!(gateways.len(), 0, "Interface should have no gateways, since we don't get network config from zero-dpu hosts");
+                assert_eq!(gateways.len(), 1, "Interface should have a single gateway");
 
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
@@ -531,6 +581,7 @@ async fn run_machine_a_tron_test<F, O>(
     dpus_in_nic_mode: bool,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
+    admin_dhcp_relay_address: Ipv4Addr,
     run_assertions: F,
 ) -> eyre::Result<()>
 where
@@ -552,7 +603,7 @@ where
                     .to_str()
                     .unwrap()
                     .to_string(),
-                admin_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
+                admin_dhcp_relay_address,
                 oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                 vpc_count: 0,
                 subnets_per_vpc: 0,

@@ -65,13 +65,15 @@ mod metrics;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
-use crate::model::hardware_info::NetworkInterface;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 
 mod managed_host;
-pub use managed_host::is_endpoint_in_managed_host;
-
 use self::metrics::exploration_error_to_metric_label;
+use crate::db::predicted_machine_interface::{
+    NewPredictedMachineInterface, PredictedMachineInterface,
+};
+use crate::db::{predicted_machine_interface, ObjectColumnFilter};
+pub use managed_host::is_endpoint_in_managed_host;
 
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -461,7 +463,6 @@ impl SiteExplorer {
                 tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
                 return Err(error);
             }
-            tracing::info!("Creating managed_host with zero DPUs");
             let did_create = self
                 .create_zero_dpu_machine(&mut txn, &mut managed_host, &mut report)
                 .await?;
@@ -469,6 +470,7 @@ impl SiteExplorer {
                 // Site explorer has already created a machine for this endpoint previously, skip.
                 return Ok(false);
             }
+            tracing::info!("Created managed_host with zero DPUs");
         }
 
         let mut dpu_ids = vec![];
@@ -672,12 +674,6 @@ impl SiteExplorer {
                             "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration.",
                         );
                         continue;
-                    } else {
-                        tracing::info!(
-                            address = %ep.address,
-                            exploration_report = ?ep,
-                            "identified zero-DPU managed host",
-                        );
                     }
                 }
             }
@@ -1187,6 +1183,18 @@ impl SiteExplorer {
             {
                 return Ok(false);
             }
+
+            // If we already minted this machine and it hasn't DHCP'd yet, there will be an
+            // predicted_machine_interface with this MAC address. If so, also skip.
+            if !PredictedMachineInterface::find_by(
+                txn,
+                ObjectColumnFilter::One(predicted_machine_interface::MacAddressColumn, mac_address),
+            )
+            .await?
+            .is_empty()
+            {
+                return Ok(false);
+            }
         }
 
         let machine_id = match managed_host.machine_id.as_ref() {
@@ -1234,25 +1242,13 @@ impl SiteExplorer {
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
-        for iface in report
-            .systems
-            .first()
-            .map(|s| s.ethernet_interfaces.as_slice())
-            .unwrap_or_default()
-        {
-            let Some(mac_address) = iface.mac_address else {
-                continue;
-            };
-
-            let network_interface = NetworkInterface {
+        for mac_address in mac_addresses {
+            NewPredictedMachineInterface {
+                machine_id: &machine_id,
                 mac_address,
-                pci_properties: None,
-            };
-            db::machine_interface::create_host_machine_non_dpu_interface_proactively(
-                txn,
-                &machine_id,
-                &network_interface,
-            )
+                expected_network_segment_type: NetworkSegmentType::HostInband,
+            }
+            .create(txn)
             .await?;
         }
 

@@ -17,7 +17,6 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use hyper::http::StatusCode;
-use mac_address::MacAddress;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
@@ -221,7 +220,7 @@ struct InstanceInterface {
     function_type: String,
     vf_id: String,
     segment_id: String,
-    mac_address: MacAddress,
+    mac_address: String,
     addresses: String,
     gateways: String,
 }
@@ -259,8 +258,10 @@ impl TryFrom<forgerpc::Instance> for InstanceDetail {
         if if_configs.len() == if_status.len() {
             for (i, interface) in if_configs.iter().enumerate() {
                 let status = &if_status[i];
-                let mac_address: MacAddress =
-                    status.mac_address.clone().unwrap_or_default().parse()?;
+                let mac_address = status
+                    .mac_address
+                    .clone()
+                    .unwrap_or("<unknown>".to_string());
                 interfaces.push(InstanceInterface {
                     function_type: forgerpc::InterfaceFunctionType::try_from(
                         interface.function_type,
@@ -441,13 +442,14 @@ pub async fn detail(
 
     let instance = instances.instances.pop().unwrap(); // safe, we checked above
     let tried: CarbideResult<InstanceDetail> = instance.try_into();
-    if let Ok(instance_detail) = tried {
-        (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
-    } else {
-        (
+    match tried {
+        Ok(instance_detail) => {
+            (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
+        }
+        Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to render InstanceDetail from Instance",
+            format!("Failed to render InstanceDetail from Instance: {e}"),
         )
-            .into_response()
+            .into_response(),
     }
 }

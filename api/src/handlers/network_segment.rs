@@ -176,7 +176,7 @@ pub(crate) async fn create(
 
     let new_network_segment = NewNetworkSegment::try_from(request)?;
 
-    if new_network_segment.segment_type == NetworkSegmentType::Tenant {
+    if new_network_segment.segment_type.is_tenant() {
         if let Some(site_fabric_prefixes) = api.eth_data.site_fabric_prefixes.as_ref() {
             let segment_prefixes: Vec<_> = new_network_segment
                 .prefixes

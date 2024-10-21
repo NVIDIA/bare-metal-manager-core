@@ -15,11 +15,12 @@ use std::{
     net::IpAddr,
 };
 
-use crate::model::ConfigValidationError;
+use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
-use serde::{Deserialize, Serialize};
+use mac_address::MacAddress;
+use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
@@ -126,6 +127,8 @@ impl InstanceNetworkConfig {
                 network_segment_id,
                 ip_addrs: HashMap::default(),
                 interface_prefixes: HashMap::default(),
+                network_segment_gateways: HashMap::default(),
+                host_inband_mac_address: None,
             }],
         }
     }
@@ -186,6 +189,7 @@ impl InstanceNetworkConfig {
         for iface in &mut current.interfaces {
             iface.ip_addrs.clear();
             iface.interface_prefixes.clear();
+            iface.network_segment_gateways.clear();
         }
 
         if current != *new_config {
@@ -195,6 +199,14 @@ impl InstanceNetworkConfig {
         }
 
         Ok(())
+    }
+
+    /// Returns true if all interfaces on this instance are equivalent to the host's in-band
+    /// interface, meaning they belong to a network segment of type
+    /// [`NetworkSegmentType::HostInband`]. This is in contrast to DPU-based interfaces where the
+    /// instance sees an overlay network.
+    pub fn is_host_inband(&self) -> bool {
+        self.interfaces.iter().all(|i| i.is_host_inband())
     }
 }
 
@@ -238,6 +250,8 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 network_segment_id,
                 ip_addrs: HashMap::default(),
                 interface_prefixes: HashMap::default(),
+                network_segment_gateways: HashMap::new(),
+                host_inband_mac_address: None,
             });
         }
 
@@ -332,10 +346,12 @@ pub struct InstanceInterfaceConfig {
     pub network_segment_id: NetworkSegmentId,
     /// The IP address we allocated for each network prefix for this interface
     /// This is not populated if we have not allocated IP addresses yet.
-    //
-    // TODO(chet): The Uuid-based key here is the NetworkPrefixId, and should
-    // be updated to be a NetworkPrefixId.
-    pub ip_addrs: HashMap<uuid::Uuid, IpAddr>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_network_prefix_id_ipaddr_map",
+        serialize_with = "serialize_network_prefix_id_ipaddr_map"
+    )]
+    pub ip_addrs: HashMap<NetworkPrefixId, IpAddr>,
     /// The interface-specific prefix allocation we carved out from each
     /// network prefix for this interface (e.g. in FNN we might carve out
     /// a /30 for an interface, whereas in ETV we just allocate a /32).
@@ -348,15 +364,101 @@ pub struct InstanceInterfaceConfig {
     /// TODO(chet): Allow a default value to be set here for backwards
     /// compatibility, since InstanceInterfaceConfigs for existing instances
     /// won't have this information stored.
-    #[serde(default)]
-    pub interface_prefixes: HashMap<uuid::Uuid, IpNetwork>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_network_prefix_id_ipnetwork_map",
+        serialize_with = "serialize_network_prefix_id_ipnetwork_map"
+    )]
+    pub interface_prefixes: HashMap<NetworkPrefixId, IpNetwork>,
+
+    /// The gateway (with prefix) for each network segment
+    #[serde(
+        default,
+        deserialize_with = "deserialize_network_prefix_id_ipnetwork_map",
+        serialize_with = "serialize_network_prefix_id_ipnetwork_map"
+    )]
+    pub network_segment_gateways: HashMap<NetworkPrefixId, IpNetwork>,
+
+    /// The MAC address of the NIC, if this is zero-DPU instance with host inband networking. For
+    /// zero-DPU instances, the instance interface is just the host's network interface, so we can
+    /// assign the host's MAC here. This is opposed to instances with DPUs, where we do not know the
+    /// MAC address that the instance will see until we start getting status observations from the
+    /// forge agent.
+    pub host_inband_mac_address: Option<MacAddress>,
     // TODO: Security group
+}
+
+impl InstanceInterfaceConfig {
+    /// Returns true if this instance interface is equivalent to the host's in-band interface,
+    /// meaning it belong to a network segment of type [`NetworkSegmentType::HostInband`]. This is
+    /// in contrast to DPU-based interfaces where the instance sees an overlay network.
+    ///
+    /// Currently this is true if self.host_inband_mac_address is set to some value.
+    pub fn is_host_inband(&self) -> bool {
+        self.host_inband_mac_address.is_some()
+    }
 }
 
 /// Minimum valid value (inclusive) for a virtual function ID
 pub const INTERFACE_VFID_MIN: usize = 0;
 /// Maximum valid value (inclusive) for a virtual function ID
 pub const INTERFACE_VFID_MAX: usize = 15;
+
+pub fn deserialize_network_prefix_id_ipaddr_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<NetworkPrefixId, IpAddr>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let uuid_map = <HashMap<uuid::Uuid, IpAddr>>::deserialize(deserializer)?;
+    Ok(uuid_map
+        .into_iter()
+        .map(|(uuid, ipaddr)| (NetworkPrefixId::from(uuid), ipaddr))
+        .collect())
+}
+
+pub fn deserialize_network_prefix_id_ipnetwork_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<NetworkPrefixId, IpNetwork>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let uuid_map = <HashMap<uuid::Uuid, IpNetwork>>::deserialize(deserializer)?;
+    Ok(uuid_map
+        .into_iter()
+        .map(|(uuid, ipnetwork)| (NetworkPrefixId::from(uuid), ipnetwork))
+        .collect())
+}
+
+pub fn serialize_network_prefix_id_ipaddr_map<S>(
+    map: &HashMap<NetworkPrefixId, IpAddr>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut out_map = s.serialize_map(Some(map.len()))?;
+    for (k, v) in map {
+        let uuid: uuid::Uuid = (*k).into();
+        out_map.serialize_entry(&uuid, v)?
+    }
+    out_map.end()
+}
+
+pub fn serialize_network_prefix_id_ipnetwork_map<S>(
+    map: &HashMap<NetworkPrefixId, IpNetwork>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut out_map = s.serialize_map(Some(map.len()))?;
+    for (k, v) in map {
+        let uuid: uuid::Uuid = k.into();
+        out_map.serialize_entry(&uuid, v)?
+    }
+    out_map.end()
+}
 
 #[cfg(test)]
 mod tests {
@@ -402,21 +504,23 @@ mod tests {
         let function_id = InterfaceFunctionId::Physical {};
         let network_segment_id: NetworkSegmentId =
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-        let network_prefix_1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
-        let mut ip_addrs = HashMap::new();
-        let mut interface_prefixes = HashMap::new();
-        ip_addrs.insert(network_prefix_1, "192.168.1.2".parse().unwrap());
-        interface_prefixes.insert(network_prefix_1, "192.168.1.2/32".parse().unwrap());
+        let network_prefix_1 =
+            NetworkPrefixId::from(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201"));
+        let ip_addrs = HashMap::from([(network_prefix_1, "192.168.1.2".parse().unwrap())]);
+        let interface_prefixes =
+            HashMap::from([(network_prefix_1, "192.168.1.2/32".parse().unwrap())]);
+        let network_segment_gateways = HashMap::default();
 
-        // Test plain serialization without inserting ip addresses. The
         let interface = InstanceInterfaceConfig {
             function_id,
             network_segment_id,
             ip_addrs,
             interface_prefixes,
+            network_segment_gateways,
+            host_inband_mac_address: None,
         };
         let serialized = serde_json::to_string(&interface).unwrap();
-        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"}}");
+        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"},\"network_segment_gateways\":{},\"host_inband_mac_address\":null}");
 
         assert_eq!(
             serde_json::from_str::<InstanceInterfaceConfig>(&serialized).unwrap(),
@@ -441,6 +545,8 @@ mod tests {
                     network_segment_id,
                     ip_addrs: HashMap::default(),
                     interface_prefixes: HashMap::default(),
+                    network_segment_gateways: HashMap::default(),
+                    host_inband_mac_address: None,
                 }
             })
             .collect();
@@ -465,6 +571,8 @@ mod tests {
                 network_segment_id: BASE_SEGMENT_ID.into(),
                 ip_addrs: HashMap::new(),
                 interface_prefixes: HashMap::new(),
+                network_segment_gateways: HashMap::new(),
+                host_inband_mac_address: None,
             }]
         );
     }
@@ -490,6 +598,8 @@ mod tests {
             network_segment_id: BASE_SEGMENT_ID.into(),
             ip_addrs: HashMap::new(),
             interface_prefixes: HashMap::new(),
+            network_segment_gateways: HashMap::new(),
+            host_inband_mac_address: None,
         }];
 
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
@@ -498,6 +608,8 @@ mod tests {
                 network_segment_id: offset_segment_id(vfid + 1),
                 ip_addrs: HashMap::new(),
                 interface_prefixes: HashMap::new(),
+                network_segment_gateways: HashMap::new(),
+                host_inband_mac_address: None,
             });
         }
         assert_eq!(netconfig.interfaces, &expected_interfaces[..]);

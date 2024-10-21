@@ -90,6 +90,9 @@ pub enum ConfigValidationError {
 
     #[error("Instance cannot connect to multiple storage clusters")]
     StorageClusterInvalid,
+
+    #[error("Specified network is not available on the requested host")]
+    NetworkSegmentUnavailableOnHost,
 }
 
 impl ConfigValidationError {

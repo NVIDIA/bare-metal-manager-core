@@ -31,8 +31,9 @@ use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
+use crate::db::predicted_machine_interface::PredictedMachineInterface;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::hardware_info::{HardwareInfo, NetworkInterface};
+use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
@@ -260,11 +261,11 @@ pub async fn find_one(
 // one.
 pub async fn find_or_create_machine_interface(
     txn: &mut Transaction<'_, Postgres>,
-    machines: Option<MachineId>,
+    machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relay: IpAddr,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
-    match machines {
+    match machine_id {
         None => {
             tracing::info!(
                 %mac_address,
@@ -644,37 +645,91 @@ pub async fn get_machine_interface_primary(
         })
 }
 
-/// Create a non-DPU interface for a host machine.
-pub async fn create_host_machine_non_dpu_interface_proactively(
+/// Move an entry from predicted_machine_interfaces to machine_interfaces, using the given relay IP
+/// to know what network segment to assign.
+pub async fn move_predicted_machine_interface_to_machine(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
-    network_interface: &NetworkInterface,
-) -> Result<MachineInterfaceSnapshot, CarbideError> {
-    let admin_network = NetworkSegment::admin(txn).await?;
-
-    // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
-    // segment.
-    let prefix = admin_network
-        .prefixes
-        .iter()
-        .filter(|x| x.prefix.is_ipv4())
-        .last()
-        .ok_or(CarbideError::AdminNetworkNotConfigured)?;
-
-    let Some(gateway) = prefix.gateway else {
-        return Err(CarbideError::AdminNetworkNotConfigured);
+    predicted_machine_interface: &PredictedMachineInterface,
+    relay_ip: IpAddr,
+) -> Result<(), CarbideError> {
+    tracing::info!(
+        machine_id=%predicted_machine_interface.machine_id,
+        mac_address=%predicted_machine_interface.mac_address,
+        %relay_ip,
+        "Got DHCP from predicted machine interface, moving to machine"
+    );
+    let Some(network_segment) = NetworkSegment::for_relay(txn, relay_ip).await? else {
+        return Err(CarbideError::NoNetworkSegmentsForRelay(relay_ip));
     };
 
-    let machine_interface = find_or_create_machine_interface(
+    if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
+        return Err(CarbideError::PredictedHostWrongNetworkSegment(
+            predicted_machine_interface.mac_address,
+            network_segment.id,
+            predicted_machine_interface.expected_network_segment_type,
+        ));
+    }
+
+    let machine_interface_id = match self::find_by_mac_address(
         txn,
-        Some(machine_id.clone()),
-        network_interface.mac_address,
-        gateway,
+        predicted_machine_interface.mac_address,
+    )
+    .await?
+    .into_iter()
+    .find(|machine_interface| machine_interface.segment_id == network_segment.id)
+    {
+        Some(machine_interface_snapshot) => {
+            match machine_interface_snapshot.machine_id.as_ref() {
+                None => {
+                    // This host has already DHCP'd once and created an anonymous machine_interface,
+                    // we will migrate it below.
+                    machine_interface_snapshot.id
+                }
+                Some(machine_id) => {
+                    if machine_id.ne(&predicted_machine_interface.machine_id) {
+                        tracing::error!(
+                            %machine_id,
+                            "Can't migrate predicted_machine_interface to machine_interface: one already exists with this MAC address"
+                        );
+                        return Err(CarbideError::NetworkSegmentDuplicateMacAddress(
+                            predicted_machine_interface.mac_address,
+                        ));
+                    } else {
+                        tracing::warn!(
+                            %machine_id,
+                            "Bug: trying to move predicted_machine_interface to machine_interface, but it's already a part of this machine? Will proceed anyway."
+                        );
+                        machine_interface_snapshot.id
+                    }
+                }
+            }
+        }
+        None => {
+            // This host has never DHCP'd before, create a new machine_interface for it
+            let machine_interface = create(
+                txn,
+                &network_segment,
+                &predicted_machine_interface.mac_address,
+                network_segment.subdomain_id,
+                false,
+                AddressSelectionStrategy::Automatic,
+            )
+            .await?;
+            machine_interface.id
+        }
+    };
+
+    // Take either the newly-created interface or the anonymous one we found, and associate it with
+    // this machine.
+    associate_interface_with_machine(
+        &machine_interface_id,
+        &predicted_machine_interface.machine_id,
+        txn,
     )
     .await?;
-    associate_interface_with_machine(&machine_interface.id, machine_id, txn).await?;
 
-    Ok(machine_interface)
+    predicted_machine_interface.delete(txn).await?;
+    Ok(())
 }
 
 /// This function creates Proactive Host Machine Interface with all available information.
