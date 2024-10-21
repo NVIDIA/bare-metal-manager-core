@@ -20,12 +20,13 @@ use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{ForgeSetupStatus, Redfish, RedfishError, RoleId};
 use regex::Regex;
+use serde_json::Value;
 
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
     NicMode, PCIeDevice, PowerState, Service, SystemStatus, UefiDevicePath,
-    DPU_BIOS_ATTRIBUTES_MISSING, HOST_BIOS_ATTRIBUTES_MISSING,
+    DPU_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -395,21 +396,32 @@ async fn fetch_system(
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
-    let bios = client.bios().await.map_err(map_redfish_error)?;
-    let bios_attributes = match bios.get("Attributes") {
-        Some(attributes) => Ok(attributes.clone()),
-        None => {
-            let details = if is_dpu {
-                DPU_BIOS_ATTRIBUTES_MISSING
-            } else {
-                HOST_BIOS_ATTRIBUTES_MISSING
-            };
+    let bios_attributes: Value;
+    match client.bios().await {
+        Ok(bios) => {
+            match bios.get("Attributes") {
+                Some(attributes) => bios_attributes = attributes.clone(),
+                None => {
+                    if is_dpu {
+                        return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                            details: DPU_BIOS_ATTRIBUTES_MISSING.to_owned(),
+                        });
+                    }
 
-            Err(EndpointExplorationError::RedfishError {
-                details: details.to_owned(),
-            })
+                    bios_attributes = Value::default();
+                }
+            };
         }
-    }?;
+        Err(e) => {
+            if is_dpu {
+                return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                    details: e.to_string(),
+                });
+            }
+
+            return Err(map_redfish_error(e));
+        }
+    };
 
     let pcie_devices = fetch_pcie_devices(client)
         .await

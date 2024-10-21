@@ -443,6 +443,9 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::MissingVendor => "missing_vendor",
         EndpointExplorationError::AvoidLockout => "avoid_lockout",
         EndpointExplorationError::Other { .. } => "other",
+        EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+            "invalid_dpu_redfish_bios_response"
+        }
     }
     .to_string()
 }
