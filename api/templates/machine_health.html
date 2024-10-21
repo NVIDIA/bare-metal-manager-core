@@ -46,7 +46,7 @@
 			<td>{{ alert.in_alert_since|option_fmt }}</td>
 			<td>{{ alert.message }}</td>
 			<td>{{ alert.tenant_message|option_fmt }}</td>
-			<td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td>
+			<td>{{ [alert]|health_alert_classifications_fmt|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>

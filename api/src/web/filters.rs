@@ -106,21 +106,26 @@ pub fn health_alerts_fmt(
 
 /// Formats a list of Health Alert Classifications
 /// If there is no alert, the generated String will be empty
-pub fn health_alert_classifications_fmt(
-    alerts: &[health_report::HealthProbeAlert],
-) -> ::askama::Result<String> {
+pub fn health_alert_classifications_fmt<'a, T, AlertRef>(alerts: T) -> ::askama::Result<String>
+where
+    T: IntoIterator<Item = AlertRef>,
+    AlertRef: std::borrow::Borrow<&'a health_report::HealthProbeAlert> + 'a,
+{
     let mut result = String::new();
-    let mut classifications = BTreeSet::new();
+    let mut classifications = BTreeSet::<health_report::HealthAlertClassification>::new();
 
-    for alert in alerts.iter() {
-        classifications.extend(alert.classifications.iter());
+    for alert_ref in alerts.into_iter() {
+        let alert: &health_report::HealthProbeAlert = alert_ref.borrow();
+        classifications.extend(alert.classifications.iter().cloned());
     }
 
     for classification in classifications.iter() {
         if !result.is_empty() {
             result += "<br>";
         }
+        result += r#"<div class="health_alert_classification">"#;
         askama_escape::Html.write_escaped(&mut result, &classification.to_string())?;
+        result += r#"</div>"#;
     }
 
     Ok(result)
