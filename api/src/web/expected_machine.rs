@@ -137,15 +137,15 @@ pub async fn show_all_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_all_json(AxumState(api): AxumState<Arc<Api>>) -> Response {
+pub async fn show_expected_machine_raw_json(AxumState(api): AxumState<Arc<Api>>) -> Response {
     let result = match api
-        .get_all_expected_machines_linked(tonic::Request::new(()))
+        .get_all_expected_machines(tonic::Request::new(()))
         .await
         .map(|response| response.into_inner())
     {
         Ok(machines) => machines,
         Err(err) => {
-            tracing::error!(%err, "get_all_expected_machines_linked");
+            tracing::error!(%err, "show_expected_machine_raw_json");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading expected machines from carbide-api",
@@ -153,10 +153,6 @@ pub async fn show_all_json(AxumState(api): AxumState<Arc<Api>>) -> Response {
                 .into_response();
         }
     };
-    let out: Vec<ExpectedMachineRow> = result
-        .expected_machines
-        .into_iter()
-        .map(|m| m.into())
-        .collect();
-    (StatusCode::OK, Json(out)).into_response()
+
+    (StatusCode::OK, Json(result)).into_response()
 }

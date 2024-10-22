@@ -131,8 +131,8 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             )
             .route("/expected-machine", get(expected_machine::show_all_html))
             .route(
-                "/expected-machine.json",
-                get(expected_machine::show_all_json),
+                "/expected-machine-definition.json",
+                get(expected_machine::show_expected_machine_raw_json),
             )
             .route("/network-device", get(network_device::show_html))
             .route("/network-device.json", get(network_device::show_json))
