@@ -14,7 +14,7 @@
 	<h1>All Managed Hosts</h1>
 {% endif %}
 
-<details {% if is_filtered || grouped_hosts.is_some() %}open="true"{% endif %}>
+<details {% if is_filtered || grouped_hosts.is_some() %}open{% endif %}>
 	<summary>Show filters</summary>
 	<form class="filter-container" action="" method="get">
 		<div>
