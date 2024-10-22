@@ -291,7 +291,8 @@ struct MachineDetail {
     inventory: Vec<MachineInventorySoftwareComponent>,
     health: health_report::HealthReport,
     health_overrides: Vec<String>,
-    bmc_ip: String,
+    bmc_info: Option<rpc::forge::BmcInfo>,
+    discovery_info_json: String,
 }
 
 struct MachineHistoryDisplay {
@@ -395,11 +396,6 @@ impl From<forgerpc::Machine> for MachineDetail {
             inventory.extend(inv.components.iter().cloned());
         }
 
-        let bmc_ip = match m.bmc_info {
-            Some(ref bi) => bi.ip().to_string(),
-            _ => String::new(),
-        };
-
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
             id: machine_id.clone(),
@@ -436,7 +432,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
-            bmc_ip,
+            bmc_info: m.bmc_info.clone(),
             history,
             bios_version,
             board_version,
@@ -464,6 +460,14 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .iter()
                 .map(|o| o.source.clone())
                 .collect(),
+            discovery_info_json: m
+                .discovery_info
+                .as_ref()
+                .map(|info| {
+                    serde_json::to_string_pretty(info)
+                        .unwrap_or_else(|e| format!("Formatting error: {e}"))
+                })
+                .unwrap_or_else(|| "null".to_string()),
         }
     }
 }

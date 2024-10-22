@@ -29,30 +29,9 @@
 	{% if !network_config.is_empty() %}
 	<tr>
 		<th>Network config (sent to forge-dpu-agent)</th>
-		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;"><pre><code>{{ network_config }}</code></pre></div></td>
+		<td><div style="max-height: 20vh; overflow: auto; margin: 0; padding: 0;"><pre><code>{{ network_config }}</code></pre></div></td>
 	</tr>
 	{% endif %}
-	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
-	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
-	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
-	<tr><th>Chassis Serial</th><td>{{ chassis_serial }}</td></tr>
-	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
-	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
-	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
-	
-	<tr>
-		<th>Power Control</th>
-		<td>
-			{% include "power_control.html" %}
-		</td>
-	</tr>
-	<tr>
-		<th>Reset BMC</th>
-		<td>
-			{% include "bmc_reset.html" %}
-		</td>
-	</tr>
-
 </table>
 
 <h3>Health</h3>
@@ -88,6 +67,55 @@
 			<a href="/admin/machine/health/{{ id }}">
 				{{ health_overrides|join("\n")|linebreaksbr|safe }}
 			</a>
+		</td>
+	</tr>
+</table>
+
+<h3>BMC</h3>
+{% match bmc_info %}
+{% when Some with (bmc_info) %}
+{% set bmc_ip = bmc_info.ip.clone().unwrap_or_default() %}
+<table>
+	<tr><th>IP</th><td><a href="/admin/explored-endpoint/{{ bmc_ip }}">{{ bmc_ip }}</a></td></tr>
+	<tr><th>Port</th><td>{{ bmc_info.port|option_fmt }}</td></tr>
+	<tr><th>MAC Address</th><td>{{ bmc_info.mac|option_fmt }}</td></tr>
+	<tr><th>Version</th><td>{{ bmc_info.version|option_fmt }}</td></tr>
+	<tr><th>Firmware Version</th><td>{{ bmc_info.firmware_version|option_fmt }}</td></tr>
+	<tr>
+		<th>Power Control</th>
+		<td>
+			{% include "power_control.html" %}
+		</td>
+	</tr>
+	<tr>
+		<th>Reset BMC</th>
+		<td>
+			{% include "bmc_reset.html" %}
+		</td>
+	</tr>
+</table>
+{% else %}
+Missing BMC Data
+{% endmatch %}
+
+<h3>Discovery Info</h3>
+<table>
+	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
+	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
+	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
+	<tr><th>Chassis Serial</th><td>{{ chassis_serial }}</td></tr>
+	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
+	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
+	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
+	<tr>
+		<th>Details</th>
+		<td>
+			<details>
+				<summary>Expand Details</summary>
+				<div style="max-height: 40vh; overflow: auto; margin: 0; padding: 0;">
+					<pre><code>{{ discovery_info_json }}</code></pre>
+				</div>
+			</details>
 		</td>
 	</tr>
 </table>
