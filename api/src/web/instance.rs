@@ -32,6 +32,7 @@ struct InstanceShow {
 
 struct InstanceDisplay {
     id: String,
+    name: String,
     machine_id: String,
     tenant_org: String,
     tenant_state: String,
@@ -134,6 +135,11 @@ impl From<forgerpc::Instance> for InstanceDisplay {
 
         Self {
             id: instance.id.unwrap_or_default().to_string(),
+            name: instance
+                .metadata
+                .as_ref()
+                .map(|metadata| metadata.name.clone())
+                .unwrap_or_default(),
             machine_id: instance
                 .machine_id
                 .unwrap_or_else(super::invalid_machine_id)
