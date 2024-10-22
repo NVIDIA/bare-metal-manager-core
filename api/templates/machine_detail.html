@@ -185,17 +185,15 @@ Missing BMC Data
 <table class="detailsview">
 	<thead>
 		<tr>
-			<th>State</th>
 			<th>Version</th>
-			<th>Time</th>
+			<th>State</th>
 		</tr>
 	</thead>
 	<tbody>
 	{% for event in history %}
 		<tr>
-			<td><pre><code class="prettyjson">{{event.event}}</code></pre></td>
 			<td>{{event.version|config_version|safe}}</td>
-			<td>{{event.time}}</td>
+			<td style="max-width: 50vw;"><pre><code class="prettyjson">{{event.event}}</code></pre></td>
 		</tr>
 	{% endfor %}
 	</tbody>
