@@ -333,6 +333,7 @@ form.filter-container div:nth-child(8) {
 				let elems = document.getElementsByClassName("prettyjson");
 				for (elem of elems) {
 					elem.style.overflow = "auto";
+					elem.style.display = "block";
 					if (elem.parentElement.nodeName === "PRE") {
 						elem.parentElement.style.whiteSpace = "pre-wrap";
 					}
