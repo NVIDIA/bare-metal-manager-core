@@ -9,25 +9,28 @@
 
 <h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %}</h1>
 
-<form id="filter-container" action="" method="get">
-	<div>
-			<label for="vendor-filter">Vendor:</label>
-			<select id="vendor-filter" name="vendor-filter">
-					<option value="all">All</option>
-					{% for v in vendors %}
-					<option value="{{ v|lower }}" {% if active_vendor_filter == v.to_lowercase() %}selected{% endif %}>{{ v|capitalize }}</option>
-					{% endfor %}
-					<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
-			</select>
-	</div>
-	<div>
-			<label for="errors-only">Errors only:</label>
-			<input type="checkbox" id="errors-only" name="errors-only" {% if is_errors_only %}checked{% endif %}>
-	</div>
-	<div>
-			<input type="submit" value="Update">
-	</div>
-</form>
+<details {% if active_vendor_filter != "all" || is_errors_only %}open{% endif %}>
+	<summary>Show filters</summary>
+	<form id="filter-container" action="" method="get">
+		<div>
+				<label for="vendor-filter">Vendor:</label>
+				<select id="vendor-filter" name="vendor-filter">
+						<option value="all">All</option>
+						{% for v in vendors %}
+						<option value="{{ v|lower }}" {% if active_vendor_filter == v.to_lowercase() %}selected{% endif %}>{{ v|capitalize }}</option>
+						{% endfor %}
+						<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
+				</select>
+		</div>
+		<div>
+				<label for="errors-only">Errors only:</label>
+				<input type="checkbox" id="errors-only" name="errors-only" {% if is_errors_only %}checked{% endif %}>
+		</div>
+		<div>
+				<input type="submit" value="Update">
+		</div>
+	</form>
+</details>
 
 <table class="sortable">
 	<thead>
