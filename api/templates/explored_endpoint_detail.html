@@ -129,36 +129,39 @@
 			</tbody>
 		</table>
 	</td></tr>
-  <tr><th>PCIe Devices</th><td style="padding: 0;">
-    <table style="width: 100;">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Name</th>
-        <th>Manufacturer</th>
-        <th>Description</th>
-        <th>Firmware Version</th>
-        <th>GPU Vendor</th>
-        <th>Part Number</th>
-        <th>Serial Number</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for pci in system.pcie_devices %}
-      <tr>
-        <td>{{ pci.id|option_fmt }}</td>
-        <td>{{ pci.name|option_fmt }}</td>
-        <td>{{ pci.manufacturer|option_fmt }}</td>
-        <td>{{ pci.description|option_fmt }}</td>
-        <td>{{ pci.firmware_version|option_fmt }}</td>
-        <td>{{ pci.gpu_vendor|option_fmt }}</td>
-        <td>{{ pci.part_number|option_fmt }}</td>
-        <td>{{ pci.serial_number|option_fmt }}</td>
-      </tr>
-    {% endfor %}
-      </tbody>
-    </table>
-  </td></tr>
+	<tr>
+		<th>PCIe Devices</th>
+		<td style="padding: 0;">
+			<table style="width: 100%;">
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>Name</th>
+						<th>Manufacturer</th>
+						<th>Description</th>
+						<th>Firmware Version</th>
+						<th>GPU Vendor</th>
+						<th>Part Number</th>
+						<th>Serial Number</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for pci in system.pcie_devices %}
+					<tr>
+						<td>{{ pci.id|option_fmt }}</td>
+						<td>{{ pci.name|option_fmt }}</td>
+						<td>{{ pci.manufacturer|option_fmt }}</td>
+						<td>{{ pci.description|option_fmt }}</td>
+						<td>{{ pci.firmware_version|option_fmt }}</td>
+						<td>{{ pci.gpu_vendor|option_fmt }}</td>
+						<td>{{ pci.part_number|option_fmt }}</td>
+						<td>{{ pci.serial_number|option_fmt }}</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</td>
+	</tr>
 </table>
 {% endfor %}
 
