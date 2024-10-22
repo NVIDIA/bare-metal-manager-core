@@ -298,7 +298,6 @@ struct MachineDetail {
 struct MachineHistoryDisplay {
     event: String,
     version: String,
-    time: String,
 }
 
 struct MachineInterfaceDisplay {
@@ -328,7 +327,6 @@ impl From<forgerpc::Machine> for MachineDetail {
             history.push(MachineHistoryDisplay {
                 event: e.event,
                 version: e.version,
-                time: e.time.unwrap_or_default().to_string(),
             });
         }
 
