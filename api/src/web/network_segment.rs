@@ -212,7 +212,6 @@ struct NetworkSegmentPrefix {
 struct NetworkSegmentHistory {
     state: String,
     version: String,
-    time: String,
 }
 
 impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
@@ -237,7 +236,6 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             history.push(NetworkSegmentHistory {
                 state: h.state,
                 version: h.version,
-                time: h.time.unwrap_or_default().to_string(),
             });
         }
         Self {
