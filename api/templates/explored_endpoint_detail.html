@@ -18,9 +18,10 @@
 			<table align="left">
 				<tr>
 					<td>{{ last_exploration_error }}</td>
-					<td><form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
-						<button style="margin-left: 0" type="submit">Clear</button>
-					</form>
+					<td>
+						<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
+							<input style="margin-left: 0" type="submit" value="Clear">
+						</form>
 					</td>
 				</tr>
 			</table>
@@ -39,7 +40,7 @@
 				<br>
 				<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
 					<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
-					<button style="margin-left: 0" type="submit">Request re-exploration</button>
+					<input style="margin-left: 0" type="submit" value="Request re-exploration">
 				</form>
 			{% endif %}
 		</td>
@@ -62,7 +63,7 @@
 			Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
 			<br>
 			Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
-		</td>				
+		</td>
 	</tr>
 	<tr>
 		<th>Forge Setup</th>
