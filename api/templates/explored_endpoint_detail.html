@@ -103,9 +103,9 @@
 {% for system in report.systems %}
 <table>
 	<tr><th>ID</th><td>{{ system.id }}</td></tr>
-	<tr><th>Manufacturer</th><td>{% match system.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Model</th><td>{% match system.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Serial Number</th><td>{% match system.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Manufacturer</th><td>{{ system.manufacturer|option_fmt }}</td></tr>
+	<tr><th>Model</th><td>{{ system.model|option_fmt }}</td></tr>
+	<tr><th>Serial Number</th><td>{{ system.serial_number|option_fmt }}</td></tr>
 	<tr><th>Power State</th><td>{{ "{:?}"|format(system.power_state()) }}</td></tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
 		<table style="width: 100%;">
@@ -120,10 +120,10 @@
 			<tbody>
 			{% for iface in system.ethernet_interfaces %}
 				<tr>
-					<td>{% match iface.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.mac_address %}{% when Some with (mac_address) %} {{ mac_address }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.interface_enabled %}{% when Some with (interface_enabled) %} {{ interface_enabled }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
+					<td>{{ iface.id|option_fmt }}</td>
+					<td>{{ iface.mac_address|option_fmt }}</td>
+					<td>{{ iface.interface_enabled|option_fmt }}</td>
+					<td>{{ iface.description|option_fmt }}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
@@ -146,14 +146,14 @@
     <tbody>
     {% for pci in system.pcie_devices %}
       <tr>
-        <td>{% match pci.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.name %}{% when Some with (name) %} {{ name }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.firmware_version %}{% when Some with (firmware_version) %} {{ firmware_version }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.gpu_vendor %}{% when Some with (gpu_vendor) %} {{ gpu_vendor }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.part_number %}{% when Some with (part_number) %} {{ part_number }} {% else %}{% endmatch %}</td>
-        <td>{% match pci.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td>
+        <td>{{ pci.id|option_fmt }}</td>
+        <td>{{ pci.name|option_fmt }}</td>
+        <td>{{ pci.manufacturer|option_fmt }}</td>
+        <td>{{ pci.description|option_fmt }}</td>
+        <td>{{ pci.firmware_version|option_fmt }}</td>
+        <td>{{ pci.gpu_vendor|option_fmt }}</td>
+        <td>{{ pci.part_number|option_fmt }}</td>
+        <td>{{ pci.serial_number|option_fmt }}</td>
       </tr>
     {% endfor %}
       </tbody>
@@ -179,10 +179,10 @@
 			<tbody>
 			{% for iface in manager.ethernet_interfaces %}
 				<tr>
-					<td>{% match iface.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.mac_address %}{% when Some with (mac_address) %} {{ mac_address }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.interface_enabled %}{% when Some with (interface_enabled) %} {{ interface_enabled }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
+					<td>{{ iface.id|option_fmt }}</td>
+					<td>{{ iface.mac_address|option_fmt }}</td>
+					<td>{{ iface.interface_enabled|option_fmt }}</td>
+					<td>{{ iface.description|option_fmt }}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
@@ -195,10 +195,10 @@
 {% for chassis in report.chassis %}
 <table>
 	<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
-	<tr><th>Manufacturer</th><td>{% match chassis.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Model</th><td>{% match chassis.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Serial Number</th><td>{% match chassis.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Part Number</th><td>{% match chassis.part_number %}{% when Some with (part_number) %} {{ part_number }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Manufacturer</th><td>{{ chassis.manufacturer|option_fmt }}</td></tr>
+	<tr><th>Model</th><td>{{ chassis.model|option_fmt }}</td></tr>
+	<tr><th>Serial Number</th><td>{{ chassis.serial_number|option_fmt }}</td></tr>
+	<tr><th>Part Number</th><td>{{ chassis.part_number|option_fmt }}</td></tr>
 	<tr><th>Network Adapters</th><td style="padding: 0;">
 		<table style="width: 100%;">
 			<thead>
@@ -214,10 +214,10 @@
 			{% for iface in chassis.network_adapters %}
 				<tr>
 					<td>{{ iface.id }}</td>
-					<td>{% match iface.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.part_number %}{% when Some with (part_number) %} {{ part_number }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td>
+					<td>{{ iface.manufacturer|option_fmt }}</td>
+					<td>{{ iface.model|option_fmt }}</td>
+					<td>{{ iface.part_number|option_fmt }}</td>
+					<td>{{ iface.serial_number|option_fmt }}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
@@ -244,9 +244,9 @@
 			{% for item in service.inventories %}
 				<tr>
 					<td>{{ item.id }}</td>
-					<td>{% match item.version %}{% when Some with (version) %} {{ version }} {% else %}{% endmatch %}</td>
-					<td>{% match item.release_date %}{% when Some with (release_date) %} {{ release_date }} {% else %}{% endmatch %}</td>
-					<td>{% match item.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
+					<td>{{ item.version|option_fmt }}</td>
+					<td>{{ item.release_date|option_fmt }}</td>
+					<td>{{ item.description|option_fmt }}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
