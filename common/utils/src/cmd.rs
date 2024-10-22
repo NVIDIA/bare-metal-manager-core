@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -206,6 +206,8 @@ impl TokioCmd {
         for _attempt in 0..self.attempts {
             let child = self
                 .command
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .map_err(|e| CmdError::RunError(self.pretty_cmd(), e.to_string()))?;
 
@@ -214,7 +216,6 @@ impl TokioCmd {
                 .await
                 .map_err(|x| CmdError::TokioRunError(self.pretty_cmd(), x.to_string()))?
                 .map_err(|y| CmdError::TokioRunError(self.pretty_cmd(), y.to_string()))?;
-
             last_output = Some(output.clone());
 
             if output.status.success() {

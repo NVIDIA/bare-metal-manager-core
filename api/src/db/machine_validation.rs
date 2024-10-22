@@ -62,7 +62,8 @@ impl MachineValidation {
         filter: ObjectFilter<'_, String>,
         column: &'a str,
     ) -> Result<Vec<MachineValidation>, DatabaseError> {
-        let base_query = "SELECT * FROM machine_validation result {where}".to_owned();
+        let base_query =
+            "SELECT * FROM machine_validation result {where} ORDER BY result.start_time".to_owned();
 
         let custom_results = match filter {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
@@ -450,7 +451,9 @@ impl MachineValidationResult {
         filter: ObjectFilter<'_, String>,
         column: &'a str,
     ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
-        let base_query = "SELECT * FROM machine_validation_results result {where}".to_owned();
+        let base_query =
+            "SELECT * FROM machine_validation_results result {where} ORDER BY result.start_time"
+                .to_owned();
 
         let custom_results = match filter {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
