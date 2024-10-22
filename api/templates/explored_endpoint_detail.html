@@ -13,18 +13,14 @@
 	<tr><th>Machine ID</th><td>{% match report.machine_id %}{% when Some with (machine_id) %} {{ machine_id|machine_id_link|safe }} {% else %}{% endmatch %}</td></tr>
 	<tr>
 		<th>Last Exploration Error</th>
-		<td>
+		<td style="display: flex;">
 			{% if has_exploration_error %}
-			<table align="left">
-				<tr>
-					<td>{{ last_exploration_error }}</td>
-					<td>
-						<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
-							<input style="margin-left: 0" type="submit" value="Clear">
-						</form>
-					</td>
-				</tr>
-			</table>
+			<div style="flex-grow: 1;"><pre><code>{{ last_exploration_error }}</code></pre></div>
+			<div style="flex-shrink: 0;">
+				<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
+					<input style="margin-left: 0" type="submit" value="Clear">
+				</form>
+			</div>
 			{% endif %}
 		</td>
 	</tr>
@@ -34,65 +30,68 @@
 	<tr><th>Report Version</th><td>{{ endpoint.report_version|config_version|safe }}</td></tr>
 	<tr>
 		<th>Exploration Requested</th>
-		<td>
-			{{ endpoint.exploration_requested }}
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">{{ endpoint.exploration_requested }}</div>
 			{% if !endpoint.exploration_requested %}
-				<br>
+			<div style="flex-shrink: 0;">
 				<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
 					<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
 					<input style="margin-left: 0" type="submit" value="Request re-exploration">
 				</form>
+			</div>
 			{% endif %}
 		</td>
 	</tr>
 	<tr>
 		<th>Power Control</th>
-		<td>
-			{% set bmc_ip = endpoint.address.clone() %}
-			{% include "power_control.html" %}
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;"></div>
+			<div style="flex-shrink: 0;">
+				{% set bmc_ip = endpoint.address.clone() %}
+				{% include "power_control.html" %}
+			</div>
 		</td>
 	</tr>
 	<tr>
 		<th>Reset BMC</th>
-		<td>
-			{% set bmc_ip = endpoint.address.clone() %}
-			{% include "bmc_reset.html" %}
-			<br>
-			Last Redfish BMC Reset: {{ endpoint.last_redfish_bmc_reset }}
-			<br>
-			Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
-			<br>
-			Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">
+				Last Redfish BMC Reset: {{ endpoint.last_redfish_bmc_reset }}
+				<br>
+				Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
+				<br>
+				Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+			</div>
+			<div style="flex-shrink: 0;">
+				{% set bmc_ip = endpoint.address.clone() %}
+				{% include "bmc_reset.html" %}
+			</div>
 		</td>
 	</tr>
 	<tr>
 		<th>Forge Setup</th>
-		<td>
-			<table align="left">
-				<tr>
-					<td style="width: 15%;">
-						<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
-							<input style="margin-left: 0; width: 100%;" type="submit" value="Forge Setup">
-						</form>
-					</td>
-					<td><em>Current Status</em> - {{ forge_setup_status }}</td>
-				</tr>
-			</table>
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">
+				<em>Current Status</em> - {{ forge_setup_status }}
+			</div>
+			<div style="flex-shrink: 0;">
+				<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
+					<input style="margin-left: 0; width: 100%;" type="submit" value="Forge Setup">
+				</form>
+			</div>
 		</td>
 	</tr>
 	<tr>
 		<th>Credentials</th>
-		<td>
-			<table align="left">
-				<tr>
-					<td style="width: 15%;">
-						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials">
-							<input style="margin-left: 0; background: #ff4136" type="submit" value="Clear Credentials">
-						</form>
-					</td>
-					<td> <em>Current Status</em> - {{ credentials_set }}</td>
-				</tr>
-			</table>
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">
+				<em>Current Status</em> - {{ credentials_set }}
+			</div>
+			<div style="flex-shrink: 0;">
+				<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials">
+					<input style="margin-left: 0; background: #ff4136" type="submit" value="Clear Credentials">
+				</form>
+			</div>
 		</td>
 	</tr>
 </table>

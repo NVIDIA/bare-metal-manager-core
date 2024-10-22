@@ -1,10 +1,10 @@
-
-	<form id="bmcreset_action" method="POST" action="/admin/explored-endpoint/{{ bmc_ip }}/bmc-reset">
-		<div style="display: inline-block; vertical-align: middle;">
-			<input type="submit" value="Reset BMC" style="margin-right: 20px;">
-		</div>
-		<div style="display: inline-block; vertical-align: middle;">
-			<input title="Use IPMI instead of Redfish to reset the target BMC" type="checkbox" id="use_ipmi" name="use_ipmi" value="true" style="vertical-align: middle; margin-right: 5px;">
-			<label for="use_ipmi" style="vertical-align: middle;">Use IPMI</label>
-		</div>
-  	</form>
+<form id="bmcreset_action" method="POST" action="/admin/explored-endpoint/{{ bmc_ip }}/bmc-reset">
+	<div style="display: inline-block; vertical-align: middle;">
+		<input type="submit" value="Reset BMC" style="margin-right: 20px;">
+	</div>
+	<div style="display: inline-block; vertical-align: middle;">
+		<input title="Use IPMI instead of Redfish to reset the target BMC" type="checkbox" id="use_ipmi" name="use_ipmi"
+			value="true" style="vertical-align: middle; margin-right: 5px;">
+		<label for="use_ipmi" style="vertical-align: middle;">Use IPMI</label>
+	</div>
+</form>
