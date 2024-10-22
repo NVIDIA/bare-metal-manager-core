@@ -13,7 +13,7 @@
 
 {% for d in devices %}
 <h2 id="{{d.name }}">{{ d.name }}</h2>
-<table>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ d.id }}</td></tr>
 	<tr><th>Description</th><td>{{ d.description }}</td></tr>
 	<tr><th>Mgmt IP</th><td>{{ d.mgmt_ips }}</td></tr>
@@ -21,7 +21,7 @@
 	<tr><th>Device Type</th><td>{{ d.device_type }}</td></tr>
 	<tr><th>Connected DPU(s)</th>
 		<td>
-		<table>
+		<table style="width: 100%;">
 			<thead><tr><th>ID</th><th>Local port</th><th>Remote port</th></tr></thead>
 			<tbody>
 			{% for dpu in d.connected_dpus %}

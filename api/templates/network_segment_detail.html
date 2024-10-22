@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Network Segment Detail</h1>
 
-<table>
+ class="detailsview">
 	<tr><th>ID</th><td>{{ id }}</td></tr>
 	<tr><th>Name</th><td>{{ name }}</td></tr>
 	<tr><th>VPC ID</th><td><a href="/admin/vpc/{{ vpc_id }}">{{ vpc_id }}</a></td></tr>
@@ -26,7 +26,7 @@
 
 <h3>Prefixes</h3>
 {% for prefix in prefixes %}
-<table>
+<table class="detailsview">
 	<tr><th>Index</th><td>{{ prefix.index }}</td></tr>
 	<tr><th>ID</th><td>{{ prefix.id }}</td></tr>
 	<tr><th>Prefix</th><td>{{ prefix.prefix }}</td></tr>
@@ -37,7 +37,7 @@
 {% endfor %}
 
 <h3>History</h3>
-<table>
+<table class="detailsview">
 	<thead>
 		<tr>
 			<th>State</th>

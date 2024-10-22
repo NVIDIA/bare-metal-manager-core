@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Configuration</h1>
 
-<table>
+<table class="detailsview">
 	<tr>
 		<th>Version</th>
 		<td>{{ version }}</td>
@@ -13,7 +13,7 @@
 </table>
 
 <h2 style="margin-left:10%">Dynamic</h2>
-<table>
+<table class="detailsview">
 	<tr>
 		<th>DPU agent upgrade policy</th>
 		<td>{{ agent_upgrade_policy }}</td>
@@ -33,7 +33,7 @@
 </table>
 
 <h2 style="margin-left:10%">Static</h2>
-<table>
+<table class="detailsview">
 	<tr>
 		<td>Listen Address</td>
 		<td>{{ carbide_config.listen.to_string() }}</td>
@@ -168,7 +168,7 @@
 		<td>
 			{% match carbide_config.dpu_nic_firmware_update_version %}
 			{% when Some with (val) %}
-			<table>
+			<table style="width: 100%;">
 				{% for (name, version) in val %}
 				<tr>
 					<td>{{ name }}</td>

@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Endpoint</h1>
-<table>
+<table class="detailsview">
 	<tr><th>Address</th><td>{{ endpoint.address }}</td></tr>
 	{% match endpoint.report %}
 	{% when Some with (report) %}
@@ -101,7 +101,7 @@
 
 <h2>Systems</h2>
 {% for system in report.systems %}
-<table>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ system.id }}</td></tr>
 	<tr><th>Manufacturer</th><td>{{ system.manufacturer|option_fmt }}</td></tr>
 	<tr><th>Model</th><td>{{ system.model|option_fmt }}</td></tr>
@@ -164,7 +164,7 @@
 
 <h2>Managers</h2>
 {% for manager in report.managers %}
-<table>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ manager.id }}</td></tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
 		<table style="width: 100%;">
@@ -193,7 +193,7 @@
 
 <h2>Chassis</h2>
 {% for chassis in report.chassis %}
-<table>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
 	<tr><th>Manufacturer</th><td>{{ chassis.manufacturer|option_fmt }}</td></tr>
 	<tr><th>Model</th><td>{{ chassis.model|option_fmt }}</td></tr>
@@ -228,7 +228,7 @@
 
 <h2>Services</h2>
 {% for service in report.service %}
-<table>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ service.id }}</td></tr>
 	<tr><th>Inventory</th><td style="padding: 0;">
 		<table style="width: 100%;">
