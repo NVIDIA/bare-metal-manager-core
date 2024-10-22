@@ -7,20 +7,32 @@
 
 <details>
 	<summary>
-		<h2 style="display: inline-block;">Overrides</h2>
+		<h2 style="display: inline-block;">Add Override</h2>
 	</summary>
-	<textarea id="override" rows="10" cols="30">
+	<textarea id="override" rows="20" style="width: 100%">
 	</textarea>
 	<br>
 	<p><button type="submit" id="submit_add">Submit Override</button></p>
 	<br>
-	<p>Active overrides:</p>
-	<ul>
-		{% for override in overrides %}
-		<li>{{ override.source }} ({{ override.mode }}) <button type="button" id="remove-override-{{ override.source }}">Remove</button></li>
-		{% endfor %}
-	</ul>
 </details>
+
+<h2>Active overrides:</h2>
+<thead>
+	<tr>
+		<th>Source</th>
+		<th>Mode</th>
+		<th>Remove</th>
+	</tr>
+</thead>
+<tbody>
+	{% for override in overrides %}
+	<tr>
+		<td>{{ override.source }}</td>
+		<td>{{ override.mode }}</td>
+		<td><button type="button" id="remove-override-{{ override.source }}">Remove</button></td>
+	</tr>
+	{% endfor %}
+</tbody>
 
 {% for report in reports %}
 <h2>{{ report.label }}</h2>
