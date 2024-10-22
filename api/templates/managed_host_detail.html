@@ -54,7 +54,7 @@
 <h2>Health</h2>
 <table>
 	<tr><th>Report Source</th><td>{{ health.source }}</td></tr>
-	<tr><th>Report Observed At</th><td>{% match health.observed_at %}{% when Some with (observed_at) %} {{ observed_at }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Report Observed At</th><td>{{ health.observed_at|option_fmt }}</td></tr>
 	<tr>
 		<th>Health Probe Alerts</th>
 		<td>
