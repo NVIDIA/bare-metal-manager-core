@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Managed Host {{ machine_id }}</h1>
-<table class="detailsview>
+<table class="detailsview">
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
 	<tr><th>State SLA</th><td>{{ state_sla_duration }}</td></tr>
@@ -52,7 +52,7 @@
 </table>
 
 <h2>Health</h2>
-<table class="detailsview>
+<table class="detailsview">
 	<tr><th>Report Source</th><td>{{ health.source }}</td></tr>
 	<tr><th>Report Observed At</th><td>{{ health.observed_at|option_fmt }}</td></tr>
 	<tr>
@@ -81,7 +81,7 @@
 
 <h2>Host</h2>
 
-<table class="detailsview>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Last reboot</th><td>{{ host_last_reboot_time }}</td></tr>
 	<tr><th>Serial Number</th><td>{{ host_serial_number }}</td></tr>
@@ -114,7 +114,7 @@
 
 {% for dpu in dpus %}
 <h2>DPU {{loop.index}}</h2>
-<table class="detailsview>
+<table class="detailsview">
 	<tr><th>ID</th><td>{{ dpu.machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Primary</th><td>{{ dpu.is_primary }}</td></tr>
 	<tr>
