@@ -319,9 +319,23 @@ form.filter-container div:nth-child(8) {
 				}
 				jsonLink.href = window.location.href + ".json";
 			}
+
+			function prettifyJSONs() {
+				let elems = document.getElementsByClassName("prettyjson");
+				for (elem of elems) {
+					try {
+						let jsObj = JSON.parse(elem.innerText);
+						elem.innerHTML = JSON.stringify(jsObj, null,4);
+					} catch (e) {
+						return;
+					}
+				}
+			}
+
 			document.addEventListener("DOMContentLoaded", function(event){
 				attachJsonLink();
 				setURLs();
+				prettifyJSONs();
 			});
 
 			// Updates the title of spans to render the localized version
