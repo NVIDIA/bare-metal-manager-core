@@ -14,7 +14,7 @@
 	<label><input type="radio" name="filter" value="unhealthy" {% if active_filter == "unhealthy" %}checked="checked"{% endif %}>Unhealthy ({{ unhealthy_count }})</label>
 	<label><input type="radio" name="filter" value="outdated" {% if active_filter == "outdated" %}checked="checked"{% endif %}>Outdated ({{ outdated_count }})</label>
 </form>
-<table class="sortable">
+<table class="sortable overview">
 	<thead>
 	<tr>
 		<th>Last seen</th>

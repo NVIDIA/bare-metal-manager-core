@@ -5,7 +5,7 @@
 {% block content %}
 <h1>{{ machine_type }} {{ id }}</h1>
 
-<table>
+<table class="detailsview">
 	<tr>
 		<th>Managed Host</th>
 		<td>
@@ -35,7 +35,7 @@
 </table>
 
 <h3>Health</h3>
-<table>
+<table class="detailsview">
 	<tr><th>Health Reports</th>
 		<td>
 			{% if !is_host %}
@@ -75,7 +75,7 @@
 {% match bmc_info %}
 {% when Some with (bmc_info) %}
 {% set bmc_ip = bmc_info.ip.clone().unwrap_or_default() %}
-<table>
+<table class="detailsview">
 	<tr><th>IP</th><td><a href="/admin/explored-endpoint/{{ bmc_ip }}">{{ bmc_ip }}</a></td></tr>
 	<tr><th>Port</th><td>{{ bmc_info.port|option_fmt }}</td></tr>
 	<tr><th>MAC Address</th><td>{{ bmc_info.mac|option_fmt }}</td></tr>
@@ -99,7 +99,7 @@ Missing BMC Data
 {% endmatch %}
 
 <h3>Discovery Info</h3>
-<table>
+<table class="detailsview">
 	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
 	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
 	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
@@ -122,7 +122,7 @@ Missing BMC Data
 
 <h3>Interfaces</h3>
 {% for interface in interfaces %}
-<table>
+<table class="detailsview">
 	<tr><th>Index</th><td>{{ interface.index }}</td></tr>
 	<tr><th>ID</th><td><a href="/admin/interface/{{ interface.id }}">{{ interface.id }}</a></td></tr>
 	{% if is_host %}
@@ -139,7 +139,7 @@ Missing BMC Data
 
 {% if is_host %}
 <h3>InfiniBand Interfaces</h3>
-<table>
+<table class="detailsview">
 	<thead>
 		<tr>
 			<th>Device</th>
@@ -162,7 +162,7 @@ Missing BMC Data
 {% endif %}
 
 <h3>Inventory</h3>
-<table>
+<table class="detailsview">
 	<thead>
 		<tr>
 			<th>Name</th>
@@ -182,7 +182,7 @@ Missing BMC Data
 </table>
 
 <h3>History</h3>
-<table>
+<table class="detailsview">
 	<thead>
 		<tr>
 			<th>State</th>

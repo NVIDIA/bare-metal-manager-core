@@ -15,7 +15,7 @@
 	<label title="Not Redfish explored yet"><input type="radio" name="filter" value="unexplored" {% if active_filter == "unexplored" %}checked="checked"{% endif %}>Unexplored ({{ unexplored_count }})</label>
 	<label title="Not paired with managed host yet"><input type="radio" name="filter" value="unlinked" {% if active_filter == "unlinked" %}checked="checked"{% endif %}>Unlinked ({{ unlinked_count }})</label>
 </form>
-<table class="sortable">
+<table class="sortable overview">
 	<thead>
 	<tr>
 		<th>Serial number</th>
