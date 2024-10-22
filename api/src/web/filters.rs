@@ -131,7 +131,8 @@ where
     Ok(result)
 }
 
-/// Generates HTML links to the Managed Host page for Machine IDs
+/// Renders version strings including timestamps
+/// Also shows the localized timestamp on Mouseover
 pub fn config_version<T: std::fmt::Display>(version: T) -> ::askama::Result<String> {
     let string_version = version.to_string();
     let version = match string_version.parse::<config_version::ConfigVersion>() {
