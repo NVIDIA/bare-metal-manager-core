@@ -16,6 +16,7 @@ use std::mem::discriminant as enum_discr;
 use std::{net::IpAddr, sync::Arc};
 
 use crate::model::machine::DisableSecureBootState;
+use crate::redfish;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -2816,7 +2817,6 @@ impl DpuMachineStateHandler {
                 // the state machine is driven by the host state
                 let time_since_state_change =
                     state.host_snapshot.current.version.since_state_change();
-                let wait_for_dpu_to_come_up;
 
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
                     dpu_snapshot.bmc_addr(),
@@ -2835,27 +2835,23 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                match dpu_redfish_client
-                    .get_system()
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "get_system",
-                        error: e,
-                    })?
-                    .boot_progress
-                {
-                    Some(boot_progress) => match boot_progress.last_state {
-                        Some(last_boot_progress_state) => {
-                            wait_for_dpu_to_come_up = !(matches!(
-                                last_boot_progress_state,
-                                libredfish::model::BootProgressTypes::OSRunning
-                            ));
-                        }
-                        None => wait_for_dpu_to_come_up = time_since_state_change.num_minutes() < 5,
-                    },
-                    // The DPUs only started reporting boot progress starting in BMC FW version 24.04
-                    None => wait_for_dpu_to_come_up = time_since_state_change.num_minutes() < 5,
-                }
+                let wait_for_dpu_to_come_up = if time_since_state_change.num_minutes() > 5 {
+                    false
+                } else {
+                    let (has_dpu_finished_booting, dpu_boot_progress) =
+                        redfish::did_dpu_finish_booting(dpu_redfish_client.as_ref())
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "did_dpu_finish_booting",
+                                error: e,
+                            })?;
+
+                    if *count > 0 && !has_dpu_finished_booting {
+                        tracing::info!("Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; DisableSecureBoot cycle: {count}", dpu_snapshot.machine_id)
+                    }
+
+                    has_dpu_finished_booting
+                };
 
                 match disable_secure_boot_state {
                     Some(disable_secure_boot_state) => match disable_secure_boot_state {
