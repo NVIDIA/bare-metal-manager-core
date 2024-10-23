@@ -33,7 +33,7 @@ use libredfish::{
         service_root::ServiceRoot,
         task::Task,
         update_service::{ComponentType, TransferProtocolType, UpdateService},
-        ODataId, ODataLinks,
+        BootProgress, ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, RoleId, SystemPowerControl,
@@ -1333,6 +1333,32 @@ pub async fn build_redfish_client_from_bmc_ip(
             true,
         )
         .await
+}
+
+const LAST_OEM_STATE_OS_IS_RUNNING: &str = "OsIsRunning";
+
+// did_dpu_finish_booting returns true if the DPU has come up from the last reboot and the OS is running. It will return false if the DPU has not come up from the last reboot or is stuck booting.
+// the function will return the BootProgress structure to the caller if it returns true.
+pub async fn did_dpu_finish_booting(
+    dpu_redfish_client: &dyn Redfish,
+) -> Result<(bool, Option<BootProgress>), RedfishError> {
+    let system = dpu_redfish_client.get_system().await?;
+    match system.boot_progress.clone() {
+        Some(boot_progress) => {
+            let is_dpu_up = match boot_progress
+                .last_state
+                .unwrap_or(libredfish::model::BootProgressTypes::None)
+            {
+                libredfish::model::BootProgressTypes::OSRunning => true,
+                _ => {
+                    boot_progress.oem_last_state.unwrap_or_default() == LAST_OEM_STATE_OS_IS_RUNNING
+                }
+            };
+
+            Ok((is_dpu_up, system.boot_progress))
+        }
+        None => Ok((false, None)),
+    }
 }
 
 #[cfg(test)]
