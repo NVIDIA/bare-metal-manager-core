@@ -23,7 +23,6 @@ use tracing::{error, info, warn};
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::client::op::{Header, ResponseCode};
 use trust_dns_server::client::rr::{DNSClass, Name, RData};
-use trust_dns_server::proto::op::ResponseCode::{NXDomain, NoError};
 use trust_dns_server::proto::rr::Record;
 use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
@@ -77,7 +76,7 @@ impl RequestHandler for DnsServer {
                 let record: Option<Record> =
                     match DnsServer::retrieve_record(client, carbide_dns_request).await {
                         Ok(value) => {
-                            response_header.set_response_code(NoError);
+                            response_header.set_response_code(ResponseCode::NoError);
                             let a_record = Record::new()
                                 .set_ttl(30)
                                 .set_name(Name::from(request_info.query.name()))
@@ -93,7 +92,12 @@ impl RequestHandler for DnsServer {
                                 request_info.query.name(),
                                 e
                             );
-                            response_header.set_response_code(NXDomain);
+                            response_header.set_response_code(match e.code() {
+                                tonic::Code::NotFound => ResponseCode::NXDomain,
+                                tonic::Code::InvalidArgument => ResponseCode::Refused,
+                                _ => ResponseCode::ServFail, // All kinds of internal errors
+                            });
+
                             None
                         }
                     };
@@ -132,18 +136,23 @@ impl DnsServer {
     pub async fn retrieve_record(
         mut client: ForgeClientT,
         request: tonic::Request<rpc::dns_message::DnsQuestion>,
-    ) -> Result<Ipv4Addr, Report> {
-        let response = client.lookup_record(request).await?;
+    ) -> Result<Ipv4Addr, tonic::Status> {
+        let response = client.lookup_record(request).await?.into_inner();
 
         info!("Received response from API server");
 
-        response
-            .into_inner()
+        let record = response
             .rrs
-            .into_iter()
-            .map(|r| Ipv4Addr::from_str(r.rdata.unwrap().as_ref()).map_err(Report::from))
-            .next()
-            .unwrap()
+            .first()
+            .ok_or_else(|| tonic::Status::internal("Resource Record list is empty".to_string()))?;
+        let ip = Ipv4Addr::from_str(record.rdata()).map_err(|_e| {
+            tonic::Status::internal(format!(
+                "Can not parse record data \"{}\" as IP",
+                record.rdata()
+            ))
+        })?;
+
+        Ok(ip)
     }
 
     pub async fn run(daemon_config: &cfg::Daemon) -> Result<(), Report> {

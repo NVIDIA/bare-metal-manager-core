@@ -14,6 +14,8 @@
 
 ## Fixed
 
+- When DNS queries are issued via carbide-dns against carbide-api, the `LookupRecord` method will return a `NotFound` error code instead of an `Internal` error code. Due to this change, the carbide-api availability will no longer show up as degraded when Forge users perform queries for invalid domain names. The `NotFound` gRPC status code is transformed into a `NXDomain` DNS error code. If DNS queries fail for real internal server errors, a `ServFail` error code will be utilized.
+
 ## Removed
 
 ## [v2024.10.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc6-0...v2024.10.11-rc2-0)
