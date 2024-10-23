@@ -1267,8 +1267,8 @@ scheduled-test:machine-lifecycle-test:
         "${SNIPPET_URL}/raw"
 
       if [[ ${CI_JOB_STATUS} == 'success' ]]; then
-        echo "Test passed for build ${CARBIDE_VERSION}. Adding result to snippet list..."
-        new_list=$(echo "${CARBIDE_VERSION} (pipeline ${CI_PIPELINE_ID}) - PASS" | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
+        echo "Test passed for build ${CARBIDE_VERSION} with ${DPU_COUNT} DPU(s). Adding result to snippet list..."
+        new_list=$(echo "${CARBIDE_VERSION} (pipeline ${CI_PIPELINE_ID}) DPU_COUNT=${DPU_COUNT} - PASS" | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
         curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --header 'Content-Type: application/json' \
           --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
           "${SNIPPET_URL}"

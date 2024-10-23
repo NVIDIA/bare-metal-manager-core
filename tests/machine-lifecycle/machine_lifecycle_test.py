@@ -22,6 +22,11 @@ if machine_under_test is None:
     print("ERROR: $MACHINE_UNDER_TEST environment variable must be set.\nExiting...", file=sys.stderr)
     sys.exit(1)
 
+# $DPU_COUNT environment variable is set in the pipeline schedule
+expected_number_of_dpus = int(os.environ.get("DPU_COUNT", "1"))
+if expected_number_of_dpus not in [1, 2]:
+    raise ValueError(f"Unexpected value for DPU_COUNT: {expected_number_of_dpus}")
+
 # Set environment variable CARBIDE_API_URL instead of using --carbide-api
 os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
 
@@ -122,7 +127,11 @@ ngc.wait_for_machine_ready(machine_under_test, site, timeout=60 * 10)
 # Get required UUIDs from ngc
 site_uuid = ngc.get_site_uuid(site.name)
 print(f"{site_uuid=}")
-instance_type_uuid = ngc.get_instance_type_uuid("machine-lifecycle-test", site_uuid)
+instance_type_name = "machine-lifecycle-test"
+if expected_number_of_dpus == 2:
+    instance_type_name = "machine-lifecycle-test-dual-dpu"
+print(f"{instance_type_name=}")
+instance_type_uuid = ngc.get_instance_type_uuid(instance_type_name, site_uuid)
 print(f"{instance_type_uuid=}")
 subnet_uuid = ngc.get_subnet_uuid("machine-lifecycle-test-subnet")
 print(f"{subnet_uuid=}")
@@ -137,51 +146,57 @@ print("Creating an instance on the machine...")
 instance = ngc.create_instance("machine-lifecycle-test-instance", instance_type_uuid, subnet_uuid, os_uuid, vpc_uuid)
 instance_uuid = instance["id"]
 print(f"Instance {instance_uuid} creation success")
-admin_cli.wait_for_machine_assigned_ready(machine_under_test, timeout=60 * 10)
 
-print("Sleeping for 30 minutes for instance installation...")
-# The problem is that here, there will be an instance reboot, and we want to wait until
-# after that before attempting to test out SSH connection.
-time.sleep(60 * 30)
+try:
+    print(f"Wait for {machine_under_test} to report state 'Assigned/Ready'")
+    admin_cli.wait_for_machine_assigned_ready(machine_under_test, timeout=60 * 10)
 
-instance_ip_address = ngc.wait_for_instance_ip(instance_uuid, subnet_uuid, timeout=60 * 20)
+    print("Sleeping for 30 minutes for instance installation...")
+    # The problem is that here, there will be an instance reboot, and we want to wait until
+    # after that before attempting to test out SSH connection.
+    time.sleep(60 * 30)
 
-print(f"Testing SSH connection to the instance {instance_uuid} at {instance_ip_address}")
-network.wait_for_host_port(instance_ip_address, 22, max_retries=40)
-with paramiko.SSHClient() as ssh_client:
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(
-        instance_ip_address,
-        pkey=ssh_private_key,
-        username="machine-lifecycle-test-user",
-    )
+    instance_ip_address = ngc.wait_for_instance_ip(instance_uuid, subnet_uuid, timeout=60 * 20)
 
-    command = "uptime"
-    print(f"Executing command: {command} on instance {instance_uuid} at {instance_ip_address}")
-    i, o, e = ssh_client.exec_command(command)
-    stdout = o.readlines()
-    stderr = e.readlines()
-    exit_status = o.channel.recv_exit_status()
-    print(f"{command!r} stdout: {stdout}")
-    print(f"{command!r} stderr: {stderr}")
-    if exit_status != 0:
-        print(f"{command!r} exited with status {exit_status}", file=sys.stderr)
+    print(f"Testing SSH connection to the instance {instance_uuid} at {instance_ip_address}")
+    network.wait_for_host_port(instance_ip_address, 22, max_retries=40)
+    with paramiko.SSHClient() as ssh_client:
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_client.connect(
+            instance_ip_address,
+            pkey=ssh_private_key,
+            username="machine-lifecycle-test-user",
+        )
+
+        command = "uptime"
+        print(f"Executing command: {command} on instance {instance_uuid} at {instance_ip_address}")
+        i, o, e = ssh_client.exec_command(command)
+        stdout = o.readlines()
+        stderr = e.readlines()
+        exit_status = o.channel.recv_exit_status()
+        print(f"{command!r} stdout: {stdout}")
+        print(f"{command!r} stderr: {stderr}")
+        if exit_status != 0:
+            print(f"{command!r} exited with status {exit_status}", file=sys.stderr)
 
 
-# Delete the instance
-print("Delete the instance")
-ngc.delete_instance(instance_uuid)
+    # Delete the instance
+    print("Delete the instance")
+    ngc.delete_instance(instance_uuid)
 
-# Wait for the instance to be deleted
-print("Wait for the instance to be deleted...")
-# TODO: In future, we may want to check that our instance isn't present in the list any more,
-#  but for now, since the "machine-lifecycle-test-compute" compute allocation in dev4 is 1,
-#  checking for an empty list of instances will suffice.
-ngc.wait_for_empty_vpc(site_uuid, vpc_uuid, timeout=60 * 90)
+    # Wait for the instance to be deleted
+    print("Wait for the instance to be deleted...")
+    ngc.wait_for_vpc_to_not_contain_instance(site_uuid, vpc_uuid, instance_uuid, timeout=60 * 90)
 
-# Wait for Ready & out of maintenance (in the case DPU FW upgrade happens after de-provision)
-print(f"Wait for {machine_under_test} to report state 'Ready'")
-admin_cli.wait_for_machine_ready(machine_under_test, timeout=60 * 90)
+    print(f"Wait for {machine_under_test} to report state 'Ready'")
+    admin_cli.wait_for_machine_ready(machine_under_test, timeout=60 * 90)
+except Exception as e:
+    print("Exception while waiting for instance creation/deletion, putting machine into maintenance mode", file=sys.stderr)
+    admin_cli.put_machine_into_maintenance_mode(machine_under_test)
+
+# Once the machine gets to Ready, wait 2 minutes to see if it will be taken for DPU reprovisioning
+time.sleep(60 * 2)
+# Wait for the machine to come out of maintenance (in the case DPU FW upgrade happens after de-provision)
 print("Wait for the machine to not be in maintenance mode...")
 admin_cli.wait_for_machine_not_in_maintenance(machine_under_test, timeout=60 * 90)
 print("Final check that the machine is still marked Ready")
