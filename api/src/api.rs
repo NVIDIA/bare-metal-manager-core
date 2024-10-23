@@ -16,7 +16,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(feature = "tss-esapi")]
 use crate::db::attestation as db_attest;
 pub use ::rpc::common as rpc_common;
 pub use ::rpc::forge as rpc;
@@ -2031,6 +2030,21 @@ impl Forge for Api {
 
             if request.delete_bmc_credentials {
                 self.clear_bmc_credentials(machine).await?;
+            }
+
+            if let Err(e) =
+                db_attest::EkCertVerificationStatus::delete_ca_verification_status_by_machine_id(
+                    &mut txn,
+                    machine.id(),
+                )
+                .await
+            {
+                // just log the error and carry on
+                tracing::error!(
+                    "Could not remove EK cert status for machine with id {}: {}",
+                    machine.id(),
+                    e
+                );
             }
         }
 

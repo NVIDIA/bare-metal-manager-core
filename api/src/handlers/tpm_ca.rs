@@ -210,7 +210,7 @@ pub(crate) async fn tpm_delete_ca_cert(
         ))
     })?;
 
-    db_attest::EkCertVerificationStatus::remove_ca_verification_status(&mut txn, ca_cert_id)
+    db_attest::EkCertVerificationStatus::unmatch_ca_verification_status(&mut txn, ca_cert_id)
         .await?;
 
     db_attest::TpmCaCert::delete(&mut txn, ca_cert_id).await?;
