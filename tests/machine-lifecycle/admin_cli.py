@@ -149,9 +149,8 @@ def force_delete_machine(machine_id: str) -> None:
 
     Always print out the machine information first.
     """
-    machine = get_machine(machine_id)
     print("Machine information before force-delete:")
-    print_json(data=machine)
+    run_forge_admin_cli(["managed-host", "show", machine_id], no_json=True)
 
     print("Performing force-delete...")
     run_forge_admin_cli(["machine", "force-delete", "--machine", machine_id], no_json=True)
@@ -208,7 +207,7 @@ def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
     command.extend(args)
 
     print(f"Executing {command}")
-    result = subprocess.run(command, capture_output=True)
+    result = subprocess.run(command, capture_output=True, text=True)
     if result.stderr:
         print(f"stderr: {result.stderr}")
     result.check_returncode()

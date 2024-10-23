@@ -320,7 +320,7 @@ def get_instances(site_uuid: str, vpc_uuid: str = None) -> list[dict]:
 
 
 def wait_for_empty_vpc(site_uuid: str, vpc_uuid: str, timeout: int) -> None:
-    """Wait until the specified Virtual Private Network has no instances."""
+    """Wait until the specified Virtual Private Cloud has no instances."""
     instances = None
     end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
@@ -333,3 +333,19 @@ def wait_for_empty_vpc(site_uuid: str, vpc_uuid: str, timeout: int) -> None:
             time.sleep(60)
     else:
         raise TimeoutError(f"VPC {vpc_uuid} did not become empty within {timeout} seconds.\n{instances}")
+
+
+def wait_for_vpc_to_not_contain_instance(site_uuid: str, vpc_uuid: str, instance_uuid: str, timeout: int) -> None:
+    """Wait until the specified Virtual Private Cloud does not contain the given instance."""
+    instances = None
+    end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
+    while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
+        instances = get_instances(site_uuid, vpc_uuid)
+        if not any(instance["id"] == instance_uuid for instance in instances):
+            print(f"{now}: VPC {vpc_uuid} no longer contains instance {instance_uuid}!")
+            return
+        else:
+            print(f"{now}: VPC {vpc_uuid} still contains instance {instance_uuid}")
+            time.sleep(60)
+    else:
+        raise TimeoutError(f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}")
