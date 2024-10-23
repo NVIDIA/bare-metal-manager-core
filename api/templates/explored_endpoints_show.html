@@ -61,7 +61,7 @@
 				{% if ep.has_exploration_error %}
 				<table align="left">
 					<tr>
-						<td style="max-width: 10vw;"><pre><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre></td>
+						<td style="overflow: auto;"><pre style="max-width: 15vw; max-height: 10vh;"><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre></td>
 						<td><form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ ep.address }}/clear-last-error">
 							<button style="margin-left: 0" type="submit">Clear</button>
 						</form>
