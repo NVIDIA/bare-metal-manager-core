@@ -19,22 +19,26 @@ use carbide::{
         machine_topology::MachineTopology,
     },
     ib::DEFAULT_IB_FABRIC_NAME,
-    model::machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
+    model::{
+        hardware_info::TpmEkCertificate,
+        machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
+    },
 };
 use forge_uuid::machine::{MachineId, MachineType};
+use sqlx::Row;
 use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
 pub mod common;
 use crate::common::api_fixtures::managed_host::create_managed_host_multi_dpu;
+use carbide::attestation as attest;
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     dpu::create_dpu_machine,
     host::host_discover_dhcp,
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
-    instance::create_instance,
-    instance::create_instance_with_ib_config,
-    instance::single_interface_network_config,
+    instance::{create_instance, create_instance_with_ib_config, single_interface_network_config},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    tpm_attestation::EK_CERT_SERIALIZED,
     TestEnv,
 };
 
@@ -102,6 +106,18 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
     }
 }
 
+async fn is_ek_cert_status_entry_present(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> bool {
+    let query = "SELECT COUNT(1)::integer from ek_cert_verification_status;";
+    let all_ek_cert_status_count: i32 = sqlx::query(query)
+        .fetch_one(&mut **txn)
+        .await
+        .expect("Could not get ek cert statuses")
+        .try_get("count")
+        .expect("Could not get ek cert status count");
+
+    all_ek_cert_status_count > 0
+}
+
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -138,9 +154,16 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
         .unwrap(),
     ];
 
-    // Fake some explored endpoints
     let mut txn = env.pool.begin().await.unwrap();
 
+    // create entry in ek_cert_verification_status table
+    let ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+
+    attest::match_insert_new_ek_cert_status_against_ca(&mut txn, &ek_cert, &host_machine_id)
+        .await
+        .expect("Could not insert EK status");
+
+    // Fake some explored endpoints
     for addr in &bmc_addrs {
         DbExploredEndpoint::insert(*addr, &Default::default(), &mut txn)
             .await
@@ -153,6 +176,12 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
         .is_empty());
 
     txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    assert!(
+        is_ek_cert_status_entry_present(&mut txn).await,
+        "FAILURE: EK cert status entry should have been created"
+    );
 
     let response = force_delete(&env, &host_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
@@ -169,6 +198,10 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
         .is_empty());
 
     assert!(response.all_done, "Host and DPU must be deleted");
+    assert!(
+        !is_ek_cert_status_entry_present(&mut txn).await,
+        "FAILURE: EK cert status entry should have been deleted"
+    );
 
     // Everything should be gone now
     for id in [host_machine_id, dpu_machine_id] {

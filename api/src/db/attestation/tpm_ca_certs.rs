@@ -164,13 +164,25 @@ impl EkCertVerificationStatus {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn remove_ca_verification_status(
+    pub async fn unmatch_ca_verification_status(
         txn: &mut Transaction<'_, Postgres>,
         ca_id: i32,
     ) -> CarbideResult<Option<Self>> {
         let query = "UPDATE ek_cert_verification_status SET signing_ca_found=false, ca_id=null WHERE ca_id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(ca_id)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+    }
+
+    pub async fn delete_ca_verification_status_by_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> CarbideResult<Option<Self>> {
+        let query = "DELETE FROM ek_cert_verification_status WHERE machine_id=$1 RETURNING *";
+        sqlx::query_as(query)
+            .bind(machine_id)
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))

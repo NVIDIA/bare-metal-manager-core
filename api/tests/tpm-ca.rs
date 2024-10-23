@@ -1120,7 +1120,7 @@ pub mod tests {
 
         // now aftifically unmatch the ek status
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-        EkCertVerificationStatus::remove_ca_verification_status(
+        EkCertVerificationStatus::unmatch_ca_verification_status(
             &mut txn,
             cert_id_response.id.unwrap().ca_cert_id,
         )
