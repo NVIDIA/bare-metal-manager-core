@@ -15,8 +15,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
 
-use crate::db::resource_record::DnsQuestion;
-use crate::db::DatabaseError;
+use crate::db::{self, DatabaseError};
 use crate::CarbideError;
 
 pub(crate) async fn lookup_record(
@@ -37,34 +36,30 @@ pub(crate) async fn lookup_record(
     let rpc::dns_message::DnsQuestion {
         q_name,
         q_type,
-        q_class,
+        q_class: _,
     } = request.into_inner();
 
-    let question = match q_name.clone() {
-        Some(q_name) => DnsQuestion {
-            query_name: Some(q_name),
-            query_type: q_type,
-            query_class: q_class,
-        },
-        None => {
-            return Err(Status::invalid_argument(
-                "A valid q_name, q_type and q_class are required",
-            ));
-        }
+    let Some(q_name) = q_name else {
+        return Err(CarbideError::MissingArgument("q_name").into());
     };
 
-    let response = DnsQuestion::find_record(&mut txn, question)
-        .await
-        .map(|dnsrr| rpc::dns_message::DnsResponse {
-            rcode: dnsrr.response_code,
-            rrs: dnsrr
-                .resource_records
-                .into_iter()
-                .map(|r| r.into())
-                .collect(),
-        })
-        .map_err(CarbideError::from)?;
-    tracing::info!(DnsResponse = ?response, "lookup_record dns responded");
+    if q_name.is_empty() {
+        return Err(CarbideError::InvalidArgument("q_name is empty".to_string()).into());
+    }
 
-    Ok(Response::new(response))
+    if q_type != Some(1) {
+        return Err(CarbideError::InvalidArgument("q_type must be 1".to_string()).into());
+    }
+
+    let resource_record = db::resource_record::find_record(&mut txn, &q_name)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "dns_record",
+            id: q_name,
+        })?;
+
+    Ok(Response::new(rpc::dns_message::DnsResponse {
+        rrs: vec![resource_record.into()],
+    }))
 }

@@ -97,9 +97,8 @@ service Forge {
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
-
+  // Looks up a DNS record for DNS names assigned by Forge
   rpc LookupRecord(DNSMessage.DNSQuestion) returns (DNSMessage.DNSResponse);
-//  rpc LookupPTRRecord(DnsRequest) returns (DnsReply);
 
   // TODO(ajf): Harder to implement bi-directional streaming, commented out for now
   // rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
@@ -607,7 +606,7 @@ message DNSMessage {
     message DNSRR {
       optional string rdata = 5;
     }
-    optional uint32 rcode = 1;
+    reserved 1; // was: optional uint32 rcode = 1; We now use the gRPC error code for this
     repeated DNSRR rrs = 2;
   }
   optional DNSQuestion question = 1;

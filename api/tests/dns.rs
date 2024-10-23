@@ -152,6 +152,56 @@ async fn test_dns(pool: sqlx::PgPool) {
     //      - 2x admin machine ID names
     //      - 2x bmc machine ID names
     assert_eq!(10, get_dns_record_count(&env.pool).await);
+
+    let status = api
+        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+            q_name: None,
+            q_type: Some(1),
+            q_class: Some(1),
+        }))
+        .await
+        .expect_err("Query should return an error");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.message(), "q_name");
+
+    let status = api
+        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+            q_name: Some("".to_string()),
+            q_type: Some(1),
+            q_class: Some(1),
+        }))
+        .await
+        .expect_err("Query should return an error");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.message(), "q_name is empty");
+
+    let status = api
+        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+            q_name: Some("unknown".to_string()),
+            q_type: Some(2),
+            q_class: Some(1),
+        }))
+        .await
+        .expect_err("Query should return an error");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.message(), "q_type must be 1");
+
+    // Querying for something unknown should return a NotFound status code
+    for name in [
+        "unknown".to_string(),
+        format!("unknown.{}.", DNS_BMC_SUBDOMAIN),
+    ] {
+        let status = api
+            .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+                q_name: Some(name.clone()),
+                q_type: Some(1),
+                q_class: Some(1),
+            }))
+            .await
+            .expect_err("Query should return an error");
+        assert_eq!(status.code(), tonic::Code::NotFound);
+        assert_eq!(status.message(), format!("dns_record not found: {}", name));
+    }
 }
 
 // Get the current number of rows in the dns_records view,
