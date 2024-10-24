@@ -36,18 +36,19 @@
 - Metrics are now generated for power consumption rate
 - Added a new API for updating Operating Systems for curated images [FORGE-4277](https://jirasw.nvidia.com/browse/FORGE-4277)
 - The Admin UI now has a button on an endpoint to reconfigure the UEFI settings for Forge (i.e. `forge_setup`)
+- Access to GRPC endpoints using nvinit certs now logs who made the request; search for "forge-admin-cli request from" in the logs.
 
 ### Changed
 
 - DPU-based BGP health probes are more detailed as to what is failing the health checked:
-    - `BgpPeeringTor` contains information about which ToR lost a BGP session
-    - `BgpPeeringRouteServer` contains information when a session to the centralized Route Server is lost.
-    - `UnexpectedBgpPeer` contains information about a peer that is unknown
-    - `BgpStats` contains stats about BGP session information
+  - `BgpPeeringTor` contains information about which ToR lost a BGP session
+  - `BgpPeeringRouteServer` contains information when a session to the centralized Route Server is lost.
+  - `UnexpectedBgpPeer` contains information about a peer that is unknown
+  - `BgpStats` contains stats about BGP session information
 - Machines in `HostInit/WaitingForDiscovery` state now have a 30 minute SLA.
 - Site Explorer will only create one machine at a time to avoid a thundering herd problem.
 - All hardware-health emitted metrics standardized on the prefix of `hardware_health_`.
-    - This affects: `forge_hardware_health_monitor_iteration_latency`
+  - This affects: `forge_hardware_health_monitor_iteration_latency`
 
 ### Fixed
 

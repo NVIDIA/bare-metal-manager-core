@@ -9,26 +9,52 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-
-use serde::{Deserialize, Serialize};
+use x509_parser::prelude::{FromDer, X509Certificate, X509Name};
 
 mod casbin_engine;
 pub mod middleware;
 pub mod spiffe_id; // public for doctests
 
+// Various properties of a user gleaned from the presented certificate
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExternalUserInfo {
+    // Organiztion of the user, currently unused except for reporting
+    org: Option<String>,
+    // Group of the user, which determines their permissions
+    group: String,
+    // Name of the user, currently unused except for reporting
+    user: Option<String>,
+}
+
+impl ExternalUserInfo {
+    fn new(org: Option<String>, group: String, user: Option<String>) -> Self {
+        Self { org, group, user }
+    }
+    pub fn org(&self) -> Option<&str> {
+        self.org.as_deref()
+    }
+    pub fn group(&self) -> &str {
+        self.group.as_str()
+    }
+    pub fn user(&self) -> Option<&str> {
+        self.user.as_deref()
+    }
+}
+
 // Principal: something like an account, service, address, or other
 // identity that we can treat as the "subject" in a subject-action-object
 // construction.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Principal {
     // A SPIFFE ID after the trust domain and base path have been removed.
     SpiffeServiceIdentifier(String),
     SpiffeMachineIdentifier(String),
 
-    // The role from an Nvinit cert.
-    _NvinitUserRole(String),
+    // Certficate based authentication from outside of the cluster
+    ExternalUser(ExternalUserInfo),
 
     // Any certificate that was trusted by the TLS acceptor. This is a superset
     // of what gets mapped into the SPIFFE or nvinit principals, so any request
@@ -55,8 +81,8 @@ impl Principal {
                 // do want to grant permissions to machines as a class.
                 "spiffe-machine-id".into()
             }
-            Principal::_NvinitUserRole(role) => {
-                format!("nvinit-user-role/{role}")
+            Principal::ExternalUser(info) => {
+                format!("external-role/{}", info.group)
             }
             Principal::TrustedCertificate => "trusted-certificate".into(),
             Principal::Anonymous => "anonymous".into(),
@@ -68,19 +94,82 @@ impl Principal {
         certificate: &tokio_rustls::rustls::Certificate,
         spiffe_context: &forge_spiffe::ForgeSpiffeContext,
     ) -> Result<Principal, SpiffeError> {
-        // TODO: recognize and parse an nvinit certificate.
         let der_bytes = &certificate.0;
-        let spiffe_id = forge_spiffe::validate_x509_certificate(der_bytes.as_slice())?;
-        let service_id = spiffe_context.extract_service_identifier(&spiffe_id)?;
-        Ok(match service_id {
-            forge_spiffe::SpiffeIdClass::Service(service_id) => {
-                Principal::SpiffeServiceIdentifier(service_id)
+        match forge_spiffe::validate_x509_certificate(der_bytes.as_slice()) {
+            Ok(spiffe_id) => {
+                let service_id = spiffe_context.extract_service_identifier(&spiffe_id)?;
+                Ok(match service_id {
+                    forge_spiffe::SpiffeIdClass::Service(service_id) => {
+                        Principal::SpiffeServiceIdentifier(service_id)
+                    }
+                    forge_spiffe::SpiffeIdClass::Machine(machine_id) => {
+                        Principal::SpiffeMachineIdentifier(machine_id)
+                    }
+                })
             }
-            forge_spiffe::SpiffeIdClass::Machine(machine_id) => {
-                Principal::SpiffeMachineIdentifier(machine_id)
+            Err(e) => {
+                // nvinit certs do not include a SPIFFE ID, check if we might be one of them
+                if let Some(nvinit_cert) = try_external_cert(der_bytes.as_slice()) {
+                    return Ok(nvinit_cert);
+                }
+                Err(SpiffeError::Validation(e))
             }
-        })
+        }
     }
+}
+
+// try_external_cert will return a Pricipal::ExternalUser if this looks like an nvinit cert
+fn try_external_cert(der_certificate: &[u8]) -> Option<Principal> {
+    if let Ok((_remainder, x509_cert)) = X509Certificate::from_der(der_certificate) {
+        // Looks through the issuer releative distinguished names for a CN matching what we expect for nvinit certs.
+        // Other options may be available in the future, but just this for now.
+        for rdn in x509_cert.issuer().iter() {
+            if rdn
+                .iter()
+                .filter(|attribute| attribute.attr_type() == &oid_registry::OID_X509_COMMON_NAME) // CN=  see https://www.rfc-editor.org/rfc/rfc4519.html
+                .filter_map(|attribute| attribute.attr_value().as_printablestring().ok())
+                .any(|value| value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com")
+            {
+                // This CN is what we expect from nvinit certs
+                return Some(Principal::ExternalUser(nvinit_cert_values(
+                    x509_cert.subject(),
+                )));
+            }
+        }
+    }
+    None
+}
+
+// nvinit_cert_values parses the information from an nvinit cert
+fn nvinit_cert_values(subject: &X509Name) -> ExternalUserInfo {
+    let mut org = None;
+    let mut group = "".to_string();
+    let mut user = None;
+
+    for rdn in subject.iter() {
+        for attribute in rdn.iter() {
+            match attribute.attr_type() {
+                x if x == &oid_registry::OID_X509_ORGANIZATION_NAME => {
+                    if let Ok(value) = attribute.attr_value().as_printablestring() {
+                        org = Some(value.string());
+                    }
+                }
+                x if x == &oid_registry::OID_X509_ORGANIZATIONAL_UNIT => {
+                    if let Ok(value) = attribute.attr_value().as_printablestring() {
+                        group = value.string();
+                    }
+                }
+                x if x == &oid_registry::OID_X509_COMMON_NAME => {
+                    if let Ok(value) = attribute.attr_value().as_printablestring() {
+                        user = Some(value.string());
+                    }
+                }
+                _ => {}
+            };
+        }
+    }
+
+    ExternalUserInfo::new(org, group, user)
 }
 
 // This is added to the extensions of a request. The authentication (authn)
@@ -304,6 +393,197 @@ impl PolicyEngine for NoopEngine {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eyre::Context;
+    use std::io::BufRead;
+    use tokio_rustls::rustls::Certificate;
+
+    struct ClientCertTable {
+        cert: String,
+        desired: Principal,
+    }
+
+    static CLIENT_CERT_DHCP: &[u8] = &[
+        45, 45, 45, 45, 45, 66, 69, 71, 73, 78, 32, 67, 69, 82, 84, 73, 70, 73, 67, 65, 84, 69, 45,
+        45, 45, 45, 45, 10, 77, 73, 73, 67, 69, 122, 67, 67, 65, 98, 113, 103, 65, 119, 73, 66, 65,
+        103, 73, 85, 84, 67, 101, 55, 112, 90, 80, 74, 111, 47, 51, 117, 122, 69, 51, 99, 104, 52,
+        110, 78, 50, 111, 103, 74, 104, 105, 77, 119, 67, 103, 89, 73, 75, 111, 90, 73, 122, 106,
+        48, 69, 65, 119, 73, 119, 10, 70, 68, 69, 83, 77, 66, 65, 71, 65, 49, 85, 69, 65, 120, 77,
+        74, 99, 50, 108, 48, 90, 83, 49, 121, 98, 50, 57, 48, 77, 66, 52, 88, 68, 84, 73, 48, 77,
+        84, 65, 120, 78, 68, 73, 119, 77, 122, 81, 49, 79, 86, 111, 88, 68, 84, 73, 48, 77, 84, 69,
+        120, 77, 122, 73, 119, 10, 77, 122, 85, 121, 79, 86, 111, 119, 65, 68, 66, 50, 77, 66, 65,
+        71, 66, 121, 113, 71, 83, 77, 52, 57, 65, 103, 69, 71, 66, 83, 117, 66, 66, 65, 65, 105,
+        65, 50, 73, 65, 66, 73, 102, 89, 55, 98, 71, 56, 86, 105, 72, 79, 122, 70, 104, 49, 53, 68,
+        49, 121, 73, 48, 49, 116, 10, 111, 47, 102, 117, 76, 47, 55, 70, 90, 70, 113, 57, 101, 117,
+        81, 82, 115, 71, 75, 118, 50, 102, 100, 75, 87, 53, 122, 73, 114, 69, 81, 80, 54, 118, 111,
+        52, 74, 69, 100, 76, 53, 48, 113, 103, 67, 86, 57, 84, 76, 75, 43, 65, 75, 70, 43, 115, 50,
+        49, 50, 97, 48, 106, 79, 100, 10, 102, 104, 118, 116, 56, 98, 78, 119, 47, 72, 107, 113,
+        103, 102, 109, 81, 100, 75, 97, 87, 107, 88, 116, 118, 115, 84, 107, 86, 120, 84, 112, 108,
+        101, 53, 54, 47, 56, 118, 50, 82, 43, 113, 79, 66, 52, 68, 67, 66, 51, 84, 65, 79, 66, 103,
+        78, 86, 72, 81, 56, 66, 65, 102, 56, 69, 10, 66, 65, 77, 67, 65, 54, 103, 119, 72, 81, 89,
+        68, 86, 82, 48, 108, 66, 66, 89, 119, 70, 65, 89, 73, 75, 119, 89, 66, 66, 81, 85, 72, 65,
+        119, 69, 71, 67, 67, 115, 71, 65, 81, 85, 70, 66, 119, 77, 67, 77, 66, 48, 71, 65, 49, 85,
+        100, 68, 103, 81, 87, 66, 66, 81, 80, 10, 117, 80, 43, 48, 110, 108, 80, 82, 77, 49, 43,
+        121, 47, 71, 69, 51, 65, 97, 119, 122, 71, 75, 85, 111, 106, 68, 65, 102, 66, 103, 78, 86,
+        72, 83, 77, 69, 71, 68, 65, 87, 103, 66, 84, 50, 118, 49, 43, 80, 57, 119, 106, 111, 120,
+        97, 55, 112, 100, 71, 65, 100, 51, 97, 118, 84, 10, 75, 68, 70, 81, 83, 68, 66, 115, 66,
+        103, 78, 86, 72, 82, 69, 66, 65, 102, 56, 69, 89, 106, 66, 103, 103, 105, 116, 106, 89, 88,
+        74, 105, 97, 87, 82, 108, 76, 87, 82, 111, 89, 51, 65, 117, 90, 109, 57, 121, 90, 50, 85,
+        116, 99, 51, 108, 122, 100, 71, 86, 116, 76, 110, 78, 50, 10, 89, 121, 53, 106, 98, 72, 86,
+        122, 100, 71, 86, 121, 76, 109, 120, 118, 89, 50, 70, 115, 104, 106, 70, 122, 99, 71, 108,
+        109, 90, 109, 85, 54, 76, 121, 57, 109, 98, 51, 74, 110, 90, 83, 53, 115, 98, 50, 78, 104,
+        98, 67, 57, 109, 98, 51, 74, 110, 90, 83, 49, 122, 101, 88, 78, 48, 10, 90, 87, 48, 118,
+        99, 50, 69, 118, 89, 50, 70, 121, 89, 109, 108, 107, 90, 83, 49, 107, 97, 71, 78, 119, 77,
+        65, 111, 71, 67, 67, 113, 71, 83, 77, 52, 57, 66, 65, 77, 67, 65, 48, 99, 65, 77, 69, 81,
+        67, 73, 72, 68, 50, 74, 54, 113, 76, 67, 47, 75, 72, 57, 51, 98, 104, 10, 109, 122, 70, 89,
+        48, 97, 74, 122, 78, 52, 65, 70, 69, 74, 102, 73, 117, 76, 85, 82, 48, 90, 112, 84, 77,
+        102, 108, 43, 65, 105, 66, 69, 100, 90, 72, 50, 117, 110, 117, 110, 47, 54, 49, 83, 65, 82,
+        87, 83, 122, 113, 118, 82, 81, 79, 55, 110, 56, 102, 102, 69, 108, 99, 78, 71, 10, 78, 74,
+        89, 112, 76, 51, 87, 118, 68, 81, 61, 61, 10, 45, 45, 45, 45, 45, 69, 78, 68, 32, 67, 69,
+        82, 84, 73, 70, 73, 67, 65, 84, 69, 45, 45, 45, 45, 45,
+    ];
+
+    static CLIENT_CERT_NVINIT: &[u8] = &[
+        45, 45, 45, 45, 45, 66, 69, 71, 73, 78, 32, 67, 69, 82, 84, 73, 70, 73, 67, 65, 84, 69, 45,
+        45, 45, 45, 45, 10, 77, 73, 73, 69, 70, 122, 67, 67, 65, 118, 43, 103, 65, 119, 73, 66, 65,
+        103, 73, 85, 65, 116, 79, 84, 122, 77, 52, 47, 118, 50, 50, 83, 74, 55, 112, 119, 84, 90,
+        70, 51, 76, 90, 108, 43, 71, 122, 85, 119, 68, 81, 89, 74, 75, 111, 90, 73, 104, 118, 99,
+        78, 65, 81, 69, 76, 10, 66, 81, 65, 119, 76, 84, 69, 114, 77, 67, 107, 71, 65, 49, 85, 69,
+        65, 120, 77, 105, 99, 71, 116, 112, 76, 87, 115, 52, 99, 121, 49, 49, 99, 50, 86, 121, 89,
+        50, 86, 121, 100, 67, 49, 106, 89, 83, 53, 117, 90, 50, 77, 117, 98, 110, 90, 112, 90, 71,
+        108, 104, 76, 109, 78, 118, 10, 98, 84, 65, 101, 70, 119, 48, 121, 78, 68, 69, 119, 77, 84,
+        89, 120, 79, 68, 77, 122, 77, 106, 66, 97, 70, 119, 48, 121, 78, 68, 69, 119, 77, 84, 89,
+        120, 79, 68, 77, 52, 78, 84, 66, 97, 77, 69, 77, 120, 69, 106, 65, 81, 66, 103, 78, 86, 66,
+        65, 111, 84, 67, 85, 53, 72, 10, 81, 121, 66, 71, 98, 51, 74, 110, 90, 84, 69, 98, 77, 66,
+        107, 71, 65, 49, 85, 69, 67, 120, 77, 83, 99, 51, 100, 117, 90, 50, 77, 116, 90, 109, 57,
+        121, 90, 50, 85, 116, 89, 87, 82, 116, 97, 87, 53, 122, 77, 82, 65, 119, 68, 103, 89, 68,
+        86, 81, 81, 68, 69, 119, 100, 107, 10, 90, 71, 86, 113, 98, 50, 53, 110, 77, 73, 73, 66,
+        73, 106, 65, 78, 66, 103, 107, 113, 104, 107, 105, 71, 57, 119, 48, 66, 65, 81, 69, 70, 65,
+        65, 79, 67, 65, 81, 56, 65, 77, 73, 73, 66, 67, 103, 75, 67, 65, 81, 69, 65, 55, 83, 69,
+        57, 86, 97, 102, 51, 89, 69, 114, 52, 10, 108, 66, 55, 67, 53, 78, 73, 101, 50, 68, 52,
+        116, 90, 73, 51, 72, 43, 71, 103, 121, 112, 118, 90, 47, 108, 101, 84, 71, 70, 57, 83, 78,
+        66, 43, 119, 50, 50, 83, 89, 117, 51, 74, 89, 117, 100, 101, 83, 121, 71, 90, 85, 48, 55,
+        47, 88, 116, 81, 50, 71, 57, 68, 53, 73, 102, 10, 66, 113, 73, 73, 106, 97, 113, 75, 102,
+        89, 114, 56, 80, 104, 53, 67, 53, 89, 80, 110, 84, 117, 112, 86, 49, 50, 57, 85, 121, 53,
+        86, 53, 118, 84, 110, 56, 56, 71, 118, 98, 56, 106, 121, 103, 112, 90, 55, 90, 71, 78, 84,
+        106, 85, 115, 107, 85, 103, 103, 55, 73, 75, 81, 78, 65, 10, 97, 83, 80, 101, 88, 103, 88,
+        76, 113, 52, 118, 106, 87, 121, 98, 116, 101, 71, 81, 121, 74, 78, 110, 50, 97, 104, 88,
+        53, 111, 117, 53, 77, 70, 67, 104, 116, 47, 102, 67, 43, 86, 114, 100, 84, 74, 51, 112,
+        110, 76, 70, 49, 89, 90, 72, 52, 75, 65, 104, 82, 80, 107, 77, 83, 65, 10, 67, 56, 101, 54,
+        56, 101, 99, 106, 112, 48, 116, 43, 83, 113, 113, 120, 88, 103, 121, 103, 118, 57, 120, 90,
+        109, 79, 68, 51, 100, 54, 109, 98, 79, 120, 71, 72, 117, 71, 68, 83, 56, 114, 88, 73, 78,
+        105, 74, 70, 43, 90, 122, 98, 68, 85, 109, 82, 88, 97, 84, 66, 54, 120, 83, 103, 10, 67,
+        109, 47, 112, 53, 51, 109, 118, 72, 53, 89, 97, 73, 108, 43, 112, 57, 85, 100, 84, 118, 99,
+        85, 51, 77, 73, 121, 116, 120, 105, 50, 76, 72, 121, 90, 70, 117, 67, 98, 104, 75, 111,
+        116, 88, 86, 118, 69, 81, 116, 113, 74, 72, 73, 113, 116, 49, 66, 122, 50, 103, 57, 97,
+        107, 84, 10, 89, 115, 51, 119, 119, 49, 89, 112, 119, 119, 73, 68, 65, 81, 65, 66, 111, 52,
+        73, 66, 70, 122, 67, 67, 65, 82, 77, 119, 68, 103, 89, 68, 86, 82, 48, 80, 65, 81, 72, 47,
+        66, 65, 81, 68, 65, 103, 79, 111, 77, 66, 77, 71, 65, 49, 85, 100, 74, 81, 81, 77, 77, 65,
+        111, 71, 10, 67, 67, 115, 71, 65, 81, 85, 70, 66, 119, 77, 67, 77, 66, 48, 71, 65, 49, 85,
+        100, 68, 103, 81, 87, 66, 66, 81, 89, 65, 55, 79, 81, 106, 67, 100, 117, 78, 115, 85, 108,
+        79, 114, 104, 73, 73, 80, 49, 76, 110, 80, 87, 73, 122, 68, 65, 102, 66, 103, 78, 86, 72,
+        83, 77, 69, 10, 71, 68, 65, 87, 103, 66, 84, 77, 111, 66, 119, 113, 119, 81, 51, 66, 109,
+        81, 117, 111, 83, 57, 67, 78, 73, 107, 113, 99, 120, 107, 52, 110, 70, 122, 66, 81, 66,
+        103, 103, 114, 66, 103, 69, 70, 66, 81, 99, 66, 65, 81, 82, 69, 77, 69, 73, 119, 81, 65,
+        89, 73, 75, 119, 89, 66, 10, 66, 81, 85, 72, 77, 65, 75, 71, 78, 71, 104, 48, 100, 72, 66,
+        122, 79, 105, 56, 118, 99, 72, 74, 118, 90, 67, 53, 50, 89, 88, 86, 115, 100, 67, 53, 117,
+        100, 109, 108, 107, 97, 87, 69, 117, 89, 50, 57, 116, 76, 51, 89, 120, 76, 51, 66, 114, 97,
+        83, 49, 114, 79, 72, 77, 116, 10, 100, 88, 78, 108, 99, 109, 78, 108, 99, 110, 81, 118, 89,
+        50, 69, 119, 69, 103, 89, 68, 86, 82, 48, 82, 66, 65, 115, 119, 67, 89, 73, 72, 90, 71, 82,
+        108, 97, 109, 57, 117, 90, 122, 66, 71, 66, 103, 78, 86, 72, 82, 56, 69, 80, 122, 65, 57,
+        77, 68, 117, 103, 79, 97, 65, 51, 10, 104, 106, 86, 111, 100, 72, 82, 119, 99, 122, 111,
+        118, 76, 51, 66, 121, 98, 50, 81, 117, 100, 109, 70, 49, 98, 72, 81, 117, 98, 110, 90, 112,
+        90, 71, 108, 104, 76, 109, 78, 118, 98, 83, 57, 50, 77, 83, 57, 119, 97, 50, 107, 116, 97,
+        122, 104, 122, 76, 88, 86, 122, 90, 88, 74, 106, 10, 90, 88, 74, 48, 76, 50, 78, 121, 98,
+        68, 65, 78, 66, 103, 107, 113, 104, 107, 105, 71, 57, 119, 48, 66, 65, 81, 115, 70, 65, 65,
+        79, 67, 65, 81, 69, 65, 97, 120, 55, 118, 76, 119, 102, 81, 43, 48, 118, 66, 43, 77, 99,
+        104, 100, 122, 119, 71, 89, 103, 78, 81, 119, 100, 43, 101, 10, 89, 111, 57, 74, 79, 43,
+        52, 107, 101, 87, 43, 79, 50, 119, 69, 51, 54, 88, 88, 99, 115, 110, 115, 79, 115, 65, 88,
+        103, 48, 109, 75, 78, 70, 53, 82, 109, 70, 72, 89, 81, 118, 55, 98, 120, 118, 43, 100, 81,
+        90, 78, 100, 110, 118, 74, 72, 122, 57, 48, 90, 106, 97, 119, 82, 67, 10, 49, 119, 69, 85,
+        49, 116, 116, 66, 115, 74, 101, 56, 107, 52, 54, 68, 119, 120, 101, 120, 78, 100, 100, 100,
+        71, 102, 105, 109, 122, 56, 77, 65, 73, 71, 101, 53, 115, 87, 51, 105, 67, 107, 106, 109,
+        102, 65, 122, 89, 111, 88, 50, 114, 87, 68, 119, 78, 53, 80, 65, 103, 54, 77, 65, 51, 10,
+        119, 67, 76, 112, 80, 122, 121, 101, 103, 66, 88, 116, 104, 90, 83, 115, 82, 50, 117, 100,
+        52, 73, 78, 120, 114, 87, 88, 104, 113, 81, 50, 102, 103, 103, 49, 51, 48, 110, 76, 114,
+        122, 110, 111, 85, 55, 78, 108, 68, 51, 100, 115, 54, 47, 85, 57, 50, 114, 98, 121, 118,
+        50, 102, 99, 81, 10, 112, 77, 101, 76, 120, 49, 82, 109, 56, 50, 88, 82, 89, 71, 107, 119,
+        72, 107, 49, 119, 66, 65, 82, 111, 67, 66, 119, 82, 83, 122, 101, 117, 105, 71, 117, 103,
+        73, 99, 43, 81, 72, 104, 48, 68, 120, 118, 77, 74, 99, 99, 116, 68, 74, 50, 48, 68, 52,
+        106, 53, 52, 48, 105, 72, 71, 10, 112, 48, 99, 71, 114, 65, 114, 97, 73, 110, 101, 90, 112,
+        113, 52, 47, 98, 77, 112, 108, 51, 56, 102, 122, 111, 117, 85, 108, 105, 72, 47, 66, 74,
+        70, 80, 106, 88, 47, 103, 53, 121, 70, 81, 84, 106, 47, 67, 113, 47, 70, 89, 122, 102, 87,
+        121, 65, 122, 65, 61, 61, 10, 45, 45, 45, 45, 45, 69, 78, 68, 32, 67, 69, 82, 84, 73, 70,
+        73, 67, 65, 84, 69, 45, 45, 45, 45, 45,
+    ];
+
+    #[test]
+    fn test_try_from_client_certificates() -> Result<(), eyre::Error> {
+        // Because we are not actually validating these certs, it doesn't matter if they expire
+        let mut table = vec![
+            // Cert used by carbide-dhcp in local dev
+            ClientCertTable {
+                cert: std::str::from_utf8(CLIENT_CERT_DHCP).unwrap().to_string(),
+                desired: Principal::SpiffeServiceIdentifier("carbide-dhcp".to_string()),
+            },
+            // nvinit cert (expired, of course)
+            ClientCertTable {
+                cert: std::str::from_utf8(CLIENT_CERT_NVINIT).unwrap().to_string(),
+                desired: Principal::ExternalUser(ExternalUserInfo::new(
+                    Some("NGC Forge".to_string()),
+                    "swngc-forge-admins".to_string(),
+                    Some("ddejong".to_string()),
+                )),
+            },
+        ];
+        if let Some(extra) = extra_test_cert() {
+            // Pull in an additional cert that would be a security problem to check in
+            println!("Extra test cert: {:?}", extra.desired);
+            table.push(extra);
+        }
+        let context = forge_spiffe::ForgeSpiffeContext::default();
+
+        for test in table {
+            let clone = test.cert.clone();
+            let certs = rustls_pemfile::certs(&mut clone.as_bytes())?
+                .into_iter()
+                .map(Certificate)
+                .collect::<Vec<_>>();
+            let certificate = certs.first().unwrap();
+            assert_eq!(
+                Principal::try_from_client_certificate(certificate, &context)
+                    .wrap_err(format!("Bad certificate {}", test.cert))?,
+                test.desired
+            );
+        }
+        Ok(())
+    }
+
+    fn extra_test_cert() -> Option<ClientCertTable> {
+        let cert = std::fs::read_to_string("/tmp/extra_test_cert.crt").ok()?;
+        let principal_file = std::fs::File::open("/tmp/extra_test_cert.principal").ok()?;
+        let mut principal_file = std::io::BufReader::new(principal_file);
+        let mut line = String::new();
+        principal_file.read_line(&mut line).ok()?;
+        match line.as_str() {
+            "SpiffeServiceIdentifier\n" => {
+                let mut line = String::new();
+                principal_file.read_line(&mut line).ok()?;
+                if let Some(stripped) = line.strip_suffix("\n") {
+                    line = stripped.to_string();
+                }
+                Some(ClientCertTable {
+                    cert,
+                    desired: Principal::SpiffeServiceIdentifier(line),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 pub mod forge_spiffe {
     use x509_parser::prelude::{FromDer, GeneralName, X509Certificate};
 
@@ -394,6 +674,7 @@ pub mod forge_spiffe {
         ValidationError(String),
     }
 
+    #[derive(Debug)]
     pub enum SpiffeIdClass {
         Service(String),
         Machine(String),
@@ -416,18 +697,6 @@ pub mod forge_spiffe {
     }
 
     impl ForgeSpiffeContext {
-        pub fn new(
-            trust_domain: spiffe_id::TrustDomain,
-            service_base_path: String,
-            machine_base_path: String,
-        ) -> Self {
-            ForgeSpiffeContext {
-                trust_domain,
-                service_base_path,
-                machine_base_path,
-            }
-        }
-
         pub fn extract_service_identifier(
             &self,
             spiffe_id: &spiffe_id::SpiffeId,
@@ -469,7 +738,7 @@ pub mod forge_spiffe {
     impl Default for ForgeSpiffeContext {
         fn default() -> Self {
             let trust_domain = spiffe_id::TrustDomain::new("forge.local").unwrap();
-            let service_base_path = String::from("/ns/forge-system/sa/");
+            let service_base_path = String::from("/forge-system/sa/");
             let machine_base_path = String::from("/forge-system/machine/");
             ForgeSpiffeContext {
                 trust_domain,
