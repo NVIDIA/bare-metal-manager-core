@@ -17,9 +17,7 @@ use carbide::model::machine::machine_id::from_hardware_info;
 use carbide::CarbideError;
 
 pub mod common;
-use common::api_fixtures::{
-    dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-};
+use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
 use crate::common::api_fixtures::create_test_env;
 
@@ -34,6 +32,7 @@ async fn prevent_duplicate_mac_addresses(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -49,20 +48,20 @@ async fn prevent_duplicate_mac_addresses(
     let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
-        &host_sim.config.dpu_oob_mac_address,
+        &dpu.oob_mac_address,
         None,
         true,
         AddressSelectionStrategy::Automatic,
     )
     .await?;
 
-    let machine_id = from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
+    let machine_id = from_hardware_info(&dpu.into()).unwrap();
     Machine::get_or_create(&mut txn, &machine_id, &new_interface).await?;
 
     let duplicate_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
-        &host_sim.config.dpu_oob_mac_address,
+        &dpu.oob_mac_address,
         None,
         true,
         AddressSelectionStrategy::Automatic,

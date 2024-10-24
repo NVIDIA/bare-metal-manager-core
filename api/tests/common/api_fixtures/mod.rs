@@ -27,7 +27,6 @@ use crate::common::{
         host::create_host_machine,
         managed_host::{ManagedHostConfig, ManagedHostSim},
     },
-    mac_address_pool,
     test_certificates::TestCertificateProvider,
     test_meter::TestMeter,
 };
@@ -47,12 +46,9 @@ use carbide::{
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
     measured_boot::interface::common::PcrRegisterValue,
-    model::{
-        hardware_info::TpmEkCertificate,
-        machine::{
-            machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
-            ManagedHostState,
-        },
+    model::machine::{
+        machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
+        ManagedHostState,
     },
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
@@ -100,6 +96,7 @@ use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
 pub mod dpu;
+pub mod endpoint_explorer;
 pub mod host;
 pub mod ib_partition;
 pub mod instance;
@@ -171,19 +168,14 @@ impl TestEnv {
 
     /// Generates a simulation for Host+DPU pair
     pub fn start_managed_host_sim(&self) -> ManagedHostSim {
-        // TODO: Also add unique serial numbers, etc
-        let random_cert = create_random_self_signed_cert();
-        let config = ManagedHostConfig {
-            dpu_bmc_mac_address: mac_address_pool::DPU_BMC_MAC_ADDRESS_POOL.allocate(),
-            dpu_oob_mac_address: mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL.allocate(),
-            host_bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
-            host_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
-            host_tpm_ek_cert: TpmEkCertificate::from(random_cert),
-        };
+        self.start_managed_host_sim_with_config(ManagedHostConfig::default())
+    }
 
+    pub fn start_managed_host_sim_with_config(&self, config: ManagedHostConfig) -> ManagedHostSim {
         // TODO: This will in the future also spin up redfish mocks for these components
         ManagedHostSim { config }
     }
+
     fn fill_machine_information(
         &self,
         state: &ManagedHostState,
@@ -1107,8 +1099,15 @@ pub async fn forge_agent_control(
 }
 
 pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
+    create_managed_host_with_config(env, ManagedHostConfig::default()).await
+}
+
+pub async fn create_managed_host_with_config(
+    env: &TestEnv,
+    config: ManagedHostConfig,
+) -> (MachineId, MachineId) {
     // TODO: Return host_sim
-    let host_sim = env.start_managed_host_sim();
+    let host_sim = env.start_managed_host_sim_with_config(config);
     let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;

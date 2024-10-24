@@ -12,7 +12,11 @@
 
 //! Contains DPU related fixtures
 
-use std::{collections::HashMap, net::IpAddr};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use carbide::{
     db::{
@@ -22,9 +26,16 @@ use carbide::{
     model::{
         hardware_info::HardwareInfo,
         machine::{machine_id::try_parse_machine_id, DpuInitState, MachineState, ManagedHostState},
+        site_explorer::{
+            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+            EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager,
+            NicMode, PowerState, Service, UefiDevicePath,
+        },
     },
 };
 use forge_uuid::machine::MachineId;
+use libredfish::{OData, PCIeDevice};
+use mac_address::MacAddress;
 use rpc::{
     forge::{
         forge_server::Forge,
@@ -33,12 +44,14 @@ use rpc::{
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
-
 use tonic::Request;
 
-use crate::common::api_fixtures::{
-    discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, network_configured,
-    update_bmc_metadata, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+use crate::common::{
+    api_fixtures::{
+        discovery_completed, forge_agent_control, managed_host::ManagedHostConfig,
+        network_configured, update_bmc_metadata, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+    },
+    mac_address_pool,
 };
 
 pub const FIXTURE_DPU_BMC_VENDOR_STRING: &str = "NVIDIA/BF/BMC";
@@ -63,6 +76,170 @@ pub const TEST_DPU_AGENT_VERSION: &str = "test";
 pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// The version of doca-telemetry reported in unit-tests
 pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
+
+const DPU_INFO_JSON: &[u8] =
+    include_bytes!("../../../src/model/hardware_info/test_data/dpu_info.json");
+
+static NEXT_DPU_SERIAL: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Clone, Debug)]
+pub struct DpuConfig {
+    pub serial: String,
+    pub host_mac_address: MacAddress,
+    pub oob_mac_address: MacAddress,
+    pub bmc_mac_address: MacAddress,
+    pub last_exploration_error: Option<EndpointExplorationError>,
+    pub override_hosts_uefi_device_path: Option<UefiDevicePath>,
+}
+
+impl DpuConfig {
+    pub fn with_serial(serial: String) -> Self {
+        Self {
+            serial,
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for DpuConfig {
+    fn default() -> Self {
+        Self {
+            serial: format!(
+                "MT2333X{:05X}",
+                NEXT_DPU_SERIAL.fetch_add(1, Ordering::Relaxed)
+            ),
+            host_mac_address: mac_address_pool::HOST_MAC_ADDRESS_POOL.allocate(),
+            oob_mac_address: mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL.allocate(),
+            bmc_mac_address: mac_address_pool::DPU_BMC_MAC_ADDRESS_POOL.allocate(),
+            last_exploration_error: None,
+            override_hosts_uefi_device_path: None,
+        }
+    }
+}
+
+impl From<&DpuConfig> for HardwareInfo {
+    fn from(value: &DpuConfig) -> Self {
+        let mut info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
+        info.dpu_info.as_mut().unwrap().factory_mac_address = value.host_mac_address.to_string();
+        info.dpu_info.as_mut().unwrap().firmware_version = DEFAULT_DPU_FIRMWARE_VERSION.to_owned();
+        info.dmi_data.as_mut().unwrap().product_serial = value.serial.clone();
+        assert!(info.is_dpu());
+        info
+    }
+}
+
+impl From<DpuConfig> for EndpointExplorationReport {
+    fn from(value: DpuConfig) -> Self {
+        Self {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: value.last_exploration_error,
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+            machine_id: None,
+            managers: vec![Manager {
+                id: "bmc".to_string(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("eth0".to_string()),
+                    description: Some("Management Network Interface".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some(value.bmc_mac_address),
+                    uefi_device_path: None,
+                }],
+            }],
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("oob_net0".to_string()),
+                    description: Some("1G DPU OOB network interface".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some(value.oob_mac_address),
+                    uefi_device_path: None,
+                }],
+                manufacturer: None,
+                model: None,
+                serial_number: Some(value.serial.clone()),
+                attributes: ComputerSystemAttributes {
+                    nic_mode: Some(NicMode::Dpu),
+                    http_dev1_interface: None,
+                },
+                pcie_devices: vec![PCIeDevice {
+                    odata: OData {
+                        odata_id: "odata_id".to_string(),
+                        odata_type: "odata_type".to_string(),
+                        odata_etag: None,
+                        odata_context: None,
+                    },
+                    description: None,
+                    firmware_version: None,
+                    id: None,
+                    manufacturer: None,
+                    gpu_vendor: None,
+                    name: None,
+                    part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                    serial_number: Some(value.serial.clone()),
+                    status: None,
+                    slot: None,
+                    pcie_functions: None,
+                }
+                .into()],
+                base_mac: Some(value.host_mac_address.to_string().replace(':', "")),
+                power_state: PowerState::On,
+            }],
+            chassis: vec![Chassis {
+                id: "Card1".to_string(),
+                manufacturer: Some("Nvidia".to_string()),
+                model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+                part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                serial_number: Some(value.serial.clone()),
+                network_adapters: vec![],
+            }],
+            service: vec![Service {
+                id: "FirmwareInventory".to_string(),
+                inventories: vec![
+                    Inventory {
+                        id: "DPU_NIC".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("32.38.1002".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_BSP".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("4.5.0.12984".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "BMC_Firmware".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("BF-23.10-3".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_OFED".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_OS".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some(
+                            "DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string(),
+                        ),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "DPU_SYS_IMAGE".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("b83f:d203:0090:97a4".to_string()),
+                        release_date: None,
+                    },
+                ],
+            }],
+            versions: Default::default(),
+            model: None,
+        }
+    }
+}
 
 /// Creates a Machine Interface and Machine for a DPU
 ///
@@ -117,8 +294,9 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
 ) -> (MachineId, MachineId) {
+    let primary_dpu = host_config.get_and_assert_single_dpu();
     let bmc_machine_interface_id =
-        dpu_bmc_discover_dhcp(env, &host_config.dpu_bmc_mac_address.to_string()).await;
+        dpu_bmc_discover_dhcp(env, &primary_dpu.bmc_mac_address.to_string()).await;
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
@@ -129,8 +307,8 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     txn.rollback().await.unwrap();
 
     let machine_interface_id =
-        dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
-    let dpu_rpc_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
+        dpu_discover_dhcp(env, &primary_dpu.oob_mac_address.to_string()).await;
+    let dpu_rpc_machine_id = dpu_discover_machine(env, primary_dpu, machine_interface_id).await;
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
@@ -154,7 +332,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         dpu_rpc_machine_id.clone(),
         &dpu_bmc_ip.to_string(),
         FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.dpu_bmc_mac_address,
+        primary_dpu.bmc_mac_address,
         FIXTURE_DPU_BMC_VERSION.to_owned(),
         FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
     )
@@ -287,7 +465,7 @@ pub async fn dpu_discover_bmc_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uui
 /// DPU that uses a certain `machine_interface_id`
 pub async fn dpu_discover_machine(
     env: &TestEnv,
-    host_config: &ManagedHostConfig,
+    dpu_config: &DpuConfig,
     machine_interface_id: rpc::Uuid,
 ) -> rpc::MachineId {
     let response = env
@@ -295,7 +473,7 @@ pub async fn dpu_discover_machine(
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(
-                DiscoveryInfo::try_from(create_dpu_hardware_info(host_config)).unwrap(),
+                DiscoveryInfo::try_from(HardwareInfo::from(dpu_config)).unwrap(),
             )),
             create_machine: true,
         }))
@@ -329,25 +507,6 @@ pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::
         .await
         .unwrap()
         .into_inner();
-}
-
-const TEST_DATA_DIR: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/model/hardware_info/test_data"
-);
-
-/// Creates a `HardwareInfo` object which represents a DPU
-pub fn create_dpu_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo {
-    let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
-    let data = std::fs::read(path).unwrap();
-    let mut info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
-    info.dpu_info.as_mut().unwrap().factory_mac_address = host_config.host_mac_address.to_string();
-    info.dmi_data.as_mut().unwrap().product_serial =
-        format!("DPU_{}", host_config.dpu_oob_mac_address);
-    // TODO: Patch in the correct DPU mac addresses
-    info.dpu_info.as_mut().unwrap().firmware_version = DEFAULT_DPU_FIRMWARE_VERSION.to_owned();
-    assert!(info.is_dpu());
-    info
 }
 
 // Convenience method for the tests to get a machine's loopback IP

@@ -25,7 +25,7 @@ use forge_uuid::{domain::DomainId, machine::MachineId};
 pub mod common;
 use carbide::db::{network_segment, ObjectColumnFilter};
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu::create_dpu_machine, host::create_host_hardware_info,
+    create_managed_host, create_test_env, dpu::create_dpu_machine,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use lazy_static::lazy_static;
@@ -48,6 +48,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // therefore we create a new one
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -82,7 +83,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let iface = db::machine_interface::create(
         &mut txn,
         &segment,
-        &host_sim.config.host_mac_address,
+        &dpu.host_mac_address,
         Some(*FIXTURE_CREATED_DOMAIN_ID),
         true,
         carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
@@ -90,7 +91,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .await
     .unwrap();
 
-    let hardware_info = create_host_hardware_info(&host_sim.config);
+    let hardware_info = HardwareInfo::from(&host_sim.config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
     let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
         .await
@@ -244,12 +245,7 @@ async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), e
     let req = tonic::Request::new(rpc::forge::BmcIpList {
         bmc_ips: vec![bmc_ip.to_string()],
     });
-    let res = env
-        .api
-        .find_machine_ids_by_bmc_ips(req)
-        .await
-        .unwrap()
-        .into_inner();
+    let res = env.api.find_machine_ids_by_bmc_ips(req).await?.into_inner();
     assert_eq!(res.pairs.len(), 1);
     let m = res.pairs.first().unwrap();
     assert_eq!(

@@ -16,16 +16,13 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 
 mod common;
+use carbide::model::hardware_info::HardwareInfo;
 use common::api_fixtures::{
-    create_managed_host, create_test_env,
-    dpu::create_dpu_machine,
-    host::{create_host_hardware_info, host_discover_dhcp},
+    create_managed_host, create_test_env, dpu::create_dpu_machine, host::host_discover_dhcp,
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
-
-use crate::common::api_fixtures::dpu::create_dpu_hardware_info;
 
 #[ctor::ctor]
 fn setup() {
@@ -112,7 +109,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     let host_machine_interface_id =
         host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
-    let mut hardware_info = create_host_hardware_info(&host_sim.config);
+    let mut hardware_info = HardwareInfo::from(&host_sim.config);
     hardware_info.tpm_ek_certificate = None;
 
     let response = env
@@ -163,11 +160,12 @@ async fn test_discover_dpu_by_source_ip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
 
     let dhcp_response = env
         .api
         .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
-            mac_address: host_sim.config.dpu_oob_mac_address.to_string(),
+            mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
             link_address: None,
@@ -181,7 +179,7 @@ async fn test_discover_dpu_by_source_ip(
     let mut req = Request::new(rpc::MachineDiscoveryInfo {
         machine_interface_id: None,
         discovery_data: Some(rpc::DiscoveryData::Info(
-            rpc::DiscoveryInfo::try_from(create_dpu_hardware_info(&host_sim.config)).unwrap(),
+            rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
         )),
         create_machine: true,
     });
@@ -200,11 +198,12 @@ async fn test_discover_dpu_not_create_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
 
     let dhcp_response = env
         .api
         .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
-            mac_address: host_sim.config.dpu_oob_mac_address.to_string(),
+            mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
             link_address: None,
@@ -218,7 +217,7 @@ async fn test_discover_dpu_not_create_machine(
     let mut req = Request::new(rpc::MachineDiscoveryInfo {
         machine_interface_id: None,
         discovery_data: Some(rpc::DiscoveryData::Info(
-            rpc::DiscoveryInfo::try_from(create_dpu_hardware_info(&host_sim.config)).unwrap(),
+            rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
         )),
         create_machine: false,
     });

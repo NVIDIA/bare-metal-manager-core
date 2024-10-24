@@ -40,6 +40,7 @@ use rpc::forge_agent_control_response::Action;
 use std::collections::HashMap;
 use tonic::Request;
 
+use crate::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
 use crate::common::api_fixtures::{
     discovery_completed,
     dpu::{
@@ -1140,9 +1141,12 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 }
 
 async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> (MachineId, MachineId) {
-    let mut host_sim = env.start_managed_host_sim();
-
-    host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
+    let host_sim = ManagedHostSim {
+        config: ManagedHostConfig {
+            tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
+            ..Default::default()
+        },
+    };
 
     let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();

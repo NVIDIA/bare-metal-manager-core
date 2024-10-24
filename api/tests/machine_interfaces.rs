@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashSet, str::FromStr};
+use std::{borrow::Borrow, collections::HashSet, str::FromStr};
 
 use carbide::{
     db::{
@@ -38,8 +38,7 @@ pub mod common;
 use crate::common::api_fixtures::dpu::create_dpu_machine;
 use carbide::db::{network_segment, ObjectColumnFilter};
 use common::api_fixtures::{
-    create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    FIXTURE_DHCP_RELAY_ADDRESS,
+    create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use tokio::sync::broadcast;
 use tonic::Code;
@@ -74,7 +73,9 @@ async fn only_one_primary_interface_per_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
     let other_host_sim = env.start_managed_host_sim();
+    let other_dpu = other_host_sim.config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -83,14 +84,14 @@ async fn only_one_primary_interface_per_machine(
     let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
-        &host_sim.config.dpu_oob_mac_address,
+        &dpu.oob_mac_address,
         None,
         true,
         AddressSelectionStrategy::Automatic,
     )
     .await?;
 
-    let machine_id = from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
+    let machine_id = from_hardware_info(&host_sim.config.borrow().into()).unwrap();
     let new_machine = Machine::get_or_create(&mut txn, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");
@@ -102,7 +103,7 @@ async fn only_one_primary_interface_per_machine(
     let should_failed_machine_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
-        &other_host_sim.config.dpu_oob_mac_address,
+        &other_dpu.oob_mac_address,
         None,
         true,
         AddressSelectionStrategy::Automatic,
@@ -269,6 +270,7 @@ async fn find_all_interfaces_test_cases(
 async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -278,7 +280,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
-        &host_sim.config.dpu_oob_mac_address,
+        &dpu.oob_mac_address,
         Some(domain_id),
         true,
         AddressSelectionStrategy::Automatic,

@@ -79,7 +79,7 @@ pub mod tests {
         let dpu_machine_id =
             try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-        host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
 
         let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
         let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
@@ -133,7 +133,7 @@ pub mod tests {
         let dpu_machine_id =
             try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-        host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
 
         let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
         let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();

@@ -19,6 +19,8 @@ use std::{
     time::Duration,
 };
 
+use crate::common::api_fixtures::{create_test_env, dpu::dpu_discover_dhcp};
+use carbide::model::hardware_info::HardwareInfo;
 use carbide::{
     model::machine::{
         machine_id::host_id_from_dpu_hardware_info, ManagedHostState, ManagedHostStateSnapshot,
@@ -35,11 +37,6 @@ use carbide::{
 use forge_uuid::machine::MachineId;
 use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
-
-use crate::common::api_fixtures::{
-    create_test_env,
-    dpu::{create_dpu_hardware_info, dpu_discover_dhcp},
-};
 
 #[derive(Debug, Default, Clone)]
 pub struct TestMachineStateHandler {
@@ -85,10 +82,10 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     let mut machine_ids = Vec::new();
     for host_sim in hosts.iter() {
-        let interface_id =
-            dpu_discover_dhcp(&env, &host_sim.config.dpu_oob_mac_address.to_string()).await;
+        let dpu = host_sim.config.get_and_assert_single_dpu();
+        let interface_id = dpu_discover_dhcp(&env, &dpu.oob_mac_address.to_string()).await;
 
-        let hardware_info = create_dpu_hardware_info(&host_sim.config);
+        let hardware_info = HardwareInfo::from(dpu);
         let _response = env
             .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
