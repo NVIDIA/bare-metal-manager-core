@@ -2324,7 +2324,15 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             )
             .await
             {
-                Ok(_client) => {
+                Ok(dpu_redfish_client) => {
+                    dpu_redfish_client
+                        .power(SystemPowerControl::ForceRestart)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "force_restart",
+                            error: e,
+                        })?;
+
                     // Go again to CheckFvVersion- if all BMC FW is up to date - it'll transition to NicFwUpdate
                     let next_state = ReprovisionState::BmcFirmwareUpgrade {
                         substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
