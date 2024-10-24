@@ -73,7 +73,16 @@ where
         if let Some(conn_attrs) = extensions.get::<Arc<crate::listener::ConnectionAttributes>>() {
             let peer_certs = conn_attrs.peer_certificates();
             let peer_cert_principals = peer_certs.iter().filter_map(|cert| {
-                Principal::try_from_client_certificate(cert, &self.spiffe_context).ok()
+                match Principal::try_from_client_certificate(cert, &self.spiffe_context) {
+                    Ok(x) => Some(x),
+                    Err(e) => {
+                        tracing::debug!(
+                            "Saw bad certificate from {:?}: {e}",
+                            conn_attrs.peer_address()
+                        );
+                        None
+                    }
+                }
             });
             auth_context.principals.extend(peer_cert_principals);
             // Regardless of whether we were able to get a specific Principal
@@ -140,6 +149,16 @@ where
                     let predicate = Predicate::ForgeCall(method_name.clone());
                     match authorizer.authorize(&principals, predicate) {
                         Ok(authorization) => {
+                            if let Some(Principal::ExternalUser(info)) = principals
+                                .iter()
+                                .find(|x| matches!(x, Principal::ExternalUser(_)))
+                            {
+                                tracing::info!(
+                                    "forge-admin-cli request from {}: {}",
+                                    info.user.as_ref().unwrap_or(&"nameless user".to_string()),
+                                    method_name
+                                );
+                            }
                             req_auth_context.authorization = Some(authorization);
                             true
                         }
@@ -160,6 +179,8 @@ where
                 // XXX: Should we do something different here? It might just
                 // be a malformed request, but could also be a bug in the
                 // RequestClass implementation.
+                // At a minimum, anything in the web UI hits this, so we will need to handle those correctly before
+                // returning errors for this.
                 Unrecognized => {
                     let request_path = request.uri().path();
                     tracing::debug!(request_path, "No authorization policy matched this request");
