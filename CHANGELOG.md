@@ -73,6 +73,14 @@
 - Fixed an issue with machine state handler where the machine state could be corrupted
 - Additional resiliency in configuring the UEFI settings on DGX H100.
 
+## [v2024.09.27-rc6-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc6-1...v2024.09.27-rc6-2)
+
+No user facing changes.
+
+## [v2024.09.27-rc6-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc6-0...v2024.09.27-rc6-1)
+
+No user facing changes.
+
 ## [v2024.09.27-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc5-0...v2024.09.27-rc6-0)
 
 ### Fixed
