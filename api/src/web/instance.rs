@@ -21,7 +21,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
 use super::filters;
-use crate::{api::Api, CarbideError, CarbideResult};
+use crate::api::Api;
 const MAX_LABEL_LENGTH: usize = 32;
 
 #[derive(Template)]
@@ -244,10 +244,8 @@ struct InstanceIbInterface {
     lid: u32,
 }
 
-impl TryFrom<forgerpc::Instance> for InstanceDetail {
-    type Error = CarbideError;
-
-    fn try_from(instance: forgerpc::Instance) -> CarbideResult<Self> {
+impl From<forgerpc::Instance> for InstanceDetail {
+    fn from(instance: forgerpc::Instance) -> Self {
         let mut interfaces = Vec::new();
         let if_configs = instance
             .config
@@ -366,7 +364,7 @@ impl TryFrom<forgerpc::Instance> for InstanceDetail {
             .map(|tenant| tenant.tenant_keyset_ids.clone())
             .unwrap_or_default();
 
-        Ok(Self {
+        Self {
             id: instance.id.clone().unwrap_or_default().value,
             machine_id: instance.machine_id.clone().unwrap_or_default().id,
             tenant_org: instance
@@ -408,7 +406,7 @@ impl TryFrom<forgerpc::Instance> for InstanceDetail {
             interfaces,
             ib_interfaces,
             keysets,
-        })
+        }
     }
 }
 
@@ -447,15 +445,6 @@ pub async fn detail(
     }
 
     let instance = instances.instances.pop().unwrap(); // safe, we checked above
-    let tried: CarbideResult<InstanceDetail> = instance.try_into();
-    match tried {
-        Ok(instance_detail) => {
-            (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to render InstanceDetail from Instance: {e}"),
-        )
-            .into_response(),
-    }
+    let instance_detail: InstanceDetail = instance.into();
+    (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
 }

@@ -14,6 +14,7 @@
 
 ## Fixed
 
+- Fixed an issue where the admin web UI page for instances could not be displayed when an instance used a VF or a network interface where the MAC address was not yet reported by `forge-dpu-agent`.
 - When DNS queries are issued via carbide-dns against carbide-api, the `LookupRecord` method will return a `NotFound` error code instead of an `Internal` error code. Due to this change, the carbide-api availability will no longer show up as degraded when Forge users perform queries for invalid domain names. The `NotFound` gRPC status code is transformed into a `NXDomain` DNS error code. If DNS queries fail for real internal server errors, a `ServFail` error code will be utilized.
 
 ## Removed
