@@ -11,6 +11,21 @@
     - `forge_hosts_unhealthy_by_probe_id_count`
     - `forge_hosts_health_overrides_count`
     - `forge_hosts_unhealthy_by_classification_count`
+- Admin Web UI has been improved:
+  - Tables are now utilizing the full available screen width
+  - On the Health details page
+    - the override textbox fills the screen
+    - active overrides are shown as a table
+  - Health alert classifications on all pages are shown as pills
+  - The explored endpoints page renders exploration errors as prettified JSON data
+  - The explored endpoint details renders errors as prettified JSON, and buttons got aligned to the right
+  - On the Machine Details page:
+    - A new BMC section has been added, which shows the BMC details and allows
+      to interact with the BMC
+    - Discovery Data has been moved into a separate section
+    - The Full discovery report in JSON format is shown in the discovery data section. It is collapsed by default
+  - The history sections on the Machine and Network Segment details pages pretty print the previous states in JSON format
+  - The instance overview table contains shows the instance names
 
 ## Fixed
 
