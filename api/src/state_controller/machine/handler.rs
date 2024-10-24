@@ -2238,6 +2238,8 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 }
             }
 
+            handler_restart_dpu(dpu_snapshot, services, txn).await?;
+
             Ok(StateHandlerOutcome::Transition(
                 ReprovisionState::FirmwareUpgrade.next_bmc_updrade_step(state, dpu_snapshot)?,
             ))
@@ -2316,39 +2318,15 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 ))),
             }
         }
-        BmcFirmwareUpgradeSubstate::Reboot { count } => {
-            match build_redfish_client_from_bmc_ip(
-                dpu_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await
-            {
-                Ok(dpu_redfish_client) => {
-                    dpu_redfish_client
-                        .power(SystemPowerControl::ForceRestart)
-                        .await
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "force_restart",
-                            error: e,
-                        })?;
-
-                    // Go again to CheckFvVersion- if all BMC FW is up to date - it'll transition to NicFwUpdate
-                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
-                        substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
-                    }
-                    .next_bmc_updrade_step(state, dpu_snapshot)?;
-
-                    Ok(StateHandlerOutcome::Transition(next_state))
-                }
-                Err(_e) => {
-                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
-                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: count + 1 },
-                    }
-                    .next_bmc_updrade_step(state, dpu_snapshot)?;
-                    Ok(StateHandlerOutcome::Transition(next_state))
-                }
+        BmcFirmwareUpgradeSubstate::Reboot { count: _ } => {
+            // This is a No-OP. The reboot will be done in the CheckFwVersion before transitioning to the NIC FW update (Reprovisioning/FirmwareUpgrade)
+            // Go again to CheckFvVersion- if all BMC FW is up to date - it'll transition to NicFwUpdate
+            let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
             }
+            .next_bmc_updrade_step(state, dpu_snapshot)?;
+
+            Ok(StateHandlerOutcome::Transition(next_state))
         }
     }
 }
