@@ -220,18 +220,19 @@ pub(crate) async fn find_by_machine_id(
         ))
     })?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(
+    let mh_snapshot = match db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
         LoadSnapshotOptions::default()
             .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
     )
     .await
-    .map_err(CarbideError::from)?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    {
+        Ok(Some(snapshot)) => snapshot,
+        Ok(None) => return Ok(Response::new(rpc::InstanceList { instances: vec![] })),
+        Err(e) => return Err(CarbideError::from(e).into()),
+    };
+
     let maybe_instance =
         Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
 
