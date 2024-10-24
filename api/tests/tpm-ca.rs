@@ -15,12 +15,11 @@ pub mod tests {
     use carbide::db::network_segment::NetworkSegment;
     use carbide::db::{network_segment, ObjectColumnFilter};
 
-    use carbide::model::hardware_info::TpmEkCertificate;
+    use carbide::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use carbide::model::machine::machine_id::from_hardware_info;
     use carbide::model::machine::machine_id::try_parse_machine_id;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::dpu::create_dpu_machine;
-    use common::api_fixtures::host::create_host_hardware_info;
 
     use common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::tpm_attestation::{CA2_CERT_SERIALIZED, CA_CERT_SERIALIZED};
@@ -42,7 +41,7 @@ pub mod tests {
     use rpc::forge::TpmCaCert;
 
     #[sqlx::test]
-    fn test_get_ek_cert_by_machine_id_machine_not_found_returns_error(pool: sqlx::PgPool) {
+    async fn test_get_ek_cert_by_machine_id_machine_not_found_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
@@ -69,6 +68,7 @@ pub mod tests {
         // therefore we create a new one
         let env = create_test_env(pool).await;
         let host_sim = env.start_managed_host_sim();
+        let dpu = host_sim.config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -84,7 +84,7 @@ pub mod tests {
         let iface = db::machine_interface::create(
             &mut txn,
             &segment,
-            &host_sim.config.host_mac_address,
+            &dpu.host_mac_address,
             Some(*FIXTURE_CREATED_DOMAIN_ID),
             true,
             carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
@@ -93,7 +93,7 @@ pub mod tests {
         .unwrap();
 
         // hardware_info is never inserted via MachineTopology::create_or_update thus triggering an error
-        let hardware_info = create_host_hardware_info(&host_sim.config);
+        let hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let _machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
             .await
@@ -119,6 +119,7 @@ pub mod tests {
         // therefore we create a new one
         let env = create_test_env(pool).await;
         let host_sim = env.start_managed_host_sim();
+        let dpu = host_sim.config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -134,14 +135,14 @@ pub mod tests {
         let iface = db::machine_interface::create(
             &mut txn,
             &segment,
-            &host_sim.config.host_mac_address,
+            &dpu.host_mac_address,
             Some(*FIXTURE_CREATED_DOMAIN_ID),
             true,
             carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
-        let mut hardware_info = create_host_hardware_info(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
             .await
@@ -987,7 +988,7 @@ pub mod tests {
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
-        let mut hardware_info = create_host_hardware_info(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_sim.config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1041,7 +1042,7 @@ pub mod tests {
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
-        let mut hardware_info = create_host_hardware_info(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_sim.config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1090,7 +1091,7 @@ pub mod tests {
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
-        let mut hardware_info = create_host_hardware_info(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_sim.config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1172,7 +1173,8 @@ pub mod tests {
         env: &TestEnv,
     ) -> Result<MachineId, Box<dyn std::error::Error>> {
         let mut host_sim = env.start_managed_host_sim();
-        host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
+        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
+        let dpu = host_sim.config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -1188,14 +1190,14 @@ pub mod tests {
         let iface = db::machine_interface::create(
             &mut txn,
             &segment,
-            &host_sim.config.host_mac_address,
+            &dpu.host_mac_address,
             Some(*FIXTURE_CREATED_DOMAIN_ID),
             true,
             carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
         .await
         .unwrap();
-        let hardware_info = create_host_hardware_info(&host_sim.config);
+        let hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
             .await

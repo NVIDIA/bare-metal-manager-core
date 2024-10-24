@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use common::api_fixtures::create_managed_host_with_config;
 use common::api_fixtures::dpu;
 use common::api_fixtures::instance::{create_instance, single_interface_network_config};
+use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use common::api_fixtures::{
     create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS, FIXTURE_DOMAIN_ID,
@@ -282,7 +284,9 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let config = ManagedHostConfig::default();
+    let dpu_config = config.get_and_assert_single_dpu().clone();
+    let (host_machine_id, dpu_machine_id) = create_managed_host_with_config(&env, config).await;
 
     let res = env
         .api
@@ -295,9 +299,10 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         .into_inner()
         .machines
         .remove(0);
-    let dpu_mac_address = &res.interfaces[0].mac_address;
-    // Matches common/api_fixtures/dpu.rs create_dpu_hardware_info
-    let dpu_serial = format!("DPU_{dpu_mac_address}");
+    assert_eq!(
+        res.discovery_info.unwrap().dmi_data.unwrap().product_serial,
+        dpu_config.serial
+    );
 
     // Host
 
@@ -319,7 +324,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // DPU
 
     let req = rpc::forge::IdentifySerialRequest {
-        serial_number: dpu_serial,
+        serial_number: dpu_config.serial,
     };
     let res = env
         .api

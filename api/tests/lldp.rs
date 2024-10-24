@@ -175,8 +175,12 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .devices
         .is_empty());
 
-    let _dpu_rpc_machine_id =
-        dpu_discover_machine(&env, &host_sim.config, machine_interface_id.into()).await;
+    let _dpu_rpc_machine_id = dpu_discover_machine(
+        &env,
+        host_sim.config.get_and_assert_single_dpu(),
+        machine_interface_id.into(),
+    )
+    .await;
 
     let topology = env
         .api

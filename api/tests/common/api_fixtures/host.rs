@@ -42,28 +42,10 @@ use rpc::{
 use strum::IntoEnumIterator;
 use tonic::Request;
 
-const TEST_DATA_DIR: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/src/model/hardware_info/test_data"
-);
-
 pub const FIXTURE_HOST_BMC_VERSION: &str = "4.3";
 pub const FIXTURE_HOST_BMC_FIRMWARE_VERSION: &str = "5.4";
 
 pub const FIXTURE_HOST_BMC_ADMIN_USER_NAME: &str = "forge_admin_host";
-
-/// Creates a `HardwareInfo` object which represents a Host
-pub fn create_host_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo {
-    let path = format!("{}/x86_info.json", TEST_DATA_DIR);
-    let data = std::fs::read(path).unwrap();
-    let mut info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
-    info.tpm_ek_certificate = Some(host_config.host_tpm_ek_cert.clone());
-    info.dmi_data.as_mut().unwrap().product_serial =
-        format!("Host_{}", host_config.host_mac_address);
-    // TODO: Patch hardware info with correct MAC addresses
-    assert!(!info.is_dpu());
-    info
-}
 
 /// Uses the `discover_dhcp` API to discover a Host BMC with a certain MAC address
 ///
@@ -116,7 +98,7 @@ pub async fn host_discover_dhcp(
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
-            mac_address: host_config.host_mac_address.to_string(),
+            mac_address: host_config.dhcp_mac_address().to_string(),
             relay_address: loopback_ip.to_string(),
             vendor_string: None,
             link_address: Some(prefix.gateway.unwrap().to_string()),
@@ -143,7 +125,7 @@ pub async fn host_discover_machine(
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(
-                DiscoveryInfo::try_from(create_host_hardware_info(host_config)).unwrap(),
+                DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap(),
             )),
             create_machine: true,
         }))
@@ -164,7 +146,7 @@ pub async fn create_host_machine(
 ) -> rpc::MachineId {
     use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
     let bmc_machine_interface_id =
-        host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;
+        host_bmc_discover_dhcp(env, &host_config.bmc_mac_address.to_string()).await;
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
@@ -185,7 +167,7 @@ pub async fn create_host_machine(
         host_rpc_machine_id.clone(),
         &host_bmc_ip.to_string(),
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.host_bmc_mac_address,
+        host_config.bmc_mac_address,
         FIXTURE_HOST_BMC_VERSION.to_owned(),
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
@@ -352,7 +334,7 @@ pub async fn create_host_with_machine_validation(
     let mut machine_validation_result = machine_validation_result_data.unwrap_or_default();
     use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
     let bmc_machine_interface_id =
-        host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;
+        host_bmc_discover_dhcp(env, &host_config.bmc_mac_address.to_string()).await;
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
@@ -373,7 +355,7 @@ pub async fn create_host_with_machine_validation(
         host_rpc_machine_id.clone(),
         &host_bmc_ip.to_string(),
         FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.host_bmc_mac_address,
+        host_config.bmc_mac_address,
         FIXTURE_HOST_BMC_VERSION.to_owned(),
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
