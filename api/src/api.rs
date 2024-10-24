@@ -1753,7 +1753,7 @@ impl Forge for Api {
                 host_machine = Some(host);
             } else {
                 host_machine = None;
-                dpu_machines = vec![];
+                dpu_machines = vec![machine];
             }
         } else {
             dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, machine.id())
