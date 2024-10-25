@@ -84,7 +84,14 @@ async fn show_runs(
 fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["Id", "MachineId", "StartTime", "EndTime", "Context"]);
+    table.set_titles(row![
+        "Id",
+        "MachineId",
+        "StartTime",
+        "EndTime",
+        "Context",
+        "State"
+    ]);
 
     for run in runs.runs {
         let end_time = if let Some(run_end_time) = run.end_time {
@@ -92,12 +99,22 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
         } else {
             "".to_string()
         };
+        let status_state = run
+            .status
+            .unwrap_or_default()
+            .machine_validation_state
+            .unwrap_or(
+                forgerpc::machine_validation_status::MachineValidationState::Completed(
+                    forgerpc::machine_validation_status::MachineValidationCompleted::Success.into(),
+                ),
+            );
         table.add_row(row![
             run.validation_id.clone().unwrap_or_default(),
             run.machine_id.unwrap_or_default(),
             run.start_time.unwrap_or_default(),
             end_time,
             run.context.unwrap_or_default(),
+            format!("{:?}", status_state),
         ]);
     }
 

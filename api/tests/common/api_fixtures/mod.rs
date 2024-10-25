@@ -696,6 +696,9 @@ pub async fn create_test_env_with_overrides(
                 .hardware_models(config.get_firmware_config())
                 .reachability_params(reachability_params)
                 .attestation_enabled(attestation_enabled)
+                .machine_validation_config(MachineValidationConfig {
+                    enabled: config.machine_validation_config.enabled,
+                })
                 .build(),
         )),
     };

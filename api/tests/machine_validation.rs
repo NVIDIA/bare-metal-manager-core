@@ -23,13 +23,13 @@ use std::{str::FromStr, time::SystemTime};
 
 mod common;
 use common::api_fixtures::{
-    create_test_env, forge_agent_control, get_machine_validation_results,
-    get_machine_validation_runs,
+    create_test_env, create_test_env_with_overrides, forge_agent_control, get_config,
+    get_machine_validation_results, get_machine_validation_runs,
     host::create_host_with_machine_validation,
     instance::{create_instance, delete_instance, single_interface_network_config},
     machine_validation_completed,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    on_demand_machine_validation,
+    on_demand_machine_validation, reboot_completed, TestEnvOverrides,
 };
 use rpc::Timestamp;
 
@@ -217,7 +217,7 @@ async fn test_machine_validation_with_error(
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
-                is_enabled: true,
+                is_enabled: env.config.machine_validation_config.enabled,
             },
         },
     )
@@ -312,7 +312,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
-                is_enabled: true,
+                is_enabled: env.config.machine_validation_config.enabled,
             },
         },
     )
@@ -597,7 +597,7 @@ async fn test_machine_validation_test_on_demand_filter(
                     .unwrap(),
                 completed: 1,
                 total: 1,
-                is_enabled: true,
+                is_enabled: env.config.machine_validation_config.enabled,
             },
         },
     )
@@ -626,5 +626,124 @@ async fn test_machine_validation_test_on_demand_filter(
     )
     .await;
     txn.commit().await.unwrap();
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_machine_validation_disabled(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = {
+        let mut config = get_config();
+        config.machine_validation_config.enabled = false;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+    let host_machine_id =
+        create_host_with_machine_validation(&env, &host_sim.config, &dpu_machine_id, None, None)
+            .await;
+
+    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let skipped_state_int =
+        rpc::forge::machine_validation_status::MachineValidationState::Completed(
+            rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
+        );
+    // let skipped_state_int: i32 = rpc::forge::MachineValidationState::Skipped.into();
+    assert_eq!(
+        runs.runs[0]
+            .status
+            .clone()
+            .unwrap_or_default()
+            .machine_validation_state
+            .unwrap_or(skipped_state_int.clone()),
+        skipped_state_int
+    );
+
+    let machine = env
+        .find_machines(Some(host_machine_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+
+    let on_demand_response =
+        on_demand_machine_validation(&env, machine.id.unwrap_or_default(), Vec::new(), Vec::new())
+            .await;
+    let mut txn = env.pool.begin().await?;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: env.config.machine_validation_config.enabled,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+
+    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let started_state_int = rpc::forge::machine_validation_status::MachineValidationState::Started(
+        rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
+    );
+    let mut status_asserted = false;
+    for run in runs.runs {
+        if run.validation_id.unwrap_or_default()
+            == on_demand_response.validation_id.clone().unwrap_or_default()
+        {
+            status_asserted = true;
+            assert_eq!(
+                run.status
+                    .clone()
+                    .unwrap_or_default()
+                    .machine_validation_state
+                    .unwrap_or(started_state_int.clone()),
+                started_state_int
+            );
+        }
+    }
+    assert!(status_asserted);
+    let mut txn = env.pool.begin().await?;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    status_asserted = false;
+    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    for run in runs.runs {
+        if run.validation_id.unwrap_or_default()
+            == on_demand_response.validation_id.clone().unwrap_or_default()
+        {
+            status_asserted = true;
+            assert_eq!(
+                run.status
+                    .clone()
+                    .unwrap_or_default()
+                    .machine_validation_state
+                    .unwrap_or(skipped_state_int.clone()),
+                skipped_state_int
+            );
+        }
+    }
+    assert!(status_asserted);
     Ok(())
 }

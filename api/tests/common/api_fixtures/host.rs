@@ -233,7 +233,7 @@ pub async fn create_host_machine(
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
-                is_enabled: true,
+                is_enabled: env.config.machine_validation_config.enabled,
             },
         },
     )
@@ -413,7 +413,7 @@ pub async fn create_host_with_machine_validation(
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
-                is_enabled: true,
+                is_enabled: env.config.machine_validation_config.enabled,
             },
         },
     )
@@ -421,43 +421,91 @@ pub async fn create_host_with_machine_validation(
     txn.commit().await.unwrap();
 
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
-    let uuid = &response.data.unwrap().pair[1].value;
+    if env.config.machine_validation_config.enabled {
+        let uuid = &response.data.unwrap().pair[1].value;
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
-        value: uuid.to_owned(),
-    });
-    persist_machine_validation_result(env, machine_validation_result.clone()).await;
-    assert_eq!(
-        get_machine_validation_runs(env, host_rpc_machine_id.clone(), false)
+        machine_validation_result.validation_id = Some(rpc::Uuid {
+            value: uuid.to_owned(),
+        });
+        persist_machine_validation_result(env, machine_validation_result.clone()).await;
+        assert_eq!(
+            get_machine_validation_runs(env, host_rpc_machine_id.clone(), false)
+                .await
+                .runs[0]
+                .end_time,
+            None
+        );
+
+        machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
+        if error.is_some() {
+            env.run_machine_state_controller_iteration().await;
+
+            let mut txn = env.pool.begin().await.unwrap();
+            let machine = Machine::find_one(
+                &mut txn,
+                dpu_machine_id,
+                carbide::db::machine::MachineSearchConfig::default(),
+            )
             .await
-            .runs[0]
-            .end_time,
-        None
-    );
+            .unwrap()
+            .unwrap();
 
-    machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
-    if error.is_some() {
-        env.run_machine_state_controller_iteration().await;
-
-        let mut txn = env.pool.begin().await.unwrap();
-        let machine = Machine::find_one(
-            &mut txn,
-            dpu_machine_id,
-            carbide::db::machine::MachineSearchConfig::default(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-
-        match machine.current_state() {
-            ManagedHostState::Failed { .. } => {}
-            s => {
-                panic!("Incorrect state: {}", s);
+            match machine.current_state() {
+                ManagedHostState::Failed { .. } => {}
+                s => {
+                    panic!("Incorrect state: {}", s);
+                }
             }
-        }
 
-        txn.commit().await.unwrap();
-    } else if machine_validation_result.exit_code == 0 {
+            txn.commit().await.unwrap();
+        } else if machine_validation_result.exit_code == 0 {
+            let _ = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+
+            let mut txn = env.pool.begin().await.unwrap();
+            env.run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                3,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::Discovered,
+                },
+            )
+            .await;
+            txn.commit().await.unwrap();
+
+            let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+            assert_eq!(response.action, Action::Noop as i32);
+            let mut txn = env.pool.begin().await.unwrap();
+            env.run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                1,
+                &mut txn,
+                ManagedHostState::Ready,
+            )
+            .await;
+            txn.commit().await.unwrap();
+        } else {
+            let mut txn = env.pool.begin().await.unwrap();
+            env.run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                1,
+                &mut txn,
+                ManagedHostState::Failed {
+                    details: FailureDetails {
+                        cause: FailureCause::MachineValidation {
+                            err: format!("{} is failed", machine_validation_result.name),
+                        },
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::Scout,
+                    },
+                    machine_id: host_machine_id.clone(),
+                    retry_count: 0,
+                },
+            )
+            .await;
+            txn.commit().await.unwrap();
+        }
+    } else {
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
@@ -478,26 +526,6 @@ pub async fn create_host_with_machine_validation(
             1,
             &mut txn,
             ManagedHostState::Ready,
-        )
-        .await;
-        txn.commit().await.unwrap();
-    } else {
-        let mut txn = env.pool.begin().await.unwrap();
-        env.run_machine_state_controller_iteration_until_state_matches(
-            &host_machine_id,
-            1,
-            &mut txn,
-            ManagedHostState::Failed {
-                details: FailureDetails {
-                    cause: FailureCause::MachineValidation {
-                        err: format!("{} is failed", machine_validation_result.name),
-                    },
-                    failed_at: chrono::Utc::now(),
-                    source: FailureSource::Scout,
-                },
-                machine_id: host_machine_id.clone(),
-                retry_count: 0,
-            },
         )
         .await;
         txn.commit().await.unwrap();

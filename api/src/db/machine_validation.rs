@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
+use std::{fmt::Display, ops::DerefMut, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -26,6 +26,28 @@ use super::{
 
 use forge_uuid::machine::MachineId;
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
+pub enum MachineValidationState {
+    #[default]
+    Started,
+    InProgress,
+    Success,
+    Skipped,
+    Failed,
+}
+
+impl Display for MachineValidationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+/// represent machine validation over all test status
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MachineValidationStatus {
+    pub state: MachineValidationState,
+    pub total: i32,
+    pub completed: i32,
+}
 //
 // MachineValidation
 //
@@ -39,12 +61,21 @@ pub struct MachineValidation {
     pub end_time: Option<DateTime<Utc>>,
     pub filter: Option<MachineValidationFilter>,
     pub context: Option<String>,
+    pub status: Option<MachineValidationStatus>,
+    pub description: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidation {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let filter: Option<sqlx::types::Json<MachineValidationFilter>> = row.try_get("filter")?;
-
+        let status = MachineValidationStatus {
+            state: match MachineValidationState::from_str(row.try_get("state")?) {
+                Ok(status) => status,
+                Err(_) => MachineValidationState::Success,
+            },
+            total: row.try_get("total")?,
+            completed: row.try_get("completed")?,
+        };
         Ok(MachineValidation {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
@@ -53,6 +84,8 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             end_time: row.try_get("end_time")?,
             context: row.try_get("context")?,
             filter: filter.map(|x| x.0),
+            status: Some(status),
+            description: row.try_get("description")?,
         })
     }
 }
@@ -112,13 +145,36 @@ impl MachineValidation {
         Ok(custom_results)
     }
 
-    pub async fn update_end_time(
-        uuid: &Uuid,
+    pub async fn update_status(
         txn: &mut Transaction<'_, Postgres>,
+        uuid: &Uuid,
+        status: MachineValidationStatus,
     ) -> CarbideResult<()> {
-        let query = "UPDATE machine_validation SET end_time=NOW() WHERE id=$1 RETURNING *";
+        // TODO Compute the machine validation state here
+        let query =
+            "UPDATE machine_validation SET state=$2,completed=$3,total=$4 WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
+            .bind(status.state.to_string())
+            .bind(status.completed)
+            .bind(status.total)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+    pub async fn update_end_time(
+        txn: &mut Transaction<'_, Postgres>,
+        uuid: &Uuid,
+        status: &MachineValidationStatus,
+    ) -> CarbideResult<()> {
+        let query =
+            "UPDATE machine_validation SET end_time=NOW(),state=$2,completed=$3,total=$4  WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(uuid)
+            .bind(status.state.to_string())
+            .bind(status.completed)
+            .bind(status.total)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -139,16 +195,30 @@ impl MachineValidation {
             machine_id,
             filter,
             context,
-            end_time
+            end_time,
+            description,
+            state,
+            completed,
+            total
         )
-        VALUES ($1, $2, $3, $4, $5, NULL)
+        VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
         ON CONFLICT DO NOTHING";
+        // TODO fetch total number of test and repopulate the status
+        let status = MachineValidationStatus {
+            state: MachineValidationState::Started,
+            total: 1,
+            completed: 0,
+        };
         let _ = sqlx::query(query)
             .bind(id)
             .bind(format!("Test_{}", machine_id))
             .bind(machine_id)
             .bind(sqlx::types::Json(filter))
             .bind(context.clone())
+            .bind(format!("Running validation on {}", machine_id))
+            .bind(status.state.to_string())
+            .bind(status.completed)
+            .bind(status.total)
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -269,6 +339,64 @@ impl MachineValidation {
             .await
             .map_err(CarbideError::from)
     }
+
+    pub fn from_state(
+        state: MachineValidationState,
+    ) -> rpc::forge::machine_validation_status::MachineValidationState {
+        match state {
+            MachineValidationState::Started => {
+                rpc::forge::machine_validation_status::MachineValidationState::Started(
+                    rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
+                )
+            }
+            MachineValidationState::InProgress => {
+                rpc::forge::machine_validation_status::MachineValidationState::InProgress(
+                    rpc::forge::machine_validation_status::MachineValidationInProgress::InProgress
+                        .into(),
+                )
+            }
+            MachineValidationState::Success => {
+                rpc::forge::machine_validation_status::MachineValidationState::Completed(
+                    rpc::forge::machine_validation_status::MachineValidationCompleted::Success
+                        .into(),
+                )
+            }
+            MachineValidationState::Skipped => {
+                rpc::forge::machine_validation_status::MachineValidationState::Completed(
+                    rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped
+                        .into(),
+                )
+            }
+            MachineValidationState::Failed => {
+                rpc::forge::machine_validation_status::MachineValidationState::Completed(
+                    rpc::forge::machine_validation_status::MachineValidationCompleted::Failed
+                        .into(),
+                )
+            }
+        }
+    }
+
+    pub async fn mark_machine_validation_complete(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        uuid: &Uuid,
+        status: MachineValidationStatus,
+    ) -> CarbideResult<()> {
+        //Mark machine validation request to false
+        Machine::set_machine_validation_request(txn, machine_id, false)
+            .await
+            .map_err(CarbideError::from)?;
+
+        Machine::update_machine_validation_time(machine_id, txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        //TODO repopulate the status
+        Self::update_end_time(txn, uuid, &status)
+            .await
+            .map_err(CarbideError::from)?;
+        Ok(())
+    }
 }
 
 impl From<MachineValidation> for rpc::forge::MachineValidationRun {
@@ -277,6 +405,7 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
         if value.end_time.is_some() {
             end_time = Some(value.end_time.unwrap_or_default().into());
         }
+        let status = value.status.unwrap_or_default();
         let start_time = Some(value.start_time.unwrap_or_default().into());
         rpc::forge::MachineValidationRun {
             validation_id: Some(value.id.into()),
@@ -286,6 +415,11 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             context: value.context,
             machine_id: Some(rpc::common::MachineId {
                 id: value.machine_id.to_string(),
+            }),
+            status: Some(rpc::forge::MachineValidationStatus {
+                machine_validation_state: MachineValidation::from_state(status.state).into(),
+                total: status.total as u32,
+                passed: status.completed as u32,
             }),
         }
     }

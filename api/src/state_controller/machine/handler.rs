@@ -15,6 +15,7 @@
 use std::mem::discriminant as enum_discr;
 use std::{net::IpAddr, sync::Arc};
 
+use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::model::machine::DisableSecureBootState;
 use crate::redfish;
 use chrono::{DateTime, Duration, Utc};
@@ -4133,6 +4134,24 @@ impl StateHandler for HostMachineStateHandler {
                         )
                         .await?;
                         return Ok(StateHandlerOutcome::Wait(status.status));
+                    }
+                    if !*is_enabled {
+                        tracing::info!("Skipping Machine Validation");
+                        let _ = MachineValidation::mark_machine_validation_complete(
+                            txn,
+                            host_machine_id,
+                            id,
+                            MachineValidationStatus {
+                                state: MachineValidationState::Skipped,
+                                ..MachineValidationStatus::default()
+                            },
+                        )
+                        .await;
+                        return Ok(StateHandlerOutcome::Transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::Discovered,
+                            },
+                        ));
                     }
                     // Host validation completed
                     if machine_validation_completed(&state.host_snapshot) {
