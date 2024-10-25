@@ -1243,13 +1243,46 @@ impl SiteExplorer {
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
-            NewPredictedMachineInterface {
-                machine_id: &machine_id,
-                mac_address,
-                expected_network_segment_type: NetworkSegmentType::HostInband,
+            if let Some(machine_interface) =
+                db::machine_interface::find_by_mac_address(txn, mac_address)
+                    .await?
+                    .into_iter()
+                    .next()
+            {
+                // There's already a machine_interface with this MAC...
+                if let Some(existing_machine_id) = machine_interface.machine_id {
+                    // ...If it has a MachineId, something's gone wrong. We already checked Machine::find_by_mac()
+                    // above for all mac addresses, and returned Ok(false) if any were found. Finding an interface
+                    // with this MAC with a non-nil machine_id is a contradiction.
+                    tracing::error!(
+                        %mac_address,
+                        %machine_id,
+                        %existing_machine_id,
+                        "BUG! Found existing machine_interface with this MAC address, we should not have gotten here!"
+                    );
+                    return Err(CarbideError::AlreadyFoundError {
+                        kind: "MachineInterface",
+                        id: mac_address.to_string(),
+                    });
+                } else {
+                    // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran. Set it to the new machine ID.
+                    tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
+                    db::machine_interface::associate_interface_with_machine(
+                        &machine_interface.id,
+                        &machine_id,
+                        txn,
+                    )
+                    .await?;
+                }
+            } else {
+                NewPredictedMachineInterface {
+                    machine_id: &machine_id,
+                    mac_address,
+                    expected_network_segment_type: NetworkSegmentType::HostInband,
+                }
+                .create(txn)
+                .await?;
             }
-            .create(txn)
-            .await?;
         }
 
         Ok(true)
