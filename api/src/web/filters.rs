@@ -57,7 +57,7 @@ fn machine_link(id: String, path: &str) -> ::askama::Result<String> {
 }
 
 /// Formats labels into HTML
-pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> {
+pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama::Result<String> {
     const MAX_LABEL_LENGTH: usize = 32;
 
     let mut result = String::new();
@@ -66,7 +66,7 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> 
             result += "<br>";
         }
         result += "<b>";
-        let truncated_key = if label.key.len() > MAX_LABEL_LENGTH {
+        let truncated_key = if truncate && label.key.len() > MAX_LABEL_LENGTH {
             &format!(
                 "{}...",
                 &label.key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
@@ -79,7 +79,7 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> 
 
         if let Some(value) = label.value.as_ref() {
             result += ": ";
-            let truncated_value = if value.len() > MAX_LABEL_LENGTH {
+            let truncated_value = if truncate && value.len() > MAX_LABEL_LENGTH {
                 &format!(
                     "{}...",
                     &value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
