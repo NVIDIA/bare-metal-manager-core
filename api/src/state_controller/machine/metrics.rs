@@ -53,6 +53,8 @@ pub struct MachineMetrics {
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
     pub is_allocatable: bool,
+    /// is the host's bios password set
+    pub is_host_bios_password_set: bool,
 }
 
 #[derive(Debug, Default)]
@@ -82,6 +84,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub unhealthy_hosts_by_classification_id: HashMap<(String, IsAssignedToTenant), usize>,
     /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsAssignedToTenant), usize>,
+    pub hosts_with_bios_password_set: usize,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -108,6 +111,7 @@ pub struct MachineMetricsEmitter {
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
     machine_reboot_attempts_in_failed_during_discovery: Histogram<u64>,
     hosts_health_overrides_gauge: ObservableGauge<u64>,
+    hosts_with_bios_password_set: ObservableGauge<u64>,
 }
 
 impl MachineStateControllerIterationMetrics {
@@ -223,6 +227,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .with_description("The amount of machines rebooted again in Failed state due to discovery failure since there is no response after a certain time from host.")
             .init();
 
+        let hosts_with_bios_password_set = meter
+            .u64_observable_gauge("forge_hosts_with_bios_password_set")
+            .with_description(
+                "The total number of Hosts in the system that have their BIOS password set.",
+            )
+            .init();
+
         Self {
             allocatable_hosts_gauge,
             allocatable_gpus_gauge,
@@ -243,6 +254,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             client_certificate_expiration_gauge,
             machine_reboot_attempts_in_booting_with_discovery_image,
             machine_reboot_attempts_in_failed_during_discovery,
+            hosts_with_bios_password_set,
         }
     }
 
@@ -265,6 +277,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpu_firmware_version_gauge.as_any(),
             self.machine_inventory_component_versions_gauge.as_any(),
             self.client_certificate_expiration_gauge.as_any(),
+            self.hosts_with_bios_password_set.as_any(),
         ]
     }
 
@@ -288,6 +301,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
             iteration_metrics.hosts_allocatable += 1;
             iteration_metrics.allocatable_gpus += object_metrics.available_gpus;
         }
+
+        // The object_metrics.is_host_bios_password_set bool cast as usize will translate to 0 or 1
+        iteration_metrics.hosts_with_bios_password_set +=
+            object_metrics.is_host_bios_password_set as usize;
 
         if let Some(tenant) = object_metrics.assigned_to_tenant.as_ref() {
             *iteration_metrics
@@ -386,6 +403,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
         observer.observe_u64(
             &self.allocatable_hosts_gauge,
             iteration_metrics.hosts_allocatable as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.hosts_with_bios_password_set,
+            iteration_metrics.hosts_with_bios_password_set as u64,
             attributes,
         );
         observer.observe_u64(
@@ -647,6 +669,7 @@ mod tests {
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_allocatable: true,
+                is_host_bios_password_set: true,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -693,6 +716,7 @@ mod tests {
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_allocatable: true,
+                is_host_bios_password_set: true,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -718,6 +742,7 @@ mod tests {
                 num_merge_overrides: 1,
                 replace_override_enabled: true,
                 is_allocatable: false,
+                is_host_bios_password_set: true,
             },
             MachineMetrics {
                 available_gpus: 1,
@@ -753,6 +778,7 @@ mod tests {
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_allocatable: true,
+                is_host_bios_password_set: true,
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -812,6 +838,7 @@ mod tests {
                 num_merge_overrides: 1,
                 replace_override_enabled: false,
                 is_allocatable: false,
+                is_host_bios_password_set: true,
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -858,6 +885,7 @@ mod tests {
                 num_merge_overrides: 0,
                 replace_override_enabled: true,
                 is_allocatable: false,
+                is_host_bios_password_set: false,
             },
         ];
 
@@ -885,6 +913,7 @@ mod tests {
             3
         );
         assert_eq!(iteration_metrics.hosts_allocatable, 3);
+        assert_eq!(iteration_metrics.hosts_with_bios_password_set, 5);
         assert_eq!(iteration_metrics.allocatable_gpus, 3);
         assert_eq!(iteration_metrics.available_gpus, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);
