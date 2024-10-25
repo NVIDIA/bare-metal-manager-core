@@ -20,8 +20,8 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
-const MAX_LABEL_LENGTH: usize = 32;
 
 #[derive(Template)]
 #[template(path = "vpc_show.html")]
@@ -31,8 +31,7 @@ struct VpcShow {
 
 struct VpcRowDisplay {
     id: String,
-    name: String,
-    labels: String,
+    metadata: rpc::forge::Metadata,
     tenant_organization_id: String,
     tenant_keyset_id: String,
     network_virtualization_type: String,
@@ -44,41 +43,7 @@ impl From<forgerpc::Vpc> for VpcRowDisplay {
         Self {
             network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
             id: vpc.id.unwrap_or_default().to_string(),
-            name: vpc.name,
-            labels: vpc
-                .metadata
-                .as_ref()
-                .map(|metadata| {
-                    metadata
-                        .labels
-                        .iter()
-                        .map(|label| {
-                            let key = label.key.clone();
-                            let truncated_key = if key.len() > MAX_LABEL_LENGTH {
-                                format!(
-                                    "{}...",
-                                    &key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
-                                )
-                            } else {
-                                key
-                            };
-
-                            let value = label.value.clone().unwrap_or_default();
-                            let truncated_value = if value.len() > MAX_LABEL_LENGTH {
-                                format!(
-                                    "{}...",
-                                    &value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
-                                )
-                            } else {
-                                value
-                            };
-
-                            format!("\"{}: {}\"", truncated_key, truncated_value)
-                        })
-                        .collect::<Vec<String>>()
-                        .join(",    ")
-                })
-                .unwrap_or_default(),
+            metadata: vpc.metadata.unwrap_or_default(),
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
             vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
@@ -143,12 +108,12 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
 #[template(path = "vpc_detail.html")]
 struct VpcDetail {
     id: String,
-    name: String,
     tenant_organization_id: String,
     tenant_keyset_id: String,
     network_virtualization_type: String,
     vni: String,
     version: String,
+    metadata: rpc::forge::Metadata,
 }
 
 impl From<forgerpc::Vpc> for VpcDetail {
@@ -156,7 +121,7 @@ impl From<forgerpc::Vpc> for VpcDetail {
         Self {
             network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
             id: vpc.id.unwrap_or_default().to_string(),
-            name: vpc.name,
+            metadata: vpc.metadata.unwrap_or_default(),
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
             vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
