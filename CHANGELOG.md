@@ -4,6 +4,11 @@
 
 ## Added
 
+- Access to GRPC endpoints using nvinit certs now logs who made the request; search for "forge-admin-cli request from" in the logs.
+- Site Explorer will reboot a DPU if it cannot query the BIOS Attributes endpoint without an error.
+- Machine validation "external config files" can now be deleted (see `forge-admin-cli machine-validation external-config remove`
+- The Carbide Admin UI now shows the last time Carbide rebooted a node on the Machines page.  Previously this was only on the Site Explorer explored endpoint page.
+
 ## Changed
 
 - The following set of host health related metrics gained an additional attribute `assigned` which indicates whether the host that the metric references is in an assigned state (used as an instance by a tenant):
@@ -27,11 +32,17 @@
     - The Full discovery report in JSON format is shown in the discovery data section. It is collapsed by default
   - The history sections on the Machine and Network Segment details pages pretty print the previous states in JSON format
   - The instance overview table contains shows the instance names
+- TPM Endorsement Keys (EK) on a machine status are now deleted when a machine is force deleted.
+- Machine validation results will now be sorted by start time (ascending).
+- Machine validation results formatting are greatly improved in the Admin CLI
 
 ## Fixed
 
+- BMC Firmware updates will trigger a DPU reboot between BMC firmware updating and NIC firmware updating
+- The `force-delete` Admin CLI command can now (again) delete standalone DPUs (i.e. DPUs that aren't known to be (or no longer) attached to a host)
 - Fixed an issue where the admin web UI page for instances could not be displayed when an instance used a VF or a network interface where the MAC address was not yet reported by `forge-dpu-agent`.
 - When DNS queries are issued via carbide-dns against carbide-api, the `LookupRecord` method will return a `NotFound` error code instead of an `Internal` error code. Due to this change, the carbide-api availability will no longer show up as degraded when Forge users perform queries for invalid domain names. The `NotFound` gRPC status code is transformed into a `NXDomain` DNS error code. If DNS queries fail for real internal server errors, a `ServFail` error code will be utilized.
+- Fixed an issue where Carbide was incorrectly querying the status of SecureBoot in the Redfish API
 
 ## Removed
 
@@ -53,7 +64,6 @@
 - Metrics are now generated for power consumption rate
 - Added a new API for updating Operating Systems for curated images [FORGE-4277](https://jirasw.nvidia.com/browse/FORGE-4277)
 - The Admin UI now has a button on an endpoint to reconfigure the UEFI settings for Forge (i.e. `forge_setup`)
-- Access to GRPC endpoints using nvinit certs now logs who made the request; search for "forge-admin-cli request from" in the logs.
 
 ### Changed
 
