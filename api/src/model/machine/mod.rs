@@ -151,12 +151,7 @@ impl ManagedHostStateSnapshot {
 
         // If there is an [`OverrideMode::Replace`] health report override on
         // the host, then use that.
-        if let Some(mut over) = self
-            .host_snapshot
-            .health_report_overrides
-            .r#override
-            .clone()
-        {
+        if let Some(mut over) = self.host_snapshot.health_report_overrides.replace.clone() {
             over.source = source;
             over.observed_at = observed_at;
             self.aggregate_health = over;
@@ -552,7 +547,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                         "No health data was received from DPU".to_string(),
                     )
                 });
-                match machine.health_report_overrides.r#override.as_ref() {
+                match machine.health_report_overrides.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {
                         for over in machine.health_report_overrides.merges.values() {

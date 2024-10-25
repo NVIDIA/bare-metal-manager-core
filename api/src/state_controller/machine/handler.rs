@@ -332,7 +332,7 @@ impl MachineStateHandler {
         ctx.metrics.replace_override_enabled = state
             .host_snapshot
             .health_report_overrides
-            .r#override
+            .replace
             .is_some();
     }
 
