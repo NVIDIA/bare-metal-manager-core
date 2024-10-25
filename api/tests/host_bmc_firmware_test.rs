@@ -11,7 +11,7 @@
  */
 
 pub mod common;
-use crate::common::api_fixtures::create_test_env;
+use crate::common::api_fixtures::{create_test_env, TestEnvOverrides};
 use carbide::{
     cfg::FirmwareComponentType,
     db::{
@@ -33,8 +33,8 @@ use carbide::{
     CarbideResult,
 };
 use common::api_fixtures::{
-    self, create_test_env_with_config, get_config, network_segment::create_admin_network_segment,
-    TestEnv,
+    self, create_test_env_with_overrides, get_config,
+    network_segment::create_admin_network_segment, TestEnv,
 };
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
@@ -769,7 +769,7 @@ async fn test_host_fw_upgrade_enabledisable_generic(
     // Create an environment with one managed host in the ready state.  Tweak the default config to enable or disable firmware global autoupdate.
     let mut config = get_config();
     config.firmware_global.autoupdate = global_enabled;
-    let env = create_test_env_with_config(pool, Some(config)).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();

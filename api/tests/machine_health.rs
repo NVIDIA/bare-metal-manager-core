@@ -12,17 +12,17 @@
 
 mod common;
 
+use crate::common::api_fixtures::TestEnvOverrides;
+use crate::db::managed_host::LoadSnapshotOptions;
 use carbide::{cfg::HardwareHealthReportsConfig, db};
 use common::api_fixtures::{
-    create_managed_host, create_test_env_with_config, get_config, network_configured_with_health,
-    remove_health_report_override, send_health_report_override, simulate_hardware_health_report,
-    TestEnv,
+    create_managed_host, create_test_env_with_overrides, get_config,
+    network_configured_with_health, remove_health_report_override, send_health_report_override,
+    simulate_hardware_health_report, TestEnv,
 };
 use health_report::OverrideMode;
 use rpc::forge::{forge_server::Forge, HealthOverrideOrigin};
 use tonic::Request;
-
-use crate::db::managed_host::LoadSnapshotOptions;
 
 #[ctor::ctor]
 fn setup() {
@@ -454,7 +454,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 async fn create_env(pool: sqlx::PgPool) -> TestEnv {
     let mut config = get_config();
     config.host_health.hardware_health_reports = HardwareHealthReportsConfig::Enabled;
-    create_test_env_with_config(pool, Some(config)).await
+    create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
 }
 
 /// Creates a health report.

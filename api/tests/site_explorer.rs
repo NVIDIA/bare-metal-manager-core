@@ -12,7 +12,6 @@
 
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
-use carbide::model::hardware_info::HardwareInfo;
 use carbide::{
     cfg::SiteExplorerConfig,
     db::{
@@ -22,10 +21,11 @@ use carbide::{
         explored_managed_host::DbExploredManagedHost,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
-        DatabaseError, ObjectFilter,
+        DatabaseError, ObjectColumnFilter, ObjectFilter,
     },
     model::{
-        machine::{DpuDiscoveringState, DpuInitState, ManagedHostState},
+        hardware_info::HardwareInfo,
+        machine::{DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot},
         site_explorer::{
             ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
             ExploredDpu, ExploredManagedHost, UefiDevicePath,
@@ -36,9 +36,9 @@ use carbide::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideError,
 };
-use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
-use common::api_fixtures::TestEnv;
+use common::api_fixtures::{endpoint_explorer::MockEndpointExplorer, TestEnv};
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{
@@ -49,11 +49,18 @@ use rpc::{
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
 
-use crate::common::api_fixtures::dpu::DpuConfig;
-use crate::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::common::{
-    api_fixtures::network_segment::{
-        create_admin_network_segment, create_underlay_network_segment,
+    api_fixtures,
+    api_fixtures::{
+        dpu::DpuConfig,
+        managed_host::ManagedHostConfig,
+        network_segment::{
+            create_admin_network_segment, create_host_inband_network_segment,
+            create_underlay_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+        },
+        site_explorer::MockExploredHost,
+        TestEnvOverrides,
     },
     test_meter::TestMeter,
 };
@@ -830,7 +837,11 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = common::api_fixtures::get_config();
-    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 
@@ -1087,7 +1098,11 @@ async fn test_site_explorer_creates_managed_host(
     // Prevent Firmware update here, since we test it in other method
     let mut config = common::api_fixtures::get_config();
     config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 
@@ -1793,7 +1808,11 @@ async fn test_disable_machine_creation_outside_site_explorer(
         create_machines: carbide::dynamic_settings::create_machines(true),
         ..Default::default()
     };
-    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
     let host_sim = env.start_managed_host_sim();
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
@@ -2344,5 +2363,421 @@ async fn test_fetch_host_primary_interface_mac(
         .fetch_host_primary_interface_mac(&explored_dpus)
         .unwrap();
     assert_eq!(mac, expected_mac);
+    Ok(())
+}
+
+/// Test the [`api_fixtures::site_explorer::new_host`] factory with various configurations and make
+/// sure they work.
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_new_host_fixture(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            allow_zero_dpu_hosts: Some(true),
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    create_underlay_network_segment(&env).await;
+    create_admin_network_segment(&env).await;
+    create_host_inband_network_segment(&env).await;
+
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, 0).await?;
+    assert_eq!(zero_dpu_host.dpu_snapshots.len(), 0);
+
+    let single_dpu_host = api_fixtures::site_explorer::new_host(&env, 1).await?;
+    assert_eq!(single_dpu_host.dpu_snapshots.len(), 1);
+
+    let two_dpu_host = api_fixtures::site_explorer::new_host(&env, 2).await?;
+    assert_eq!(two_dpu_host.dpu_snapshots.len(), 2);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_fixtures_singledpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+    create_underlay_network_segment(&env).await;
+    create_admin_network_segment(&env).await;
+
+    let mock_host = ManagedHostConfig::default();
+    let mock_explored_host = MockExploredHost::new(&env, mock_host);
+
+    let snapshot: ManagedHostStateSnapshot = mock_explored_host
+        // Run host DHCP first
+        .discover_dhcp_host_bmc(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        // Then DPU DHCP
+        .discover_dhcp_dpu_bmc(0, |result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        // Place site explorer results into the mock site explorer
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        // Get DHCP on the DPU interface
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        // Run discovery
+        .discover_machine(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .finish(|mock| async move {
+            // Get the managed host snapshot from the database
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    &mut txn,
+                    &MachineId::from_str(&machine_id.id)?,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+
+    assert_eq!(snapshot.dpu_snapshots.len(), 1);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_fixtures_multidpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+    create_underlay_network_segment(&env).await;
+    create_admin_network_segment(&env).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![DpuConfig::default(), DpuConfig::default()],
+        ..Default::default()
+    };
+    let mock_explored_host = MockExploredHost::new(&env, mock_host);
+
+    let snapshot: ManagedHostStateSnapshot = mock_explored_host
+        // Run host DHCP first
+        .discover_dhcp_host_bmc(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        .discover_dhcp_dpu_bmc(0, |result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        .discover_dhcp_dpu_bmc(1, |result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        // Place site explorer results into the mock site explorer
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        // Get DHCP on the DPU interface
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        // Run discovery
+        .discover_machine(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .finish(|mock| async move {
+            // Get the managed host snapshot from the database
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    &mut txn,
+                    &MachineId::from_str(&machine_id.id)?,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+
+    assert_eq!(snapshot.dpu_snapshots.len(), 2);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            allow_zero_dpu_hosts: Some(true),
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    create_underlay_network_segment(&env).await;
+    create_admin_network_segment(&env).await;
+    create_host_inband_network_segment(&env).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..Default::default()
+    };
+    let mock_explored_host = MockExploredHost::new(&env, mock_host);
+
+    let snapshot: ManagedHostStateSnapshot = mock_explored_host
+        // Run host BMC DHCP first
+        .discover_dhcp_host_bmc(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        // Place site explorer results into the mock site explorer
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        // Get DHCP on the host in-band NIC
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        // Run discovery
+        .discover_machine(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .finish(|mock| async move {
+            // Get the managed host snapshot from the database
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    &mut txn,
+                    &MachineId::from_str(&machine_id.id)?,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+
+    assert_eq!(snapshot.dpu_snapshots.len(), 0);
+
+    Ok(())
+}
+
+/// Ensure that if a zero-dpu host DHCP's from its in-band interface before site-explorer has a
+/// chance to run (and a machine_interface is created for its MAC with no machine-id), that
+/// site-explorer can "repair" the situation when it discovers the machine, by migrating the machine
+/// interface to the new managed host.
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            allow_zero_dpu_hosts: Some(true),
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    create_underlay_network_segment(&env).await;
+    create_admin_network_segment(&env).await;
+    create_host_inband_network_segment(&env).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..Default::default()
+    };
+    let mock_explored_host = MockExploredHost::new(&env, mock_host);
+
+    let snapshot: ManagedHostStateSnapshot = mock_explored_host
+        // Run BMC DHCP first
+        .discover_dhcp_host_bmc(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none()); // Should not have a machine-id for BMC
+            Ok(())
+        })
+        .await?
+        // Get DHCP on the system in-band NIC, *before* we run site-explorer.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_none());
+            assert!(response.machine_interface_id.is_some());
+            Ok(())
+        })
+        .await?
+        .then(|mock| {
+            let pool = mock.test_env.pool.clone();
+            let mac_address = *mock.managed_host.non_dpu_macs.first().unwrap();
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+                assert_eq!(interfaces.len(), 1);
+                // There should be no machine_id yet as site-explorer has not run
+                assert!(interfaces[0].machine_id.is_none());
+                Ok(())
+            }
+        })
+        .await?
+        // Place mock exploration results into the mock site explorer
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        // Mark preingestion as complete before we run site-explorer for the first time
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(|mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let predicted_interfaces =
+                    db::predicted_machine_interface::PredictedMachineInterface::find_by(
+                        &mut txn,
+                        ObjectColumnFilter::<db::predicted_machine_interface::MachineIdColumn>::All,
+                    )
+                    .await?;
+                // We should not have minted a predicted_machine_interface for this, since DHCP
+                // happened first, which should have created a real interface for it (which we would
+                // then migrate to the new host.)
+                assert_eq!(predicted_interfaces.len(), 0);
+                Ok(())
+            }
+        })
+        .await?
+        // Simulate a reboot: Get DHCP on the system in-band NIC, after we run site-explorer.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        // Run discovery
+        .discover_machine(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .finish(|mock| async move {
+            // Get the managed host snapshot from the database
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    &mut txn,
+                    &MachineId::from_str(&machine_id.id)?,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+
+    assert_eq!(snapshot.dpu_snapshots.len(), 0);
+
     Ok(())
 }

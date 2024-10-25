@@ -33,7 +33,7 @@ use common::api_fixtures::{
 use forge_uuid::machine::MachineId;
 
 use carbide::model::machine::{FailureCause, FailureSource};
-use common::api_fixtures::{create_test_env_with_config, get_config};
+use common::api_fixtures::{create_test_env_with_overrides, get_config};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
@@ -47,7 +47,7 @@ use crate::common::api_fixtures::{
         DEFAULT_DPU_FIRMWARE_VERSION, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION,
         TEST_DPU_AGENT_VERSION,
     },
-    forge_agent_control, network_configured, update_time_params,
+    forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
 };
 
 #[ctor::ctor]
@@ -770,7 +770,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     // also includes additional steps that happen during `create_managed_host`.
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_config(pool, Some(config)).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {
@@ -875,7 +875,7 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     // also includes additional steps that happen during `create_managed_host`.
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_config(pool, Some(config)).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {
@@ -1022,7 +1022,7 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
 async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_config(pool, Some(config)).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {

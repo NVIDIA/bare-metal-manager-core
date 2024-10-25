@@ -13,7 +13,7 @@ use carbide::setup::parse_carbide_config;
 use rpc::forge::forge_server::Forge;
 
 mod common;
-use crate::common::api_fixtures::{create_test_env_with_config, get_config};
+use crate::common::api_fixtures::{create_test_env_with_overrides, get_config, TestEnvOverrides};
 use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
 #[ctor::ctor]
@@ -26,7 +26,7 @@ async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<
     let env = {
         let mut config = get_config();
         config.site_explorer.allow_changing_bmc_proxy = Some(true);
-        create_test_env_with_config(db_pool, Some(config)).await
+        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
     };
 
     assert!(matches!(
@@ -66,7 +66,7 @@ async fn test_bmc_proxy_setting_config_unspecified(
         let mut config = get_config();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
-        create_test_env_with_config(db_pool, Some(config)).await
+        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
     };
 
     assert!(env.config.site_explorer.allow_changing_bmc_proxy.is_none());
@@ -99,7 +99,7 @@ async fn test_bmc_proxy_setting_config_not_allowed(
     let env = {
         let mut config = get_config();
         config.site_explorer.allow_changing_bmc_proxy = Some(false);
-        create_test_env_with_config(db_pool, Some(config)).await
+        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
     };
 
     assert!(matches!(
@@ -144,7 +144,11 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
         config.site_explorer.override_target_port = None;
         let config_str = toml::to_string(&config)?;
         let parsed_config = parse_carbide_config(config_str, None)?;
-        create_test_env_with_config(db_pool, Some(parsed_config.as_ref().to_owned())).await
+        create_test_env_with_overrides(
+            db_pool,
+            TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
+        )
+        .await
     };
 
     assert!(env.config.site_explorer.allow_changing_bmc_proxy.is_none());
@@ -185,7 +189,11 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         let config_str = toml::to_string(&config)?;
         println!("{config_str}");
         let parsed_config = parse_carbide_config(config_str, None)?;
-        create_test_env_with_config(db_pool, Some(parsed_config.as_ref().to_owned())).await
+        create_test_env_with_overrides(
+            db_pool,
+            TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
+        )
+        .await
     };
 
     assert!(matches!(
