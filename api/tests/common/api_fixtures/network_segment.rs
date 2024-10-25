@@ -15,6 +15,8 @@
 // for those.
 
 use forge_uuid::network::NetworkSegmentId;
+use ipnetwork::IpNetwork;
+use std::net::{IpAddr, Ipv4Addr};
 
 use crate::common::network_segment::FIXTURE_CREATED_DOMAIN_UUID;
 
@@ -34,12 +36,35 @@ lazy_static! {
         uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9").into();
 }
 
+lazy_static! {
+    pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 1, 1)), 24).unwrap();
+}
+
+lazy_static! {
+    pub static ref FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 24).unwrap();
+}
+
+lazy_static! {
+    pub static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 3, 1)), 24).unwrap();
+}
+
 pub async fn create_underlay_network_segment(env: &TestEnv) -> NetworkSegmentId {
+    let prefix = IpNetwork::new(
+        FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
+        FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
+    )
+    .unwrap()
+    .to_string();
+    let gateway = FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip().to_string();
+
     create_network_segment(
         env,
         "UNDERLAY",
-        "192.0.1.0/24",
-        "192.0.1.1",
+        &prefix,  // 192.0.1.0/24
+        &gateway, // 192.0.1.1
         rpc::forge::NetworkSegmentType::Underlay,
         None,
     )
@@ -47,12 +72,40 @@ pub async fn create_underlay_network_segment(env: &TestEnv) -> NetworkSegmentId 
 }
 
 pub async fn create_admin_network_segment(env: &TestEnv) -> NetworkSegmentId {
+    let prefix = IpNetwork::new(
+        FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+        FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+    )
+    .unwrap()
+    .to_string();
+    let gateway = FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string();
+
     create_network_segment(
         env,
         "ADMIN",
-        "192.0.2.0/24",
-        "192.0.2.1",
+        &prefix,  // 192.0.2.0/24
+        &gateway, // 192.0.2.1
         rpc::forge::NetworkSegmentType::Admin,
+        None,
+    )
+    .await
+}
+
+pub async fn create_host_inband_network_segment(env: &TestEnv) -> NetworkSegmentId {
+    let prefix = IpNetwork::new(
+        FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+        FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+    )
+    .unwrap()
+    .to_string();
+    let gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip().to_string();
+
+    create_network_segment(
+        env,
+        "HOST_INBAND",
+        &prefix,  // 192.0.3.0/24
+        &gateway, // 192.0.3.1
+        rpc::forge::NetworkSegmentType::HostInband,
         None,
     )
     .await

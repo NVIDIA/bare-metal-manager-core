@@ -15,6 +15,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
+    default::Default,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::Arc,
@@ -24,13 +25,14 @@ use std::{
 use crate::common::{
     api_fixtures::{
         dpu::create_dpu_machine,
+        endpoint_explorer::MockEndpointExplorer,
         host::create_host_machine,
         managed_host::{ManagedHostConfig, ManagedHostSim},
     },
     test_certificates::TestCertificateProvider,
     test_meter::TestMeter,
 };
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapAny};
 use carbide::{
     api::Api,
     cfg::{
@@ -52,6 +54,7 @@ use carbide::{
     },
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
+    site_explorer::SiteExplorer,
     state_controller::{
         controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
@@ -83,6 +86,7 @@ use forge_secrets::credentials::{
 use forge_uuid::machine::MachineId;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
+use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use regex::Regex;
@@ -102,6 +106,7 @@ pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
+pub mod site_explorer;
 pub mod tenant;
 pub mod tpm_attestation;
 pub mod vpc;
@@ -122,7 +127,26 @@ pub const FIXTURE_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb
 // The site fabric prefixes list that the tests run with. Double check against
 // the test logic before changing it, as at least one test relies on this list
 // _excluding_ certain address space.
-pub const TEST_SITE_PREFIXES: &[&str] = &["192.0.2.0/24"];
+lazy_static! {
+    pub static ref TEST_SITE_PREFIXES: Vec<IpNetwork> =
+        vec![IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)), 24).unwrap()];
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TestEnvOverrides {
+    pub allow_zero_dpu_hosts: Option<bool>,
+    pub site_prefixes: Option<Vec<IpNetwork>>,
+    pub config: Option<CarbideConfig>,
+}
+
+impl TestEnvOverrides {
+    pub fn with_config(config: CarbideConfig) -> Self {
+        Self {
+            config: Some(config),
+            ..Default::default()
+        }
+    }
+}
 
 pub struct TestEnv {
     pub api: Arc<Api>,
@@ -147,6 +171,8 @@ pub struct TestEnv {
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
+    pub site_explorer: SiteExplorer,
+    pub endpoint_explorer: MockEndpointExplorer,
 }
 
 impl TestEnv {
@@ -326,6 +352,10 @@ impl TestEnv {
             .borrow_mut()
             .run_single_iteration()
             .await;
+    }
+
+    pub async fn run_site_explorer_iteration(&self) {
+        self.site_explorer.run_single_iteration().await.unwrap()
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
@@ -564,12 +594,12 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
-    create_test_env_with_config(db_pool, None).await
+    create_test_env_with_overrides(db_pool, Default::default()).await
 }
 
-pub async fn create_test_env_with_config(
+pub async fn create_test_env_with_overrides(
     db_pool: sqlx::PgPool,
-    config: Option<CarbideConfig>,
+    overrides: TestEnvOverrides,
 ) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
     let test_meter = TestMeter::default();
@@ -590,10 +620,11 @@ pub async fn create_test_env_with_config(
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
     let site_fabric_prefixes = {
-        let prefixes: Vec<IpNetwork> = TEST_SITE_PREFIXES
-            .iter()
-            .map(|p| p.parse().unwrap())
-            .collect();
+        let prefixes: Vec<IpNetwork> = overrides
+            .site_prefixes
+            .as_ref()
+            .unwrap_or(&TEST_SITE_PREFIXES)
+            .to_vec();
         SiteFabricPrefixList::from_ipnetwork_vec(prefixes)
     };
 
@@ -617,7 +648,7 @@ pub async fn create_test_env_with_config(
         .await
         .expect("Creating pools should work");
 
-    let config = Arc::new(config.unwrap_or(get_config()));
+    let config = Arc::new(overrides.config.unwrap_or(get_config()));
     let dyn_settings = carbide::dynamic_settings::DynamicSettings {
         log_filter: Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
             EnvFilter::builder()
@@ -723,6 +754,35 @@ pub async fn create_test_env_with_config(
         .build_for_manual_iterations()
         .expect("Unable to build state controller");
 
+    let fake_endpoint_explorer = MockEndpointExplorer {
+        reports: Arc::new(std::sync::Mutex::new(Default::default())),
+    };
+
+    // The API server is launched with a disabled site-explorer config so that it doesn't launch one
+    // on its own. TestEnv's site_explorer is a separate instance talking to the same database that
+    // *is* enabled, so it gets a different config. The purpose is so that tests can manually run
+    // site explorer iterations to seed data/etc.
+    let site_explorer = SiteExplorer::new(
+        db_pool.clone(),
+        SiteExplorerConfig {
+            enabled: true,
+            // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
+            run_interval: Duration::seconds(0).to_std().unwrap(),
+            concurrent_explorations: 100,
+            explorations_per_run: 100,
+            create_machines: Arc::new(ArcSwapAny::new(Arc::new(true))),
+            override_target_ip: None,
+            override_target_port: None,
+            allow_zero_dpu_hosts: overrides.allow_zero_dpu_hosts.unwrap_or(false),
+            bmc_proxy: Arc::new(Default::default()),
+            allow_changing_bmc_proxy: None,
+        },
+        test_meter.meter(),
+        Arc::new(fake_endpoint_explorer.clone()),
+        Arc::new(config.get_firmware_config()),
+        CommonPools::create(db_pool.clone()).await.unwrap(),
+    );
+
     TestEnv {
         api,
         common_pools,
@@ -746,6 +806,8 @@ pub async fn create_test_env_with_config(
         attestation_enabled,
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         test_meter,
+        site_explorer,
+        endpoint_explorer: fake_endpoint_explorer,
     }
 }
 
