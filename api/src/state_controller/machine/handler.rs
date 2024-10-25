@@ -318,6 +318,8 @@ impl MachineStateHandler {
             .instance
             .as_ref()
             .map(|instance| instance.config.tenant.tenant_organization_id.clone());
+        ctx.metrics.is_host_bios_password_set =
+            state.host_snapshot.bios_password_set_time.is_some();
 
         for alert in state.aggregate_health.alerts.iter() {
             ctx.metrics
