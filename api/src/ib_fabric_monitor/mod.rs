@@ -142,6 +142,7 @@ impl IbFabricMonitor {
             if let Err(e) =
                 check_ib_fabric(self.fabric_manager.as_ref(), fabric, fabric_metrics).await
             {
+                tracing::error!(fabric, error = %e, "IB fabric health check failed");
                 fabric_metrics.fabric_error = error_as_metric_label(e);
             }
         }
@@ -170,7 +171,7 @@ async fn check_ib_fabric(
 }
 
 fn error_as_metric_label(error: CarbideError) -> String {
-    const MAX_LEN: usize = 20;
+    const MAX_LEN: usize = 32;
 
     // TODO: This isn't efficient because we will get a lot of different dimensions
     // We need to have better defined errors from the UFM APIs, so we can convert
