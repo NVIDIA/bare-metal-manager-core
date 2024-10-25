@@ -337,7 +337,7 @@ form.filter-container div:nth-child(8) {
 					}
 					try {
 						let jsObj = JSON.parse(elem.innerText);
-						elem.innerHTML = JSON.stringify(jsObj, null,4);
+						elem.innerText = JSON.stringify(jsObj, null,4);
 					} catch (e) {
 					}
 				}
