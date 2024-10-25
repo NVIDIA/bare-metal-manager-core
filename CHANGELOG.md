@@ -37,6 +37,7 @@
 - TPM Endorsement Keys (EK) on a machine status are now deleted when a machine is force deleted.
 - Machine validation results will now be sorted by start time (ascending).
 - Machine validation results formatting are greatly improved in the Admin CLI
+- When interactions with the IB Fabric Manager (UFM) fail, errors are logged with a higher amount of details
 
 ## Fixed
 

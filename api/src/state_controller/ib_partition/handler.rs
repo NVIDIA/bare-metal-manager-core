@@ -48,7 +48,10 @@ impl StateHandler for IBPartitionStateHandler {
             .ib_fabric_manager
             .connect(DEFAULT_IB_FABRIC_NAME)
             .await
-            .map_err(|e| StateHandlerError::IBFabricError(format!("can not get IB fabric: {e}")))?;
+            .map_err(|e| StateHandlerError::IBFabricError {
+                operation: "connect".to_string(),
+                error: e.into(),
+            })?;
 
         let ib_config = ctx.services.ib_fabric_manager.get_config();
 
@@ -85,9 +88,10 @@ impl StateHandler for IBPartitionStateHandler {
                                     }
                                     Ok(StateHandlerOutcome::Deleted)
                                 }
-                                _ => Err(StateHandlerError::IBFabricError(format!(
-                                    "get_ib_network: {e}"
-                                ))),
+                                _ => Err(StateHandlerError::IBFabricError {
+                                    operation: "get_ib_network".to_string(),
+                                    error: e.into(),
+                                }),
                             }
                         } else {
                             Ok(StateHandlerOutcome::Wait(
@@ -157,9 +161,10 @@ impl StateHandler for IBPartitionStateHandler {
                                     CarbideError::NotFoundError { .. } => {
                                         Ok(StateHandlerOutcome::DoNothing)
                                     }
-                                    _ => Err(StateHandlerError::IBFabricError(format!(
-                                        "get_ib_network: {e}"
-                                    ))),
+                                    _ => Err(StateHandlerError::IBFabricError {
+                                        operation: "get_ib_network".to_string(),
+                                        error: e.into(),
+                                    }),
                                 }
                             }
                         }

@@ -142,8 +142,11 @@ pub enum StateHandlerError {
     #[error("Invalid host state {1} for DPU {0}.")]
     InvalidHostState(MachineId, Box<ManagedHostState>),
 
-    #[error("Failed to call IBFabricManager: {0}")]
-    IBFabricError(String),
+    #[error("Failed to execute \"{operation}\" on IB fabric manager: {error}")]
+    IBFabricError {
+        operation: String,
+        error: eyre::Report,
+    },
 
     #[error("Storage error {0}")]
     StorageError(#[from] StorageError),
@@ -195,7 +198,7 @@ impl StateHandlerError {
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
             StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
-            StateHandlerError::IBFabricError(_) => "ib_fabric_error",
+            StateHandlerError::IBFabricError { .. } => "ib_fabric_error",
             StateHandlerError::StorageError(_) => "storage_error",
             StateHandlerError::InvalidState(_) => "invalid_state",
             StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
