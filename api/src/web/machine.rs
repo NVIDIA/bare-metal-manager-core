@@ -90,10 +90,10 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             num_gpus = di.gpus.len();
             num_ib_ifs = di.infiniband_interfaces.len();
         }
-        let override_count = m
+        let replace_count = m
             .health_overrides
             .iter()
-            .filter(|o| o.mode() == OverrideMode::Override)
+            .filter(|o| o.mode() == OverrideMode::Replace)
             .count();
         let merge_count = m
             .health_overrides
@@ -139,8 +139,8 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             health_probe_alerts: health.alerts.clone(),
             override_mode_counts: format!(
                 "{}",
-                if override_count > 0 {
-                    override_count
+                if replace_count > 0 {
+                    replace_count
                 } else {
                     merge_count
                 }

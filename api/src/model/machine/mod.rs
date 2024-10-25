@@ -149,7 +149,7 @@ impl ManagedHostStateSnapshot {
         let source = "aggregate-host-health".to_string();
         let observed_at = Some(chrono::Utc::now());
 
-        // If there is an [`OverrideMode::Override`] health report override on
+        // If there is an [`OverrideMode::Replace`] health report override on
         // the host, then use that.
         if let Some(mut over) = self
             .host_snapshot

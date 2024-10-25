@@ -340,7 +340,7 @@ pub async fn handle_override(
                     .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
                 {
                     forgerpc::OverrideMode::Merge => "Merge",
-                    forgerpc::OverrideMode::Override => "Override",
+                    forgerpc::OverrideMode::Replace => "Replace",
                 };
                 rows.push((report, mode));
             }
@@ -373,14 +373,14 @@ pub async fn handle_override(
         OverrideCommand::Add {
             machine_id,
             health_report,
-            r#override,
+            replace,
         } => {
             rpc::machine_insert_health_report_override(
                 machine_id,
                 serde_json::from_str::<health_report::HealthReport>(&health_report)
                     .map_err(CarbideCliError::JsonError)?
                     .into(),
-                r#override,
+                replace,
                 api_config,
             )
             .await?;

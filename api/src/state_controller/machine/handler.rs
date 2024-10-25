@@ -329,7 +329,7 @@ impl MachineStateHandler {
         }
 
         ctx.metrics.num_merge_overrides = state.host_snapshot.health_report_overrides.merges.len();
-        ctx.metrics.override_override_enabled = state
+        ctx.metrics.replace_override_enabled = state
             .host_snapshot
             .health_report_overrides
             .r#override

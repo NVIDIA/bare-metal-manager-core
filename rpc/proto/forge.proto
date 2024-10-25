@@ -2443,7 +2443,7 @@ enum OverrideMode {
   // - the `in_alert_since` timestamp of the original alert will be retained
   Merge = 0;
   // Replace the health report in the system with this new health report
-  Override = 1;
+  Replace = 1;
 }
 
 message HealthReportOverride {
