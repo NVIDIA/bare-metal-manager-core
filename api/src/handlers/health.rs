@@ -222,7 +222,7 @@ async fn remove_by_source(
     // Ensure this source already exists in override list
     let mode = if host_machine
         .health_report_overrides()
-        .r#override
+        .replace
         .as_ref()
         .map(|o| &o.source)
         == Some(&source)
