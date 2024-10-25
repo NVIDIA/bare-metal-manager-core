@@ -2,7 +2,9 @@ pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::model::machine::{DpuInitState, FailureCause, FailureDetails, ReprovisionState};
+use crate::model::machine::{
+    DpuInitState, FailureCause, FailureDetails, MeasuringState, ReprovisionState,
+};
 use crate::model::storage::OsImage;
 use crate::{
     db::{
@@ -206,6 +208,9 @@ exit ||
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
             | ManagedHostState::HostInit { .. }
+            | ManagedHostState::Measuring {
+                measuring_state: MeasuringState::WaitingForMeasurements,
+            }
             | ManagedHostState::Failed {
                 details:
                     FailureDetails {
