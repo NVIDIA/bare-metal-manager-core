@@ -25,10 +25,10 @@ use libudev::Device;
 use rpc::machine_discovery::MemoryDevice;
 use tracing::{error, warn};
 use uname::uname;
+use utils::cmd::Cmd;
 
 pub mod dpu;
 mod gpu;
-pub mod ib;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
@@ -37,6 +37,7 @@ const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
 const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
 const PCI_VENDOR_FROM_DB: &str = "ID_VENDOR_FROM_DATABASE";
+const PCI_DEVICE_ID: &str = "ID_MODEL_ID";
 
 const BF2_PRODUCT_NAME: &str = "BlueField SoC";
 const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
@@ -58,12 +59,88 @@ pub enum HardwareEnumerationError {
     CmdError(#[from] CmdError),
 }
 
+pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
+
+pub const LINK_TYPE_P1: &str = "LINK_TYPE_P1";
+
+#[derive(Debug)]
 pub struct PciDevicePropertiesExt {
     pub sub_class: String,
     pub pci_properties: rpc_discovery::PciDeviceProperties,
+    pub device_id: String,
 }
 
-pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
+impl PciDevicePropertiesExt {
+    // This function decides on well known Mellanox PCI ids taken from the https://pci-ids.ucw.cz/read/PC/15b3
+    // all BF DPUs start with 0xa2xx or 0xc2xx
+    pub fn is_dpu(&self) -> bool {
+        self.device_id.starts_with("0xa2") || self.device_id.starts_with("0xc2")
+    }
+
+    //pub fn mlnx_ib_capable(device: &str, pci_subclass: &str, vendor: &str) -> bool {
+    pub fn mlnx_ib_capable(&self) -> bool {
+        // TODO: Check whether the device exists.
+        // only check Mellanox devices
+        if let Some(slot) = self.pci_properties.slot.as_ref() {
+            if !slot.is_empty()
+                && self
+                    .pci_properties
+                    .vendor
+                    .eq_ignore_ascii_case("Mellanox Technologies")
+            {
+                // there are three types of devices: VPI, IB-only and Eth-only
+                // VPI and IB-only device are ib capable
+                // VPI device has LINK_TYPE_P1 parameters. IB-only and Eth-only devices do not have these parameters.
+                // IB-only device has Infiniband controller sub class.
+                return check_link_type(slot, LINK_TYPE_P1)
+                    || self.sub_class.eq_ignore_ascii_case("Infiniband controller");
+            }
+        }
+        false
+    }
+}
+
+impl TryFrom<&Device> for PciDevicePropertiesExt {
+    type Error = HardwareEnumerationError;
+    fn try_from(device: &Device) -> Result<Self, Self::Error> {
+        let slot = match device.parent() {
+            Some(parent) => convert_property_to_string(PCI_SLOT_NAME, "", &parent)?.to_string(),
+            None => String::new(),
+        };
+
+        Ok(PciDevicePropertiesExt {
+            sub_class: convert_property_to_string(PCI_SUBCLASS, "", device)?.to_string(),
+            pci_properties: rpc_discovery::PciDeviceProperties {
+                vendor: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
+                    .to_string(),
+                device: convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
+                path: convert_property_to_string(PCI_DEV_PATH, "", device)?.to_string(),
+                numa_node: get_numa_node_from_syspath(device.syspath())?,
+                description: Some(
+                    convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
+                ),
+                slot: Some(slot.to_string()),
+            },
+            device_id: convert_property_to_string(PCI_DEVICE_ID, "", device)?.to_string(),
+        })
+    }
+}
+
+pub fn check_link_type(device: &str, port: &str) -> bool {
+    match Cmd::new("mstconfig")
+        .args(vec!["-d", device, "q", port])
+        .output()
+    {
+        Ok(_) => {
+            tracing::info!("Device {} is IB capable", device,);
+            true
+        }
+        Err(e) => {
+            tracing::trace!("Device {} is not IB capable, result {} ", device, e,);
+            false
+        }
+    }
+}
 
 fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError> {
     // udevs format is enx112233445566 first, then the string of octets without a colon
@@ -161,30 +238,6 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
     }
 }
 
-fn get_pci_properties_ext(
-    device: &Device,
-) -> Result<PciDevicePropertiesExt, HardwareEnumerationError> {
-    let slot = match device.parent() {
-        Some(parent) => convert_property_to_string(PCI_SLOT_NAME, "", &parent)?.to_string(),
-        None => String::new(),
-    };
-
-    Ok(PciDevicePropertiesExt {
-        sub_class: convert_property_to_string(PCI_SUBCLASS, "", device)?.to_string(),
-        pci_properties: rpc_discovery::PciDeviceProperties {
-            vendor: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
-                .to_string(),
-            device: convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
-            path: convert_property_to_string(PCI_DEV_PATH, "", device)?.to_string(),
-            numa_node: get_numa_node_from_syspath(device.syspath())?,
-            description: Some(
-                convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
-            ),
-            slot: Some(slot.to_string()),
-        },
-    })
-}
-
 // discovery all the non-DPU IB devices
 pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::InfinibandInterface>> {
     let device_debug_log = |device: &Device| {
@@ -205,7 +258,7 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
     for device in devices {
         device_debug_log(&device);
 
-        let properties_ext = match get_pci_properties_ext(&device) {
+        let properties_ext = match PciDevicePropertiesExt::try_from(&device) {
             Ok(properties_ext) => properties_ext,
             Err(e) => {
                 tracing::error!(
@@ -218,13 +271,13 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
         };
 
         // filter out DPU
-        if ib::is_dpu(&properties_ext.pci_properties.device) {
+        if properties_ext.is_dpu() {
             continue;
         }
 
         // VPI, IB-only and eth-oly ConnectX devices are here.
         // in case there are eth-only ConnectX devices, we need filter out eth-only.
-        if ib::mlnx_ib_capable(&properties_ext) {
+        if properties_ext.mlnx_ib_capable() {
             ibs.push(rpc_discovery::InfinibandInterface {
                 guid: convert_sysattr_to_string("node_guid", &device)?
                     .to_string()
@@ -264,7 +317,8 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut nics: Vec<rpc_discovery::NetworkInterface> = Vec::new();
 
     for device in devices {
-        tracing::debug!("SysPath - {:?}", device.syspath());
+        let sys_path = device.syspath();
+        tracing::debug!("SysPath - {:?}", sys_path);
         for p in device.properties() {
             tracing::trace!("net device property - {:?} - {:?}", p.name(), p.value());
         }
@@ -274,7 +328,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
         if let Ok(pci_subclass) = convert_property_to_string(PCI_SUBCLASS, "", &device) {
             if pci_subclass.eq_ignore_ascii_case("Ethernet controller") {
-                let properties_ext = match get_pci_properties_ext(&device) {
+                let properties_ext = match PciDevicePropertiesExt::try_from(&device) {
                     Ok(properties_ext) => properties_ext,
                     Err(e) => {
                         tracing::error!(
@@ -286,10 +340,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                     }
                 };
 
+                tracing::trace!("properties: {:?}", properties_ext);
+
                 // discovery DPU and non ib capable device
-                if ib::is_dpu(&properties_ext.pci_properties.device)
-                    || !ib::mlnx_ib_capable(&properties_ext)
-                {
+                if properties_ext.is_dpu() || !properties_ext.mlnx_ib_capable() {
                     nics.push(rpc_discovery::NetworkInterface {
                         mac_address: convert_udev_to_mac(
                             convert_property_to_string("ID_NET_NAME_MAC", &info.machine, &device)?
