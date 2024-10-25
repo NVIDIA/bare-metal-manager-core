@@ -104,17 +104,7 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        let service_root = match client.get_service_root().await {
-            Ok(sr) => sr,
-            Err(RedfishError::HTTPErrorCode { status_code, .. }) if status_code == NOT_FOUND => {
-                return Err(EndpointExplorationError::MissingRedfish);
-            }
-            Err(e) => {
-                return Err(EndpointExplorationError::RedfishError {
-                    details: e.to_string(),
-                })
-            }
-        };
+        let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
 
         let Some(vendor) = service_root.vendor() else {
             return Err(EndpointExplorationError::MissingVendor);
@@ -837,6 +827,9 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
             EndpointExplorationError::Unreachable {
                 details: Some(format!("url: {url};\nsource: {source};\nerror: {error}",)),
             }
+        }
+        RedfishError::HTTPErrorCode { status_code, .. } if *status_code == NOT_FOUND => {
+            EndpointExplorationError::MissingRedfish
         }
         error if error.is_unauthorized() => EndpointExplorationError::Unauthorized {
             details: error.to_string(),
