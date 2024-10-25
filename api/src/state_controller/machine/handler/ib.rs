@@ -64,8 +64,9 @@ pub(crate) async fn record_infiniband_status_observation(
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME)
         .await
-        .map_err(|x| {
-            StateHandlerError::IBFabricError(format!("Failed to connect to fabric manager: {x}"))
+        .map_err(|e| StateHandlerError::IBFabricError {
+            operation: "connect".to_string(),
+            error: e.into(),
         })?;
 
     let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
@@ -147,7 +148,10 @@ pub(crate) async fn bind_ib_ports(
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME)
         .await
-        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+        .map_err(|e| StateHandlerError::IBFabricError {
+            operation: "connect".to_string(),
+            error: e.into(),
+        })?;
 
     for (k, v) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find_by(
@@ -169,7 +173,10 @@ pub(crate) async fn bind_ib_ports(
         ib_fabric
             .bind_ib_ports(IBNetwork::from(ibpartition), v)
             .await
-            .map_err(|_| StateHandlerError::IBFabricError("bind_ib_ports".to_string()))?;
+            .map_err(|e| StateHandlerError::IBFabricError {
+                operation: "bind_ib_ports".to_string(),
+                error: e.into(),
+            })?;
     }
 
     Ok(())
@@ -199,7 +206,10 @@ pub(crate) async fn unbind_ib_ports(
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME)
         .await
-        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+        .map_err(|e| StateHandlerError::IBFabricError {
+            operation: "connect".to_string(),
+            error: e.into(),
+        })?;
 
     for (k, v) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find_by(
@@ -228,7 +238,10 @@ pub(crate) async fn unbind_ib_ports(
         ib_fabric
             .unbind_ib_ports(pkey, v)
             .await
-            .map_err(|_| StateHandlerError::IBFabricError("unbind_ib_ports".to_string()))?;
+            .map_err(|e| StateHandlerError::IBFabricError {
+                operation: "unbind_ib_ports".to_string(),
+                error: e.into(),
+            })?;
     }
 
     Ok(())
