@@ -1,6 +1,12 @@
 # Changelog
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc2-0...trunk)
 
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...trunk)
+### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2024.10.25-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...v2024.10.25-rc2-0)
 
 ## Added
 
