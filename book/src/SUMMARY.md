@@ -51,6 +51,7 @@
 - [Database]()
   - [Data Model / DB Schema](development/schema.md)
   - [Local Playground](development/database_local_playground.md)
+  - [Backup/Restore Management](development/database_backup_and_restore.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [Baby Forge](babyforge.md)
 - [Hot Fix Process](hotfix.md)
