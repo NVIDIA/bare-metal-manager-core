@@ -21,7 +21,7 @@
 		<tr>
 			<td><a href="/admin/vpc/{{ vpc.id }}">{{ vpc.id }}</a></td>
 			<td>{{ vpc.metadata.name }}</td>
-			<td>{{ vpc.metadata.labels|label_list_fmt|safe }}</td>
+			<td>{{ vpc.metadata.labels|label_list_fmt(true)|safe }}</td>
 			<td>{{ vpc.tenant_organization_id }}</td>
 			<td>{{ vpc.tenant_keyset_id }}</td>
 			<td>{{ vpc.network_virtualization_type }}</td>
