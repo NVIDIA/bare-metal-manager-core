@@ -8,22 +8,22 @@ Out of the box, `wal-g` has support for storing to S3, and since *nvidia* has it
 
 There's a good chance if you're here, you're probably going to need (or are looking for) credentials to be able to read/write/manage storage, so I'm covering that first. All you need to do is go to the [nvidia Core Storage Portal](https://cssportal.sre.nsv.nvidia.com:4443/) and click **Login**.
 
-![Core Storage Portal Login](static/db_backups_core_storage_portal_login.png)
+![Core Storage Portal Login](../static/db_backups_core_storage_portal_login.png)
 
 Once you're logged in, you'll be brought to a service status page. Now click **Manage My Storage**.
 
-![Core Storage Service Status](static/db_backups_core_storage_portal_status.png)
+![Core Storage Service Status](../static/db_backups_core_storage_portal_status.png)
 
 From there, the **My Storage Details** page will open, at which point you will see
 - All clusters we have storage in.
 - The username for each cluster.
 - The quota for each cluster (and how much is used).
 
-![Core Storage Details](static/db_backups_core_storage_portal_details.png)
+![Core Storage Details](../static/db_backups_core_storage_portal_details.png)
 
 From there, click the "i" (info) icon next to the **User**, which will bring up the **Access Credentials** pane, which also includes snippets for how to use it with various CLI tools (such as `s5cmd`, `awscli`, etc):
 
-![Core Storage Access Information](static/db_backups_core_storage_access.png)
+![Core Storage Access Information](../static/db_backups_core_storage_access.png)
 
 Tada! You now know how to get credentials for a given cluster and storage namespace (as well as the endpoint to use, *e.g. https://pkss.s8k.io*) Note that, within a storage namespace are buckets. As in, you connect to a cluster with given credentials, and those credentials allow you to access the namespace in that cluster. From there is where you add buckets, read/write files, etc. I think it's probably obvious, but it's probably good to clarify the terminology.
 
