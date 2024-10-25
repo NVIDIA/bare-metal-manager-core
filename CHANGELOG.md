@@ -8,6 +8,7 @@
 - Site Explorer will reboot a DPU if it cannot query the BIOS Attributes endpoint without an error.
 - Machine validation "external config files" can now be deleted (see `forge-admin-cli machine-validation external-config remove`
 - The Carbide Admin UI now shows the last time Carbide rebooted a node on the Machines page.  Previously this was only on the Site Explorer explored endpoint page.
+- Log the full error message whenever the health-check that is executed by IBFabricMonitor fails
 
 ## Changed
 
