@@ -20,8 +20,8 @@
 		{% for vpc in vpcs %}
 		<tr>
 			<td><a href="/admin/vpc/{{ vpc.id }}">{{ vpc.id }}</a></td>
-			<td>{{ vpc.name }}</td>
-			<td>{{ vpc.labels }}</td>
+			<td>{{ vpc.metadata.name }}</td>
+			<td>{{ vpc.metadata.labels|label_list_fmt|safe }}</td>
 			<td>{{ vpc.tenant_organization_id }}</td>
 			<td>{{ vpc.tenant_keyset_id }}</td>
 			<td>{{ vpc.network_virtualization_type }}</td>

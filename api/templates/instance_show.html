@@ -32,8 +32,8 @@
 			<td>{{ i.tenant_org }}</td>
 			<td>{{ i.tenant_state }}</td>
 			<td>{{ i.configs_synced }}</td>
-			<td>{{ i.name }}</td>
-			<td>{{ i.labels }}</td>
+			<td>{{ i.metadata.name }}</td>
+			<td>{{ i.metadata.labels|label_list_fmt|safe }}</td>
 			<td>{{ i.ip_addresses }}</td>
 			<td>{{ i.num_eth_ifs }}</td>
 			<td>{{ i.num_ib_ifs }}</td>
