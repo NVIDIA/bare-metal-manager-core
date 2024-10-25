@@ -284,6 +284,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "TpmCaCertId",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute("MachineValidationState", "#[derive(serde::Serialize)]")
+        .type_attribute("MachineValidationCompleted", "#[derive(serde::Serialize)]")
+        .type_attribute("MachineValidationInProgress", "#[derive(serde::Serialize)]")
+        .type_attribute("MachineValidationStarted", "#[derive(serde::Serialize)]")
+        .type_attribute("MachineValidationStatus", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

@@ -13,7 +13,10 @@ use crate::{
     api::{log_machine_id, log_request_data, Api},
     db::{
         machine::{Machine, MachineSearchConfig},
-        machine_validation::{MachineValidation, MachineValidationResult},
+        machine_validation::{
+            MachineValidation, MachineValidationResult, MachineValidationState,
+            MachineValidationStatus,
+        },
         machine_validation_config::MachineValidationExternalConfig,
         DatabaseError,
     },
@@ -77,19 +80,17 @@ pub(crate) async fn mark_machine_validation_complete(
             "Validation ID does not belong to provided Machine ID",
         ));
     }
-
-    //Mark machine validation request to false
-    Machine::set_machine_validation_request(&mut txn, &machine_id, false)
-        .await
-        .map_err(CarbideError::from)?;
-
-    Machine::update_machine_validation_time(&machine_id, &mut txn)
-        .await
-        .map_err(CarbideError::from)?;
-
-    MachineValidation::update_end_time(&uuid, &mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    MachineValidation::mark_machine_validation_complete(
+        &mut txn,
+        &machine_id,
+        &uuid,
+        MachineValidationStatus {
+            state: MachineValidationState::Success,
+            ..MachineValidationStatus::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
     let machine_validation_results = match req.machine_validation_error {
         Some(machine_validation_error) => {
             Machine::update_failure_details_by_machine_id(

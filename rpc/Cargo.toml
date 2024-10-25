@@ -36,7 +36,8 @@ regex = "1.6"
 thiserror = "1.0"
 tonic-build = "0.10.2"
 tryhard = "0.5.1"
-
+strum_macros = "*"
+strum = "*"
 # [local-dependencies]
 forge-http-connector = { path = "../common/http-connector" }
 forge-tls = { path = "../common/tls" }

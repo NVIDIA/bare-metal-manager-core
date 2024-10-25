@@ -3254,6 +3254,13 @@ message MachineRebootCompletedResponse { }
 message MachineRebootCompletedRequest {
 	common.MachineId machine_id = 1;
 }
+// enum MachineValidationState {
+//     Started = 0;
+//     InProgress = 1;
+//     Completed = 2;
+//     Skipped = 3;
+//     Failed(string) = 4;
+// }
 
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
@@ -3291,6 +3298,31 @@ message MachineValidationGetRequest {
   optional common.UUID validation_id = 3;
 }
 
+message MachineValidationStatus {
+
+  enum MachineValidationStarted {
+    Started = 0;
+  }
+
+  enum MachineValidationInProgress {
+    InProgress = 0;
+  }
+
+  enum MachineValidationCompleted {
+    Success = 0;
+    Failed = 1;
+    Skipped = 2;
+  }
+
+  oneof MachineValidationState {
+    MachineValidationStarted started = 1;
+    MachineValidationInProgress in_progress = 2;
+    MachineValidationCompleted completed = 3;
+  }
+
+  uint32 total = 4;
+  uint32 passed = 5;
+}
 message MachineValidationRun {
   common.UUID validation_id = 1;
   common.MachineId machine_id = 2;
@@ -3298,6 +3330,7 @@ message MachineValidationRun {
   google.protobuf.Timestamp end_time = 4;
   string name = 5;
   optional string context = 6;
+  MachineValidationStatus status = 7;
 }
 
 message MachineSetAutoUpdateRequest {
