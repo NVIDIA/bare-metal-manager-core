@@ -194,9 +194,9 @@ async fn test_machine_health_aggregation(
         override_metrics,
         vec![
             "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
-            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 0".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"replace\"} 0".to_string(),
             "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
-            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
+            "{assigned=\"true\",fresh=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 
@@ -270,9 +270,9 @@ async fn test_machine_health_aggregation(
         override_metrics,
         vec![
             "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 1".to_string(),
-            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 0".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"replace\"} 0".to_string(),
             "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
-            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
+            "{assigned=\"true\",fresh=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 
@@ -307,7 +307,7 @@ async fn test_machine_health_aggregation(
     send_health_report_override(
         &env,
         &host_machine_id,
-        (r#override.clone(), OverrideMode::Override),
+        (r#override.clone(), OverrideMode::Replace),
     )
     .await;
     // Override is visible in metrics - requires a statecontroller iteration to update metrics
@@ -320,9 +320,9 @@ async fn test_machine_health_aggregation(
         override_metrics,
         vec![
             "{assigned=\"false\",fresh=\"true\",override_type=\"merge\"} 1".to_string(),
-            "{assigned=\"false\",fresh=\"true\",override_type=\"override\"} 1".to_string(),
+            "{assigned=\"false\",fresh=\"true\",override_type=\"replace\"} 1".to_string(),
             "{assigned=\"true\",fresh=\"true\",override_type=\"merge\"} 0".to_string(),
-            "{assigned=\"true\",fresh=\"true\",override_type=\"override\"} 0".to_string()
+            "{assigned=\"true\",fresh=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 
@@ -335,7 +335,7 @@ async fn test_machine_health_aggregation(
                 source: "add-host-failure".to_string()
             },
             HealthOverrideOrigin {
-                mode: OverrideMode::Override as i32,
+                mode: OverrideMode::Replace as i32,
                 source: "replace-host-report".to_string()
             }
         ]
@@ -376,12 +376,12 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
                 machine_id: Some(dpu_machine_id.to_string().into()),
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(health_report::HealthReport::empty("".to_string()).into()),
-                    mode: health_report::OverrideMode::Override as i32,
+                    mode: health_report::OverrideMode::Replace as i32,
                 }),
             },
         ))
         .await
-        .expect_err("Should not be able to add OverrideMode::Override on dpu");
+        .expect_err("Should not be able to add OverrideMode::Replace on dpu");
 
     Ok(())
 }
@@ -395,8 +395,8 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let hardware_health = hr("hardware-health", vec![("Fan", None)], vec![]);
     simulate_hardware_health_report(&env, &host_machine_id, hardware_health.clone()).await;
 
-    // Inserting an Override override then a Merge override with the same source
-    // should result in the Override override being replaced.
+    // Inserting a Replace override then a Merge override with the same source
+    // should result in the Replace override being replaced.
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
@@ -406,7 +406,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 machine_id: Some(host_machine_id.to_string().into()),
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(health_report::HealthReport::empty("over".to_string()).into()),
-                    mode: health_report::OverrideMode::Override as i32,
+                    mode: health_report::OverrideMode::Replace as i32,
                 }),
             },
         ))

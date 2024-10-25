@@ -227,7 +227,7 @@ async fn remove_by_source(
         .map(|o| &o.source)
         == Some(&source)
     {
-        OverrideMode::Override
+        OverrideMode::Replace
     } else if host_machine
         .health_report_overrides()
         .merges
@@ -273,9 +273,9 @@ pub async fn insert_health_report_override(
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
     let mode: OverrideMode = mode.into();
-    if machine_id.machine_type().is_dpu() && mode == OverrideMode::Override {
+    if machine_id.machine_type().is_dpu() && mode == OverrideMode::Replace {
         return Err(CarbideError::InvalidArgument(
-            "DPU's cannot have OverrideMode::Override health report overrides".to_string(),
+            "DPU's cannot have OverrideMode::Replace health report overrides".to_string(),
         )
         .into());
     }
@@ -295,7 +295,7 @@ pub async fn insert_health_report_override(
     }
     report.update_in_alert_since(None);
 
-    // In case a report with the same source exists, either as merge or override,
+    // In case a report with the same source exists, either as merge or replace,
     // remove it. If such a report does not exist, ignore error.
     match remove_by_source(&mut txn, machine_id.clone(), report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}

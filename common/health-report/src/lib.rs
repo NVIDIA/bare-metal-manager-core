@@ -205,10 +205,10 @@ pub enum OverrideMode {
     /// successes and alerts in the non-override HealthReports, merging by id
     /// and target.
     Merge,
-    /// The override HealthReport will completely replace non-override
-    /// HealthReports. Any successes or alerts in non-override HealthReports
+    /// The replacement HealthReport will completely replace any existing
+    /// HealthReports. Any successes or alerts in the original or merged HealthReports
     /// are ignored.
-    Override,
+    Replace,
 }
 
 /// An alert that has been raised by a health-probe

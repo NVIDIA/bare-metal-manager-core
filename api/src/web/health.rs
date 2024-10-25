@@ -91,7 +91,7 @@ pub async fn health(
     // carbide sends them.
     overrides.sort_by_key(|hr| {
         match OverrideMode::try_from(hr.mode).unwrap_or(OverrideMode::Merge) {
-            OverrideMode::Override => 0,
+            OverrideMode::Replace => 0,
             OverrideMode::Merge => 1,
         }
     });
@@ -206,7 +206,7 @@ pub async fn health(
             .map(|o| DisplayedOverrideOrigin {
                 mode: match o.mode() {
                     OverrideMode::Merge => "Merge",
-                    OverrideMode::Override => "Override",
+                    OverrideMode::Replace => "Replace",
                 }
                 .to_string(),
                 source: o.source,
@@ -228,7 +228,7 @@ impl TryFrom<AddOverride> for HealthReportOverride {
 
     fn try_from(value: AddOverride) -> Result<Self, Self::Error> {
         let mode = match value.mode.as_str() {
-            "Override" => OverrideMode::Override,
+            "Replace" => OverrideMode::Replace,
             "Merge" => OverrideMode::Merge,
             _ => return Err("Invalid or missing mode".to_string()),
         };

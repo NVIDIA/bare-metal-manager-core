@@ -1200,7 +1200,7 @@ impl Machine {
         let column_name = "health_report_overrides";
         let path = match mode {
             OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-            OverrideMode::Override => "override".to_string(),
+            OverrideMode::Replace => "override".to_string(), // This path is used for backward compatibility
         };
         let query = format!(
             "UPDATE machines SET {column_name} = jsonb_set(
@@ -1233,7 +1233,7 @@ impl Machine {
         let column_name = "health_report_overrides";
         let path = match mode {
             OverrideMode::Merge => format!("merges,{}", source),
-            OverrideMode::Override => "override".to_string(),
+            OverrideMode::Replace => "override".to_string(), // This path is used for backward compatibility
         };
         let query = format!(
             "UPDATE machines SET {column_name} = ({column_name} #- '{{{}}}') WHERE id = $1

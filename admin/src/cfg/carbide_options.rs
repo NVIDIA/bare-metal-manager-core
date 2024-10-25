@@ -907,8 +907,8 @@ pub enum OverrideCommand {
         machine_id: String,
         #[clap(help = "New health report as json")]
         health_report: String,
-        #[clap(long, help = "Override all other health reports")]
-        r#override: bool,
+        #[clap(long, help = "Replace all other health reports with this override")]
+        replace: bool,
     },
     #[clap(about = "Remove a health report override")]
     Remove {

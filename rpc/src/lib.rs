@@ -500,7 +500,7 @@ impl From<forge::OverrideMode> for health_report::OverrideMode {
     fn from(value: forge::OverrideMode) -> Self {
         match value {
             forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
-            forge::OverrideMode::Override => health_report::OverrideMode::Override,
+            forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
         }
     }
 }

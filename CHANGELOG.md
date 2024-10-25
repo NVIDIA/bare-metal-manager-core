@@ -11,6 +11,7 @@
     - `forge_hosts_unhealthy_by_probe_id_count`
     - `forge_hosts_health_overrides_count`
     - `forge_hosts_unhealthy_by_classification_count`
+- The HealthOverride mode `Override` is now called `Replace`
 - Admin Web UI has been improved:
   - Tables are now utilizing the full available screen width
   - On the Health details page

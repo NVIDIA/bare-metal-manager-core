@@ -697,7 +697,7 @@ pub async fn machine_list_health_report_overrides(
 pub async fn machine_insert_health_report_override(
     id: String,
     report: ::rpc::health::HealthReport,
-    r#override: bool,
+    replace: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
@@ -705,8 +705,8 @@ pub async fn machine_insert_health_report_override(
             machine_id: Some(::rpc::MachineId { id }),
             r#override: Some(rpc::HealthReportOverride {
                 report: Some(report),
-                mode: if r#override {
-                    rpc::OverrideMode::Override
+                mode: if replace {
+                    rpc::OverrideMode::Replace
                 } else {
                     rpc::OverrideMode::Merge
                 } as i32,

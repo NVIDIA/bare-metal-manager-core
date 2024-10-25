@@ -44,8 +44,8 @@ pub struct MachineMetrics {
     pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
     /// The amount of configured `merge` overrides
     pub num_merge_overrides: usize,
-    /// Whether an override of type `override` is configured
-    pub override_override_enabled: bool,
+    /// Whether an override of type `replace` is configured
+    pub replace_override_enabled: bool,
     /// Whether the Machine is allocatable to a Tenant
     /// Doing so requires
     /// - the Machine to be in `Ready` state
@@ -80,7 +80,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsAssignedToTenant), usize>,
     /// The amount of unhealthy hosts by Alert classification and assignment status
     pub unhealthy_hosts_by_classification_id: HashMap<(String, IsAssignedToTenant), usize>,
-    /// The amount of configured overrides by type (merge vs override) and assignment status
+    /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsAssignedToTenant), usize>,
 }
 
@@ -338,10 +338,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .num_overrides
             .entry(("merge", is_assigned))
             .or_default() += object_metrics.num_merge_overrides;
-        if object_metrics.override_override_enabled {
+        if object_metrics.replace_override_enabled {
             *iteration_metrics
                 .num_overrides
-                .entry(("override", is_assigned))
+                .entry(("replace", is_assigned))
                 .or_default() += 1;
         }
 
@@ -526,7 +526,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         // The HashMap access is used here instead of iterating order to make sure that
         // all 4 combinations always emit metrics. No metric will be absent in case
         // no host falls into that category
-        for override_type in ["merge", "override"] {
+        for override_type in ["merge", "replace"] {
             for assigned in [true, false] {
                 let count = iteration_metrics
                     .num_overrides
@@ -645,7 +645,7 @@ mod tests {
                 )]),
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
-                override_override_enabled: false,
+                replace_override_enabled: false,
                 is_allocatable: true,
             },
             MachineMetrics {
@@ -691,7 +691,7 @@ mod tests {
                 .into_iter()
                 .collect(),
                 num_merge_overrides: 0,
-                override_override_enabled: false,
+                replace_override_enabled: false,
                 is_allocatable: true,
             },
             MachineMetrics {
@@ -716,7 +716,7 @@ mod tests {
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 1,
-                override_override_enabled: true,
+                replace_override_enabled: true,
                 is_allocatable: false,
             },
             MachineMetrics {
@@ -751,7 +751,7 @@ mod tests {
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
-                override_override_enabled: false,
+                replace_override_enabled: false,
                 is_allocatable: true,
             },
             MachineMetrics {
@@ -810,7 +810,7 @@ mod tests {
                 .into_iter()
                 .collect(),
                 num_merge_overrides: 1,
-                override_override_enabled: false,
+                replace_override_enabled: false,
                 is_allocatable: false,
             },
             MachineMetrics {
@@ -856,7 +856,7 @@ mod tests {
                 .into_iter()
                 .collect(),
                 num_merge_overrides: 0,
-                override_override_enabled: true,
+                replace_override_enabled: true,
                 is_allocatable: false,
             },
         ];
@@ -982,7 +982,7 @@ mod tests {
             HashMap::from_iter([
                 (("merge", IsAssignedToTenant(true)), 0),
                 (("merge", IsAssignedToTenant(false)), 2),
-                (("override", IsAssignedToTenant(false)), 2),
+                (("replace", IsAssignedToTenant(false)), 2),
             ])
         );
 

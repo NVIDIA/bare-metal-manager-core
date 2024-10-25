@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 /// All health report overrides stored as JSON in postgres.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct HealthReportOverrides {
+    /// Stores the "replace" override
+    /// The "replace" mode was called "override" in the past
     pub r#override: Option<HealthReport>,
     /// A map from the health report source to the health report
     pub merges: BTreeMap<String, HealthReport>,
@@ -16,6 +18,6 @@ impl HealthReportOverrides {
         self.merges
             .into_values()
             .map(|r| (r.clone(), OverrideMode::Merge))
-            .chain(self.r#override.map(|r| (r, OverrideMode::Override)))
+            .chain(self.r#override.map(|r| (r, OverrideMode::Replace)))
     }
 }
