@@ -230,7 +230,11 @@ impl TryFrom<AddOverride> for HealthReportOverride {
         let mode = match value.mode.as_str() {
             "Replace" => OverrideMode::Replace,
             "Merge" => OverrideMode::Merge,
-            _ => return Err("Invalid or missing mode".to_string()),
+            m => {
+                return Err(format!(
+                    "Override mode must be \"Replace\" or \"Merge\", but was \"{m}\""
+                ))
+            }
         };
         let hr = value.health_report;
 
