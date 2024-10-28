@@ -1201,7 +1201,7 @@ impl SiteExplorer {
             Some(machine_id) => machine_id,
             None => {
                 // Mint a predicted-host machine_id from the exploration report
-                report.generate_machine_id(true)?
+                report.generate_machine_id(true)?.unwrap()
             }
         };
 
