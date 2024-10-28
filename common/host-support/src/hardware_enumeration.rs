@@ -41,6 +41,7 @@ const PCI_DEVICE_ID: &str = "ID_MODEL_ID";
 
 const BF2_PRODUCT_NAME: &str = "BlueField SoC";
 const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
+const BF_PRODUCT_NAME_REGEX: &str = "BlueField";
 const BF3_CPU_PART: &str = "0xd42";
 const NVIDIA_VENDOR_ID: &str = "0x10de";
 const NVIDIA_VENDOR_DRIVER: &str = "nvidia";
@@ -571,14 +572,11 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             }
             dmi.sys_vendor = convert_sysattr_to_string("sys_vendor", &device)?.to_string();
 
-            let is_dpu = (dmi.sys_vendor.as_str() == "https://www.mellanox.com"
-                || dmi.sys_vendor.as_str() == "Nvidia")
-                && (dmi.product_name == BF2_PRODUCT_NAME || dmi.product_name == BF3_PRODUCT_NAME);
-
             // TODO (spyda): reach out to the NBU team. We recently found DPUs that reports a
             // serial number for board_serial instead of what was previously found: "Unspecified Base Board Serial Number".
             // Figure out a longer term strategy to use all three serial numbers. Keeping the commented out code below for future reference.
-            if is_dpu {
+            // Possible Values for dmi.product_name: BlueField SoC (BF2), BlueField-3 SmartNIC Main Card (BF3), BlueField-3 DPU (BF3)
+            if dmi.product_name.contains(BF_PRODUCT_NAME_REGEX) {
                 dmi.board_serial = utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string();
                 dmi.chassis_serial = utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string();
             } else {
