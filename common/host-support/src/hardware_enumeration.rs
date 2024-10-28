@@ -572,7 +572,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             dmi.sys_vendor = convert_sysattr_to_string("sys_vendor", &device)?.to_string();
 
             let is_dpu = (dmi.sys_vendor.as_str() == "https://www.mellanox.com"
-                || dmi.product_name == "Nvidia")
+                || dmi.sys_vendor.as_str() == "Nvidia")
                 && (dmi.product_name == BF2_PRODUCT_NAME || dmi.product_name == BF3_PRODUCT_NAME);
 
             // TODO (spyda): reach out to the NBU team. We recently found DPUs that reports a
