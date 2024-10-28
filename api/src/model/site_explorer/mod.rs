@@ -656,7 +656,10 @@ impl EndpointExplorationReport {
 
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
-    pub fn generate_machine_id(&mut self, force_predicted_host: bool) -> CarbideResult<&MachineId> {
+    pub fn generate_machine_id(
+        &mut self,
+        force_predicted_host: bool,
+    ) -> CarbideResult<Option<&MachineId>> {
         if let Some(serial_number) = self
             .systems
             .first()
@@ -673,12 +676,12 @@ impl EndpointExplorationReport {
                 ..Default::default()
             };
 
-            let machine_type = if force_predicted_host {
-                MachineType::PredictedHost
-            } else if self.is_dpu() {
+            let machine_type = if self.is_dpu() {
                 MachineType::Dpu
+            } else if force_predicted_host {
+                MachineType::PredictedHost
             } else {
-                MachineType::Host
+                return Ok(None);
             };
 
             let machine_id =
@@ -686,7 +689,7 @@ impl EndpointExplorationReport {
                     CarbideError::HardwareInfoError(HardwareInfoError::MissingHardwareInfo(e))
                 })?;
 
-            Ok(self.machine_id.insert(machine_id))
+            Ok(Some(self.machine_id.insert(machine_id)))
         } else {
             Err(CarbideError::HardwareInfoError(
                 HardwareInfoError::MissingHardwareInfo(MissingHardwareInfo::Serial),
