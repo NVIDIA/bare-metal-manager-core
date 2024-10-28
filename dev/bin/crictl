@@ -75,7 +75,7 @@ BGP_SUMMARY='{
   "peerGroupCount":1,
   "peerGroupMemory":64,
   "peers":{
-    "p0_sf":{
+    "p0_if":{
       "hostname":"RNO1-M04-D01-TOR-01",
       "remoteAs":64740,
       "version":4,
@@ -94,7 +94,7 @@ BGP_SUMMARY='{
       "connectionsDropped":1,
       "idType":"interface"
     },
-    "p1_sf":{
+    "p1_if":{
       "hostname":"RNO1-M04-D01-TOR-02",
       "remoteAs":64740,
       "version":4,
@@ -135,7 +135,7 @@ BGP_SUMMARY='{
   "peerGroupCount":1,
   "peerGroupMemory":64,
   "peers":{
-    "p0_sf":{
+    "p0_if":{
       "hostname":"RNO1-M04-D01-TOR-01",
       "remoteAs":64740,
       "version":4,
@@ -154,7 +154,7 @@ BGP_SUMMARY='{
       "connectionsDropped":1,
       "idType":"interface"
     },
-    "p1_sf":{
+    "p1_if":{
       "hostname":"RNO1-M04-D01-TOR-02",
       "remoteAs":64740,
       "version":4,
@@ -249,7 +249,7 @@ command = /var/support/forge-dhcp/bin/forge-dhcp-server  --interfaces vlan23  --
 autostart = true
 '
 
-FDB='[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan48","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]'
+FDB='[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_if","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_if","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan48","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]'
 
 NVUE_STARTUP_TMP=/tmp/carbide-integration-nvue.tmp
 
@@ -300,6 +300,10 @@ case "$1" in
 			"bridge" )
 				printf "$FDB"
 				;;
+		  # crictl exec -it <container-id> echo "hack" for platform-config
+		  "echo" )
+        printf "" # the command has no output
+        ;;
 			"*" )
 				echo "Unexpected argments to crictl: $@"
 				exit 1

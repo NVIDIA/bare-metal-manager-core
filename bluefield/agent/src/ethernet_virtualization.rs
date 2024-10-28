@@ -27,14 +27,8 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
+use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue, HBNDeviceNames};
 use forge_network::virtualization::{get_svi_prefix, VpcVirtualizationType};
-
-// VPC writes these to various HBN config files
-const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
-
-const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
-const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 16384; // 16 KiB
@@ -105,6 +99,7 @@ pub async fn update_nvue(
     nc: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the `nv` commands after writing the file
     skip_post: bool,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     let hbn_version = hbn::read_version().await?;
 
@@ -143,7 +138,7 @@ pub async fn update_nvue(
         access_vlans
     };
 
-    let physical_name = DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf";
+    let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
         let admin_interface = nc
             .admin_interface
@@ -165,16 +160,12 @@ pub async fn update_nvue(
             let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 physical_name.clone()
             } else {
-                format!(
-                    "{}{}_sf",
-                    DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
-                    match net.virtual_function_id {
-                        Some(id) => id,
-                        None => {
-                            eyre::bail!("Missing virtual function id");
-                        }
+                match net.virtual_function_id {
+                    Some(id) => hbn_device_names.build_virt(id),
+                    None => {
+                        eyre::bail!("Missing virtual function id");
                     }
-                )
+                }
             };
 
             // TODO(chet): Move this API-side into api/src/ethernet_virtualization.rs.
@@ -243,7 +234,11 @@ pub async fn update_nvue(
         dpu_hostname: hostname.hostname,
         dpu_search_domain: hostname.search_domain,
         hbn_version: Some(hbn_version),
-        uplinks: UPLINKS.into_iter().map(String::from).collect(),
+        uplinks: hbn_device_names
+            .uplinks
+            .into_iter()
+            .map(String::from)
+            .collect(),
         dhcp_servers: nc.dhcp_servers.clone(),
         route_servers: nc.route_servers.clone(),
         ct_port_configs: networks,
@@ -322,6 +317,7 @@ pub async fn update_files(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     // Cleanup old NVUE files
     FPath(hbn_root.join(nvue::PATH_ACL)).cleanup();
@@ -333,7 +329,7 @@ pub async fn update_files(
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write_interfaces(&paths.interfaces, network_config) {
+    match write_interfaces(&paths.interfaces, network_config, hbn_device_names.clone()) {
         Ok(true) => {
             post_actions.push(PostAction {
                 path: paths.interfaces.clone(),
@@ -343,7 +339,7 @@ pub async fn update_files(
         Ok(false) => {}
         Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    match write_frr(&paths.frr, network_config) {
+    match write_frr(&paths.frr, network_config, hbn_device_names.clone()) {
         Ok(true) => {
             post_actions.push(PostAction {
                 path: paths.frr.clone(),
@@ -363,7 +359,7 @@ pub async fn update_files(
         Ok(false) => {}
         Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
-    match write_acl_rules(&paths.acl_rules, network_config) {
+    match write_acl_rules(&paths.acl_rules, network_config, hbn_device_names.clone()) {
         Ok(true) => {
             post_actions.push(PostAction {
                 path: paths.acl_rules,
@@ -437,33 +433,40 @@ fn get_interface_cmd(
     is_primary_dpu: bool,
     use_admin_network: bool,
     multidpu_enabled: bool,
-) -> &'static str {
+    hbn_device_names: HBNDeviceNames,
+) -> String {
     // Interface is always UP on primary DPU.
     if is_primary_dpu {
-        return "ifup pf0hpf_sf";
+        return format!("ifup {}", hbn_device_names.reps[0]);
     }
 
     // In case feature is not enabled, always disable the interface.
     if !multidpu_enabled {
-        return "ifdown pf0hpf_sf";
+        return format!("ifdown {}", hbn_device_names.reps[0]);
     }
 
-    // If secondary, feature is enabled and on tenant network, enable the interfcae.
+    // If secondary, feature is enabled and on tenant network, enable the interface.
     if !use_admin_network {
-        return "ifup pf0hpf_sf";
+        return format!("ifup {}", hbn_device_names.reps[0]);
     }
 
-    // If secondary, feature is enabled and on admin network, disable the interfcae.
-    "ifdown pf0hpf_sf"
+    // If secondary, feature is enabled and on admin network, disable the interface.
+    format!("ifdown {}", hbn_device_names.reps[0])
 }
 
 pub async fn update_interface_state(
     nc: &ManagedHostNetworkConfigResponse,
     skip_reload: bool,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
-    let cmd = get_interface_cmd(nc.is_primary_dpu, nc.use_admin_network, nc.multidpu_enabled);
+    let cmd = get_interface_cmd(
+        nc.is_primary_dpu,
+        nc.use_admin_network,
+        nc.multidpu_enabled,
+        hbn_device_names.clone(),
+    );
     if !skip_reload {
-        return match hbn::run_in_container_shell(cmd).await {
+        return match hbn::run_in_container_shell(&cmd).await {
             Ok(_) => {
                 tracing::trace!("{cmd} is executed successfully.");
                 Ok(true)
@@ -478,6 +481,7 @@ pub async fn update_interface_state(
     Ok(false)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_dhcp(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
@@ -487,6 +491,7 @@ pub async fn update_dhcp(
     ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
     nvt: VpcVirtualizationType,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
     let path_dhcp_relay_nvue = FPath(hbn_root.join(dhcp::RELAY_PATH_NVUE));
@@ -537,7 +542,12 @@ pub async fn update_dhcp(
     } else {
         // dhcp-relay managed by us
         let _ = fs::remove_file(path_dhcp_relay_nvue);
-        match write_dhcp_relay_config(&path_dhcp_relay, &paths_dhcp_server.server, network_config) {
+        match write_dhcp_relay_config(
+            &path_dhcp_relay,
+            &paths_dhcp_server.server,
+            network_config,
+            hbn_device_names,
+        ) {
             Ok(true) => PostAction {
                 path: path_dhcp_relay,
                 cmd: dhcp::RELOAD_CMD,
@@ -828,6 +838,7 @@ fn write_dhcp_relay_config(
     path: &FPath,
     dhcp_server_path: &FPath,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     // Stop dhcp server if running.
     match write(dhcp::blank(), dhcp_server_path, "DHCP server blank") {
@@ -851,7 +862,11 @@ fn write_dhcp_relay_config(
     };
     let next_contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
         dhcp_servers: dhcp_servers(nc),
-        uplinks: UPLINKS.into_iter().map(String::from).collect(),
+        uplinks: hbn_device_names
+            .uplinks
+            .into_iter()
+            .map(String::from)
+            .collect(),
         vlan_ids,
         remote_id: nc.remote_id.clone(),
     })?;
@@ -862,6 +877,7 @@ fn write_dhcp_relay_config(
 fn write_interfaces(
     path: &FPath,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -876,7 +892,7 @@ fn write_interfaces(
     };
     let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
 
-    let physical_name = DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf";
+    let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
         let admin_interface = nc
             .admin_interface
@@ -894,19 +910,15 @@ fn write_interfaces(
             let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 physical_name.clone()
             } else {
-                format!(
-                    "{}{}_sf",
-                    DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
-                    match net.virtual_function_id {
-                        Some(id) => id,
-                        None => {
-                            // This is for backward compatibility with the old
-                            // version of site controller which didn't send the ID
-                            // TODO: Remove this in the future and make it an error
-                            i.saturating_sub(1) as u32
-                        }
+                match net.virtual_function_id {
+                    Some(id) => hbn_device_names.build_virt(id),
+                    None => {
+                        // This is for backward compatibility with the old
+                        // version of site controller which didn't send the ID
+                        // TODO: Remove this in the future and make it an error
+                        hbn_device_names.build_virt(i.saturating_sub(1) as u32)
                     }
-                )
+                }
             };
             ifs.push(interfaces::Network {
                 interface_name: name,
@@ -919,7 +931,11 @@ fn write_interfaces(
     };
 
     let next_contents = interfaces::build(interfaces::InterfacesConfig {
-        uplinks: UPLINKS.into_iter().map(String::from).collect(),
+        uplinks: hbn_device_names
+            .uplinks
+            .into_iter()
+            .map(String::from)
+            .collect(),
         vni_device: nc.vni_device.clone(),
         loopback_ip,
         networks,
@@ -927,7 +943,11 @@ fn write_interfaces(
     write(next_contents, path, "/etc/network/interfaces")
 }
 
-fn write_frr(path: &FPath, nc: &rpc::ManagedHostNetworkConfigResponse) -> eyre::Result<bool> {
+fn write_frr(
+    path: &FPath,
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+    hbn_device_names: HBNDeviceNames,
+) -> eyre::Result<bool> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -965,7 +985,11 @@ fn write_frr(path: &FPath, nc: &rpc::ManagedHostNetworkConfigResponse) -> eyre::
 
     let next_contents = frr::build(frr::FrrConfig {
         asn: nc.asn,
-        uplinks: UPLINKS.into_iter().map(String::from).collect(),
+        uplinks: hbn_device_names
+            .uplinks
+            .into_iter()
+            .map(String::from)
+            .collect(),
         loopback_ip,
         access_vlans,
         vpc_vni: nc.vpc_vni,
@@ -983,8 +1007,10 @@ fn write_daemons(path: &FPath) -> eyre::Result<bool> {
 fn write_acl_rules(
     path: &FPath,
     dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
+    hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
-    let rules_by_interface = instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces);
+    let rules_by_interface =
+        instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces, hbn_device_names);
     // let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
     let config = acl_rules::AclConfig {
         interfaces: rules_by_interface,
@@ -998,20 +1024,20 @@ fn write_acl_rules(
 // tenant-facing interface.
 fn instance_interface_acls_by_name(
     intf_configs: &[FlatInterfaceConfig],
+    hbn_device_names: HBNDeviceNames,
 ) -> BTreeMap<String, acl_rules::InterfaceRules> {
     intf_configs
         .iter()
         .enumerate()
         .map(|(i, conf)| {
             let interface_name = match conf.function_type() {
-                ::rpc::InterfaceFunctionType::Physical => {
-                    format!("{}_sf", DPU_PHYSICAL_NETWORK_INTERFACE)
-                }
+                ::rpc::InterfaceFunctionType::Physical => hbn_device_names.reps[0].to_string(),
+
                 ::rpc::InterfaceFunctionType::Virtual => {
                     let vfid = conf
                         .virtual_function_id
                         .unwrap_or_else(|| (i as u32).saturating_sub(1));
-                    format!("{}{}_sf", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, vfid)
+                    hbn_device_names.build_virt(vfid)
                 }
             };
             let vpc_prefixes = conf
@@ -1332,7 +1358,7 @@ mod tests {
 
     use super::FPath;
     use crate::ethernet_virtualization::get_interface_cmd;
-    use crate::nvue;
+    use crate::{nvue, HBNDeviceNames};
     use forge_network::virtualization::{
         get_svi_ip, get_tenant_vrf_loopback_ip, VpcVirtualizationType,
     };
@@ -1369,7 +1395,7 @@ mod tests {
 
         // What we're testing
 
-        match super::write_dhcp_relay_config(&fp, &gp, &network_config) {
+        match super::write_dhcp_relay_config(&fp, &gp, &network_config, HBNDeviceNames::hbn_23()) {
             Err(err) => {
                 panic!("write_dhcp_relay_config error: {err}");
             }
@@ -1383,7 +1409,7 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&fp, expected)?;
 
-        match super::write_interfaces(&fp, &network_config) {
+        match super::write_interfaces(&fp, &network_config, HBNDeviceNames::hbn_23()) {
             Err(err) => {
                 panic!("write_interfaces error: {err}");
             }
@@ -1397,7 +1423,7 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&fp, expected)?;
 
-        match super::write_frr(&fp, &network_config) {
+        match super::write_frr(&fp, &network_config, HBNDeviceNames::hbn_23()) {
             Err(err) => {
                 panic!("write_frr error: {err}");
             }
@@ -1411,7 +1437,7 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_frr.conf");
         compare(&fp, expected)?;
 
-        match super::write_acl_rules(&fp, &network_config) {
+        match super::write_acl_rules(&fp, &network_config, HBNDeviceNames::hbn_23()) {
             Err(err) => {
                 panic!("write_acl_rules error: {err}");
             }
@@ -1438,8 +1464,14 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
-        let has_changes =
-            super::update_nvue(virtualization_type, hbn_root, &network_config, true).await?;
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
         assert!(
             has_changes,
             "update_nvue should have written the file, there should be changes"
@@ -1466,8 +1498,14 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
-        let has_changes =
-            super::update_nvue(virtualization_type, hbn_root, &network_config, true).await?;
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
         assert!(
             has_changes,
             "update_nvue should have written the file, there should be changes"
@@ -1666,7 +1704,7 @@ mod tests {
 
     #[test]
     fn test_parse_ip_show() -> Result<(), Box<dyn std::error::Error>> {
-        let json = r#"[{"ifindex":26,"ifname":"pf0vf0_sf_r","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","master":"ovs-system","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"4e:1f:bd:97:23:3e","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp3s0f0npf0sf131072"],"addr_info":[{"family":"inet6","local":"fe80::4c1f:bdff:fe97:233e","prefixlen":64,"scope":"link","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]"#;
+        let json = r#"[{"ifindex":26,"ifname":"pf0vf0_if_r","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","master":"ovs-system","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"4e:1f:bd:97:23:3e","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp3s0f0npf0sf131072"],"addr_info":[{"family":"inet6","local":"fe80::4c1f:bdff:fe97:233e","prefixlen":64,"scope":"link","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]"#;
         let out: Vec<super::IpShow> = serde_json::from_str(json)?;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].address, "4e:1f:bd:97:23:3e");
@@ -1686,7 +1724,7 @@ mod tests {
     fn test_nvue_is_yaml_inner(is_fnn: bool) -> Result<(), Box<dyn std::error::Error>> {
         let vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
         let networks = vec![nvue::PortConfig {
-            interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
+            interface_name: HBNDeviceNames::hbn_23().reps[0].to_string(),
             vlan: 123u16,
             vni: Some(5555),
             l3_vni: Some(7777),
@@ -1714,7 +1752,11 @@ mod tests {
             dpu_hostname: hostname.hostname,
             dpu_search_domain: hostname.search_domain,
             hbn_version: None,
-            uplinks: super::UPLINKS.into_iter().map(String::from).collect(),
+            uplinks: HBNDeviceNames::hbn_23()
+                .uplinks
+                .into_iter()
+                .map(String::from)
+                .collect(),
             dhcp_servers: vec!["10.217.5.197".to_string()],
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["10.217.4.128/26".to_string()],
@@ -2062,27 +2104,51 @@ mod tests {
     #[test]
     fn test_cmd_return_val() {
         // Primary dpu admin network multidpu enabled
-        assert_eq!(get_interface_cmd(true, true, true), "ifup pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(true, true, true, HBNDeviceNames::hbn_23()),
+            "ifup pf0hpf_if"
+        );
 
         // Primary dpu tenant network multidpu enabled
-        assert_eq!(get_interface_cmd(true, false, true), "ifup pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(true, false, true, HBNDeviceNames::hbn_23()),
+            "ifup pf0hpf_if"
+        );
 
         // Primary dpu admin network multidpu disabled
-        assert_eq!(get_interface_cmd(true, true, false), "ifup pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(true, true, false, HBNDeviceNames::hbn_23()),
+            "ifup pf0hpf_if"
+        );
 
         // Primary dpu tenant network multidpu disabled
-        assert_eq!(get_interface_cmd(true, false, false), "ifup pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(true, false, false, HBNDeviceNames::hbn_23()),
+            "ifup pf0hpf_if"
+        );
 
         // Secondary dpu admin network multidpu enabled
-        assert_eq!(get_interface_cmd(false, true, true), "ifdown pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(false, true, true, HBNDeviceNames::hbn_23()),
+            "ifdown pf0hpf_if"
+        );
 
         // Secondary dpu tenant network multidpu enabled
-        assert_eq!(get_interface_cmd(false, false, true), "ifup pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(false, false, true, HBNDeviceNames::hbn_23()),
+            "ifup pf0hpf_if"
+        );
 
         // Secondary dpu admin network multidpu disabled
-        assert_eq!(get_interface_cmd(false, true, false), "ifdown pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(false, true, false, HBNDeviceNames::hbn_23()),
+            "ifdown pf0hpf_if"
+        );
 
         // Secondary dpu tenant network multidpu disabled
-        assert_eq!(get_interface_cmd(false, false, false), "ifdown pf0hpf_sf");
+        assert_eq!(
+            get_interface_cmd(false, false, false, HBNDeviceNames::hbn_23()),
+            "ifdown pf0hpf_if"
+        );
     }
 }

@@ -17,15 +17,15 @@
           address:
             127.0.0.1/32: {}
         type: loopback
-      pf0dpu1_sf:
+      pf0dpu1_if:
         ip:
           address:
             169.254.169.253/30: {}
-      p0_sf:
+      p0_if:
         type: swp
-      p1_sf:
+      p1_if:
         type: swp
-      pf0hpf_sf:
+      pf0hpf_if:
         type: swp
         bridge:
           domain:
@@ -94,10 +94,10 @@
                 enable: on
             enable: on
             neighbor:
-              p0_sf:
+              p0_if:
                 peer-group: underlay
                 type: unnumbered
-              p1_sf:
+              p1_if:
                 peer-group: underlay
                 type: unnumbered
             path-selection:

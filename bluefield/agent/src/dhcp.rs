@@ -118,11 +118,16 @@ struct TmplDHCServerConfigParameters {
 #[cfg(test)]
 mod tests {
     use super::{build_relay_config, DhcpRelayConfig};
+    use crate::HBNDeviceNames;
 
     #[test]
     fn test_write_dhcp() -> Result<(), Box<dyn std::error::Error>> {
         let params = DhcpRelayConfig {
-            uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
+            uplinks: HBNDeviceNames::hbn_23()
+                .uplinks
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             vlan_ids: vec![177],
             dhcp_servers: vec![[10, 180, 248, 25].into()],
             remote_id: "test".to_string(),

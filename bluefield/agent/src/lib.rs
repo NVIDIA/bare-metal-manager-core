@@ -26,6 +26,7 @@ use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
 use utils::models::arch::CpuArchitecture;
+use version_compare::{Part, Version};
 
 use crate::frr::FrrVlanConfig;
 
@@ -58,8 +59,6 @@ mod sysfs;
 mod systemd;
 pub mod upgrade;
 pub mod util;
-
-const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
@@ -145,9 +144,18 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // succeed.
         // Same thing as above with respect to "minimum healthy links" -- we don't have it here so
         // it may fail when the real one would succeed for single-port setups.
+        // This also only works with the newest HBN as the ifc suffix is hard coded to the new version
         Some(AgentCommand::Health) => {
-            let health_report =
-                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, 2, &[]).await;
+            let health_report = health::health_check(
+                &agent.hbn.root_dir,
+                &[],
+                Instant::now(),
+                false,
+                2,
+                &[],
+                HBNDeviceNames::hbn_23(),
+            )
+            .await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
@@ -204,7 +212,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     .collect();
                 let contents = frr::build(frr::FrrConfig {
                     asn: opts.asn,
-                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
+                    uplinks: HBNDeviceNames::hbn_23()
+                        .uplinks
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,
                     vpc_vni: Some(opts.vpc_vni),
@@ -230,7 +242,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     networks.push(c);
                 }
                 let contents = interfaces::build(interfaces::InterfacesConfig {
-                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
+                    uplinks: HBNDeviceNames::hbn_23()
+                        .uplinks
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                     loopback_ip: opts.loopback_ip,
                     vni_device: opts.vni_device,
                     networks,
@@ -241,7 +257,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
             WriteTarget::Dhcp(opts) => {
                 let contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
-                    uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
+                    uplinks: HBNDeviceNames::hbn_23()
+                        .uplinks
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect(),
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
                     remote_id: opts.remote_id,
@@ -322,6 +342,59 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 struct Registration {
     machine_id: String,
     factory_mac_address: MacAddress,
+}
+
+#[derive(Clone)]
+struct HBNDeviceNames {
+    uplinks: [&'static str; 2],
+    reps: [&'static str; 2],
+    virt_rep_begin: &'static str,
+    sfs: [&'static str; 2],
+    sf_id: &'static str,
+}
+
+impl HBNDeviceNames {
+    pub fn pre_23() -> HBNDeviceNames {
+        HBNDeviceNames {
+            uplinks: ["p0_sf", "p1_sf"],
+            reps: ["pf0hpf_sf", "pf1hpf_sf"],
+            virt_rep_begin: "pf0vf",
+            sfs: ["pf0dpu0_sf", "pf0dpu2_sf"],
+            sf_id: "_sf",
+        }
+    }
+
+    pub fn hbn_23() -> HBNDeviceNames {
+        HBNDeviceNames {
+            uplinks: ["p0_if", "p1_if"],
+            reps: ["pf0hpf_if", "pf1hpf_if"],
+            virt_rep_begin: "pf0vf",
+            sfs: ["pf0dpu1", "pf0dpu3"],
+            sf_id: "_if",
+        }
+    }
+    pub fn new(hbn_version: Version) -> Self {
+        let min_version: Version = Version::from_parts(
+            "2.3.0-doca2.8.0",
+            vec![
+                Part::Number(2),
+                Part::Number(3),
+                Part::Number(0),
+                Part::Text("doca"),
+                Part::Number(2),
+                Part::Number(8),
+                Part::Number(0),
+            ],
+        );
+        if hbn_version < min_version {
+            HBNDeviceNames::pre_23()
+        } else {
+            HBNDeviceNames::hbn_23()
+        }
+    }
+    pub fn build_virt(&self, virt_rep_id: u32) -> String {
+        format!("{}{}{}", self.virt_rep_begin, virt_rep_id, self.sf_id)
+    }
 }
 
 /// Discover hardware, register DPU with carbide-api, and return machine id

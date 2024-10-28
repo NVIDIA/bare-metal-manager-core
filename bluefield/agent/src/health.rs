@@ -20,7 +20,7 @@ use std::{
 };
 use tokio::{process::Command as TokioCommand, time::timeout};
 
-use crate::hbn;
+use crate::{hbn, HBNDeviceNames};
 mod bgp;
 pub mod probe_ids;
 
@@ -113,6 +113,7 @@ pub async fn health_check(
     has_changed_configs: bool,
     min_healthy_links: u32,
     route_servers: &[String],
+    hbn_device_names: HBNDeviceNames,
 ) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
@@ -149,6 +150,7 @@ pub async fn health_check(
         host_routes,
         min_healthy_links,
         route_servers,
+        hbn_device_names,
     )
     .await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);

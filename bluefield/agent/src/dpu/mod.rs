@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
@@ -17,7 +16,7 @@ pub(crate) const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub struct DpuNetworkInterfaces {
-    pub desired: HashMap<String, Vec<IpNetwork>>,
+    pub desired: Vec<IpNetwork>,
 }
 
 #[derive(PartialOrd, PartialEq, Eq, Hash, Debug, Clone, Copy)]
@@ -38,10 +37,7 @@ impl Display for Action {
 impl DpuNetworkInterfaces {
     pub fn new(fmds_interface_config: &FmdsDpuNetworkingConfig) -> Self {
         DpuNetworkInterfaces {
-            desired: HashMap::from([(
-                fmds_interface_config.config.interface_name.clone(),
-                fmds_interface_config.config.addresses.clone(),
-            )]),
+            desired: fmds_interface_config.config.addresses.clone(),
         }
     }
 }

@@ -14,7 +14,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use super::{failed, make_alert, passed, probe_ids};
-use crate::hbn;
+use crate::{hbn, HBNDeviceNames};
 
 /// Check HBN BGP stats
 pub async fn check_bgp_stats(
@@ -23,6 +23,7 @@ pub async fn check_bgp_stats(
     host_routes: &[&str],
     min_healthy_links: u32,
     route_servers: &[String],
+    hbn_device_names: HBNDeviceNames,
 ) {
     // If BGP daemon is not enabled, we will get a bunch of bogus alerts shown
     // that are not helpful to anyone. Since showing `BgpDaemonEnabled` already
@@ -51,6 +52,7 @@ pub async fn check_bgp_stats(
             host_routes,
             min_healthy_links,
             route_servers,
+            hbn_device_names,
         ),
         Err(err) => {
             tracing::warn!("check_network_stats show bgp summary: {err}");
@@ -104,6 +106,7 @@ fn verify_bgp_summary(
     host_routes: &[&str],
     min_healthy_links: u32,
     route_servers: &[String],
+    hbn_device_names: HBNDeviceNames,
 ) {
     let networks: BgpNetworks = match serde_json::from_str(bgp_json) {
         Ok(networks) => networks,
@@ -121,6 +124,7 @@ fn verify_bgp_summary(
         health_data,
         host_routes,
         min_healthy_links,
+        hbn_device_names.clone(),
     );
     check_bgp_stats_l2_vpn_evpn(
         "l2_vpn_evpn",
@@ -128,15 +132,35 @@ fn verify_bgp_summary(
         health_data,
         route_servers,
         min_healthy_links,
+        hbn_device_names.clone(),
     );
 }
 
-fn check_bgp_tor_routes(s: &BgpStats, health_data: &mut BgpHealthData, min_healthy_links: u32) {
+fn check_bgp_tor_routes(
+    s: &BgpStats,
+    health_data: &mut BgpHealthData,
+    min_healthy_links: u32,
+    hbn_device_names: HBNDeviceNames,
+) {
     for port_id in 0..min_healthy_links {
-        let port_name = format!("p{port_id}_sf");
+        let mut message = None;
+        // The number of healthy links should never be above the total number of avail links
+        let Some(port_name) = hbn_device_names
+            .uplinks
+            .get(port_id as usize)
+            .map(|s| s.to_string())
+        else {
+            // This case should not happen, and will only happen if a configuration error at runtime is applied
+            // such as having 7 min_healthy_links but we only have 2 ports
+            health_data.other_errors.push(format!(
+                "The number of min healthy links: {min_healthy_links} \
+                was bigger than the number of uplinks defined by the hbn device names: {}",
+                hbn_device_names.uplinks.len()
+            ));
+            return;
+        };
 
         let session_data = s.peers.get(&port_name);
-        let mut message = None;
         match session_data {
             Some(session) => {
                 if session.state != "Established" {
@@ -165,8 +189,9 @@ fn check_bgp_stats_ipv4_unicast(
     health_data: &mut BgpHealthData,
     host_routes: &[&str],
     min_healthy_links: u32,
+    hbn_device_names: HBNDeviceNames,
 ) {
-    check_bgp_tor_routes(s, health_data, min_healthy_links);
+    check_bgp_tor_routes(s, health_data, min_healthy_links, hbn_device_names);
 
     // We ignore the BPG sessions pointing towards tenant Machines
     // Tenants can choose to use or not use them.
@@ -193,11 +218,12 @@ fn check_bgp_stats_l2_vpn_evpn(
     health_data: &mut BgpHealthData,
     route_servers: &[String],
     min_healthy_links: u32,
+    hbn_device_names: HBNDeviceNames,
 ) {
     // In case Route servers are not specified, the peer list should contain only
     // TORs. Otherwise we expect it to contain the route servers.
     if route_servers.is_empty() {
-        check_bgp_tor_routes(s, health_data, min_healthy_links);
+        check_bgp_tor_routes(s, health_data, min_healthy_links, hbn_device_names);
 
         for (peer_name, _peer) in s.other_peers() {
             health_data
@@ -313,11 +339,11 @@ struct BgpStats {
 
 impl BgpStats {
     /// Returns the list of peers that are mapped connected to TORs, as indicated
-    /// by session names like p0_sf
+    /// by session names like p0_sf or p0_if
     #[allow(dead_code)]
     pub fn tor_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
         lazy_static::lazy_static! {
-            static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_sf$").unwrap();
+            static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_[si]f$").unwrap();
         }
 
         self.peers
@@ -328,7 +354,7 @@ impl BgpStats {
     /// Returns the list of peers that are not connected to TORs
     pub fn other_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
         lazy_static::lazy_static! {
-            static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_sf$").unwrap();
+            static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_[si]f$").unwrap();
         }
 
         self.peers
@@ -376,6 +402,7 @@ mod tests {
             &[],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert!(hr.alerts.is_empty());
@@ -392,6 +419,7 @@ mod tests {
             &[],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert_eq!(hr.alerts.len(), 2);
@@ -402,8 +430,8 @@ mod tests {
             hr.alerts[0],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p0_sf".to_string()),
-                "Session p0_sf is not Established, but in state Idle".to_string(),
+                Some("p0_if".to_string()),
+                "Session p0_if is not Established, but in state Idle".to_string(),
                 true
             )
         );
@@ -411,8 +439,8 @@ mod tests {
             hr.alerts[1],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p1_sf".to_string()),
-                "Session p1_sf is not Established, but in state Idle".to_string(),
+                Some("p1_if".to_string()),
+                "Session p1_if is not Established, but in state Idle".to_string(),
                 true
             )
         );
@@ -430,6 +458,7 @@ mod tests {
             &[],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert_eq!(hr.alerts.len(), 1);
@@ -440,8 +469,8 @@ mod tests {
             hr.alerts[0],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p0_sf".to_string()),
-                "Session p0_sf is not Established, but in state Idle".to_string(),
+                Some("p0_if".to_string()),
+                "Session p0_if is not Established, but in state Idle".to_string(),
                 true
             )
         );
@@ -458,6 +487,7 @@ mod tests {
             &["10.217.4.78"],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert!(hr.alerts.is_empty());
@@ -474,6 +504,7 @@ mod tests {
             &[],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert_eq!(hr.alerts.len(), 1);
@@ -500,6 +531,7 @@ mod tests {
             &["10.217.19.211"],
             2,
             &[],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         hr.alerts.sort_by(|alert1, alert2| {
@@ -510,8 +542,8 @@ mod tests {
             hr.alerts[0],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p0_sf".to_string()),
-                "Expected session for p0_sf was not found in BGP peer data".to_string(),
+                Some("p0_if".to_string()),
+                "Expected session for p0_if was not found in BGP peer data".to_string(),
                 true
             )
         );
@@ -519,8 +551,8 @@ mod tests {
             hr.alerts[1],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p1_sf".to_string()),
-                "Expected session for p1_sf was not found in BGP peer data".to_string(),
+                Some("p1_if".to_string()),
+                "Expected session for p1_if was not found in BGP peer data".to_string(),
                 true
             )
         );
@@ -548,6 +580,7 @@ mod tests {
             &["10.217.19.211"],
             2,
             &["10.217.126.67".to_string()],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert!(hr.alerts.is_empty());
@@ -564,6 +597,7 @@ mod tests {
             &[],
             2,
             &["10.217.126.67".to_string()],
+            HBNDeviceNames::hbn_23(),
         );
         health_data.into_health_report(&mut hr);
         assert_eq!(hr.alerts.len(), 3);
@@ -583,8 +617,8 @@ mod tests {
             hr.alerts[1],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p0_sf".to_string()),
-                "Session p0_sf is not Established, but in state Idle".to_string(),
+                Some("p0_if".to_string()),
+                "Session p0_if is not Established, but in state Idle".to_string(),
                 true
             )
         );
@@ -592,8 +626,8 @@ mod tests {
             hr.alerts[2],
             make_alert(
                 probe_ids::BgpPeeringTor.clone(),
-                Some("p1_sf".to_string()),
-                "Session p1_sf is not Established, but in state Idle".to_string(),
+                Some("p1_if".to_string()),
+                "Session p1_if is not Established, but in state Idle".to_string(),
                 true
             )
         );

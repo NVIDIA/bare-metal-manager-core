@@ -6,16 +6,16 @@ iface lo inet loopback
     address 10.217.5.39/32
     vxlan-local-tunnelip 10.217.5.39
 
-auto p0_sf
-iface p0_sf
+auto p0_if
+iface p0_if
 
 
-auto p1_sf
-iface p1_sf
+auto p1_if
+iface p1_if
 
 
-auto pf0vf0_sf
-iface pf0vf0_sf
+auto pf0vf0_if
+iface pf0vf0_if
     bridge-access 196
 
 auto vlan196
@@ -25,8 +25,8 @@ iface vlan196
     vlan-id 196
 
 
-auto pf0hpf_sf
-iface pf0hpf_sf
+auto pf0hpf_if
+iface pf0hpf_if
     bridge-access 185
 
 auto vlan185
@@ -42,7 +42,7 @@ iface vxlan48
 
 auto br_default
 iface br_default
-    bridge-ports pf0vf0_sf pf0hpf_sf   vxlan48
+    bridge-ports pf0vf0_if pf0hpf_if   vxlan48
     bridge-vlan-aware yes
     bridge-vids  196   185
     bridge-pvid 1

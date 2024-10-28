@@ -12,8 +12,6 @@ use crate::dpu::link::IpLink;
 use crate::dpu::{Action, DpuNetworkInterfaces};
 use crate::pretty_cmd;
 
-// "Add", pf0dpu0_sf, Some(vec![IpNetwork]])
-// ip addr add 169.254.169.254/30 dev pf0dpu0_sf
 pub(crate) type DpuNetworkInterfacePlan = HashMap<Action, HashMap<String, Option<Vec<IpNetwork>>>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -100,45 +98,43 @@ impl Interface {
             })
             .collect::<Vec<_>>();
 
-        for (interface, mut proposed_addresses) in proposed.desired.into_iter() {
-            // for each desired interface and address
-            if let Some(iface) = IpLink::get_link_by_name(interface.as_str()).await? {
-                // if the interface exists
-                if let Some(ifname) = &iface.ifname {
-                    // get all addresses for the interface
-                    let addr = Interface::get_addresses_for_interface(ifname).await?;
-                    if !addr.is_empty() && !proposed_addresses.is_empty() {
-                        if let Some(common_networks) = Interface::find_common_addresses(
-                            &current_addresses,
-                            &proposed_addresses,
-                        ) {
-                            let network_clone = common_networks.clone();
-                            tracing::trace!(
-                                "Proposed addresses already present on interface {interface}: {:?}",
-                                common_networks
-                            );
-
-                            // If the proposed addresses are already present on the interface
-                            // remove them from the list
-                            // TODO - this is a bit of a hack, we shouldy probably change this logic to that of
-                            // the Route::plan
-                            proposed_addresses.retain(|x| !network_clone.contains(x));
-                        }
+        let mut proposed_addresses = proposed.desired.clone();
+        if let Some(iface) = IpLink::get_link_by_name(interface).await? {
+            // if the interface exists
+            if let Some(ifname) = &iface.ifname {
+                // get all addresses for the interface
+                let addr = Interface::get_addresses_for_interface(ifname).await?;
+                if !addr.is_empty() && !proposed_addresses.is_empty() {
+                    if let Some(common_networks) =
+                        Interface::find_common_addresses(&current_addresses, &proposed_addresses)
+                    {
+                        let network_clone = common_networks.clone();
                         tracing::trace!(
-                            "Proposed addresses needing to be added to {interface}: {:?}",
-                            proposed_addresses
+                            "Proposed addresses already present on interface {interface}: {:?}",
+                            common_networks
                         );
-                        let entry = interface_plan.entry(Action::Add).or_default();
-                        entry.insert(interface.clone(), Some(proposed_addresses.clone()));
+
+                        // If the proposed addresses are already present on the interface
+                        // remove them from the list
+                        // TODO - this is a bit of a hack, we shouldy probably change this logic to that of
+                        // the Route::plan
+                        proposed_addresses.retain(|x| !network_clone.contains(x));
                     }
+                    tracing::trace!(
+                        "Proposed addresses needing to be added to {interface}: {:?}",
+                        proposed_addresses
+                    );
+                    let entry = interface_plan.entry(Action::Add).or_default();
+                    entry.insert(interface.to_string(), Some(proposed_addresses.clone()));
                 }
-            } else {
-                tracing::error!(
-                    interface,
-                    "FMDS cannot add IP address to non-existent interface"
-                );
             }
+        } else {
+            tracing::error!(
+                interface,
+                "FMDS cannot add IP address to non-existent interface"
+            );
         }
+
         Ok(interface_plan)
     }
 
@@ -179,6 +175,7 @@ impl Interface {
             address.prefix(),
             interface
         );
+        // ip addr add 169.254.169.254/30 dev pf0dpu1_if
 
         let mut cmd = tokio::process::Command::new("bash");
         cmd.args(vec!["-c", &cmdargs]);
@@ -239,16 +236,17 @@ mod tests {
     use super::*;
     use crate::dpu::interface::IpInterface;
     use crate::dpu::DpuNetworkInterfaces;
+    use crate::HBNDeviceNames;
 
     struct TestInterfaceData {
         pub current: Vec<IpInterface>,
-        pub desired: HashMap<String, Vec<IpNetwork>>,
+        pub desired: Vec<IpNetwork>,
     }
     impl TestInterfaceData {
-        pub async fn new() -> Self {
+        pub async fn new(interface: &str) -> Self {
             Self {
-                current: Interface::current_addresses("pf0dpu0_sf").await.unwrap(),
-                desired: HashMap::new(),
+                current: Interface::current_addresses(interface).await.unwrap(),
+                desired: Vec::new(),
             }
         }
 
@@ -256,16 +254,14 @@ mod tests {
             let test_ip = IpNetwork::new(IpAddr::from([192, 168, 0, 5]), 30).unwrap();
             let test_ip2 = IpNetwork::new(IpAddr::from([192, 168, 0, 10]), 30).unwrap();
             let test_ip3 = IpNetwork::new(IpAddr::from([192, 168, 0, 1]), 30).unwrap();
-            let mut data = TestInterfaceData::new().await;
-            let test_plan = vec![("pf0dpu0_sf".to_string(), vec![test_ip, test_ip2, test_ip3])];
-            let test: HashMap<String, Vec<IpNetwork>> = test_plan.into_iter().collect();
-            data.desired = test;
+            let mut data = TestInterfaceData::new(HBNDeviceNames::hbn_23().sfs[0]).await;
+            data.desired = vec![test_ip, test_ip2, test_ip3];
             data
         }
 
-        async fn to_plan(&self) -> DpuNetworkInterfacePlan {
+        async fn to_plan(&self, interface: &str) -> DpuNetworkInterfacePlan {
             Interface::plan(
-                "pf0dpu0_sf",
+                interface,
                 DpuNetworkInterfaces {
                     desired: self.desired.clone(),
                 },
@@ -318,11 +314,15 @@ mod tests {
     #[tokio::test]
     async fn new_ip_addresses_are_add_action() {
         let data = TestInterfaceData::setup_test_data().await;
-        let plan = data.to_plan().await;
+        let plan = data.to_plan(HBNDeviceNames::hbn_23().sfs[0]).await;
 
         let add = plan.get(&Action::Add).unwrap();
 
-        let list_of_networks = add.get("pf0dpu0_sf").unwrap().clone().unwrap();
+        let list_of_networks = add
+            .get(HBNDeviceNames::hbn_23().sfs[0])
+            .unwrap()
+            .clone()
+            .unwrap();
 
         assert_eq!(
             list_of_networks,
@@ -335,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_addresses() {
-        let interface = Interface::get_addresses_for_interface("pf0dpu0_sf")
+        let interface = Interface::get_addresses_for_interface(HBNDeviceNames::hbn_23().sfs[0])
             .await
             .unwrap();
         tracing::trace!("Interface: {:?}", interface);
@@ -346,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_link() {
-        let link = IpLink::get_link_by_name("pf0dpu0_sf")
+        let link = IpLink::get_link_by_name(HBNDeviceNames::hbn_23().sfs[0])
             .await
             .unwrap()
             .unwrap();

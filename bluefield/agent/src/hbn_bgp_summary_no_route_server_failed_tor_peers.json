@@ -11,7 +11,7 @@
     "peerGroupMemory": 64,
     "peerMemory": 46768,
     "peers": {
-      "p0_sf": {
+      "p0_if": {
         "connectionsDropped": 0,
         "connectionsEstablished": 0,
         "idType": "interface",
@@ -27,7 +27,7 @@
         "tableVersion": 0,
         "version": 4
       },
-      "p1_sf": {
+      "p1_if": {
         "connectionsDropped": 0,
         "connectionsEstablished": 0,
         "idType": "interface",
@@ -64,7 +64,7 @@
     "peerGroupMemory": 64,
     "peerMemory": 46768,
     "peers": {
-      "p0_sf": {
+      "p0_if": {
         "connectionsDropped": 0,
         "connectionsEstablished": 0,
         "idType": "interface",
@@ -80,7 +80,7 @@
         "tableVersion": 0,
         "version": 4
       },
-      "p1_sf": {
+      "p1_if": {
         "connectionsDropped": 0,
         "connectionsEstablished": 0,
         "idType": "interface",

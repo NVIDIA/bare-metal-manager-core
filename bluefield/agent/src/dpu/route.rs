@@ -15,7 +15,6 @@ use crate::pretty_cmd;
 
 pub(crate) type DpuRoutePlan = HashMap<Action, Vec<IpRoute>>;
 
-// ip route add 169.254.169.252/30 dev pf0dpu0_sf src 169.254.169.254
 /// IpRoute is a representation of a route in the system when it is deserializes from the output of `ip -j route show`
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct IpRoute {
@@ -226,13 +225,15 @@ impl Route {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
+    use crate::HBNDeviceNames;
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_current_routes() {
-        let routes = Route::current_routes("pf0dpu0_sf").await.unwrap();
+        let routes = Route::current_routes(HBNDeviceNames::hbn_23().sfs[0])
+            .await
+            .unwrap();
         let match_route = IpNetwork::from_str("10.217.4.168/29").unwrap();
         assert_eq!(routes[0].dst, match_route);
     }
@@ -242,7 +243,7 @@ mod tests {
         //let current = Route::current_routes().await.unwrap();
         let new_proposed_route1 = IpRoute {
             dst: IpNetwork::from_str("192.168.100.0/24").unwrap(),
-            dev: Some("pf0dpu0_sf".to_string()),
+            dev: Some(HBNDeviceNames::hbn_23().sfs[0].to_string()),
             protocol: None,
             scope: Some("link".to_string()),
             gateway: None,
@@ -258,9 +259,12 @@ mod tests {
             prefsrc: Some(IpAddr::from([169, 254, 169, 254])),
             flags: vec![],
         };
-        let plan = Route::plan("pf0dpu0_sf", vec![new_proposed_route1, existing_route1])
-            .await
-            .unwrap();
+        let plan = Route::plan(
+            HBNDeviceNames::hbn_23().sfs[0],
+            vec![new_proposed_route1, existing_route1],
+        )
+        .await
+        .unwrap();
 
         let remove = plan.get(&Action::Remove);
         let add = plan.get(&Action::Add).unwrap();
@@ -281,9 +285,12 @@ mod tests {
             prefsrc: Some(IpAddr::from([169, 254, 169, 254])),
             flags: vec![],
         };
-        let plan = Route::plan("pf0dpu0_sf", vec![new_proposed_route1.clone()])
-            .await
-            .unwrap();
+        let plan = Route::plan(
+            HBNDeviceNames::hbn_23().sfs[0],
+            vec![new_proposed_route1.clone()],
+        )
+        .await
+        .unwrap();
         let remove = plan.get(&Action::Remove);
         let add = plan.get(&Action::Add);
 
@@ -294,7 +301,7 @@ mod tests {
     async fn test_full_plan() {
         let new_proposed_route1 = IpRoute {
             dst: IpNetwork::from_str("10.44.55.0/24").unwrap(),
-            dev: Some("pf0dpu0_sf".to_string()),
+            dev: Some(HBNDeviceNames::hbn_23().sfs[0].to_string()),
             protocol: None,
             scope: Some("link".to_string()),
             gateway: None,
@@ -323,7 +330,7 @@ mod tests {
         };
 
         let plan = Route::plan(
-            "pf0dpu0_sf",
+            HBNDeviceNames::hbn_23().sfs[0],
             vec![new_proposed_route1.clone(), new_proposed_route2.clone()],
         )
         .await

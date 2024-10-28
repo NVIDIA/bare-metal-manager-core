@@ -54,7 +54,8 @@ use crate::util::{get_host_boot_timestamp, UrlResolver};
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
-    sysfs, systemd, upgrade, RunOptions, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
+    nvue, sysfs, systemd, upgrade, HBNDeviceNames, RunOptions, FMDS_MINIMUM_HBN_VERSION,
+    NVUE_MINIMUM_HBN_VERSION,
 };
 
 // Main loop when running in daemon mode
@@ -267,6 +268,11 @@ pub async fn run(
         }
     };
 
+    // default to hbn 2.3 and above for the hbn device names. This will be properly set once the
+    // HBN runtime container is online. This is set here initially so once it is read it can be properly
+    // used in the event that hbn crashes and can no longer read the actual version of hbn
+    let mut hbn_device_names = HBNDeviceNames::hbn_23();
+
     loop {
         let loop_start = Instant::now();
 
@@ -339,30 +345,37 @@ pub async fn run(
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
                 if is_hbn_up {
+                    // First thing is to read the existing HBN version and properly set the hbn device names
+                    // associated with that version.
+                    let hbn_version = hbn::read_version().await?;
+                    let hbn_version = Version::from(hbn_version.as_str())
+                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
+                    // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
+                    // after doing an initial version check instead of assuming _sf
+                    hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
+                    // Now issue a one time per container runtime hack in the event the hack is needed for new DPU hardware
+                    if let Err(err) = nvue::hack_platform_config_for_nvue().await {
+                        tracing::error!(
+                            error = format!("{err:#}"),
+                            "Hacking the container platform config."
+                        );
+                    };
+
                     tracing::trace!("Desired network config is {conf:?}");
                     // Generate the fmds interface plan from the config. This does not apply the plan.
                     // The plan is applied when the NVUE template is written
                     let fmds_proposed_interfaces = &agent.fmds_armos_networking;
                     let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
-                    let fmds_interface_plan = Interface::plan(
-                        &fmds_proposed_interfaces.config.interface_name,
-                        network_plan,
-                    )
-                    .await?;
+
+                    let fmds_interface_plan =
+                        Interface::plan(hbn_device_names.sfs[0], network_plan).await?;
                     tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
 
                     // Generate the fmds route plan from conf.tenant_interfaces[n].address
                     // the plan is applied when the nvue template is written
-                    let route_plan = plan_fmds_armos_routing(
-                        &fmds_proposed_interfaces.config.interface_name,
-                        &proposed_routes,
-                    )
-                    .await?;
+                    let route_plan =
+                        plan_fmds_armos_routing(hbn_device_names.sfs[0], &proposed_routes).await?;
                     tracing::trace!("Route plan: {:?}", route_plan);
-
-                    let hbn_version = hbn::read_version().await?;
-                    let hbn_version = Version::from(hbn_version.as_str())
-                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
 
                     // Get the actual virtualization type to use for configuring
                     // an interface, where we'll default to reading the one provided
@@ -382,6 +395,7 @@ pub async fn run(
                         ntpservers.clone(),
                         nameservers.clone(),
                         virtualization_type,
+                        hbn_device_names.clone(),
                     )
                     .await;
 
@@ -391,6 +405,7 @@ pub async fn run(
                                 &agent.hbn.root_dir,
                                 &conf,
                                 agent.hbn.skip_reload,
+                                hbn_device_names.clone(),
                             )
                             .await
                         }
@@ -405,7 +420,7 @@ pub async fn run(
                                 // If there are routes, apply the route plan. This is where we
                                 // actually add and remove FMDS phone home routes.
                                 //
-                                // When a DPU has recently booted, there may not be a pf0dpu0_sf
+                                // When a DPU has recently booted, there may not be a pf0dpu1
                                 // interface configured yet, so routes may not be applied on the
                                 // first tick of the loop. Once the interface is configured, routes
                                 // can be added and removed.
@@ -422,6 +437,7 @@ pub async fn run(
                                 &agent.hbn.root_dir,
                                 &conf,
                                 agent.hbn.skip_reload,
+                                hbn_device_names.clone(),
                             )
                             .await
                         }
@@ -521,6 +537,7 @@ pub async fn run(
                     if let Err(err) = ethernet_virtualization::update_interface_state(
                         &conf,
                         agent.hbn.skip_reload,
+                        hbn_device_names.clone(),
                     )
                     .await
                     {
@@ -551,6 +568,7 @@ pub async fn run(
                     has_changed_configs,
                     conf.min_dpu_functioning_links.unwrap_or(2),
                     &conf.route_servers,
+                    hbn_device_names.clone(),
                 )
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
