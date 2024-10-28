@@ -12,7 +12,7 @@
   "peerGroupCount":1,
   "peerGroupMemory":64,
   "peers":{
-    "p0_sf":{
+    "p0_if":{
       "hostname":"RNO1-M04-D01-TOR-01",
       "remoteAs":64740,
       "version":4,
@@ -31,7 +31,7 @@
       "connectionsDropped":1,
       "idType":"interface"
     },
-    "p1_sf":{
+    "p1_if":{
       "hostname":"RNO1-M04-D01-TOR-02",
       "remoteAs":64740,
       "version":4,
@@ -72,7 +72,7 @@
   "peerGroupCount":1,
   "peerGroupMemory":64,
   "peers":{
-    "p0_sf":{
+    "p0_if":{
       "hostname":"RNO1-M04-D01-TOR-01",
       "remoteAs":64740,
       "version":4,
@@ -91,7 +91,7 @@
       "connectionsDropped":1,
       "idType":"interface"
     },
-    "p1_sf":{
+    "p1_if":{
       "hostname":"RNO1-M04-D01-TOR-02",
       "remoteAs":64740,
       "version":4,

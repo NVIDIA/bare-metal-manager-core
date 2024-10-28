@@ -170,7 +170,6 @@ pub struct HBNConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DpuNetworkingInterface {
-    pub interface_name: String,
     pub addresses: Vec<ipnetwork::IpNetwork>,
 }
 
@@ -183,7 +182,6 @@ impl Default for FmdsDpuNetworkingConfig {
     fn default() -> Self {
         Self {
             config: DpuNetworkingInterface {
-                interface_name: "pf0dpu0_sf".to_string(),
                 addresses: vec!["169.254.169.254/30".to_string().parse().unwrap()],
             },
         }
@@ -334,7 +332,6 @@ discovery-retries-max = 1000
 override-upgrade-cmd = "update"
 
 [fmds-armos-networking.config]
-interface_name = "pf0dpu0_sf"
 addresses = ["168.254.169.254/30"]
 "#;
 

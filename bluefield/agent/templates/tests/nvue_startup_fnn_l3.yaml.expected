@@ -22,15 +22,15 @@
           address:
             10.217.5.39/32: {}
         type: loopback
-      pf0dpu1_sf:
+      pf0dpu1_if:
         ip:
           address:
             169.254.169.253/30: {}
-      p0_sf:
+      p0_if:
         type: swp
-      p1_sf:
+      p1_if:
         type: swp
-      pf0vf0_sf:
+      pf0vf0_if:
         type: swp
         bridge:
           domain:
@@ -47,7 +47,7 @@
         ip:
           address:
             10.217.5.169/29: {}
-      pf0hpf_sf:
+      pf0hpf_if:
         type: swp
         bridge:
           domain:
@@ -122,8 +122,8 @@
           gateway-interface:
             lo: {}
           interface:
-            p0_sf: {}
-            p1_sf: {}
+            p0_if: {}
+            p1_if: {}
             vlan196: {}
             vlan185: {}
           server:
@@ -169,10 +169,10 @@
               172.43.0.2:
                 peer-group: routeserver
                 type: numbered
-              p0_sf:
+              p0_if:
                 peer-group: underlay
                 type: unnumbered
-              p1_sf:
+              p1_if:
                 peer-group: underlay
                 type: unnumbered
               10.217.5.170:

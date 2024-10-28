@@ -29,5 +29,4 @@ discovery-retries-max = 10080
 [updates]
 
 [fmds-armos-networking.config]
-interface_name = "pf0dpu0_sf"
 addresses = ["169.254.169.254/30"]

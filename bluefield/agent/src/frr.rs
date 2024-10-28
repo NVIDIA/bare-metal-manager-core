@@ -113,12 +113,17 @@ struct TmplFrrConfigParameters {
 #[cfg(test)]
 mod tests {
     use super::{build, FrrConfig};
+    use crate::HBNDeviceNames;
 
     #[test]
     fn test_write_frr() -> Result<(), Box<dyn std::error::Error>> {
         let params = FrrConfig {
             asn: 65535,
-            uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
+            uplinks: HBNDeviceNames::hbn_23()
+                .uplinks
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             loopback_ip: [192, 168, 0, 1].into(),
             access_vlans: vec![],
             vpc_vni: None,

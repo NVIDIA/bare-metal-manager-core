@@ -6,9 +6,9 @@ cat << \ZOF > /etc/bf.cfg
 WITH_NIC_FW_UPDATE=yes
 {% else %}
 WITH_NIC_FW_UPDATE=no
-ENABLE_SFC_HBN=yes
-NUM_VFs_PHYS_PORT0=16
-NUM_VFs_PHYS_PORT1=0
+ENABLE_BR_HBN=yes
+ENABLE_BR_SFC=yes
+
 {% endif %}
 
 # This function is called by install.sh script embedded in the BFB
@@ -133,21 +133,24 @@ write_files:
   - path: /var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules
     content: |
       [iptables]
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0hpf_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf0_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf1_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf2_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf3_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf4_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf5_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf6_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf7_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf8_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf9_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf10_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf11_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf12_sf -m comment --comment 'offload:0' -j DROP
-      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf13_sf -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0hpf_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf0_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf1_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf2_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf3_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf4_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf5_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf6_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf7_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf8_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf9_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf10_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf11_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf12_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf13_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf14_if -m comment --comment 'offload:0' -j DROP
+      -t filter -A FORWARD -p udp -d 255.255.255.255 --dport 67 -m physdev --physdev-in pf0vf15_if -m comment --comment 'offload:0' -j DROP
+
   - path: /etc/sysctl.d/98-hbn.conf
     permissions: '0644'
     content: |
@@ -157,20 +160,6 @@ write_files:
       vm.hugetlb_shm_group = 0
       vm.nr_hugepages=2048
       vm.min_free_kbytes=67584
-  - path: /etc/systemd/network/35-uplink.network
-    permissions: '0644'
-    content: |
-      [Match]
-      Name=p[0-1]
-      [Link]
-      MTUBytes=9216
-  - path: /etc/systemd/network/35-sf.network
-    permissions: '0644'
-    content: |
-      [Match]
-      Name=*_sf_r
-      [Link]
-      MTUBytes=9216  
 {% endif %}
   - path: /etc/forge/config.toml
     encoding: b64

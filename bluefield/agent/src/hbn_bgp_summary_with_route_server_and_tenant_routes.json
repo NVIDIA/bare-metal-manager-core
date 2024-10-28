@@ -33,7 +33,7 @@
                 "connectionsDropped": 32,
                 "idType": "ipv4"
             },
-            "p0_sf": {
+            "p0_if": {
                 "hostname": "PDX01-M01-H21-TOR-01",
                 "remoteAs": 4259906565,
                 "localAs": 4294967000,
@@ -54,7 +54,7 @@
                 "connectionsDropped": 0,
                 "idType": "interface"
             },
-            "p1_sf": {
+            "p1_if": {
                 "hostname": "PDX01-M01-H21-TOR-02",
                 "remoteAs": 4259906566,
                 "localAs": 4294967000,

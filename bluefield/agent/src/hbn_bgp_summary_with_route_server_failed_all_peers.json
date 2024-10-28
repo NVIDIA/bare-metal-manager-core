@@ -12,7 +12,7 @@
         "peerGroupCount": 2,
         "peerGroupMemory": 128,
         "peers": {
-            "p0_sf": {
+            "p0_if": {
                 "remoteAs": 0,
                 "version": 4,
                 "msgRcvd": 0,
@@ -28,7 +28,7 @@
                 "connectionsDropped": 0,
                 "idType": "interface"
             },
-            "p1_sf": {
+            "p1_if": {
                 "remoteAs": 0,
                 "version": 4,
                 "msgRcvd": 0,

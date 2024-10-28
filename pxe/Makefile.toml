@@ -14,17 +14,17 @@ REPO_ROOT = { script = [
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
-BFB_NAME = "bf-bundle-2.7.0-33_24.04_ubuntu-22.04_prod.bfb"
-BFB_UPSTREAM_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
+BFB_NAME = "bf-bundle-2.8.0-98_24.07_ubuntu-22.04_prod.bfb"
+BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/"
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
-DOCA_VERSION = "2.7.0"
-HBN_VERSION = "2.2.0"
-HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v1/zip"
+DOCA_VERSION = "2.8.0"
+HBN_VERSION = "2.3.0"
+HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v2/zip"
 IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
-DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.2.0-doca2.7.0"
-DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.17.0-doca2.7.0"
+DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
+DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.18.6-doca2.8.0"
 K8S_PAUSE_URI = "k8s.gcr.io/pause:3.9"
 DPU_AGENT_PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",

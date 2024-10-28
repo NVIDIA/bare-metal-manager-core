@@ -171,6 +171,35 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }
 }
 
+// Add a hack to completely overwrite the cl-platform check. New hardware has decided to change a
+// value in sys_vendor, and this causes the cl-platform script to fail and not detect the vendor
+// which causes nvued to fail as well.
+pub async fn hack_platform_config_for_nvue() -> eyre::Result<()> {
+    let container_id = super::hbn::get_hbn_container_id().await?;
+
+    let stdout = super::hbn::run_in_container(&container_id, &["platform-detect"], true).await?;
+
+    // the bug in new hardware causes the previous command to emit nothing, so if it is not emitting
+    // anything, assume the hack needs to be applied.
+    if stdout.is_empty() {
+        let stdout = super::hbn::run_in_container(
+            &container_id,
+            &[
+                "bash",
+                "-c",
+                "echo echo -n mlnx,bluefield > /usr/lib/cumulus/cl-platform", // yes, thats two echo on purpose
+            ],
+            true,
+        )
+        .await?;
+        if !stdout.is_empty() {
+            tracing::info!("config hack to replace platform: {stdout}");
+        }
+    }
+
+    Ok(())
+}
+
 // Apply the config at `config_path`.
 pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<()> {
     match run_apply(hbn_root, &config_path.0).await {

@@ -12,7 +12,7 @@
     "peerGroupCount": 2,
     "peerGroupMemory": 128,
     "peers": {
-      "p0_sf": {
+      "p0_if": {
         "hostname": "PDX01-M01-H15-TOR-01",
         "remoteAs": 4259906553,
         "version": 4,
@@ -31,7 +31,7 @@
         "connectionsDropped": 118,
         "idType": "interface"
       },
-      "p1_sf": {
+      "p1_if": {
         "hostname": "PDX01-M01-H15-TOR-02",
         "remoteAs": 4259906554,
         "version": 4,
@@ -87,7 +87,7 @@
     "peerGroupCount": 2,
     "peerGroupMemory": 128,
     "peers": {
-      "p0_sf": {
+      "p0_if": {
         "hostname": "PDX01-M01-H15-TOR-01",
         "remoteAs": 4259906553,
         "version": 4,
@@ -106,7 +106,7 @@
         "connectionsDropped": 118,
         "idType": "interface"
       },
-      "p1_sf": {
+      "p1_if": {
         "hostname": "PDX01-M01-H15-TOR-02",
         "remoteAs": 4259906554,
         "version": 4,
