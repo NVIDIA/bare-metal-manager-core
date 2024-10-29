@@ -395,6 +395,11 @@ async fn fetch_system(
                     if is_dpu {
                         return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
                             details: DPU_BIOS_ATTRIBUTES_MISSING.to_owned(),
+                            response_body: Some(
+                                serde_json::to_string(&bios)
+                                    .unwrap_or_else(|_| "Can not serialize map".to_string()),
+                            ),
+                            response_code: None,
                         });
                     }
 
@@ -404,9 +409,21 @@ async fn fetch_system(
         }
         Err(e) => {
             if is_dpu {
-                return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                    details: e.to_string(),
-                });
+                match e {
+                    RedfishError::HTTPErrorCode {
+                        url,
+                        status_code,
+                        response_body,
+                    } if status_code.is_server_error() => {
+                        let code_str = status_code.as_str();
+                        return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                            details: format!("Failed to retrieve bios attributes: HTTP {status_code} {code_str} at {url}"),
+                            response_body: Some(response_body),
+                            response_code: Some(status_code.as_u16()),
+                        });
+                    }
+                    _ => {}
+                }
             }
 
             return Err(map_redfish_error(e));
