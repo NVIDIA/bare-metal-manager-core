@@ -891,14 +891,8 @@ async fn initiate_update(
         .await
     {
         Ok(task) => task,
-        Err(RedfishError::HTTPErrorCode {
-            url,
-            status_code,
-            response_body,
-        }) if status_code == NOT_FOUND => {
-            tracing::warn!(
-                "Multipart URI {url} not found: {response_body}. Trying to use HttpPushUri"
-            );
+        Err(RedfishError::NotSupported(err)) => {
+            tracing::warn!("Multipart update is not supported: {err}. Trying to use HttpPushUri");
             let file = match File::open(to_install.get_filename().as_path()).await {
                 Ok(f) => f,
                 Err(e) => {
