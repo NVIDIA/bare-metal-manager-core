@@ -186,6 +186,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             machines[1].ip.parse().unwrap(),
             Err(EndpointExplorationError::Unauthorized {
                 details: "Not authorized".to_string(),
+                response_body: None,
+                response_code: None,
             }),
         ),
         (
@@ -597,6 +599,8 @@ async fn test_site_explorer_audit_exploration_results(
                 // but now something has gone wrong.
                 last_exploration_error: Some(EndpointExplorationError::Unauthorized {
                     details: "Not authorized".to_string(),
+                    response_body: None,
+                    response_code: None,
                 }),
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
@@ -973,6 +977,8 @@ async fn test_site_explorer_reexplore(
             machines[1].ip.parse().unwrap(),
             Err(EndpointExplorationError::Unauthorized {
                 details: "Not authorized".to_string(),
+                response_body: None,
+                response_code: None,
             }),
         ),
     ]);

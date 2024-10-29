@@ -360,7 +360,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 {
                     Ok(report) => Ok(report),
                     Err(e) => match e {
-                        EndpointExplorationError::Unauthorized { details: _ } => {
+                        EndpointExplorationError::Unauthorized { .. } => {
                             tracing::info!(
                                 %bmc_ip_address,
                                 "Site Explorer could not use site-wide credentials to login to this unknown BMC - this is expected if the BMC has never been seen before: {e}"

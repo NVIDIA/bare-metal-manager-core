@@ -337,6 +337,23 @@ form.filter-container div:nth-child(8) {
 					}
 					try {
 						let jsObj = JSON.parse(elem.innerText);
+
+						// In some well-known member fields on the highest level,
+						// the data stored in the field is also JSON.
+						// We expand that inner data
+						const deserializeField = (obj, field) => {
+							if (obj[field] != null) {
+								try {
+									obj[field] = JSON.parse(obj[field]);
+								} catch (e) {
+								}
+							}
+						};
+
+						const unpackFields = ["ResponseBody"];
+						for (unpackField of unpackFields) {
+							deserializeField(jsObj, unpackField);
+						}
 						elem.innerText = JSON.stringify(jsObj, null,4);
 					} catch (e) {
 					}
