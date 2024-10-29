@@ -60,7 +60,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
     let carbide_config = CarbideConfig {
         listen: addr,
         metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
-        otlp_endpoint: None,
         database_url: db_url,
         max_database_connections: 1000,
         asn: 65535,

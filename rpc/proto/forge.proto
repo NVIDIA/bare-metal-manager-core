@@ -545,7 +545,7 @@ message BuildInfo {
 message RuntimeConfig {
     string listen = 1;
     string metrics_endpoint = 2;
-    string otlp_endpoint = 3;
+    reserved 3; // Was: string otlp_endpoint
     string database_url = 4;
     bool enable_ip_fabric = 5;
     reserved 6; // deprecated rapid_iterations

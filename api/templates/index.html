@@ -49,17 +49,6 @@
 			{% endmatch %}</td>
 	</tr>
 	<tr>
-		<th>OTLP Endpoint</th>
-		<td>
-			{% match carbide_config.otlp_endpoint %}
-			{% when Some with (val) %}
-			{{ val }}
-			{% else %}
-			Not Configured
-			{% endmatch %}
-		</td>
-	</tr>
-	<tr>
 		<th>Database URL</th>
 		<td>{{ carbide_config.database_url }}</td>
 	</tr>

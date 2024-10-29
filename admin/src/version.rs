@@ -66,7 +66,6 @@ pub async fn handle_show_version(
         table.set_titles(row!["Property", "Value"]);
         r!(table, config, listen);
         r!(table, config, metrics_endpoint);
-        r!(table, config, otlp_endpoint);
         r!(table, config, database_url);
         r!(table, config, max_database_connections);
         r!(table, config, enable_route_servers);
