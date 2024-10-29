@@ -10,24 +10,24 @@
 		<h2 style="display: inline-block;">Add Override</h2>
 	</summary>
 	<p>
-		<i>
-		Fill out the form below and press the submit button to submit a health override.
-		The probe "id" and "message" fields need to be populated.
-		probe "target"s are optional.
-		The preset buttons below allow to pre-populate the textbox.
-		</i>
+		<b>Instructions:</b>
+		<i><ul>
+			<li>Fill out the form below and press the submit button to submit a health override.</li>
+			<li>The probe <b>id</b> and <b>message</b> fields need to be populated.</li>
+			<li>Probe <b>target</b>s are optional.</li>
+			<li>The preset buttons below allow to pre-populate the textbox for certain use-cases.</li>
+		</ul></i>
 	</p>
 	<p>
 		<b>Presets:</b>
 			<input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)">
 			<input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">
 			<input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">
+			<input type="submit" value="Replace: Mark machine as healthy" onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">
 	</p>
 	<textarea id="override" rows="20" style="width: 100%">
 	</textarea>
-	<br>
-	<p><input type="submit" id="submit_add" value="Submit Override"</p>
-	<br>
+	<p><input type="submit" id="submit_add" value="Submit Override"></p>
 </details>
 
 <h2>Active overrides:</h2>
@@ -123,7 +123,7 @@ const templateMergeSingleAlert = {
 	mode: "Merge",
 	health_report: {
 		source: "carbide-web",
-		successes: [{id: ""}],
+		successes: [],
 		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
 	}
 };
@@ -134,6 +134,15 @@ const templateReplaceSingleAlert = {
 		source: "carbide-web",
 		successes: [],
 		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
+	}
+};
+
+const templateReplaceAsHealthy = {
+	mode: "Replace",
+	health_report: {
+		source: "carbide-web",
+		successes: [],
+		alerts: []
 	}
 };
 
