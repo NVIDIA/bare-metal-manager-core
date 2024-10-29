@@ -9,10 +9,24 @@
 	<summary>
 		<h2 style="display: inline-block;">Add Override</h2>
 	</summary>
+	<p>
+		<i>
+		Fill out the form below and press the submit button to submit a health override.
+		The probe "id" and "message" fields need to be populated.
+		probe "target"s are optional.
+		The preset buttons below allow to pre-populate the textbox.
+		</i>
+	</p>
+	<p>
+		<b>Presets:</b>
+			<input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)">
+			<input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">
+			<input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">
+	</p>
 	<textarea id="override" rows="20" style="width: 100%">
 	</textarea>
 	<br>
-	<p><button type="submit" id="submit_add">Submit Override</button></p>
+	<p><input type="submit" id="submit_add" value="Submit Override"</p>
 	<br>
 </details>
 
@@ -30,7 +44,7 @@
 	<tr>
 		<td>{{ override.source }}</td>
 		<td>{{ override.mode }}</td>
-		<td><button type="button" id="remove-override-{{ override.source }}">Remove</button></td>
+		<td><input type="button" id="remove-override-{{ override.source }}" value="Remove"></td>
 	</tr>
 	{% endfor %}
 </tbody>
@@ -95,6 +109,34 @@
 {% endblock %}
 
 {% block script %}
+
+const templateHealthReport = {
+	mode: "Merge",
+	health_report: {
+		source: "carbide-web",
+		successes: [{id: "", target: null}],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: [""]}]
+	}
+};
+
+const templateMergeSingleAlert = {
+	mode: "Merge",
+	health_report: {
+		source: "carbide-web",
+		successes: [{id: ""}],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
+	}
+};
+
+const templateReplaceSingleAlert = {
+	mode: "Replace",
+	health_report: {
+		source: "carbide-web",
+		successes: [],
+		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations"]}]
+	}
+};
+
 function create_el(type, attributes) {
 	const el = document.createElement(type);
 	Object.assign(el, attributes);
@@ -126,9 +168,12 @@ function add_click_listener([id, path, body]) {
 	});
 }
 
+function setOverrideTextBoxToTemplate(template) {
+	document.getElementById("override").value = JSON.stringify(template, null, 2);
+}
+
 document.addEventListener("DOMContentLoaded", function (event) {
-	let report = {mode: "Merge", health_report: {source: "carbide-web", successes: [{id: ""}], alerts: [{id: "", message: "", classifications: [""]}]}};
-	document.getElementById("override").value = JSON.stringify(report, null, 2);
+	setOverrideTextBoxToTemplate(templateHealthReport);
 	for (const item of [
 		["submit_add", "/override/add", () => document.getElementById("override").value],
 	]) {
