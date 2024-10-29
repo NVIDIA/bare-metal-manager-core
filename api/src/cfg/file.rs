@@ -44,9 +44,6 @@ pub struct CarbideConfig {
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<SocketAddr>,
 
-    /// The DNS name and port of the opentelemetry collector
-    pub otlp_endpoint: Option<String>,
-
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
@@ -1230,10 +1227,6 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .metrics_endpoint
                 .map(|x| x.to_string())
                 .unwrap_or("NA".to_string()),
-            otlp_endpoint: value
-                .otlp_endpoint
-                .map(|x| x.to_string())
-                .unwrap_or("NA".to_string()),
             database_url: value.database_url,
             max_database_connections: value.max_database_connections,
             enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
@@ -1629,10 +1622,6 @@ mod tests {
         );
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(
-            config.otlp_endpoint,
-            Some("https://localhost:4317".to_string())
-        );
-        assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/path/to/cert"
         );
@@ -1767,10 +1756,6 @@ mod tests {
         assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
-        assert_eq!(
-            config.otlp_endpoint,
-            Some("https://localhost:4399".to_string())
-        );
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
@@ -1904,10 +1889,6 @@ mod tests {
                 .unwrap();
             assert_eq!(config.listen, "[::]:1081".parse().unwrap());
             assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
-            assert_eq!(
-                config.otlp_endpoint,
-                Some("https://localhost:4317".to_string())
-            );
             assert_eq!(config.database_url, "postgres://othersql".to_string());
             assert_eq!(config.asn, 777);
             assert_eq!(

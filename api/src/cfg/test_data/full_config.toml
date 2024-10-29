@@ -6,7 +6,6 @@ asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
 route_servers = ["9.10.11.12"]
 rapid_iterations = false
-otlp_endpoint = "https://localhost:4317"
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
 dpu_nic_firmware_intial_update_enabled = false
