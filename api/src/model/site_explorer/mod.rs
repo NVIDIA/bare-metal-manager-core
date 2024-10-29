@@ -768,11 +768,19 @@ pub enum EndpointExplorationError {
     /// A generic redfish error. No additional details are available
     #[error("Error while performing Redfish request: {details}")]
     #[serde(rename_all = "PascalCase")]
-    RedfishError { details: String },
-    /// The endpoint returned a 401 Unauthorized Status
+    RedfishError {
+        details: String,
+        response_body: Option<String>,
+        response_code: Option<u16>,
+    },
+    /// The endpoint returned a 401 Unauthorized or 403 Forbidden Status
     #[error("Unauthorized: {details}")]
     #[serde(rename_all = "PascalCase")]
-    Unauthorized { details: String },
+    Unauthorized {
+        details: String,
+        response_body: Option<String>,
+        response_code: Option<u16>,
+    },
     #[error("Missing credential {key}: {cause}")]
     MissingCredentials {
         #[serde(default)]
@@ -802,7 +810,7 @@ pub const DPU_BIOS_ATTRIBUTES_MISSING: &str = "DPU has an empty BIOS attributes"
 
 impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
-        matches!(self, EndpointExplorationError::Unauthorized { details: _ })
+        matches!(self, EndpointExplorationError::Unauthorized { .. })
             || matches!(self, EndpointExplorationError::AvoidLockout)
     }
 
@@ -1238,15 +1246,23 @@ mod tests {
         let report =
             EndpointExplorationReport::new_with_error(EndpointExplorationError::RedfishError {
                 details: "test".to_string(),
+                response_body: None,
+                response_code: None,
             });
 
         let serialized = serde_json::to_string(&report).unwrap();
         assert_eq!(
             serialized,
-            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"RedfishError","Details":"test"}}"#
+            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"RedfishError","Details":"test","ResponseBody":null,"ResponseCode":null}}"#
         );
         assert_eq!(
             serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
+            report
+        );
+
+        let serialized_nobody = r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"RedfishError","Details":"test"}}"#;
+        assert_eq!(
+            serde_json::from_str::<EndpointExplorationReport>(serialized_nobody).unwrap(),
             report
         );
     }

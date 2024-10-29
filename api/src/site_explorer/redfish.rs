@@ -831,11 +831,40 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
         RedfishError::HTTPErrorCode { status_code, .. } if *status_code == NOT_FOUND => {
             EndpointExplorationError::MissingRedfish
         }
-        error if error.is_unauthorized() => EndpointExplorationError::Unauthorized {
-            details: error.to_string(),
+        RedfishError::HTTPErrorCode {
+            status_code,
+            response_body,
+            url,
+        } if *status_code == http::StatusCode::UNAUTHORIZED
+            || *status_code == http::StatusCode::FORBIDDEN =>
+        {
+            let code_str = status_code.as_str();
+            EndpointExplorationError::Unauthorized {
+                details: format!("HTTP {status_code} {code_str} at {url}"),
+                response_body: Some(response_body.clone()),
+                response_code: Some(status_code.as_u16()),
+            }
+        }
+        RedfishError::HTTPErrorCode {
+            status_code,
+            response_body,
+            url,
+        } => EndpointExplorationError::RedfishError {
+            details: format!("HTTP {status_code} at {url}"),
+            response_body: Some(response_body.clone()),
+            response_code: Some(status_code.as_u16()),
         },
+        RedfishError::JsonDeserializeError { url, body, source } => {
+            EndpointExplorationError::RedfishError {
+                details: format!("Failed to deserialize data from {url}: {source}"),
+                response_body: Some(body.clone()),
+                response_code: None,
+            }
+        }
         _ => EndpointExplorationError::RedfishError {
             details: error.to_string(),
+            response_body: None,
+            response_code: None,
         },
     }
 }
