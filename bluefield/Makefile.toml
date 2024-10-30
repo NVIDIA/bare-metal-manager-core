@@ -129,13 +129,17 @@ script = '''
   OTEL=${REPO_ROOT}/bluefield/otel
   cd ${OTEL}
   VERSION=$(cat otelcol_version.txt)
-  sed -e "s/\${VERSION}/${VERSION}/g" otelcol_builder_config_yaml.txt > ocb_config.yaml
+  FILERESOURCE_VERSION=$(bash ${OTEL}/get_module_version.sh ${OTEL}/fileresourceprocessor)
+  TELEMETRYSTATS_VERSION=$(bash ${OTEL}/get_module_version.sh ${OTEL}/telemetrystatsprocessor)
+  sed -e "s/\${VERSION}/${VERSION}/g" \
+      -e "s/\${FILERESOURCE_VERSION}/$FILERESOURCE_VERSION/g" \
+      -e "s/\${TELEMETRYSTATS_VERSION}/$TELEMETRYSTATS_VERSION/g" \
+      otelcol_builder_config_yaml.txt > ocb_config.yaml
   export GOROOT="${OTEL}/go"
   export PATH="${GOROOT}/bin:${PATH}"
   export GOPATH="${GOROOT}/gopath"
   export GOCACHE="${GOROOT}/gocache"
   GOOS=linux GOARCH=arm64 ./ocb --config ocb_config.yaml
-  rm ocb_config.yaml
 '''
 dependencies = ["check-otelcol-builder", "download-go"]
 
@@ -169,6 +173,10 @@ condition = { files_modified = { input = [
   "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/config.go",
   "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/factory.go",
   "${REPO_ROOT}/bluefield/otel/fileresourceprocessor/fileresourceprocessor.go",
+  "${REPO_ROOT}/bluefield/otel/telemetrystatsprocessor/go.mod",
+  "${REPO_ROOT}/bluefield/otel/telemetrystatsprocessor/config.go",
+  "${REPO_ROOT}/bluefield/otel/telemetrystatsprocessor/factory.go",
+  "${REPO_ROOT}/bluefield/otel/telemetrystatsprocessor/telemetrystatsprocessor.go",
 ], output = [
   "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}/usr/bin/otelcol-contrib",
 ] } }

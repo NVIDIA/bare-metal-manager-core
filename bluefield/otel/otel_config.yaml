@@ -95,6 +95,14 @@ receivers:
               replacement: '$$1'
               action: replace
 
+  prometheus/log-stats:
+    config:
+      scrape_configs:
+        - job_name: log-stats
+          scrape_interval: 1m
+          static_configs:
+            - targets: ["127.0.0.1:8890"]
+
   hostmetrics:
     collection_interval: 10s
     initial_delay: 5s
@@ -145,10 +153,39 @@ processors:
   fileresource:
     file_path: /run/otelcol-contrib/machine-id
     poll_interval: 5s
+  telemetry_stats:
+    metric_scrape_interval: 1m
+    metric_groupings:
+      - name: metrics_by_component
+        by_metric_name: false
+        by_metric_type: false
+        by_label:
+          names:
+            - component
+    log_stats_port: 8890
+    log_groupings:
+      - name: logs_by_component
+        by_label:
+          names:
+            - component
+    labels:
+      - name: component
+        value: telemetry_stats
+    include_telemetry_stats: false
   memory_limiter:
     check_interval: 1s
     limit_percentage: 50
     spike_limit_percentage: 20
+  resource/hostmetrics:
+    attributes:
+      - key: component
+        value: hostmetrics
+        action: insert
+  resource/hostmetrics-disk:
+    attributes:
+      - key: component
+        value: hostmetrics-disk
+        action: insert
   resource/logs-journald:
     attributes:
       - key: component
@@ -158,6 +195,11 @@ processors:
     attributes:
       - key: component
         value: hbn
+        action: upsert
+  resource/log-stats:
+    attributes:
+      - key: component
+        value: telemetry_stats
         action: upsert
   resource/metrics-dts:
     attributes:
@@ -231,6 +273,7 @@ service:
         - fileresource
         - resource/logs-journald
         - transform/journald
+        - telemetry_stats
         - batch/logs
       exporters: [otlp/site]
     logs/hbn:
@@ -240,6 +283,7 @@ service:
         - resourcedetection
         - fileresource
         - resource/logs-hbn
+        - telemetry_stats
         - batch/logs
       exporters: [otlp/site]
     metrics/fmds:
@@ -248,6 +292,7 @@ service:
         - memory_limiter
         - resourcedetection
         - resource/metrics-fmds
+        - telemetry_stats
         - batch/metrics
       exporters: [otlp/site, prometheus]
     metrics/dts:
@@ -257,6 +302,7 @@ service:
         - resourcedetection
         - resource/metrics-dts
         - transform/metrics-dts
+        - telemetry_stats
         - batch/metrics
       exporters: [otlp/site, prometheus]
     metrics/hostmetrics:
@@ -264,6 +310,8 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/hostmetrics
+        - telemetry_stats
         - batch/metrics
       exporters: [otlp/site, prometheus]
     metrics/hostmetrics-disk:
@@ -271,7 +319,17 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/hostmetrics-disk
+        - telemetry_stats
         - batch/metrics-disk
+      exporters: [otlp/site, prometheus]
+    metrics/log-stats:
+      receivers: [prometheus/log-stats]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource/log-stats
+        - batch/metrics
       exporters: [otlp/site, prometheus]
   extensions: [file_storage/cursors]
   # Internal otel collector metrics by default are exposed on port 8888,
