@@ -43,6 +43,7 @@
 			<th>Serial Numbers</th>
 			<th>Power State</th>
 			<th>Preingestion State</th>
+			<th data-sortable-type="numeric">Exploration Latency</th>
 			<th>Last Exploration Error</th>
 		</tr>
 	</thead>
@@ -57,6 +58,12 @@
 			<td>{{ ep.serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.power_states|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.preingestion_state }}</td>
+			{% match ep.last_exploration_latency %}
+			{% when Some with (latency) %}
+			<td data-value="{{ latency }}">{{ latency }}s</td>
+			{% else %}
+			<td data-value="0"></td>
+			{% endmatch %}
 			<td>
 				{% if ep.has_exploration_error %}
 				<table align="left">
@@ -76,6 +83,7 @@
 	<tfoot>
 		<tr>
 			<th>{{ endpoints.len() }} item{% if endpoints.len() != 1 %}s{% endif %}</th>
+			<th></th>
 			<th></th>
 			<th></th>
 			<th></th>

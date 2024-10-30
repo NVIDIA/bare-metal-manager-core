@@ -195,6 +195,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             Ok(EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
+                last_exploration_latency: None,
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 managers: Vec::new(),
@@ -602,6 +603,7 @@ async fn test_site_explorer_audit_exploration_results(
                     response_body: None,
                     response_code: None,
                 }),
+                last_exploration_latency: None,
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 model: None,
@@ -622,6 +624,7 @@ async fn test_site_explorer_audit_exploration_results(
                     key: "some_cred".to_string(),
                     cause: "it's not there!".to_string(),
                 }),
+                last_exploration_latency: None,
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 model: None,
@@ -637,6 +640,7 @@ async fn test_site_explorer_audit_exploration_results(
             EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
+                last_exploration_latency: None,
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 model: None,
@@ -656,6 +660,7 @@ async fn test_site_explorer_audit_exploration_results(
             EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
+                last_exploration_latency: None,
                 vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 model: None,

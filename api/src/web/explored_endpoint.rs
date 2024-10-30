@@ -129,6 +129,7 @@ struct ExploredManagedHostDisplay {
 struct ExploredEndpointDisplay {
     address: String,
     endpoint_type: String,
+    last_exploration_latency: Option<i64>,
     last_exploration_error: String,
     has_exploration_error: bool,
     vendor: String,
@@ -150,6 +151,9 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
                 .unwrap_or_default(),
+            last_exploration_latency: report_ref
+                .and_then(|report| report.last_exploration_latency.as_ref())
+                .map(|latency| latency.seconds),
             has_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.as_ref())
                 .is_some(),

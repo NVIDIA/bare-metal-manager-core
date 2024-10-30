@@ -257,6 +257,7 @@ impl RedfishClient {
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
+            last_exploration_latency: None,
             machine_id: None,
             managers: vec![manager],
             systems: vec![system],

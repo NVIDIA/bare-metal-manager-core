@@ -24,6 +24,10 @@
 			{% endif %}
 		</td>
 	</tr>
+	<tr>
+		<th>Last Exploration Latency</th>
+		<td>{% match report.last_exploration_latency %}{% when Some with (latency) %}{{ latency.seconds }}s{% else %}{% endmatch %}</td>
+	</tr>
 	{% else %}
 	{% endmatch %}
 	<tr><th>Preingestion State</th><td>{{ endpoint.preingestion_state }}</td></tr>
