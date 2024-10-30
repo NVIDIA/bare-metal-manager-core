@@ -7,8 +7,9 @@ use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::auth::forge_spiffe::ForgeSpiffeContext;
-use crate::auth::{AuthContext, Authorizer, Predicate, Principal};
-
+use crate::auth::{
+    internal_rbac_rules::InternalRBACRules, AuthContext, CasbinAuthorizer, Predicate, Principal,
+};
 // A middleware layer to deal with per-request authentication.
 // This might mean extracting a service identifier from a SPIFFE x509
 // certificate (in which case most of the heavy lifting has already been done by
@@ -19,22 +20,22 @@ use crate::auth::{AuthContext, Authorizer, Predicate, Principal};
 // that an access control policy might need to do its work should be passed
 // along in the request extensions.
 #[derive(Clone, Default)]
-pub struct AuthenticationMiddleware {
+pub struct CertDescriptionMiddleware {
     spiffe_context: Arc<ForgeSpiffeContext>,
 }
 
-impl AuthenticationMiddleware {
+impl CertDescriptionMiddleware {
     pub fn new(spiffe_context: Arc<ForgeSpiffeContext>) -> Self {
-        AuthenticationMiddleware { spiffe_context }
+        CertDescriptionMiddleware { spiffe_context }
     }
 }
 
-impl<S> Layer<S> for AuthenticationMiddleware {
-    type Service = AuthenticationService<S>;
+impl<S> Layer<S> for CertDescriptionMiddleware {
+    type Service = CertDescriptionService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         let spiffe_context = self.spiffe_context.clone();
-        AuthenticationService {
+        CertDescriptionService {
             inner,
             spiffe_context,
         }
@@ -42,12 +43,12 @@ impl<S> Layer<S> for AuthenticationMiddleware {
 }
 
 #[derive(Clone)]
-pub struct AuthenticationService<S> {
+pub struct CertDescriptionService<S> {
     inner: S,
     spiffe_context: Arc<ForgeSpiffeContext>,
 }
 
-impl<S, B> Service<Request<B>> for AuthenticationService<S>
+impl<S, B> Service<Request<B>> for CertDescriptionService<S>
 where
     B: tonic::codegen::Body,
     S: Service<Request<B>>,
@@ -106,17 +107,17 @@ where
 // tell from the implementation in the code, we are free to do it however we
 // like without violating any contracts.
 #[derive(Clone)]
-pub struct AuthzHandler {
-    authorizer: Arc<Authorizer>,
+pub struct CasbinHandler {
+    authorizer: Arc<CasbinAuthorizer>,
 }
 
-impl AuthzHandler {
-    pub fn new(authorizer: Arc<Authorizer>) -> Self {
-        AuthzHandler { authorizer }
+impl CasbinHandler {
+    pub fn new(authorizer: Arc<CasbinAuthorizer>) -> Self {
+        CasbinHandler { authorizer }
     }
 }
 
-impl<B> AsyncAuthorizeRequest<B> for AuthzHandler
+impl<B> AsyncAuthorizeRequest<B> for CasbinHandler
 where
     B: Send + Sync + 'static,
 {
@@ -136,7 +137,7 @@ where
                         .get_mut::<AuthContext>()
                         .ok_or_else(|| {
                             tracing::warn!(
-                                "AuthzHandler::authorize() found a request with \
+                                "CasbinHandler::authorize() found a request with \
                                 no AuthContext in its extensions. This may mean \
                                 the authentication middleware didn't run \
                                 successfully, or the middleware layers are \
@@ -231,4 +232,80 @@ fn empty_response_with_status(status: StatusCode) -> Response<BoxBody> {
         .status(status)
         .body(BoxBody::default())
         .unwrap()
+}
+
+#[derive(Clone)]
+pub struct InternalRBACHandler {}
+
+impl InternalRBACHandler {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+impl Default for InternalRBACHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<B> AsyncAuthorizeRequest<B> for InternalRBACHandler
+where
+    B: Send + Sync + 'static,
+{
+    type RequestBody = B;
+    type ResponseBody = BoxBody;
+    type Future = BoxFuture<'static, Result<Request<B>, Response<Self::ResponseBody>>>;
+
+    fn authorize(&mut self, mut request: Request<B>) -> Self::Future {
+        Box::pin(async move {
+            let request_permitted = match RequestClass::from(&request) {
+                // Forge-owned endpoints must go through access control.
+                RequestClass::ForgeMethod(method_name) => {
+                    let extensions = request.extensions_mut();
+                    let req_auth_context = extensions.get::<AuthContext>().ok_or_else(|| {
+                        tracing::warn!(
+                            "InternalRBACHandler::authorize() found a request with \
+                                no AuthContext in its extensions. This may mean \
+                                the authentication middleware didn't run \
+                                successfully, or the middleware layers are \
+                                nested in the wrong order."
+                        );
+                        empty_response_with_status(StatusCode::INTERNAL_SERVER_ERROR)
+                    })?;
+                    let principals = &req_auth_context.principals;
+
+                    let allowed = InternalRBACRules::allowed_from_static(&method_name, principals);
+
+                    if !allowed {
+                        let client_address = if let Some(conn_attrs) =
+                            extensions.get::<Arc<crate::listener::ConnectionAttributes>>()
+                        {
+                            conn_attrs.peer_address().to_string()
+                        } else {
+                            "<Unable to determine client address>".to_string()
+                        };
+                        tracing::error!(
+                            "Request would have been denied: {client_address} {method_name} {principals:?}",
+                        );
+                    }
+
+                    // For now, we only log that we would have denied the request.  Actual enforcement will come later.
+                    // allowed
+                    true
+                }
+
+                _ => {
+                    // We don't do anything for other types.
+                    true
+                }
+            };
+
+            match request_permitted {
+                true => Ok(request),
+                false => Err(Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(BoxBody::default())
+                    .unwrap()),
+            }
+        })
+    }
 }

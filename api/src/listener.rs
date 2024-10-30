@@ -28,7 +28,7 @@ use tokio_rustls::{
 use tonic_reflection::server::Builder;
 use tower_http::{add_extension::AddExtensionLayer, auth::AsyncRequireAuthorizationLayer};
 
-use crate::{api::Api, auth, logging::api_logs::LogLayer};
+use crate::{api::Api, auth, cfg::AuthConfig, logging::api_logs::LogLayer};
 
 pub struct ApiTlsConfig {
     pub identity_pemfile_path: String,
@@ -149,7 +149,7 @@ pub async fn listen_and_serve(
     api_service: Arc<Api>,
     tls_config: ApiTlsConfig,
     listen_port: SocketAddr,
-    authorizer: auth::Authorizer,
+    auth_config: &Option<AuthConfig>,
     meter: Meter,
     mut stop_channel: Receiver<()>,
     ready_channel: Sender<()>,
@@ -170,13 +170,22 @@ pub async fn listen_and_serve(
     let mut http = Http::new();
     http.http2_only(true);
 
-    let authn_layer = auth::middleware::AuthenticationMiddleware::default();
-    let authz_layer = {
-        // TODO: move the initialization of the Authorizer here instead
-        let authorizer = Arc::new(authorizer);
-        let authz_handler = auth::middleware::AuthzHandler::new(authorizer);
-        AsyncRequireAuthorizationLayer::new(authz_handler)
+    let cert_description_layer = auth::middleware::CertDescriptionMiddleware::default();
+    let casbin_layer = if let Some(auth_config) = auth_config {
+        let casbin_authorizer = Arc::new(
+            auth::CasbinAuthorizer::build_casbin(
+                &auth_config.casbin_policy_file,
+                auth_config.permissive_mode,
+            )
+            .await?,
+        );
+        let middleware = auth::middleware::CasbinHandler::new(casbin_authorizer);
+        Some(AsyncRequireAuthorizationLayer::new(middleware))
+    } else {
+        None
     };
+    let internal_rbac_layer =
+        AsyncRequireAuthorizationLayer::new(auth::middleware::InternalRBACHandler::new());
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
@@ -192,8 +201,9 @@ pub async fn listen_and_serve(
 
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))
-        .layer(authn_layer)
-        .layer(authz_layer)
+        .layer(cert_description_layer)
+        .layer(internal_rbac_layer)
+        .option_layer(casbin_layer)
         .service(router.clone());
 
     let connection_total_counter = meter

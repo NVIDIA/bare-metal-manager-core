@@ -34,7 +34,7 @@ use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 
 use crate::{
     api::Api,
-    attestation, auth,
+    attestation,
     cfg::CarbideConfig,
     db::DatabaseError,
     db_init, ethernet_virtualization,
@@ -277,20 +277,6 @@ pub async fn start_api(
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
-    let authorizer = auth::Authorizer::build_casbin(
-        &carbide_config
-            .auth
-            .as_ref()
-            .expect("Missing auth config")
-            .casbin_policy_file,
-        carbide_config
-            .auth
-            .as_ref()
-            .expect("Missing auth config")
-            .permissive_mode,
-    )
-    .await?;
-
     let route_servers = db_init::create_initial_route_servers(&db_pool, &carbide_config).await?;
 
     let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
@@ -485,7 +471,7 @@ pub async fn start_api(
         api_service,
         tls_config,
         listen_addr,
-        authorizer,
+        &carbide_config.auth,
         meter,
         stop_channel,
         ready_channel,
