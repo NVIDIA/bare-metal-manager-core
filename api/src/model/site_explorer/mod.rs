@@ -42,6 +42,9 @@ pub struct EndpointExplorationReport {
     pub endpoint_type: EndpointType,
     /// If the endpoint could not be explored, this contains the last error
     pub last_exploration_error: Option<EndpointExplorationError>,
+    /// The time it took to explore the endpoint in the last site explorer run
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_exploration_latency: Option<std::time::Duration>,
     /// Vendor as reported by Redfish
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor: Option<bmc_vendor::BMCVendor>,
@@ -131,6 +134,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             last_exploration_error: report.last_exploration_error.map(|error| {
                 serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
             }),
+            last_exploration_latency: report.last_exploration_latency.map(Into::into),
             machine_id: report.machine_id.map(|id| id.to_string()),
             vendor: report.vendor.map(|v| v.to_string()),
             managers: report.managers.into_iter().map(Into::into).collect(),
@@ -577,6 +581,7 @@ impl EndpointExplorationReport {
         Self {
             endpoint_type: EndpointType::Unknown,
             last_exploration_error: Some(e),
+            last_exploration_latency: None,
             managers: Vec::new(),
             systems: Vec::new(),
             chassis: Vec::new(),
@@ -1247,7 +1252,7 @@ mod tests {
             report
         );
 
-        let report =
+        let mut report =
             EndpointExplorationReport::new_with_error(EndpointExplorationError::RedfishError {
                 details: "test".to_string(),
                 response_body: None,
@@ -1267,6 +1272,17 @@ mod tests {
         let serialized_nobody = r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"RedfishError","Details":"test"}}"#;
         assert_eq!(
             serde_json::from_str::<EndpointExplorationReport>(serialized_nobody).unwrap(),
+            report
+        );
+
+        report.last_exploration_latency = Some(std::time::Duration::from_millis(1111));
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"EndpointType":"Unknown","LastExplorationError":{"Type":"RedfishError","Details":"test","ResponseBody":null,"ResponseCode":null},"LastExplorationLatency":{"secs":1,"nanos":111000000}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
             report
         );
     }
@@ -1322,6 +1338,7 @@ mod tests {
         let report = EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
+            last_exploration_latency: None,
             vendor: Some(bmc_vendor::BMCVendor::Nvidia),
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
@@ -1375,6 +1392,7 @@ mod tests {
         let mut report = EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
+            last_exploration_latency: None,
             vendor: Some(bmc_vendor::BMCVendor::Nvidia),
             managers: vec![Manager {
                 ethernet_interfaces: vec![],

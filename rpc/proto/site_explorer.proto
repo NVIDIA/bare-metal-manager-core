@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/duration.proto";
+
 package site_explorer;
 
 // Data that we gathered about a particular endpoint during site exploration
@@ -12,6 +14,8 @@ message EndpointExplorationReport {
     // If the endpoint is a BMC that belongs to a Machine and enough data is
     // available to calculate the `MachineId`, this field contains the `MachineId`
     optional string machine_id = 3;
+    /// The time it took to explore the endpoint in the last site explorer run
+    optional google.protobuf.Duration last_exploration_latency = 4;
 
     // Redfish data starts here:
 

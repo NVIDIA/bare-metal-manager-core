@@ -273,11 +273,21 @@ impl serde::Serialize for Duration {
     where
         S: serde::Serializer,
     {
-        // We serialize the timestamp as std::time::Duration string
+        // We serialize the duration as std::time::Duration
         match std::time::Duration::try_from(self.clone()) {
             Ok(duration) => duration.serialize(s),
             Err(_) => std::time::Duration::ZERO.serialize(s),
         }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Duration {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let duration: std::time::Duration = serde::Deserialize::deserialize(deserializer)?;
+        Ok(Self::from(duration))
     }
 }
 

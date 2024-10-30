@@ -292,6 +292,7 @@ fn build_exploration_report(
         endpoint_type: EndpointType::Bmc,
         vendor: Some(bmc_vendor::BMCVendor::Dell),
         last_exploration_error: None,
+        last_exploration_latency: None,
         managers: vec![],
         systems: vec![ComputerSystem {
             model: Some(model.to_string()),
@@ -368,6 +369,7 @@ fn build_dpu_exploration_report(
         endpoint_type: EndpointType::Bmc,
         vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         last_exploration_error: None,
+        last_exploration_latency: None,
         managers: vec![],
         systems: vec![],
         chassis: vec![Chassis {

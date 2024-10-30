@@ -214,6 +214,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
         Self {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
+            last_exploration_latency: None,
             vendor: Some(bmc_vendor::BMCVendor::Dell),
             managers: vec![Manager {
                 id: "iDRAC.Embedded.1".to_string(),

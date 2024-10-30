@@ -1079,7 +1079,8 @@ impl SiteExplorer {
             match endpoint.old_report {
                 Some((old_version, mut old_report)) => {
                     match result {
-                        Ok(report) => {
+                        Ok(mut report) => {
+                            report.last_exploration_latency = Some(exploration_duration);
                             if old_report.endpoint_type == EndpointType::Unknown {
                                 tracing::info!(
                                     address = %address,
@@ -1099,6 +1100,7 @@ impl SiteExplorer {
                             // If an endpoint can not be explored we don't delete the known information, since it's
                             // still helpful. The failure might just be intermittent.
                             old_report.last_exploration_error = Some(e);
+                            old_report.last_exploration_latency = Some(exploration_duration);
                             let _updated = DbExploredEndpoint::try_update(
                                 address,
                                 old_version,
@@ -1111,7 +1113,8 @@ impl SiteExplorer {
                 }
                 None => {
                     match result {
-                        Ok(report) => {
+                        Ok(mut report) => {
+                            report.last_exploration_latency = Some(exploration_duration);
                             tracing::info!(
                                 address = %address,
                                 exploration_report = ?report,
@@ -1122,7 +1125,8 @@ impl SiteExplorer {
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
-                            let report = EndpointExplorationReport::new_with_error(e);
+                            let mut report = EndpointExplorationReport::new_with_error(e);
+                            report.last_exploration_latency = Some(exploration_duration);
                             DbExploredEndpoint::insert(address, &report, &mut txn).await?;
                         }
                     }
