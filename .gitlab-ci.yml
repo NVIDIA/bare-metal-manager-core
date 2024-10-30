@@ -1316,6 +1316,8 @@ dev-env-test:
         - 'skaffold.yml'
       when: manual
       allow_failure: true  # To prevent blocking merge
+  retry:
+    when: runner_system_failure
   needs:
     - job: export-docker-json-config
   variables:
