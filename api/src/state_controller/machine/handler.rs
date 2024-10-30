@@ -2780,12 +2780,10 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                dpu_redfish_client.enable_rshim_bmc().await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "enable_rshim_bmc",
-                        error: e,
-                    }
-                })?;
+                let _ = dpu_redfish_client
+                    .enable_rshim_bmc()
+                    .await
+                    .map_err(|e| tracing::info!("failed to enable rshim on DPU {e}"));
 
                 let next_state = DpuDiscoveringState::DisableSecureBoot {
                     count: 0,
