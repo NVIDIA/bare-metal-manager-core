@@ -105,13 +105,12 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         Ok(connection
             .discover_machine(request)
             .await
-            .map_err(|err| {
+            .inspect_err(|err| {
                 tracing::error!(
                     "Error attempting to discover_machine (attempt: {}): {}",
                     attempt,
                     err.to_string()
                 );
-                err
             })?
             .into_inner())
     }

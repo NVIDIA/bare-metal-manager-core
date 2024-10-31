@@ -618,10 +618,7 @@ pub async fn bmc_reset(
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     let use_ipmi = match form.use_ipmi {
-        Some(i) => match i.parse::<bool>() {
-            Ok(b) => b,
-            _ => false,
-        },
+        Some(i) => i.parse::<bool>().unwrap_or_default(),
         _ => false,
     };
 

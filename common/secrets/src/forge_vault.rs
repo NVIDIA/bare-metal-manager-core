@@ -258,13 +258,12 @@ where
                             &[KeyValue::new("request_type", "service_account_login")],
                         );
                     let auth_info = vault_response
-                        .map_err(|err| {
+                        .inspect_err(|err| {
                             record_vault_client_error(
-                                &err,
+                                err,
                                 "service_account_login",
                                 &forge_vault_client.vault_metrics,
                             );
-                            err
                         })
                         .wrap_err("Failed to execute kubernetes service account login request")?;
 
@@ -565,9 +564,8 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             &[KeyValue::new("request_type", "get_certificate")],
         );
 
-        let generate_certificate_response = vault_response.map_err(|err| {
-            record_vault_client_error(&err, "get_certificate", vault_metrics);
-            err
+        let generate_certificate_response = vault_response.inspect_err(|err| {
+            record_vault_client_error(err, "get_certificate", vault_metrics);
         })?;
 
         vault_metrics

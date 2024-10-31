@@ -113,6 +113,7 @@ impl MachineValidationExternalConfig {
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
         Ok(())
     }
 
