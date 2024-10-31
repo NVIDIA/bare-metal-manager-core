@@ -219,7 +219,7 @@ impl TestEnv {
                     }
                     carbide::model::machine::MachineState::UefiSetup { .. } => machine_state,
                     carbide::model::machine::MachineState::WaitingForDiscovery => machine_state,
-                    carbide::model::machine::MachineState::Discovered => machine_state,
+                    carbide::model::machine::MachineState::Discovered { .. } => machine_state,
                     carbide::model::machine::MachineState::WaitingForLockdown { .. } => {
                         machine_state
                     }

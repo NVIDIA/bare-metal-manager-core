@@ -248,7 +248,9 @@ pub async fn create_host_machine(
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
         },
     )
     .await;
@@ -467,7 +469,9 @@ pub async fn create_host_with_machine_validation(
                 3,
                 &mut txn,
                 ManagedHostState::HostInit {
-                    machine_state: MachineState::Discovered,
+                    machine_state: MachineState::Discovered {
+                        skip_reboot_wait: false,
+                    },
                 },
             )
             .await;
@@ -507,19 +511,24 @@ pub async fn create_host_with_machine_validation(
         }
     } else {
         let mut txn = env.pool.begin().await.unwrap();
+
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,
             3,
             &mut txn,
             ManagedHostState::HostInit {
-                machine_state: MachineState::Discovered,
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
             },
         )
         .await;
+
         txn.commit().await.unwrap();
 
-        let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
-        assert_eq!(response.action, Action::Noop as i32);
+        // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
+        // machine validation and thus not doing an extra reboot.
+
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             &host_machine_id,

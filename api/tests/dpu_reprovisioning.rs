@@ -493,7 +493,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered
+            machine_state: MachineState::Discovered { .. },
         }
     ));
     txn.commit().await.unwrap();
@@ -742,7 +742,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered
+            machine_state: MachineState::Discovered { .. },
         }
     ));
 
@@ -2604,7 +2604,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered
+            machine_state: MachineState::Discovered { .. },
         }
     ));
     txn.commit().await.unwrap();
@@ -2974,7 +2974,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered
+            machine_state: MachineState::Discovered { .. },
         }
     ));
     txn.commit().await.unwrap();

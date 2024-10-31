@@ -143,7 +143,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 MachineState::UefiSetup { .. } => "uefisetup",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
-                MachineState::Discovered => "discovered",
+                MachineState::Discovered { .. } => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
                 MachineState::MachineValidating { .. } => "machinevalidating",
                 MachineState::EnableIpmiOverLan => "enableipmioverlan",

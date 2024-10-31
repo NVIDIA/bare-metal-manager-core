@@ -201,7 +201,9 @@ impl TryFrom<MachineState> for new_machine::MachineState {
             MachineState::WaitingForPlatformConfiguration => {
                 new_machine::MachineState::WaitingForPlatformConfiguration
             }
-            MachineState::Discovered => new_machine::MachineState::Discovered,
+            MachineState::Discovered => new_machine::MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
             MachineState::WaitingForLockdown { lockdown_info } => {
                 new_machine::MachineState::WaitingForLockdown { lockdown_info }
             }

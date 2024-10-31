@@ -1160,7 +1160,10 @@ pub enum MachineState {
         uefi_setup_info: UefiSetupInfo,
     },
     WaitingForDiscovery,
-    Discovered,
+    Discovered {
+        #[serde(default)]
+        skip_reboot_wait: bool,
+    },
     /// Lockdown handling.
     WaitingForLockdown {
         lockdown_info: LockdownInfo,
@@ -1727,7 +1730,9 @@ impl NextReprovisionState for MachineNextStateResolver {
 
         match reprovision_state {
             ReprovisionState::RebootHost => Ok(ManagedHostState::HostInit {
-                machine_state: MachineState::Discovered,
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: false,
+                },
             }),
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {} state for Non-Instance handling.",
