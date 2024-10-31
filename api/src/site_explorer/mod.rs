@@ -787,10 +787,17 @@ impl SiteExplorer {
 
         // We don't have to scan anything that is on the Tenant or Admin Segments,
         // since we know what those Segments are used for (Forge allocated the IPs on the segments
-        // for a specific machine)
+        // for a specific machine).
+        // We also can skip scanning IPs which are knowingly used as DPU OOB interfaces,
+        // since those will not speak redfish.
+        // Note: As a side effect of this, OOB interfaces might for a short time be scanned,
+        // until the machine is ingested. At that point in time this filter will remove them
+        // from the to-be-scanned list.
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
-            .filter(|iface| underlay_segments.contains(&iface.segment_id))
+            .filter(|iface| {
+                underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
+            })
             .collect();
 
         // We'll be returning a hashmap of all expected machines by IP
