@@ -4077,11 +4077,13 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
                 }
-                MachineState::Discovered => {
+                MachineState::Discovered {
+                    skip_reboot_wait: skip_reboot,
+                } => {
                     // Check if machine is rebooted. If yes, move to Ready state
                     // or Measuring state, depending on if machine attestation
                     // is enabled or not.
-                    if rebooted(&state.host_snapshot) {
+                    if rebooted(&state.host_snapshot) || *skip_reboot {
                         let next_state = if self.host_handler_params.attestation_enabled {
                             ManagedHostState::Measuring {
                                 measuring_state: MeasuringState::WaitingForMeasurements,
@@ -4147,7 +4149,13 @@ impl StateHandler for HostMachineStateHandler {
                         .await;
                         return Ok(StateHandlerOutcome::Transition(
                             ManagedHostState::HostInit {
-                                machine_state: MachineState::Discovered,
+                                machine_state: MachineState::Discovered {
+                                    // Since we're skipping machine validation, we don't need to
+                                    // wait on *another* reboot. We already waited for the prior
+                                    // reboot to complete above, so tell the Discovered state to
+                                    // skip it.
+                                    skip_reboot_wait: true,
+                                },
                             },
                         ));
                     }
@@ -4168,7 +4176,9 @@ impl StateHandler for HostMachineStateHandler {
                             .await?;
                             return Ok(StateHandlerOutcome::Transition(
                                 ManagedHostState::HostInit {
-                                    machine_state: MachineState::Discovered,
+                                    machine_state: MachineState::Discovered {
+                                        skip_reboot_wait: false,
+                                    },
                                 },
                             ));
                         } else {

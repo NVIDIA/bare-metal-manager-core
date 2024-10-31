@@ -228,7 +228,9 @@ async fn test_machine_validation_with_error(
         1,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: !env.config.machine_validation_config.enabled,
+            },
         },
     )
     .await;
@@ -323,7 +325,9 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: !env.config.machine_validation_config.enabled,
+            },
         },
     )
     .await;
@@ -621,7 +625,9 @@ async fn test_machine_validation_test_on_demand_filter(
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: !env.config.machine_validation_config.enabled,
+            },
         },
     )
     .await;
@@ -721,7 +727,9 @@ async fn test_machine_validation_disabled(
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: true,
+            },
         },
     )
     .await;

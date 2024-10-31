@@ -523,7 +523,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
         },
     )
     .await;

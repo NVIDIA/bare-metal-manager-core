@@ -423,7 +423,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         3,
         &mut txn,
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
         },
     )
     .await;

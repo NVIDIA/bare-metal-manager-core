@@ -188,7 +188,9 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         host_id.clone(),
         ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered,
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
         },
         &env.pool,
     )
