@@ -325,6 +325,10 @@ impl InternalRBACRules {
 
     pub fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
+            if user_principals.is_empty() {
+                // No proper cert presented, but we will allow stuff that allows just Anonymous
+                return perm_info.principals.as_slice() == [Principal::Anonymous];
+            }
             user_principals.iter().any(|user_principal| {
                 perm_info
                     .principals
@@ -473,7 +477,7 @@ mod rbac_rule_tests {
 
         assert!(InternalRBACRules::allowed_from_static(
             "DiscoverMachine",
-            &[Principal::Anonymous]
+            &[]
         ));
 
         Ok(())
