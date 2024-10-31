@@ -3199,25 +3199,22 @@ impl Forge for Api {
         // as valid or invalid. If it can't be verified in any
         // way at all, return an error.
         let signature_valid =
-            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature).map_err(
-                |carbide_err| {
+            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature)
+                .inspect_err(|_| {
                     tracing::warn!(
                         "PCR signature verification failed (event log: {})",
                         attest::event_log_to_string(&request.get_ref().event_log)
                     );
-                    carbide_err
-                },
-            )?;
+                })?;
 
         // Make sure we can verify the the PCR hash one way
         // or another. If it can't be, return an error.
         let pcr_hash_matches = attest::verify_pcr_hash(&attest, &request.get_ref().pcr_values)
-            .map_err(|carbide_err| {
+            .inspect_err(|_| {
                 tracing::warn!(
                     "PCR hash verification failed (event log: {})",
                     attest::event_log_to_string(&request.get_ref().event_log)
                 );
-                carbide_err
             })?;
 
         // And now pass on through the computed signature
@@ -4289,7 +4286,7 @@ async fn validate_and_complete_bmc_endpoint_request(
             })?;
 
             let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                CarbideError::GenericError(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string()) 
+                CarbideError::GenericError(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string())
             })?;
 
             Ok(BmcEndpointRequest {

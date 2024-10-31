@@ -104,15 +104,6 @@ struct HostLogSubscriber {
     span_infos: RwLock<HashMap<Id, HostEventInfo>>,
 }
 
-impl HostLogSubscriber {
-    pub fn new(host_log: TuiHostLogs) -> Self {
-        Self {
-            host_log,
-            span_infos: RwLock::new(HashMap::new()),
-        }
-    }
-}
-
 /// Returns true if the event metadata is something we care about
 fn should_record(metadata: &tracing::Metadata) -> bool {
     metadata.target().starts_with("machine_a_tron::")

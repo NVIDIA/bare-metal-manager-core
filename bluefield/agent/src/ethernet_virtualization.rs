@@ -1779,10 +1779,9 @@ mod tests {
         let startup_yaml = nvue::build(conf)?;
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
         let yaml_obj: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
-            .map_err(|err| {
+            .inspect_err(|_| {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
-                err
             })
             .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
         assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'

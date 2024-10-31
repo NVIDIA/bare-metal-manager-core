@@ -323,9 +323,8 @@ impl NetworkMonitor {
         // Get list of DPU information from API
         let dpu_info_list = fetch_dpu_info_list(forge_api, client_config)
             .await
-            .map_err(|e| {
+            .inspect_err(|_| {
                 self.record_error_metrics(NetworkMonitorError::ApiRpcCallError, None);
-                e
             })?;
 
         // Get this DPU information and list of peer DPU information
@@ -333,9 +332,8 @@ impl NetworkMonitor {
         let mut peer_dpus: Vec<DpuInfo> = Vec::new();
         for dpu in dpu_info_list.dpu_list {
             if dpu.id == dpu_machine_id {
-                dpu_info = Some(dpu.clone().try_into().map_err(|error| {
+                dpu_info = Some(dpu.clone().try_into().inspect_err(|_| {
                     self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
-                    error
                 })?);
             } else if let Ok(peer_dpu) = dpu.try_into() {
                 peer_dpus.push(peer_dpu);
@@ -520,7 +518,7 @@ impl Ping for OobNetBindPinger {
 }
 
 /// Pinger that uses crictl to execute ping command inside HBN container
-/// from the loopback interface.  
+/// from the loopback interface.
 pub struct HbnExecPinger;
 #[async_trait]
 impl Ping for HbnExecPinger {

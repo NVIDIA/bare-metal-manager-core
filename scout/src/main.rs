@@ -247,10 +247,8 @@ async fn handle_action(
                 } else if item.key == "IsEnabled" {
                     is_enabled = item.value.parse().unwrap_or(true);
                 } else if item.key == "MachineValidationFilter" {
-                    machine_validation_filter = match serde_json::from_str(&item.value) {
-                        Ok(filter) => filter,
-                        Err(_) => ::machine_validation::MachineValidationFilter::default(),
-                    };
+                    machine_validation_filter =
+                        serde_json::from_str(&item.value).unwrap_or_default();
                 }
             }
             let mut ret: Result<(), CarbideClientError> = Ok(());
