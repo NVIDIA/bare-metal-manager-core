@@ -380,10 +380,11 @@ service Forge {
   rpc MachineSetAutoUpdate(MachineSetAutoUpdateRequest) returns (MachineSetAutoUpdateResponse);
 
   // Machine-Validation ExternalConfig Config
+  // Depricate this later
   rpc GetMachineValidationExternalConfig(GetMachineValidationExternalConfigRequest) returns (GetMachineValidationExternalConfigResponse);
 
   // Machine-Validation ExternalConfig Configs
-  rpc GetMachineValidationExternalConfigs(google.protobuf.Empty) returns (GetMachineValidationExternalConfigsResponse);
+  rpc GetMachineValidationExternalConfigs(GetMachineValidationExternalConfigsRequest) returns (GetMachineValidationExternalConfigsResponse);
 
   // post or put Machine-Validation ExternalConfig Config
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
@@ -3354,14 +3355,18 @@ message MachineValidationExternalConfig {
     optional string description = 2;
     bytes config = 3;
     string version = 4;
+    google.protobuf.Timestamp timestamp = 5;
 }
 
 message  GetMachineValidationExternalConfigResponse {
     MachineValidationExternalConfig config = 1;
 }
 
+message GetMachineValidationExternalConfigsRequest {
+    repeated string names = 1;
+}
 message  GetMachineValidationExternalConfigsResponse {
-  repeated string names = 1;
+  repeated MachineValidationExternalConfig configs = 1;
 }
 
 message AddUpdateMachineValidationExternalConfigRequest {

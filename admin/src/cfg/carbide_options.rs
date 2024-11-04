@@ -1797,8 +1797,8 @@ pub enum MachineValidationExternalConfigCommand {
 
 #[derive(Parser, Debug)]
 pub struct MachineValidationExternalConfigShowOptions {
-    #[clap(short, long, help = "Machine validation external config name")]
-    pub name: String,
+    #[clap(short, long, help = "Machine validation external config names")]
+    pub name: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

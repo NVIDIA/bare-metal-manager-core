@@ -16,24 +16,111 @@ use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 use std::fmt::Write;
-use utils::admin_cli::{CarbideCliResult, OutputFormat};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn external_config_show(
     api_config: &ApiConfig<'_>,
-    config_name: String,
+    config_names: Vec<String>,
+    extended: bool,
+    output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    let response = rpc::get_machine_validation_external_config(config_name, api_config).await?;
+    let is_json = output_format == OutputFormat::Json;
+    let ret = rpc::get_machine_validation_external_configs(api_config, config_names).await?;
 
-    println!("---------------------------");
-    if response.config.is_some() {
-        let s = String::from_utf8(response.config.unwrap_or_default().config)
-            .expect("Found invalid UTF-8");
-
-        println!("{}", s);
+    if extended {
+        show_external_config_show_details(ret.configs, is_json).await?;
+    } else {
+        show_external_config_show(ret.configs, is_json).await?;
     }
-    println!("---------------------------");
     Ok(())
 }
+
+pub async fn show_external_config_show_details(
+    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    json: bool,
+) -> CarbideCliResult<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&configs).unwrap());
+    } else {
+        println!("{}", convert_external_config_to_nice_format(configs)?);
+    }
+    Ok(())
+}
+
+pub async fn show_external_config_show(
+    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    json: bool,
+) -> CarbideCliResult<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&configs).unwrap());
+    } else {
+        convert_external_config_to_nice_table(configs).printstd();
+    }
+    Ok(())
+}
+
+fn convert_external_config_to_nice_format(
+    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+) -> CarbideCliResult<String> {
+    let width = 14;
+    let mut lines = String::new();
+    if configs.is_empty() {
+        return Ok(lines);
+    }
+    for config in configs {
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+        let timestamp = if config.timestamp.is_some() {
+            "".to_string()
+        } else {
+            config.timestamp.unwrap_or_default().to_string()
+        };
+        let config_string = String::from_utf8(config.config)
+            .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+
+        let details = vec![
+            ("Name", config.name.clone()),
+            (
+                "Description",
+                config.description.unwrap_or_default().clone(),
+            ),
+            ("Version", config.version.clone()),
+            ("TimeStamp", timestamp),
+            ("Config", config_string),
+        ];
+
+        for (key, value) in details {
+            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        }
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+    }
+    Ok(lines)
+}
+
+fn convert_external_config_to_nice_table(
+    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row!["Name", "Description", "Version", "Timestamp"]);
+
+    for config in configs {
+        table.add_row(row![
+            config.name.clone(),
+            config.description.unwrap_or_default(),
+            config.version,
+            config.timestamp.unwrap_or_default(),
+        ]);
+    }
+
+    table.into()
+}
+
 pub async fn external_config_add_update(
     api_config: &ApiConfig<'_>,
     config_name: String,

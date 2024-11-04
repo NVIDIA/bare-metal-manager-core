@@ -1246,7 +1246,13 @@ async fn main() -> color_eyre::Result<()> {
             cfg::carbide_options::MachineValidationCommand::ExternalConfig(config_command) => {
                 match config_command {
                     cfg::carbide_options::MachineValidationExternalConfigCommand::Show(opts) => {
-                        machine_validation::external_config_show(api_config, opts.name).await?;
+                        machine_validation::external_config_show(
+                            api_config,
+                            opts.name,
+                            config.extended,
+                            config.format,
+                        )
+                        .await?;
                     }
                     cfg::carbide_options::MachineValidationExternalConfigCommand::AddUpdate(
                         opts,
