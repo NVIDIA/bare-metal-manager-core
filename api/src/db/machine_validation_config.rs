@@ -42,7 +42,8 @@ impl From<MachineValidationExternalConfig> for rpc::forge::MachineValidationExte
             name: value.name,
             config: value.config,
             description: Some(value.description),
-            version: value.version.to_string(),
+            version: value.version.version_nr().to_string(),
+            timestamp: Some(value.version.timestamp().into()),
         }
     }
 }

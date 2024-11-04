@@ -3919,7 +3919,7 @@ impl Forge for Api {
 
     async fn get_machine_validation_external_configs(
         &self,
-        request: tonic::Request<()>,
+        request: tonic::Request<rpc::GetMachineValidationExternalConfigsRequest>,
     ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
         get_machine_validation_external_configs(self, request).await
     }

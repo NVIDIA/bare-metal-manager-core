@@ -518,7 +518,7 @@ pub(crate) async fn on_demand_machine_validation(
 
 pub(crate) async fn get_machine_validation_external_configs(
     api: &Api,
-    request: tonic::Request<()>,
+    request: tonic::Request<rpc::GetMachineValidationExternalConfigsRequest>,
 ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
     log_request_data(&request);
 
@@ -533,7 +533,10 @@ pub(crate) async fn get_machine_validation_external_configs(
     let ret = MachineValidationExternalConfig::find_configs(&mut txn).await?;
     Ok(tonic::Response::new(
         rpc::GetMachineValidationExternalConfigsResponse {
-            names: ret.into_iter().map(|p| p.name).collect(),
+            configs: ret
+                .into_iter()
+                .map(rpc::MachineValidationExternalConfig::from)
+                .collect(),
         },
     ))
 }

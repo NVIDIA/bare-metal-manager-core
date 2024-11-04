@@ -17,9 +17,8 @@ use carbide::{
         MachineState, MachineValidationFilter, ManagedHostState,
     },
 };
-use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
-use std::{str::FromStr, time::SystemTime};
+use std::time::SystemTime;
 
 mod common;
 use common::api_fixtures::{
@@ -459,10 +458,7 @@ async fn test_create_update_external_config(
 
     assert_eq!(res.config.clone().unwrap().name, name);
     assert_eq!(res.config.clone().unwrap().description.unwrap(), desc);
-    assert_eq!(
-        ConfigVersion::from_str(&res.config.clone().unwrap().version)?.version_nr(),
-        1
-    );
+    assert_eq!(res.config.clone().unwrap().version, "1");
     assert_eq!(res.config.unwrap().config, input.as_bytes().to_vec());
     // Update one more time
     env.api
@@ -489,25 +485,26 @@ async fn test_create_update_external_config(
 
     assert_eq!(res_next.config.clone().unwrap().name, name);
     assert_eq!(res_next.config.clone().unwrap().description.unwrap(), desc);
-    assert_eq!(
-        ConfigVersion::from_str(&res_next.config.clone().unwrap().version)?.version_nr(),
-        2
-    );
+    assert_eq!(&res_next.config.clone().unwrap().version, "2");
     assert_eq!(res_next.config.unwrap().config, input.as_bytes().to_vec());
     let res_list = env
         .api
-        .get_machine_validation_external_configs(tonic::Request::new(()))
+        .get_machine_validation_external_configs(tonic::Request::new(
+            rpc::forge::GetMachineValidationExternalConfigsRequest {
+                names: vec!["shoreline".to_string()],
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res_list.names[0], "shoreline");
-    assert_eq!(res_list.names.len(), 1);
+    assert_eq!(res_list.configs[0].name, "shoreline");
+    assert_eq!(res_list.configs.len(), 1);
 
     // remove
     env.api
         .remove_machine_validation_external_config(tonic::Request::new(
             rpc::forge::RemoveMachineValidationExternalConfigRequest {
-                name: res_list.names[0].clone(),
+                name: res_list.configs[0].name.clone(),
             },
         ))
         .await
@@ -515,11 +512,13 @@ async fn test_create_update_external_config(
         .into_inner();
     let remove_res_list = env
         .api
-        .get_machine_validation_external_configs(tonic::Request::new(()))
+        .get_machine_validation_external_configs(tonic::Request::new(
+            rpc::forge::GetMachineValidationExternalConfigsRequest { names: Vec::new() },
+        ))
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(remove_res_list.names.len(), 0);
+    assert_eq!(remove_res_list.configs.len(), 0);
 
     Ok(())
 }
