@@ -110,7 +110,7 @@ dependencies = [
  "prost 0.12.6",
  "rand 0.8.5",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "resolv-conf",
  "rpc",
  "rtnetlink",
@@ -862,7 +862,7 @@ dependencies = [
  "rand 0.8.5",
  "rcgen",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "rpc",
  "rsa",
  "rustls-pemfile 1.0.4",
@@ -3471,9 +3471,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.26.0"
+version = "0.26.1"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "4cf89fee47f71e0fddc3007f76d586a21827ae6dff621b76d03fec2910547828"
+checksum = "fbd90a78430237152dc8def26d5806ff5a1fe47abef8a576bc6aca97f11f11c4"
 dependencies = [
  "async-trait",
  "clap",
@@ -3685,7 +3685,7 @@ dependencies = [
  "prost-types",
  "rayon",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "rpc",
  "serde",
  "serde_json",
@@ -5895,7 +5895,7 @@ dependencies = [
  "pwhash",
  "rand 0.8.5",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "rpc",
  "serde",
  "serde_json",
@@ -7946,7 +7946,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
