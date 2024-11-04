@@ -83,8 +83,10 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ClearPending => {
             redfish.clear_pending().await?;
         }
-        ForgeSetup => {
-            redfish.forge_setup(None).await?;
+        ForgeSetup(forge_setup_args) => {
+            redfish
+                .forge_setup(forge_setup_args.boot_interface_mac.clone().as_deref())
+                .await?;
         }
         ForgeSetupStatus => {
             println!("{}", redfish.forge_setup_status().await?);

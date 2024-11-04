@@ -629,7 +629,7 @@ pub enum RedfishCommand {
     /// Create new BMC user
     CreateBmcUser(BmcUser),
     /// Setup host for Forge use
-    ForgeSetup,
+    ForgeSetup(ForgeSetupArgs),
     /// Is everything ForgeSetup does already done? What's missing?
     ForgeSetupStatus,
     /// Set our password policy
@@ -807,6 +807,12 @@ pub struct BmcUser {
         help = "BMC role (administrator, operator, readonly, noaccess). Default to administrator"
     )]
     pub role_id: Option<String>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct ForgeSetupArgs {
+    #[clap(long, help = "boot_interface_mac:")]
+    pub boot_interface_mac: Option<String>,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
