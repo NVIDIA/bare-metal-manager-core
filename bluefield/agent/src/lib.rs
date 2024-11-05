@@ -122,8 +122,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
-            main_loop::run(
-                &machine_id,
+            main_loop::setup_and_run(
+                machine_id,
                 factory_mac_address,
                 forge_client_config,
                 agent,
