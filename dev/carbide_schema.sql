@@ -1879,7 +1879,7 @@ ALTER TABLE public.tenants OWNER TO carbide_development;
 
 CREATE TABLE public.vpcs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying NOT NULL,
+    name character varying(256) NOT NULL,
     organization_id character varying,
     version character varying(64) NOT NULL,
     created timestamp with time zone DEFAULT now() NOT NULL,
@@ -1888,9 +1888,8 @@ CREATE TABLE public.vpcs (
     network_virtualization_type public.network_virtualization_type_t DEFAULT 'etv'::public.network_virtualization_type_t NOT NULL,
     vni integer,
     labels JSONB NOT NULL DEFAULT ('{}'),
-    description VARCHAR(64) NOT NULL DEFAULT (''),
+    description VARCHAR(1024) NOT NULL DEFAULT (''),
 );
-
 
 ALTER TABLE public.vpcs OWNER TO carbide_development;
 
