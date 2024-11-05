@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -43,6 +43,7 @@ use version_compare::Version;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
+use crate::ethernet_virtualization::ServiceAddresses;
 use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterStateImpl};
 use crate::instrumentation::{
     create_metrics, get_dpu_agent_meter, get_metrics_router, get_prometheus_registry,
@@ -59,11 +60,11 @@ use crate::{
 };
 
 // Main loop when running in daemon mode
-pub async fn run(
-    machine_id: &str,
-    mac_address: MacAddress,
+pub async fn setup_and_run(
+    machine_id: String,
+    factory_mac_address: MacAddress,
     forge_client_config: forge_tls_client::ForgeClientConfig,
-    agent: AgentConfig,
+    agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
@@ -74,21 +75,20 @@ pub async fn run(
 
     let process_start_time = SystemTime::now();
 
-    let mut term_signal = signal(SignalKind::terminate())?;
-    let mut hup_signal = signal(SignalKind::hangup())?;
+    let forge_api_server = agent_config.forge_system.api_server.clone();
 
-    let forge_api = &agent.forge_system.api_server;
-
-    if let Err(e) = write_machine_id("/run/otelcol-contrib", machine_id) {
+    if let Err(e) = write_machine_id("/run/otelcol-contrib", &machine_id) {
         tracing::error!(error = %e, "Failed to write machine ID");
     }
 
     let instance_metadata_fetcher =
         Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
             instance_metadata_fetcher::InstanceMetadataFetcherConfig {
-                config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
+                config_fetch_interval: Duration::from_secs(
+                    agent_config.period.network_config_fetch_secs,
+                ),
                 machine_id: machine_id.to_string(),
-                forge_api: forge_api.to_string(),
+                forge_api: forge_api_server.clone(),
                 forge_client_config: forge_client_config.clone(),
             },
         ));
@@ -97,7 +97,7 @@ pub async fn run(
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
             machine_id.to_string(),
-            forge_api.to_string(),
+            forge_api_server.clone(),
             forge_client_config.clone(),
         ),
     );
@@ -107,8 +107,8 @@ pub async fn run(
 
     if options.enable_metadata_service {
         spawn_metadata_service(
-            agent.metadata_service.address.clone(),
-            agent.telemetry.metrics_address.clone(),
+            agent_config.metadata_service.address.clone(),
+            agent_config.telemetry.metrics_address.clone(),
             metrics.clone(),
             instance_metadata_state.clone(),
         )
@@ -150,18 +150,16 @@ pub async fn run(
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
 
-    let version_check_period = Duration::from_secs(agent.period.version_check_secs);
-    let main_loop_period_active = Duration::from_secs(agent.period.main_loop_active_secs);
-    let main_loop_period_idle = Duration::from_secs(agent.period.main_loop_idle_secs);
-
     let build_version = forge_version::v!(build_version).to_string();
     // `new` does a network call and spawns a task. It fetches an initial config from carbide-api,
     // then spawns a task fetching config every network_config_fetch_secs.
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
-            config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
+            config_fetch_interval: Duration::from_secs(
+                agent_config.period.network_config_fetch_secs,
+            ),
             machine_id: machine_id.to_string(),
-            forge_api: forge_api.to_string(),
+            forge_api: forge_api_server.clone(),
             forge_client_config: forge_client_config.clone(),
         },
     )
@@ -169,22 +167,14 @@ pub async fn run(
 
     let network_config_reader = network_config_fetcher.reader();
 
-    let min_cert_renewal_time = 5 * 24 * 60 * 60; // 5 days
-    let max_cert_renewal_time = 7 * 24 * 60 * 60; // 7 days
-
     // we will attempt to refresh the cert at this frequency.
+    let min_cert_renewal_time_secs = 5 * 24 * 60 * 60; // 5 days
+    let max_cert_renewal_time_secs = 7 * 24 * 60 * 60; // 7 days
     let cert_renewal_period =
-        rand::thread_rng().gen_range(min_cert_renewal_time..max_cert_renewal_time);
-    let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
+        rand::thread_rng().gen_range(min_cert_renewal_time_secs..max_cert_renewal_time_secs);
+    let cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
-    let started_at = Instant::now();
-    let mut version_check_time = Instant::now(); // check it on the first loop
-    let mut inventory_updater_time = Instant::now();
-    let mut seen_blank = false;
-    let mut is_hbn_up = false;
-    let mut has_logged_stable = false;
-
-    let (pxe_ip, ntpservers, nameservers) = if !agent.machine.is_fake_dpu {
+    let service_addrs = if !agent_config.machine.is_fake_dpu {
         let mut url_resolver = UrlResolver::try_new()?;
 
         let pxe_ip = *url_resolver
@@ -210,20 +200,24 @@ pub async fn run(
         };
 
         let nameservers = url_resolver.nameservers();
-        (pxe_ip, ntpservers, nameservers)
+        ServiceAddresses {
+            pxe_ip,
+            ntpservers,
+            nameservers,
+        }
     } else {
-        (
-            Ipv4Addr::from([127, 0, 0, 1]),
-            vec![],
-            vec![IpAddr::from([127, 0, 0, 1])],
-        )
+        ServiceAddresses {
+            pxe_ip: Ipv4Addr::from([127, 0, 0, 1]),
+            ntpservers: vec![],
+            nameservers: vec![IpAddr::from([127, 0, 0, 1])],
+        }
     };
 
     let inventory_updater_config = MachineInventoryUpdaterConfig {
         dpu_agent_version: build_version.clone(),
-        update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
+        update_inventory_interval: Duration::from_secs(agent_config.period.inventory_update_secs),
         machine_id: machine_id.to_string(),
-        forge_api: forge_api.to_string(),
+        forge_api: forge_api_server.clone(),
         forge_client_config: forge_client_config.clone(),
     };
 
@@ -242,18 +236,18 @@ pub async fn run(
     let network_monitor_metrics_state =
         crate::instrumentation::NetworkMonitorMetricsState::initialize(
             agent_meter,
-            String::from(machine_id),
+            machine_id.clone(),
         );
 
     let network_monitor_handle: Option<JoinHandle<()>> = match network_pinger_type {
         Some(pinger_type) => {
             tracing::debug!("Starting network monitor with {} pinger", pinger_type);
             let mut network_monitor = network_monitor::NetworkMonitor::new(
-                machine_id.to_string(),
+                machine_id.clone(),
                 Some(network_monitor_metrics_state),
                 Arc::from(pinger_type),
             );
-            let forge_api_clone = forge_api.clone();
+            let forge_api_clone = forge_api_server.clone();
             let client_config_clone = forge_client_config.clone();
             let network_monitor_handle = tokio::spawn(async move {
                 network_monitor
@@ -271,9 +265,112 @@ pub async fn run(
     // default to hbn 2.3 and above for the hbn device names. This will be properly set once the
     // HBN runtime container is online. This is set here initially so once it is read it can be properly
     // used in the event that hbn crashes and can no longer read the actual version of hbn
-    let mut hbn_device_names = HBNDeviceNames::hbn_23();
+    let hbn_device_names = HBNDeviceNames::hbn_23();
 
-    loop {
+    let mut main_loop = MainLoop {
+        forge_client_config,
+        build_version,
+        machine_id: machine_id.to_string(),
+        network_config_reader,
+        instance_metadata_reader,
+        instance_metadata_state,
+        cert_renewal_time,
+        min_cert_renewal_time_secs,
+        max_cert_renewal_time_secs,
+        hbn_device_names,
+        is_hbn_up: false,
+        seen_blank: false,
+        has_logged_stable: false,
+        version_check_time: std::time::Instant::now(),
+        inventory_updater_time: std::time::Instant::now(),
+        started_at: std::time::Instant::now(),
+        inventory_updater_config,
+        options,
+        agent_config,
+        forge_api_server,
+        fmds_minimum_hbn_version,
+        nvue_minimum_hbn_version,
+        factory_mac_address,
+        service_addrs,
+        close_sender,
+        network_monitor_handle,
+    };
+
+    main_loop.run().await
+}
+
+struct MainLoop {
+    forge_client_config: forge_tls_client::ForgeClientConfig,
+    machine_id: String,
+    factory_mac_address: MacAddress,
+    build_version: String,
+    network_config_reader: Box<network_config_fetcher::NetworkConfigReader>,
+    instance_metadata_reader: Arc<instance_metadata_fetcher::InstanceMetadataFetcherState>,
+    instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
+    cert_renewal_time: std::time::Instant,
+    min_cert_renewal_time_secs: u64,
+    max_cert_renewal_time_secs: u64,
+    hbn_device_names: HBNDeviceNames,
+    is_hbn_up: bool,
+    seen_blank: bool,
+    has_logged_stable: bool,
+    started_at: std::time::Instant,
+    version_check_time: std::time::Instant,
+    inventory_updater_time: std::time::Instant,
+    inventory_updater_config: MachineInventoryUpdaterConfig,
+    options: command_line::RunOptions,
+    agent_config: AgentConfig,
+    forge_api_server: String,
+    fmds_minimum_hbn_version: Version<'static>,
+    nvue_minimum_hbn_version: Version<'static>,
+    service_addrs: ServiceAddresses,
+    network_monitor_handle: Option<JoinHandle<()>>,
+    close_sender: watch::Sender<bool>,
+}
+
+struct IterationResult {
+    stop_agent: bool,
+    loop_period: std::time::Duration,
+}
+
+impl MainLoop {
+    /// Runs the MainLoop in endless mode
+    async fn run(&mut self) -> Result<(), eyre::Report> {
+        let mut term_signal = signal(SignalKind::terminate())?;
+        let mut hup_signal = signal(SignalKind::hangup())?;
+
+        loop {
+            let result = self.run_single_iteration().await?;
+            if result.stop_agent {
+                return Ok(());
+            }
+
+            tokio::select! {
+                biased;
+                _ = term_signal.recv() => {
+                    systemd::notify_stop().await?;
+                    let _ = self.close_sender.send(true);
+                    if let Some(handle) = self.network_monitor_handle.take() {
+                        let _ = handle.await;
+                    }
+                    tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
+                    return Ok(());
+                }
+                _ = hup_signal.recv() => {
+                    tracing::info!("Hangup received, timer reset");
+                    let now = Instant::now();
+                    self.cert_renewal_time = now;
+                    self.inventory_updater_time = now;
+                    self.version_check_time = now;
+                    // the loop_period sleep is interrupted so we will fetch new network config
+                }
+                _ = tokio::time::sleep(result.loop_period) => {}
+            }
+        }
+    }
+
+    /// Runs a single iteration of the main loop
+    async fn run_single_iteration(&mut self) -> Result<IterationResult, eyre::Report> {
         let loop_start = Instant::now();
 
         if let Err(err) = systemd::notify_watchdog().await {
@@ -290,7 +387,7 @@ pub async fn run(
         let mut current_instance_id = None;
 
         let client_certificate_expiry_unix_epoch_secs =
-            forge_client_config.client_cert_expiry().await;
+            self.forge_client_config.client_cert_expiry().await;
 
         let fabric_interfaces = get_fabric_interfaces_data().await.unwrap_or_else(|err| {
             tracing::warn!("Error getting link data for fabric interfaces: {err:#}");
@@ -298,9 +395,9 @@ pub async fn run(
         });
 
         let mut status_out = rpc::DpuNetworkStatus {
-            dpu_machine_id: Some(machine_id.to_string().into()),
+            dpu_machine_id: Some(self.machine_id.to_string().into()),
             dpu_health: None,
-            dpu_agent_version: Some(build_version.clone()),
+            dpu_agent_version: Some(self.build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
             health: None,
             network_config_version: None,
@@ -333,9 +430,9 @@ pub async fn run(
         status_out.last_dhcp_requests = last_dhcp_requests;
 
         // `read` does not block
-        match network_config_reader.read() {
+        match self.network_config_reader.read() {
             Some(conf) => {
-                let instance_data = instance_metadata_reader.read();
+                let instance_data = self.instance_metadata_reader.read();
 
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
@@ -344,7 +441,7 @@ pub async fn run(
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
-                if is_hbn_up {
+                if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
                     let hbn_version = hbn::read_version().await?;
@@ -352,7 +449,7 @@ pub async fn run(
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
                     // after doing an initial version check instead of assuming _sf
-                    hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
+                    self.hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
                     // Now issue a one time per container runtime hack in the event the hack is needed for new DPU hardware
                     if let Err(err) = nvue::hack_platform_config_for_nvue().await {
                         tracing::error!(
@@ -364,17 +461,18 @@ pub async fn run(
                     tracing::trace!("Desired network config is {conf:?}");
                     // Generate the fmds interface plan from the config. This does not apply the plan.
                     // The plan is applied when the NVUE template is written
-                    let fmds_proposed_interfaces = &agent.fmds_armos_networking;
+                    let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
                     let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
 
                     let fmds_interface_plan =
-                        Interface::plan(hbn_device_names.sfs[0], network_plan).await?;
+                        Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
                     tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
 
                     // Generate the fmds route plan from conf.tenant_interfaces[n].address
                     // the plan is applied when the nvue template is written
                     let route_plan =
-                        plan_fmds_armos_routing(hbn_device_names.sfs[0], &proposed_routes).await?;
+                        plan_fmds_armos_routing(self.hbn_device_names.sfs[0], &proposed_routes)
+                            .await?;
                     tracing::trace!("Route plan: {:?}", route_plan);
 
                     // Get the actual virtualization type to use for configuring
@@ -382,37 +480,35 @@ pub async fn run(
                     // by the Carbide API, with the ability to override via RunOptions.
                     let virtualization_type = effective_virtualization_type(
                         &conf,
-                        &options,
+                        &self.options,
                         &hbn_version,
-                        &nvue_minimum_hbn_version,
+                        &self.nvue_minimum_hbn_version,
                     )?;
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
-                        &agent.hbn.root_dir,
+                        &self.agent_config.hbn.root_dir,
                         &conf,
-                        agent.hbn.skip_reload,
-                        pxe_ip,
-                        ntpservers.clone(),
-                        nameservers.clone(),
+                        self.agent_config.hbn.skip_reload,
+                        &self.service_addrs,
                         virtualization_type,
-                        hbn_device_names.clone(),
+                        self.hbn_device_names.clone(),
                     )
                     .await;
 
                     let update_result = match virtualization_type {
                         VpcVirtualizationType::EthernetVirtualizer => {
                             ethernet_virtualization::update_files(
-                                &agent.hbn.root_dir,
+                                &self.agent_config.hbn.root_dir,
                                 &conf,
-                                agent.hbn.skip_reload,
-                                hbn_device_names.clone(),
+                                self.agent_config.hbn.skip_reload,
+                                self.hbn_device_names.clone(),
                             )
                             .await
                         }
                         VpcVirtualizationType::EthernetVirtualizerWithNvue
                         | VpcVirtualizationType::FnnClassic
                         | VpcVirtualizationType::FnnL3 => {
-                            if hbn_version >= fmds_minimum_hbn_version {
+                            if hbn_version >= self.fmds_minimum_hbn_version {
                                 // Apply the interface plan. This is where we actually configure
                                 // the FMDS phone home interface on the DPU.
                                 Interface::apply(fmds_interface_plan).await?;
@@ -434,10 +530,10 @@ pub async fn run(
 
                             ethernet_virtualization::update_nvue(
                                 virtualization_type,
-                                &agent.hbn.root_dir,
+                                &self.agent_config.hbn.root_dir,
                                 &conf,
-                                agent.hbn.skip_reload,
-                                hbn_device_names.clone(),
+                                self.agent_config.hbn.skip_reload,
+                                self.hbn_device_names.clone(),
                             )
                             .await
                         }
@@ -477,19 +573,19 @@ pub async fn run(
                                                     // That makes sure we don't report progress if we haven't received the newest version
                                                     // via both path.
                                                     let reported_instance_network_config_version =
-                                                        managed_host_instance_network_config_version
-                                                            .min_by_timestamp(
-                                                                &instance_metadata_network_config_version,
-                                                            );
+                                                    managed_host_instance_network_config_version
+                                                        .min_by_timestamp(
+                                                        &instance_metadata_network_config_version,
+                                                    );
                                                     if instance_metadata_network_config_version
-                                                        != managed_host_instance_network_config_version
-                                                    {
-                                                        tracing::warn!("Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
+                                                    != managed_host_instance_network_config_version
+                                                {
+                                                    tracing::warn!("Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
                                                         managed_host_instance_network_config_version,
                                                     instance_metadata_network_config_version,
                                                     reported_instance_network_config_version,
                                                 );
-                                                    }
+                                                }
                                                     reported_instance_network_config_version
                                                         .version_string()
                                                 }
@@ -517,7 +613,12 @@ pub async fn run(
                             current_instance_network_config_version =
                                 status_out.instance_network_config_version.clone();
 
-                            match ethernet_virtualization::interfaces(&conf, mac_address).await {
+                            match ethernet_virtualization::interfaces(
+                                &conf,
+                                self.factory_mac_address,
+                            )
+                            .await
+                            {
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
@@ -536,8 +637,8 @@ pub async fn run(
                     // interface should be enabled on secondary DPU also.
                     if let Err(err) = ethernet_virtualization::update_interface_state(
                         &conf,
-                        agent.hbn.skip_reload,
-                        hbn_device_names.clone(),
+                        self.agent_config.hbn.skip_reload,
+                        self.hbn_device_names.clone(),
                     )
                     .await
                     {
@@ -553,8 +654,10 @@ pub async fn run(
                 // It will guarantee that the Instance Config that is acknowledged to
                 // carbide via the status message is actually visible to the tenant via
                 // FMDS
-                instance_metadata_state.update_instance_data(instance_data.clone());
-                instance_metadata_state.update_network_configuration(Some(conf.clone()));
+                self.instance_metadata_state
+                    .update_instance_data(instance_data.clone());
+                self.instance_metadata_state
+                    .update_network_configuration(Some(conf.clone()));
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());
@@ -562,19 +665,19 @@ pub async fn run(
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
                 let health_report = health::health_check(
-                    &agent.hbn.root_dir,
+                    &self.agent_config.hbn.root_dir,
                     &tenant_peers,
-                    started_at,
+                    self.started_at,
                     has_changed_configs,
                     conf.min_dpu_functioning_links.unwrap_or(2),
                     &conf.route_servers,
-                    hbn_device_names.clone(),
+                    self.hbn_device_names.clone(),
                 )
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
-                is_hbn_up = health::is_up(&health_report);
+                self.is_hbn_up = health::is_up(&health_report);
                 // subset of is_healthy
-                tracing::trace!(%machine_id, ?health_report, "HBN health");
+                tracing::trace!(%self.machine_id, ?health_report, "HBN health");
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
@@ -612,45 +715,59 @@ pub async fn run(
                 current_health_report = Some(health_report);
                 current_config_error = status_out.network_config_error.clone();
 
-                record_network_status(status_out, forge_api, forge_client_config.clone()).await;
-                seen_blank = false;
+                record_network_status(
+                    status_out,
+                    &self.forge_api_server,
+                    self.forge_client_config.clone(),
+                )
+                .await;
+                self.seen_blank = false;
             }
             None => {
                 // No network config means server can't find the DPU, usually because it was
                 // force-deleted. Only reset network config the _second_ time we can't find the
                 // DPU. Safety first.
-                if seen_blank {
-                    ethernet_virtualization::reset(&agent.hbn.root_dir, agent.hbn.skip_reload)
-                        .await;
+                if self.seen_blank {
+                    ethernet_virtualization::reset(
+                        &self.agent_config.hbn.root_dir,
+                        self.agent_config.hbn.skip_reload,
+                    )
+                    .await;
                 }
-                seen_blank = true;
+                self.seen_blank = true;
                 // we don't record_network_status because the server doesn't know about this DPU
             }
         };
 
         let now = Instant::now();
-        if now > cert_renewal_time {
-            cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
-            renew_certificates(forge_api, forge_client_config.clone()).await;
+        if now > self.cert_renewal_time {
+            let cert_renewal_period = rand::thread_rng()
+                .gen_range(self.min_cert_renewal_time_secs..self.max_cert_renewal_time_secs);
+            self.cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
+            renew_certificates(&self.forge_api_server, self.forge_client_config.clone()).await;
         }
 
-        if now > inventory_updater_time {
-            inventory_updater_time = now.add(inventory_updater_config.update_inventory_interval);
-            if let Err(err) = machine_inventory_updater::single_run(&inventory_updater_config).await
+        if now > self.inventory_updater_time {
+            self.inventory_updater_time =
+                now.add(self.inventory_updater_config.update_inventory_interval);
+            if let Err(err) =
+                machine_inventory_updater::single_run(&self.inventory_updater_config).await
             {
                 tracing::error!(%err, "machine_inventory_updater error");
             }
         }
 
-        if !options.skip_upgrade_check {
+        if !self.options.skip_upgrade_check {
             // We potentially restart at this point, so make it last in the loop
-            if now > version_check_time {
-                version_check_time = now.add(version_check_period);
+            if now > self.version_check_time {
+                self.version_check_time = now.add(std::time::Duration::from_secs(
+                    self.agent_config.period.version_check_secs,
+                ));
                 let upgrade_result = upgrade::upgrade(
-                    forge_api,
-                    forge_client_config.clone(),
-                    machine_id,
-                    agent.updates.override_upgrade_cmd.as_deref(),
+                    &self.forge_api_server,
+                    self.forge_client_config.clone(),
+                    &self.machine_id,
+                    self.agent_config.updates.override_upgrade_cmd.as_deref(),
                 )
                 .await;
                 match upgrade_result {
@@ -662,11 +779,14 @@ pub async fn run(
                         if let Err(err) = systemd::notify_stop().await {
                             tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
                         }
-                        return Ok(());
+                        return Ok(IterationResult {
+                            stop_agent: true,
+                            loop_period: Duration::from_secs(0),
+                        });
                     }
                     Err(e) => {
                         tracing::error!(
-                            forge_api,
+                            self.forge_api_server,
                             error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
                             "upgrade_check failed"
                         );
@@ -675,21 +795,21 @@ pub async fn run(
             }
         }
 
-        let loop_period = if seen_blank || !is_healthy || has_changed_configs {
-            main_loop_period_active
+        let loop_period = if self.seen_blank || !is_healthy || has_changed_configs {
+            std::time::Duration::from_secs(self.agent_config.period.main_loop_active_secs)
         } else {
-            if !has_logged_stable {
+            if !self.has_logged_stable {
                 tracing::info!("HBN is healthy and network configuration is stable");
-                has_logged_stable = true;
+                self.has_logged_stable = true;
             }
-            main_loop_period_idle
+            std::time::Duration::from_secs(self.agent_config.period.main_loop_idle_secs)
         };
 
         let cr7 = current_health_report.as_ref();
         tracing::info!(
             is_healthy,
             has_changed_configs,
-            seen_blank,
+            self.seen_blank,
             num_health_probe_alerts = cr7.map(|hr| hr.alerts.len()).unwrap_or_default(),
             health_probe_alerts = cr7.map(|hr| {
                 let mut result = String::new();
@@ -711,32 +831,15 @@ pub async fn run(
             instance_network_config_version = current_instance_network_config_version.unwrap_or_default(),
             instance_config_version = current_instance_config_version.unwrap_or_default(),
             loop_duration = %dt(loop_start.elapsed()),
-            version_check_in = %dt(version_check_time - Instant::now()),
-            uptime = %dt(started_at.elapsed()),
+            version_check_in = %dt(self.version_check_time - Instant::now()),
+            uptime = %dt(self.started_at.elapsed()),
             "loop metrics",
         );
 
-        tokio::select! {
-            biased;
-            _ = term_signal.recv() => {
-                systemd::notify_stop().await?;
-                let _ = close_sender.send(true);
-                if let Some(handle) = network_monitor_handle {
-                    let _ = handle.await;
-                }
-                tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
-                return Ok(());
-            }
-            _ = hup_signal.recv() => {
-                tracing::info!("Hangup received, timer reset");
-                let now = Instant::now();
-                cert_renewal_time = now;
-                inventory_updater_time = now;
-                version_check_time = now;
-                // the loop_period sleep is interrupted so we will fetch new network config
-            }
-            _ = tokio::time::sleep(loop_period) => {}
-        }
+        Ok(IterationResult {
+            stop_agent: false,
+            loop_period,
+        })
     }
 }
 

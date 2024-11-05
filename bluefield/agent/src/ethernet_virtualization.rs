@@ -74,6 +74,13 @@ impl DhcpServerPaths {
     }
 }
 
+/// Stores addresses of dependent services that the DHCP module announces
+pub struct ServiceAddresses {
+    pub pxe_ip: Ipv4Addr,
+    pub ntpservers: Vec<Ipv4Addr>,
+    pub nameservers: Vec<IpAddr>,
+}
+
 /// How we tell HBN to notice the new file we wrote
 #[derive(Debug)]
 struct PostAction {
@@ -487,9 +494,7 @@ pub async fn update_dhcp(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
-    pxe_ip: Ipv4Addr,
-    ntpservers: Vec<Ipv4Addr>,
-    nameservers: Vec<IpAddr>,
+    service_addrs: &ServiceAddresses,
     nvt: VpcVirtualizationType,
     hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
@@ -514,9 +519,7 @@ pub async fn update_dhcp(
             &path_dhcp_relay,
             &paths_dhcp_server,
             network_config,
-            pxe_ip,
-            ntpservers,
-            nameservers,
+            service_addrs,
         ) {
             Ok(true) => PostAction {
                 path: paths_dhcp_server.server,
@@ -742,9 +745,7 @@ fn write_dhcp_server_config(
     dhcp_relay_path: &FPath,
     dhcp_server_path: &DhcpServerPaths,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    pxe_ip: Ipv4Addr,
-    ntpservers: Vec<Ipv4Addr>,
-    nameservers: Vec<IpAddr>,
+    service_addrs: &ServiceAddresses,
 ) -> eyre::Result<bool> {
     match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay") {
         Ok(true) => {
@@ -776,7 +777,8 @@ fn write_dhcp_server_config(
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;
 
-    let nameservers = nameservers
+    let nameservers = service_addrs
+        .nameservers
         .iter()
         .filter_map(|x| match x {
             IpAddr::V4(x) => Some(*x),
@@ -797,7 +799,12 @@ fn write_dhcp_server_config(
         Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
     }
 
-    let next_contents = dhcp::build_server_config(pxe_ip, ntpservers, nameservers, loopback_ip)?;
+    let next_contents = dhcp::build_server_config(
+        service_addrs.pxe_ip,
+        service_addrs.ntpservers.clone(),
+        nameservers,
+        loopback_ip,
+    )?;
     match write(
         next_contents,
         &dhcp_server_path.config,
@@ -1357,7 +1364,7 @@ mod tests {
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
-    use crate::ethernet_virtualization::get_interface_cmd;
+    use crate::ethernet_virtualization::{get_interface_cmd, ServiceAddresses};
     use crate::{nvue, HBNDeviceNames};
     use forge_network::virtualization::{
         get_svi_ip, get_tenant_vrf_loopback_ip, VpcVirtualizationType,
@@ -2009,6 +2016,16 @@ mod tests {
         let i = tempfile::NamedTempFile::new()?;
         let ip = FPath(PathBuf::from(i.path()));
 
+        let service_addrs = ServiceAddresses {
+            pxe_ip: Ipv4Addr::from([10, 0, 0, 1]),
+            ntpservers: vec![
+                Ipv4Addr::from([127, 0, 0, 1]),
+                Ipv4Addr::from([127, 0, 0, 2]),
+                Ipv4Addr::from([127, 0, 0, 3]),
+            ],
+            nameservers: vec![IpAddr::from([10, 1, 1, 1])],
+        };
+
         match super::write_dhcp_server_config(
             &fp,
             &super::DhcpServerPaths {
@@ -2017,13 +2034,7 @@ mod tests {
                 host_config: ip.clone(),
             },
             &network_config,
-            Ipv4Addr::from([10, 0, 0, 1]),
-            vec![
-                Ipv4Addr::from([127, 0, 0, 1]),
-                Ipv4Addr::from([127, 0, 0, 2]),
-                Ipv4Addr::from([127, 0, 0, 3]),
-            ],
-            vec![IpAddr::from([10, 1, 1, 1])],
+            &service_addrs,
         ) {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
@@ -2051,6 +2062,11 @@ mod tests {
         // tenant host config.
         network_config.use_admin_network = false;
 
+        let service_addrs = ServiceAddresses {
+            pxe_ip: Ipv4Addr::from([10, 0, 0, 1]),
+            ntpservers: vec![],
+            nameservers: vec![IpAddr::from([10, 1, 1, 1])],
+        };
         match super::write_dhcp_server_config(
             &fp,
             &super::DhcpServerPaths {
@@ -2059,9 +2075,7 @@ mod tests {
                 host_config: ip,
             },
             &network_config,
-            Ipv4Addr::from([10, 0, 0, 1]),
-            vec![],
-            vec![IpAddr::from([10, 1, 1, 1])],
+            &service_addrs,
         ) {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
