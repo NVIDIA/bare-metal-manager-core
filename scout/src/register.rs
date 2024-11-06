@@ -44,6 +44,7 @@ pub async fn run(
         false,
         retry,
         true,
+        true,
     )
     .await?;
     let machine_id = registration_data.machine_id;

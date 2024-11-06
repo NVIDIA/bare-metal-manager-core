@@ -34,6 +34,7 @@ pub mod dpu;
 
 pub mod acl;
 mod acl_rules;
+mod cert_renewal;
 mod command_line;
 pub mod containerd;
 mod daemons;
@@ -430,6 +431,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
             max: agent.period.discovery_retries_max,
         },
         false,
+        !agent.machine.is_fake_dpu,
     )
     .await?;
 

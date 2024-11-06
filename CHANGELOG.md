@@ -4,6 +4,9 @@
 ### Added
 ### Changed
 ### Fixed
+
+- Fixed an issue where client certificate renewal on DPUs would not be retried before certificate expiry. This issue could have applied in cases where the initial renewal attempt had failed for any reason.
+
 ### Removed
 
 ## [v2024.10.25-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...v2024.10.25-rc2-0)
