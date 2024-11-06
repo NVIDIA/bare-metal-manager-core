@@ -389,7 +389,6 @@ impl MainLoop {
             dpu_health: None,
             dpu_agent_version: Some(self.build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
-            health: None,
             network_config_version: None,
             instance_config_version: None,
             instance_network_config_version: None,
@@ -668,39 +667,6 @@ impl MainLoop {
                 self.is_hbn_up = health::is_up(&health_report);
                 // subset of is_healthy
                 tracing::trace!(%self.machine_id, ?health_report, "HBN health");
-                // If we just applied a new network config report network as unhealthy.
-                // This gives HBN / BGP time to act on the config.
-                let hs = rpc::NetworkHealth {
-                    is_healthy,
-                    passed: health_report
-                        .successes
-                        .iter()
-                        .map(|s| {
-                            if let Some(target) = &s.target {
-                                format!("{}({})", s.id, target)
-                            } else {
-                                s.id.to_string()
-                            }
-                        })
-                        .collect(),
-                    failed: health_report
-                        .alerts
-                        .iter()
-                        .map(|a| {
-                            if let Some(target) = &a.target {
-                                format!("{}({})", a.id, target)
-                            } else {
-                                a.id.to_string()
-                            }
-                        })
-                        .collect(),
-                    message: health_report
-                        .alerts
-                        .first()
-                        .map(|alert| alert.message.clone()),
-                };
-
-                status_out.health = Some(hs);
                 status_out.dpu_health = Some(health_report.clone().into());
                 current_health_report = Some(health_report);
                 current_config_error = status_out.network_config_error.clone();

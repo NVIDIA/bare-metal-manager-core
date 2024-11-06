@@ -1616,9 +1616,8 @@ message Machine {
   BmcInfo bmc_info = 12;
 
   google.protobuf.Timestamp last_reboot_time = 14;
-  // TODO: This is used by legacy versions of forge-admin-cli as well as by Forge Cloud
-  // It should be removed once those are upgraded and use the new `health`` field
-  NetworkHealth network_health = 15;
+  // This is used by legacy versions of forge-admin-cli as well as by Forge Cloud
+  reserved 15; // Was NetworkHealth network_health = 15;
   google.protobuf.Timestamp last_observation_time = 16;
   optional string maintenance_reference = 17;
   optional google.protobuf.Timestamp maintenance_start_time = 18;
@@ -2402,8 +2401,7 @@ message DpuNetworkStatus {
   common.MachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
   // Legacy mechanism to indicate DPU health.
-  // Replaced by the `dpu_health` field
-  NetworkHealth health = 3;
+  reserved 3; // Was NetworkHealth health = 3; - // Replaced by the `dpu_health` field
   optional string network_config_version = 4;
   // If an instance is configured, this field references the version of the networking
   // configuration that is applied on the instance
@@ -2705,14 +2703,6 @@ message ValidateTenantPublicKeyRequest {
 }
 // the status of the response will be in the grpc Status object, along with any associated Errors.
 message ValidateTenantPublicKeyResponse {}
-
-// Health of HBN on a DPU. Sent by forge-dpu-agent.
-message NetworkHealth {
-    bool is_healthy = 1;
-    repeated string passed = 2;
-    repeated string failed = 3;
-    optional string message = 4;
-}
 
 message ListResourcePoolsRequest {}
 message ResourcePools {

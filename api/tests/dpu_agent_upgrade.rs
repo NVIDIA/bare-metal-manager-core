@@ -61,12 +61,6 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Report that we're on an old version of the DPU
     // That should trigger marking us for upgrade
-    let hs = rpc::NetworkHealth {
-        is_healthy: true,
-        passed: vec!["ContainerExists".to_string(), "checkTwo".to_string()],
-        failed: vec!["".to_string()],
-        message: None,
-    };
     let network_config_version = response.managed_host_config_version.clone();
     env.api
         .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
@@ -75,7 +69,6 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             dpu_agent_version: Some("v2023.06-rc2-1-gc5c05de3".to_string()),
             // END
             observed_at: None,
-            health: Some(hs),
             dpu_health: Some(::rpc::health::HealthReport {
                 source: "forge-dpu-agent".to_string(),
                 observed_at: None,

@@ -65,27 +65,14 @@ async fn test_machine_health_reporting(
     assert_eq!(aggregate_health.successes, vec![]);
 
     // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
-    // We use just the new format of health-reports, which should take precendence
-    // over the legacy format
-    let network_health = rpc::forge::NetworkHealth {
-        is_healthy: true,
-        passed: vec![],
-        failed: vec![],
-        message: None,
-    };
+
     let dpu_health = hr(
         "should-get-updated",
         vec![("Success1", None)],
         vec![("Failure1", None, "Failure1")],
     );
 
-    network_configured_with_health(
-        &env,
-        &dpu_machine_id,
-        Some(network_health),
-        Some(dpu_health.clone().into()),
-    )
-    .await;
+    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone().into())).await;
 
     check_reports_equal(
         "forge-dpu-agent",
@@ -201,26 +188,12 @@ async fn test_machine_health_aggregation(
     );
 
     // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
-    // We use just the new format of health-reports, which should take precendence
-    // over the legacy format
-    let network_health = rpc::forge::NetworkHealth {
-        is_healthy: true,
-        passed: vec![],
-        failed: vec![],
-        message: None,
-    };
     let dpu_health = hr(
         "dpu-health",
         vec![("Success1", None)],
         vec![("Failure1", None, "Reason1")],
     );
-    network_configured_with_health(
-        &env,
-        &dpu_machine_id,
-        Some(network_health),
-        Some(dpu_health.clone().into()),
-    )
-    .await;
+    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone().into())).await;
 
     // Aggregate health in snapshot indicates the DPU issue
     let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();

@@ -14,7 +14,6 @@ use std::time::SystemTime;
 
 use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
-    NetworkHealth,
 };
 use rpc::forge::forge_server::Forge;
 
@@ -124,12 +123,6 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(response.all.len(), 1);
 
     // Tell API about latest network config and machine health
-    let hs = NetworkHealth {
-        is_healthy: true,
-        passed: vec!["ContainerExists".to_string(), "checkTwo".to_string()],
-        failed: vec!["".to_string()],
-        message: None,
-    };
     let dpu_health = rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
         observed_at: None,
@@ -145,7 +138,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         ],
         alerts: vec![],
     };
-    network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
+    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
 
     // Query the aggregate health.
     let reported_health = env
@@ -181,7 +174,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
-async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::PgPool) {
+async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -194,25 +187,16 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
         .unwrap()
         .into_inner();
 
-    // Tell API about latest network config and machine health
-    let hs = NetworkHealth {
-        is_healthy: false,
-        passed: vec!["Success2".to_string()],
-        failed: vec!["Fail1".to_string()],
-        message: None,
-    };
-
     let admin_if = response.admin_interface.as_ref().unwrap();
 
     // dpu-health is not updated here
-    // We still expect forge-api to write it
-    env.api
+    let err = env
+        .api
         .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
             dpu_machine_id: Some(dpu_machine_id.to_string().into()),
             dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
             observed_at: Some(SystemTime::now().into()),
             dpu_health: None,
-            health: Some(hs),
             network_config_version: Some(response.managed_host_config_version.clone()),
             instance_id: None,
             instance_config_version: None,
@@ -231,45 +215,10 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
             last_dhcp_requests: vec![],
         }))
         .await
-        .unwrap();
+        .expect_err("Should fail");
 
-    // Query the aggregate health.
-    let health = env
-        .api
-        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
-        .await
-        .unwrap()
-        .into_inner()
-        .health;
-    let mut health = health.unwrap();
-    assert!(health.observed_at.is_some());
-    health.observed_at = None;
-    assert_eq!(health.alerts.len(), 1);
-    assert!(health.alerts[0].in_alert_since.is_some());
-    health.alerts[0].in_alert_since = None;
-    assert_eq!(
-        health,
-        rpc::health::HealthReport {
-            source: "forge-dpu-agent".to_string(),
-            observed_at: None,
-            successes: vec![rpc::health::HealthProbeSuccess {
-                id: "Success2".to_string(),
-                target: None,
-            }],
-            alerts: vec![rpc::health::HealthProbeAlert {
-                id: "Fail1".to_string(),
-                target: None,
-                in_alert_since: None,
-                message: "Fail1".to_string(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes()
-                        .to_string()
-                ]
-            }]
-        }
-    );
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(err.message(), "dpu_health");
 }
 
 /// Tests whether the in_alert_since field will be correctly populated
@@ -279,12 +228,6 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let hs = NetworkHealth {
-        is_healthy: true,
-        passed: vec![],
-        failed: vec![],
-        message: None,
-    };
     let dpu_health = rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
         observed_at: None,
@@ -304,13 +247,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
         }],
     };
 
-    network_configured_with_health(
-        &env,
-        &dpu_machine_id,
-        Some(hs.clone()),
-        Some(dpu_health.clone()),
-    )
-    .await;
+    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
 
     // Query the new HealthReport format
     let reported_health = env
@@ -334,7 +271,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Report health again. The in_alert_since date should not have been updated
-    network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
+    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
     let reported_health = env
         .api
         .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))

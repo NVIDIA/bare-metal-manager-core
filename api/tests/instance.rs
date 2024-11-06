@@ -1729,12 +1729,6 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     network_configured_with_health(
         &env,
         &dpu_machine_id,
-        Some(rpc::forge::NetworkHealth {
-            is_healthy: true,
-            passed: vec![],
-            failed: vec![/* Does not matter anymore. We use dpu_health */],
-            message: None,
-        }),
         Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             observed_at: None,
