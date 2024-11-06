@@ -4677,6 +4677,17 @@ pub async fn handler_host_power_control(
     )
     .await?;
 
+    let power_state = host_power_state(redfish_client.as_ref()).await?;
+
+    if (power_state == libredfish::PowerState::Off
+        && (action == SystemPowerControl::ForceOff
+            || action == SystemPowerControl::GracefulShutdown))
+        || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On)
+    {
+        tracing::warn!("Target power state {power_state} is already reached. Skipping power control action {action}");
+        return Ok(());
+    }
+
     host_power_control(
         redfish_client.as_ref(),
         &managedhost_snapshot.host_snapshot,
