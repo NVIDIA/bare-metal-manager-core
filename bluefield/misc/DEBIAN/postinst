@@ -12,6 +12,14 @@ if [ "$1" = "configure" ]; then
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
+	systemctl enable node-exporter.service
+
+	if [ -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml ]; then
+		rm -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml
+	fi
+	if [ -d /etc/otelcol-contrib/fd_configs ]; then
+		rmdir --ignore-fail-on-non-empty /etc/otelcol-contrib/fd_configs
+	fi
 
 	# Do not depend on starting services now, as this package is installed early in setup
 	# and should not hang or cause out of order steps in discovery workflows. The discovery

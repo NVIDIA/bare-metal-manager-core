@@ -1,0 +1,26 @@
+[Unit]
+Description=Prometheus Node Exporter
+Documentation=https://github.com/prometheus/node_exporter?tab=readme-ov-file
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/node_exporter --web.listen-address=localhost:9200 --collector.disable-defaults \
+    --collector.arp \
+    --collector.netclass \
+    --collector.netdev \
+    --collector.netstat \
+    --collector.pressure \
+    --collector.time \
+    --collector.timex
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+Type=simple
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

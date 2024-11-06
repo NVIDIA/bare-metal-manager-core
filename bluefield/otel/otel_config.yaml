@@ -42,7 +42,37 @@ receivers:
         - job_name: 'forge-metrics'
           scrape_interval: 10s
           static_configs:
-            - targets: ['0.0.0.0:8888']
+            - targets: ['localhost:8888']
+
+  prometheus/node:
+    config:
+      scrape_configs:
+        - job_name: 'node-exporter-metrics'
+          scrape_interval: 1m
+          static_configs:
+            - targets: ['localhost:9200']
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "^(?:node_network_carrier|\
+                node_network_carrier_down_changes_total|\
+                node_network_carrier_up_changes_total|\
+                node_network_info|\
+                node_network_mtu_bytes|\
+                node_network_receive_bytes_total|\
+                node_network_receive_drop_total|\
+                node_network_receive_errs_total|\
+                node_network_receive_packets_total|\
+                node_network_speed_bytes|\
+                node_network_transmit_bytes_total|\
+                node_network_transmit_drop_total|\
+                node_network_transmit_errs_total|\
+                node_network_transmit_packets_total|\
+                node_network_up|\
+                node_arp_entries|\
+                node_boot_time_seconds|\
+                node_pressure_.*|\
+                node_timex_.*)$"
+              action: keep
 
   prometheus/dts:
     config:
@@ -50,7 +80,7 @@ receivers:
         - job_name: 'doca-telemetry'
           scrape_interval: 1m
           static_configs:
-            - targets: ['0.0.0.0:9100']
+            - targets: ['localhost:9100']
           metric_relabel_configs:
             # This filter limits the set of DOCA metrics exported from the DPU
             # to keep CPU and memory load in check on the site controller.
@@ -72,15 +102,15 @@ receivers:
                 .*_eth_(?:rx|tx)(?:_.*)?_errors|\
                 .*_eth_(?:rx|tx)_dropped)$"
               action: keep
-            # Apply the prefix to a new label called "prefix"
+            # Apply the prefix to a new label called "device"
             - source_labels: [__name__]
               regex: '^(.*)_eth_(?:rx|tx)(?:_.*)?_errors$'
-              target_label: prefix
+              target_label: device
               replacement: '$$1'
               action: replace
             - source_labels: [__name__]
               regex: '^(.*)_eth_(?:rx|tx)_dropped$'
-              target_label: prefix
+              target_label: device
               replacement: '$$1'
               action: replace
             # Strip the prefix from the metric name
@@ -211,6 +241,11 @@ processors:
       - key: component
         value: fmds
         action: upsert
+  resource/metrics-node-exporter:
+    attributes:
+      - key: component
+        value: node-exporter
+        action: upsert
   resourcedetection:
     # Add hostname at the resource level
     detectors: ["system"]
@@ -292,6 +327,15 @@ service:
         - memory_limiter
         - resourcedetection
         - resource/metrics-fmds
+        - telemetry_stats
+        - batch/metrics
+      exporters: [otlp/site, prometheus]
+    metrics/node-exporter:
+      receivers: [prometheus/node]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource/metrics-node-exporter
         - telemetry_stats
         - batch/metrics
       exporters: [otlp/site, prometheus]
