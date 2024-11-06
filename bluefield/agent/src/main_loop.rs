@@ -21,17 +21,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
 use axum::Router;
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
-use forge_host_support::registration;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use rand::Rng;
 use tokio::process::Command as TokioCommand;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
@@ -40,6 +37,7 @@ use tokio::time::timeout;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
+use crate::cert_renewal::ClientCertRenewer;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
@@ -76,6 +74,9 @@ pub async fn setup_and_run(
     let process_start_time = SystemTime::now();
 
     let forge_api_server = agent_config.forge_system.api_server.clone();
+    // Setup client certificate renewal
+    let client_cert_renewer =
+        ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
 
     if let Err(e) = write_machine_id("/run/otelcol-contrib", &machine_id) {
         tracing::error!(error = %e, "Failed to write machine ID");
@@ -166,13 +167,6 @@ pub async fn setup_and_run(
     .await;
 
     let network_config_reader = network_config_fetcher.reader();
-
-    // we will attempt to refresh the cert at this frequency.
-    let min_cert_renewal_time_secs = 5 * 24 * 60 * 60; // 5 days
-    let max_cert_renewal_time_secs = 7 * 24 * 60 * 60; // 7 days
-    let cert_renewal_period =
-        rand::thread_rng().gen_range(min_cert_renewal_time_secs..max_cert_renewal_time_secs);
-    let cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
     let service_addrs = if !agent_config.machine.is_fake_dpu {
         let mut url_resolver = UrlResolver::try_new()?;
@@ -274,9 +268,7 @@ pub async fn setup_and_run(
         network_config_reader,
         instance_metadata_reader,
         instance_metadata_state,
-        cert_renewal_time,
-        min_cert_renewal_time_secs,
-        max_cert_renewal_time_secs,
+        client_cert_renewer,
         hbn_device_names,
         is_hbn_up: false,
         seen_blank: false,
@@ -307,9 +299,7 @@ struct MainLoop {
     network_config_reader: Box<network_config_fetcher::NetworkConfigReader>,
     instance_metadata_reader: Arc<instance_metadata_fetcher::InstanceMetadataFetcherState>,
     instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
-    cert_renewal_time: std::time::Instant,
-    min_cert_renewal_time_secs: u64,
-    max_cert_renewal_time_secs: u64,
+    client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
     is_hbn_up: bool,
     seen_blank: bool,
@@ -359,7 +349,7 @@ impl MainLoop {
                 _ = hup_signal.recv() => {
                     tracing::info!("Hangup received, timer reset");
                     let now = Instant::now();
-                    self.cert_renewal_time = now;
+                    self.client_cert_renewer.renew_on_next_check();
                     self.inventory_updater_time = now;
                     self.version_check_time = now;
                     // the loop_period sleep is interrupted so we will fetch new network config
@@ -740,12 +730,9 @@ impl MainLoop {
         };
 
         let now = Instant::now();
-        if now > self.cert_renewal_time {
-            let cert_renewal_period = rand::thread_rng()
-                .gen_range(self.min_cert_renewal_time_secs..self.max_cert_renewal_time_secs);
-            self.cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
-            renew_certificates(&self.forge_api_server, self.forge_client_config.clone()).await;
-        }
+        self.client_cert_renewer
+            .renew_certificates_if_necessary()
+            .await;
 
         if now > self.inventory_updater_time {
             self.inventory_updater_time =
@@ -969,61 +956,6 @@ pub async fn record_network_status(
         );
     }
 }
-
-async fn renew_certificates(forge_api: &str, client_config: forge_tls_client::ForgeClientConfig) {
-    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
-        forge_api,
-        client_config,
-    ))
-    .await
-    {
-        Ok(client) => client,
-        Err(err) => {
-            tracing::error!(
-                forge_api,
-                error = format!("{err:#}"),
-                "renew_certificates: Could not connect to Forge API server. Will retry."
-            );
-            return;
-        }
-    };
-
-    let request = tonic::Request::new(rpc::MachineCertificateRenewRequest {});
-    match client.renew_machine_certificate(request).await {
-        Ok(response) => {
-            let machine_certificate_result = response.into_inner();
-            tracing::info!("Received new machine certificate. Attempting to write to disk.");
-            registration::write_certs(machine_certificate_result.machine_certificate).await;
-        }
-        Err(err) => {
-            tracing::error!(
-                error = format!("{err:#}"),
-                "Error while executing the renew_certificates gRPC call"
-            );
-        }
-    }
-}
-
-/*
-async fn start_inventory_updater(
-    machine_id: &str,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
-    agent: &AgentConfig,
-) -> eyre::Result<()> {
-    let forge_api = &agent.forge_system.api_server;
-
-    let config = MachineInventoryUpdaterConfig {
-        update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
-        machine_id: machine_id.to_string(),
-        forge_api: forge_api.to_string(),
-        forge_client_config,
-    };
-
-    tokio::task::spawn(machine_inventory_updater::run(config));
-
-    Ok(())
-}
-*/
 
 fn spawn_metadata_service(
     metadata_service_address: String,

@@ -16,6 +16,7 @@ use ::rpc::forge::MachineCertificate;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
 use ::rpc::{forge as rpc, MachineDiscoveryInfo};
+use eyre::WrapErr;
 use forge_tls::default as tls_default;
 use tryhard::RetryFutureConfig;
 
@@ -27,6 +28,8 @@ pub enum RegistrationError {
     TonicStatusError(#[from] tonic::Status),
     #[error("Missing machine id in API server response. Should be impossible")]
     MissingMachineId,
+    #[error("Failed to retrieve or write client certificate: {0}")]
+    ClientCertificateError(eyre::Report),
 }
 
 /// Data that is retrieved from the Forge API server during registration
@@ -145,6 +148,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
 /// Registers a machine at the Forge API server for further interactions
 ///
 /// Returns information about the machine that is known by the API server
+#[allow(clippy::too_many_arguments)]
 pub async fn register_machine(
     forge_api: &str,
     root_ca: String,
@@ -153,6 +157,7 @@ pub async fn register_machine(
     use_mgmt_vrf: bool,
     retry: DiscoveryRetry,
     create_machine: bool,
+    require_client_certificates: bool,
 ) -> Result<RegistrationData, RegistrationError> {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
@@ -174,7 +179,11 @@ pub async fn register_machine(
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .discover_machine(info)
         .await?;
-    write_certs(response.machine_certificate).await;
+    match write_certs(response.machine_certificate).await {
+        Ok(()) => {}
+        Err(_) if !require_client_certificates => {}
+        Err(e) => return Err(RegistrationError::ClientCertificateError(e)),
+    }
 
     let machine_id: String = response
         .machine_id
@@ -185,7 +194,9 @@ pub async fn register_machine(
     Ok(RegistrationData { machine_id })
 }
 
-pub async fn write_certs(machine_certificate: Option<MachineCertificate>) {
+pub async fn write_certs(
+    machine_certificate: Option<MachineCertificate>,
+) -> Result<(), eyre::Report> {
     if let Some(mut machine_certificate) = machine_certificate {
         let mut combined_cert = Vec::with_capacity(
             machine_certificate.public_key.len() + machine_certificate.issuing_ca.len() + 1,
@@ -194,36 +205,29 @@ pub async fn write_certs(machine_certificate: Option<MachineCertificate>) {
         combined_cert.append(&mut "\n".to_string().into_bytes());
         combined_cert.append(&mut machine_certificate.issuing_ca);
         combined_cert.append(&mut "\n".to_string().into_bytes());
-        match tokio::fs::write(tls_default::CLIENT_CERT, combined_cert).await {
-            Ok(_val) => tracing::info!(
-                "Wrote new machine certificate PEM to: {:?}",
+        tokio::fs::write(tls_default::CLIENT_CERT, combined_cert)
+            .await
+            .wrap_err(format!(
+                "Failed to write new machine certificate PEM to {}",
                 tls_default::CLIENT_CERT
-            ),
-            Err(err) => {
-                tracing::error!(
-                    error = format!("{err:#}"),
-                    "Failed to write new machine certificate PEM to: {:?}",
-                    tls_default::CLIENT_CERT
-                );
-            }
-        }
-        match tokio::fs::write(
+            ))?;
+        tracing::info!(
+            "Wrote new machine certificate PEM to: {:?}",
+            tls_default::CLIENT_CERT
+        );
+
+        tokio::fs::write(
             tls_default::CLIENT_KEY,
             machine_certificate.private_key.as_slice(),
         )
         .await
-        {
-            Ok(_val) => tracing::info!(
-                "Wrote new machine certificate key to: {:?}",
-                tls_default::CLIENT_KEY
-            ),
-            Err(err) => {
-                tracing::error!(
-                    error = format!("{err:#}"),
-                    "Failed to write new machine certificate key to: {:?}",
-                    tls_default::CLIENT_KEY
-                );
-            }
-        }
+        .wrap_err(format!(
+            "Failed to write new machine certificate key to: {}",
+            tls_default::CLIENT_KEY
+        ))?;
+    } else {
+        return Err(eyre::eyre!("write_certs: machine_certificate is empty"));
     }
+
+    Ok(())
 }
