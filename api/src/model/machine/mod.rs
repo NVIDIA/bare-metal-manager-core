@@ -602,22 +602,6 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 }),
             bmc_info: Some(machine.bmc_info.into()),
             last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            // TODO: This is here for backward compatibility with old Admin-CLIs
-            // We might however in the future remove it
-            network_health: Some(rpc::forge::NetworkHealth {
-                is_healthy: health.alerts.is_empty(),
-                passed: health
-                    .successes
-                    .iter()
-                    .map(|success| success.id.to_string())
-                    .collect(),
-                failed: health
-                    .alerts
-                    .iter()
-                    .map(|alert| alert.id.to_string())
-                    .collect(),
-                message: health.alerts.first().map(|alert| alert.message.clone()),
-            }),
             last_observation_time: machine
                 .network_status_observation
                 .as_ref()

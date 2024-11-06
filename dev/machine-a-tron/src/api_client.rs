@@ -402,12 +402,6 @@ pub async fn record_dpu_network_status(
                 }),
                 dpu_machine_id,
                 observed_at: None,
-                health: Some(rpc::forge::NetworkHealth {
-                    is_healthy: true,
-                    passed: vec![],
-                    failed: vec![],
-                    message: Some("Hello".to_owned()),
-                }),
                 network_config_version: Some(network_config_version),
                 instance_config_version,
                 instance_network_config_version,

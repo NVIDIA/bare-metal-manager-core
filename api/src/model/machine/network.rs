@@ -18,14 +18,6 @@ pub struct MachineNetworkStatusObservation {
     pub client_certificate_expiry: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HealthStatus {
-    pub is_healthy: bool,
-    pub passed: Vec<String>,
-    pub failed: Vec<String>,
-    pub message: Option<String>,
-}
-
 impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     type Error = RpcDataConversionError;
 
@@ -62,7 +54,6 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             dpu_machine_id: Some(m.machine_id.clone().into()),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
-            health: None,
             network_config_version: m.network_config_version.map(|v| v.version_string()),
             instance_id: None,
             instance_config_version: None,
@@ -73,17 +64,6 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             dpu_health: None,
             fabric_interfaces: vec![],
             last_dhcp_requests: vec![],
-        }
-    }
-}
-
-impl From<HealthStatus> for rpc::NetworkHealth {
-    fn from(h: HealthStatus) -> rpc::NetworkHealth {
-        rpc::NetworkHealth {
-            is_healthy: h.is_healthy,
-            passed: h.passed.clone(),
-            failed: h.failed.clone(),
-            message: h.message.clone(),
         }
     }
 }

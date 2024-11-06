@@ -155,6 +155,8 @@ pub async fn health_check(
     .await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
 
+    // If we just applied a new network config report network as unhealthy.
+    // This gives HBN / BGP time to act on the config.
     if has_changed_configs {
         failed(
             &mut hr,

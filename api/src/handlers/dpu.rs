@@ -386,11 +386,6 @@ pub(crate) async fn record_dpu_network_status(
     };
     log_machine_id(&dpu_machine_id);
 
-    let hs = request
-        .health
-        .as_ref()
-        .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
-
     // TODO: persist this somewhere
     let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
 
@@ -455,66 +450,15 @@ pub(crate) async fn record_dpu_network_status(
         "Applied network configs",
     );
 
-    // Generate and store a health-report
-    // In case forge-dpu-agent sends it in the new format - use directly that
-    // Otherwise convert the legacy format
-    let mut health_report = if let Some(health_report) = &request.dpu_health {
-        health_report::HealthReport::try_from(health_report.clone())
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?
-    } else {
-        // Convert NetworkHealth into Health report
-        let mut report = health_report::HealthReport {
-            source: "forge-dpu-agent".to_string(),
-            observed_at: None,
-            successes: Vec::new(),
-            alerts: Vec::new(),
-        };
-        for passed in hs.passed.iter() {
-            report.successes.push(health_report::HealthProbeSuccess {
-                id: passed.to_string().parse().unwrap(),
-                target: None,
-            })
-        }
-        for failed in hs.failed.iter() {
-            report.alerts.push(health_report::HealthProbeAlert {
-                id: failed.parse().map_err(|e| {
-                    CarbideError::GenericError(format!(
-                        "Can not convert health probe alert id: {e}"
-                    ))
-                })?,
-                target: None,
-                in_alert_since: None,
-                // We don't really know the message. The legacy format doesn't associate it with a probe ID
-                message: failed.clone(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes(),
-                ],
-            })
-        }
-        // Mimic the old behavior of forge-dpu-agent which sets is_healthy to false
-        // but adds no failure in case configs change
-        if !hs.is_healthy && hs.failed.is_empty() {
-            report.alerts.push(health_report::HealthProbeAlert {
-                id: "PostConfigCheckWait".parse().map_err(|e| {
-                    CarbideError::GenericError(format!(
-                        "Can not convert health probe alert id: {e}"
-                    ))
-                })?,
-                target: None,
-                in_alert_since: Some(chrono::Utc::now()),
-                message: "PostConfigCheckWait".to_string(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes(),
-                ],
-            });
-        }
-
-        report
-    };
+    // Store the DPU submitted health-report
+    let mut health_report = health_report::HealthReport::try_from(
+        request
+            .dpu_health
+            .as_ref()
+            .ok_or_else(|| CarbideError::MissingArgument("dpu_health"))?
+            .clone(),
+    )
+    .map_err(|e| CarbideError::GenericError(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
     health_report.source = "forge-dpu-agent".to_string();
@@ -635,15 +579,9 @@ pub(crate) async fn record_dpu_network_status(
     // suppressed for a certain amount of time to reduce logging noise.
     // The suppression is keyed by the type of errors that occur. If the set
     // of errors changed, the log will be emitted again.
-    let suppress_log_key = match (&request.network_config_error, hs.is_healthy) {
-        (Some(error), true) => error.to_string(),
-        (Some(error), false) => {
-            format!("{}_{:?}_{}", error, hs.failed, hs.message())
-        }
-        (None, true) => String::new(),
-        (None, false) => {
-            format!("{:?}_{}", hs.failed, hs.message())
-        }
+    let suppress_log_key = match &request.network_config_error {
+        Some(error) => error.to_string(),
+        None => String::new(),
     };
 
     if suppress_log_key.is_empty()
