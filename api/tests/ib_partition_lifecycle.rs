@@ -14,7 +14,7 @@ use carbide::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
     cfg::IBFabricConfig,
-    db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
+    db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
         types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
@@ -258,7 +258,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition = new_partition
+    let mut partition: IBPartition = new_partition
         .create(
             &mut txn,
             &IBFabricManagerConfig {
@@ -272,6 +272,12 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         .await?;
     txn.commit().await?;
 
+    let mut txn = pool.begin().await?;
+    let results = IBPartition::for_tenant(&mut txn, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(partition.config, results[0].config);
+
     let ibnetwork = IBNetwork {
         pkey: 42,
         name: "x".to_string(),
@@ -284,7 +290,6 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         rate_limit: IBRateLimit::default(),
     };
     partition.status = Some(IBPartitionStatus::from(&ibnetwork));
-
     // What we're testing
     let mut txn = pool.begin().await?;
     partition.update(&mut txn).await?;

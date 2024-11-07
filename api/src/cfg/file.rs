@@ -2019,6 +2019,59 @@ max_partition_per_tenant = 3
     }
 
     #[test]
+    fn deserialize_serialize_ib_config() {
+        let value_input = IBFabricConfig {
+            enabled: true,
+            max_partition_per_tenant: 1,
+            mtu: IBMtu(2),
+            rate_limit: IBRateLimit(10),
+            service_level: IBServiceLevel(2),
+        };
+
+        let value_json = serde_json::to_string(&value_input).unwrap();
+        let value_output: IBFabricConfig = serde_json::from_str(&value_json).unwrap();
+
+        assert_eq!(value_output, value_input);
+
+        let value_json = r#"{"enabled": true, "max_partition_per_tenant": 2, "mtu": 4, "rate_limit": 20, "service_level": 10}"#;
+        let value_output: IBFabricConfig = serde_json::from_str(value_json).unwrap();
+
+        assert_eq!(
+            value_output,
+            IBFabricConfig {
+                enabled: true,
+                max_partition_per_tenant: 2,
+                mtu: IBMtu(4),
+                rate_limit: IBRateLimit(20),
+                service_level: IBServiceLevel(10),
+            }
+        );
+
+        let value_input = IBFabricConfig::default();
+        assert!(!value_input.enabled);
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                enabled=true
+            "#,
+            )?;
+            let config: IBFabricConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert!(config.enabled);
+            assert_eq!(config.max_partition_per_tenant, MAX_IB_PARTITION_PER_TENANT);
+            assert_eq!(config.mtu, IBMtu::default());
+            assert_eq!(config.rate_limit, IBRateLimit::default());
+            assert_eq!(config.service_level, IBServiceLevel::default());
+            Ok(())
+        });
+    }
+
+    #[test]
     fn site_explorer_serde_defaults_match_core_defaults() -> eyre::Result<()> {
         // Make sure that if we let serde pick the defaults, it matches Default::default().
         let deserialized = serde_json::from_str::<SiteExplorerConfig>("{}")?;

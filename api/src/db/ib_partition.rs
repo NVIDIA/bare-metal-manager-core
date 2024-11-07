@@ -96,7 +96,7 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IBPartitionConfig {
     pub name: String,
     pub pkey: Option<u16>,

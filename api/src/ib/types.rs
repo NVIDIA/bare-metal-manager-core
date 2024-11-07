@@ -61,13 +61,13 @@ pub struct IBPort {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct IBMtu(i32);
+pub struct IBMtu(pub i32);
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct IBRateLimit(i32);
+pub struct IBRateLimit(pub i32);
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct IBServiceLevel(i32);
+pub struct IBServiceLevel(pub i32);
 
 impl Default for IBMtu {
     fn default() -> IBMtu {
