@@ -47,11 +47,22 @@ script = '''
   echo Cleanup completed.
 '''
 
+[tasks.cleanup-transceiver-exporter]
+category = "Build"
+workspace = false
+description = "cleanup transceiver exporter"
+script = '''
+  echo Cleaning up transceiver exporter ...
+  rm -rf ${REPO_ROOT}/bluefield/transceiver_exporter/transceiver-exporter-*
+  echo Cleanup completed.
+'''
+
 [tasks.clean]
 dependencies = [
   "cleanup-local-pkg-files",
   "cleanup-custom-otelcol-build",
   "cleanup-node-exporter",
+  "cleanup-transceiver-exporter",
 ]
 
 [tasks.build-dpu-agent]
@@ -235,6 +246,46 @@ condition = { files_modified = { input = [
 ] } }
 run_task = "download-node-exporter"
 
+[tasks.download-transceiver-exporter]
+category = "Build"
+description = "Get the transceiver exporter"
+workspace = false
+script = '''
+  TRANSCEIVER=${REPO_ROOT}/bluefield/transceiver_exporter
+  cd ${TRANSCEIVER}
+  VERSION=$(cat version.txt)
+  URL=$(sed -e "s/\${VERSION}/${VERSION}/g" url.txt)
+  TARFILE=$(basename ${URL})
+  EXTRACT_DIR=${TARFILE%.tar.gz}
+  wget -q $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=30
+  mkdir -p ${TRANSCEIVER}/${EXTRACT_DIR}
+  tar xvfz ${TARFILE} -C ${TRANSCEIVER}/${EXTRACT_DIR}
+  rm -f ${TARFILE}
+  export vers=${DPU_AGENT_PKG_VERSION}
+  export bin=${REPO_ROOT}/bluefield/forge-dpu_${vers}/usr/bin
+  export licenses=${REPO_ROOT}/bluefield/forge-dpu_${vers}/usr/share/licenses
+  mkdir -p $bin
+  mkdir -p $licenses/transceiver-exporter
+  mv ${TRANSCEIVER}/${EXTRACT_DIR}/transceiver-exporter $bin
+  mv ${TRANSCEIVER}/${EXTRACT_DIR}/LICENSE.md $licenses/transceiver-exporter
+  rm -rf ${TRANSCEIVER}/${EXTRACT_DIR}
+  touch $bin/transceiver-exporter $licenses/transceiver-exporter/LICENSE.md
+'''
+
+[tasks.include-transceiver-exporter]
+category = "Build"
+description = "Include transceiver-exporter binary in forge-dpu-agent.deb package"
+workspace = false
+condition = { files_modified = { input = [
+  "${REPO_ROOT}/bluefield/Makefile.toml",
+  "${REPO_ROOT}/bluefield/transceiver_exporter/url.txt",
+  "${REPO_ROOT}/bluefield/transceiver_exporter/version.txt",
+], output = [
+  "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}/usr/bin/transceiver-exporter",
+  "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}/usr/share/licenses/transceiver-exporter/LICENSE.md",
+] } }
+run_task = "download-transceiver-exporter"
+
 [tasks.setup-dpu-agent-deb-local]
 category = "Build"
 description = "Build the forge-dpu-agent.deb package locally"
@@ -255,6 +306,7 @@ script = '''
   cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
   cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/node-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
   cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
   cp -r misc/DEBIAN "forge-dpu_${vers}/"
@@ -265,6 +317,7 @@ dependencies = [
   { name = "build-dhcp-server", path = "${REPO_ROOT}/dhcp-server" },
   "include-otelcol",
   "include-node-exporter",
+  "include-transceiver-exporter",
 ]
 
 [tasks.setup-forge-dpu-deb]
@@ -286,6 +339,7 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/node-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
@@ -296,6 +350,7 @@ dependencies = [
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
   "include-otelcol",
   "include-node-exporter",
+  "include-transceiver-exporter",
 ]
 
 [tasks.setup-forge-dpu-deb-ci]
@@ -317,6 +372,7 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/node-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
@@ -327,6 +383,7 @@ dependencies = [
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
   "include-otelcol",
   "include-node-exporter",
+  "include-transceiver-exporter",
 ]
 
 [tasks.build-forge-dpu-deb-local]
