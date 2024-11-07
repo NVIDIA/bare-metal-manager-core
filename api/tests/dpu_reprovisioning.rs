@@ -201,6 +201,8 @@ pub async fn trigger_bmc_fw_update(
     env.run_machine_state_controller_iteration().await;
 
     env.run_machine_state_controller_iteration().await;
+
+    env.run_machine_state_controller_iteration().await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
@@ -909,6 +911,8 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
+
+    env.run_machine_state_controller_iteration().await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -2346,7 +2350,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     env.run_machine_state_controller_iteration().await; // Reboot -> CheckFwVersion
 
-    env.run_machine_state_controller_iteration().await; // CheckFwVersion -> FirmwareUpgrade
+    env.run_machine_state_controller_iteration().await; // CheckFwVersion -> FwUpdateCompleted
+
+    env.run_machine_state_controller_iteration().await; // FwUpdateCompleted -> FirmwareUpgrade
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await

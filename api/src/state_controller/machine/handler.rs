@@ -2244,7 +2244,42 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             handler_restart_dpu(dpu_snapshot, services, txn).await?;
 
             Ok(StateHandlerOutcome::Transition(
-                ReprovisionState::FirmwareUpgrade.next_bmc_updrade_step(state, dpu_snapshot)?,
+                ReprovisionState::BmcFirmwareUpgrade {
+                    substate: BmcFirmwareUpgradeSubstate::FwUpdateCompleted,
+                }
+                .next_bmc_updrade_step(state, dpu_snapshot)?,
+            ))
+        }
+        BmcFirmwareUpgradeSubstate::FwUpdateCompleted => {
+            // Sync all DPUs before transition to the next state
+            let mut dpus_for_reprov = vec![];
+            let dpus_states_for_reprov = &state
+                .dpu_snapshots
+                .iter()
+                .filter_map(|x| {
+                    if x.reprovision_requested.is_some() {
+                        dpus_for_reprov.push(x);
+                        state
+                            .managed_state
+                            .as_reprovision_state(&dpu_snapshot.machine_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            if !all_equal(dpus_states_for_reprov)? {
+                return Ok(StateHandlerOutcome::Wait(
+                    "Waiting for DPUs to come in HostPowerCycle state.".to_string(),
+                ));
+            }
+
+            Ok(StateHandlerOutcome::Transition(
+                ReprovisionState::FirmwareUpgrade.next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+                )?,
             ))
         }
         BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
@@ -2269,29 +2304,41 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
 
             match task.task_state {
                 Some(TaskState::Completed) => {
-                    if *firmware_type == FirmwareComponentType::Cec {
-                        dpu_redfish_client
-                            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
-                            .await
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "chassis_reset",
-                                error: e,
-                            })?;
-                    }
-
-                    dpu_redfish_client.bmc_reset().await.map_err(|e| {
-                        StateHandlerError::RedfishError {
-                            operation: "bmc_reset",
-                            error: e,
-                        }
-                    })?;
-
                     let next_state = ReprovisionState::BmcFirmwareUpgrade {
                         substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 },
                     }
                     .next_bmc_updrade_step(state, dpu_snapshot)?;
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    if *firmware_type == FirmwareComponentType::Cec {
+                        match dpu_redfish_client
+                            .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                            .await
+                        {
+                            Ok(()) => Ok(StateHandlerOutcome::Transition(next_state)),
+                            Err(e) if e.to_string().contains("is not supported") => {
+                                tracing::warn!("Chassis reset is not supported by current CEC FW, triggering host power cycle");
+                                Ok(StateHandlerOutcome::Transition(
+                                    ReprovisionState::BmcFirmwareUpgrade {
+                                        substate: BmcFirmwareUpgradeSubstate::HostPowerCycle,
+                                    }
+                                    .next_bmc_updrade_step(state, dpu_snapshot)?,
+                                ))
+                            }
+                            Err(e) => Err(StateHandlerError::RedfishError {
+                                operation: "chassis_reset",
+                                error: e,
+                            }),
+                        }
+                    } else {
+                        dpu_redfish_client.bmc_reset().await.map_err(|e| {
+                            StateHandlerError::RedfishError {
+                                operation: "bmc_reset",
+                                error: e,
+                            }
+                        })?;
+
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    }
                 }
                 Some(TaskState::Exception) => {
                     let msg = format!(
@@ -2320,6 +2367,74 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                     task
                 ))),
             }
+        }
+        BmcFirmwareUpgradeSubstate::HostPowerCycle => {
+            let mut dpu_ids_for_reprovisioning = Vec::new();
+            let dpus_states_for_reprov = &state
+                .dpu_snapshots
+                .iter()
+                .filter_map(|x| {
+                    if x.reprovision_requested.is_some() {
+                        dpu_ids_for_reprovisioning.push(dpu_snapshot.machine_id.clone());
+                        state
+                            .managed_state
+                            .as_reprovision_state(&dpu_snapshot.machine_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            // Wait for all DPUs to be in sync in whether HostPowerCycle state (if it did CEC FW update)
+            // or in the FwUpdateCompleted susbstate.
+            let dpus_not_in_sync_state = dpus_states_for_reprov
+                .iter()
+                .enumerate()
+                .filter(|(_i, s)| {
+                    !matches!(
+                        s,
+                        ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::HostPowerCycle,
+                        } | ReprovisionState::BmcFirmwareUpgrade {
+                            substate: BmcFirmwareUpgradeSubstate::FwUpdateCompleted,
+                        }
+                    )
+                })
+                .collect_vec();
+            if !dpus_not_in_sync_state.is_empty() {
+                let msg = format!("Waiting for DPUs to come in HostPowerCycle or FwUpdateCompleted state. DPUs not in sync state: {:#?}",
+                dpus_not_in_sync_state.iter().map(|(i, s)| {(dpu_ids_for_reprovisioning[*i].clone(), s)}).collect_vec());
+
+                return Ok(StateHandlerOutcome::Wait(msg));
+            }
+
+            handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
+            let redfish_client = build_redfish_client_from_bmc_ip(
+                state.host_snapshot.bmc_addr(),
+                &services.redfish_client_pool,
+                txn,
+            )
+            .await?;
+            let power_state = host_power_state(redfish_client.as_ref()).await?;
+            // Host is not powered-off yet. Try again.
+            if power_state != libredfish::PowerState::Off {
+                tracing::error!(
+                    "Machine {} is still not power-off state. Turning off for host again.",
+                    state.host_snapshot.machine_id
+                );
+                return Ok(StateHandlerOutcome::Wait(format!(
+                    "Host {} is not still powered off. Trying again.",
+                    state.host_snapshot.machine_id
+                )));
+            }
+            handler_host_power_control(state, services, SystemPowerControl::On, txn).await?;
+
+            let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+            }
+            .next_bmc_updrade_step(state, dpu_snapshot)?;
+
+            Ok(StateHandlerOutcome::Transition(next_state))
         }
         BmcFirmwareUpgradeSubstate::Reboot { count: _ } => {
             // This is a No-OP. The reboot will be done in the CheckFwVersion before transitioning to the NIC FW update (Reprovisioning/FirmwareUpgrade)
