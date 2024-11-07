@@ -88,6 +88,10 @@ pub async fn boot(contents: MachineInterface, config: RuntimeConfig) -> Result<T
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("pxe_url".to_string(), config.pxe_url.clone());
 
+    if !config.static_pxe_url.is_empty() {
+        context.insert("static_pxe_url".to_string(), config.static_pxe_url.clone());
+    }
+
     let forge_client_config = ForgeClientConfig::new(
         config.forge_root_ca_path.clone(),
         Some(ClientCert {

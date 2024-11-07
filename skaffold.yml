@@ -24,6 +24,13 @@ build:
           - "carbide"
           - pxe/templates/*
           - pxe/static/*
+    - image: nginx
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.nginx.localdev
+      sync:
+        infer:
+          - "carbide"
+          - pxe/static/*
     - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
