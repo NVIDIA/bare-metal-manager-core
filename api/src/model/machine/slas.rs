@@ -15,12 +15,12 @@
 
 pub const DPUDISCOVERING: u64 = 30 * 60;
 
-/* DPUInit any substate other than INIT */
-/* WaitingForPlatformPowercycle WaitingForPlatformConfiguration WaitingForNetworkConfig WaitingForNetworkInstall */
+// DPUInit any substate other than INIT
+// WaitingForPlatformPowercycle WaitingForPlatformConfiguration WaitingForNetworkConfig WaitingForNetworkInstall
 pub const DPUINIT_NOTINIT: u64 = 30 * 60;
 
-/* HostInit state, any substate other than Init and  WaitingForDiscovery*/
-/* EnableIpmiOverLan WaitingForPlatformConfiguration UefiSetup Discovered WaitingForLockdown MachineValidating */
+// HostInit state, any substate other than Init and  WaitingForDiscovery
+// EnableIpmiOverLan WaitingForPlatformConfiguration UefiSetup Discovered WaitingForLockdown MachineValidating
 pub const HOST_INIT: u64 = 30 * 60;
 
 pub const WAITING_FOR_CLEANUP: u64 = 30 * 60;
@@ -35,6 +35,6 @@ pub const HOST_REPROVISION: u64 = 40 * 60;
 
 pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: u64 = 30 * 60;
 
-/* ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage */
-/* Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed */
+// ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
+// Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed
 pub const ASSIGNED: u64 = 30 * 60;

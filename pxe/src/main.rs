@@ -55,6 +55,7 @@ pub struct RuntimeConfig {
     internal_api_url: String,
     client_facing_api_url: String,
     pxe_url: String,
+    static_pxe_url: String,
     forge_root_ca_path: String,
     server_cert_path: String,
     server_key_path: String,
@@ -329,6 +330,9 @@ async fn main() -> Result<(), rocket::Error> {
 }
 
 fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
+    let carbide_pxe_url = figment
+        .extract_inner::<String>("carbide_pxe_url")
+        .map_err(|_| "Could not extract carbide_pxe_url from config")?;
     Ok(RuntimeConfig {
         internal_api_url: figment
             .extract_inner::<String>("carbide_api_internal_url")
@@ -336,9 +340,10 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
         client_facing_api_url: figment
             .extract_inner::<String>("carbide_api_url")
             .map_err(|_| "Could not extract carbide_api_url from config")?,
-        pxe_url: figment
-            .extract_inner::<String>("carbide_pxe_url")
-            .map_err(|_| "Could not extract carbide_pxe_url from config")?,
+        pxe_url: carbide_pxe_url.clone(),
+        static_pxe_url: figment
+            .extract_inner::<String>("carbide_static_pxe_url")
+            .unwrap_or(carbide_pxe_url),
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
             .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
         server_cert_path: env::var("FORGE_CLIENT_CERT_PATH")
