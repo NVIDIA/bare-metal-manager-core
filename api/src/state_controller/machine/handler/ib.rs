@@ -12,7 +12,7 @@
 
 //! InfiniBand related functions that are used in the Machine handler
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 
@@ -71,7 +71,7 @@ pub(crate) async fn record_infiniband_status_observation(
 
     let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
 
-    for (k, v) in ibconf {
+    for (k, guids) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
             ObjectColumnFilter::One(ib_partition::IdColumn, &k),
@@ -90,13 +90,32 @@ pub(crate) async fn record_infiniband_status_observation(
 
         // Get the status of ports from UFM, and persist it as observed status.
         let filter = ib::Filter {
-            guids: Some(v),
+            guids: Some(guids.clone()),
             pkey: ibpartition.config.pkey,
         };
         let ports = ib_fabric
             .find_ib_port(Some(filter))
             .await
             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
+        if ports.len() != guids.len() {
+            let mut expected_guids = HashSet::new();
+            expected_guids.extend(guids.clone());
+            for port in ports.iter() {
+                expected_guids.remove(&port.guid);
+            }
+
+            return Err(StateHandlerError::IBFabricError {
+                operation: "find_ib_port".to_string(),
+                error: eyre::eyre!(format!(
+                    "UFM did not return port information for GUIDs: {}",
+                    expected_guids
+                        .into_iter()
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )),
+            });
+        }
 
         ib_interfaces_status.extend(
             ports
