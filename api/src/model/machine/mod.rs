@@ -1058,9 +1058,11 @@ pub enum BmcFirmwareUpgradeSubstate {
     Reboot {
         count: u32,
     },
+    HostPowerCycle,
     Failed {
         failure_details: String,
     },
+    FwUpdateCompleted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]

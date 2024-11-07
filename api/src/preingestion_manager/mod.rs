@@ -730,6 +730,19 @@ impl PreingestionManagerStatic {
         if need_wait {
             DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
             return Ok(());
+        } else if *upgrade_type == FirmwareComponentType::Cec {
+            match redfish_client
+                .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                .await
+            {
+                Ok(()) => {}
+                Err(e) if e.to_string().contains("is not supported") => {
+                    tracing::error!("Chassis reset is not supported by current CEC FW. Need to do host power cycle! BMC IP: {}", endpoint.address);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to call chassis_reset: {e}");
+                }
+            }
         }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
         DbExploredEndpoint::set_preingestion_new_reported_wait(
