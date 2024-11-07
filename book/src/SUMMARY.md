@@ -70,6 +70,7 @@
 
 - [Update CI/CD SSA secret for nSpect Scans](playbooks/update-ssa-key.md)
 - [Azure OIDC for a Forge Site](playbooks/azure_oidc.md)
+- [Azure OIDC for Carbide-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Discovering Machines](playbooks/machine_discovery.md)

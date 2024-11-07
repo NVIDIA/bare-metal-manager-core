@@ -1,0 +1,379 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use axum::{
+    extract::{Host, Query, State as AxumState},
+    response::{IntoResponse, Redirect, Response},
+    Extension,
+};
+use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
+use hyper::http::HeaderMap;
+use hyper::http::StatusCode;
+use oauth2::{
+    http::{
+        header::{HeaderValue, AUTHORIZATION},
+        Method,
+    },
+    AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse,
+};
+use reqwest;
+use serde::Deserialize;
+use time::Duration as TimeDuration;
+use url::Url;
+
+use crate::api::Api;
+use crate::web::Oauth2Layer;
+
+const GRAPH_USER_GROUPS_ENDPOINT: &str = "https://graph.microsoft.com/v1.0/users";
+
+#[derive(Debug, Deserialize)]
+pub struct AuthRequest {
+    code: String,
+    state: String,
+}
+
+pub async fn callback(
+    AxumState(_state): AxumState<Arc<Api>>,
+    Host(hostname): Host,
+    request_headers: HeaderMap,
+    Query(query): Query<AuthRequest>,
+    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+) -> Response {
+    let Some(oauth2_layer) = oauth2_layer else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "expected oauth2 extension layer is empty",
+        )
+            .into_response();
+    };
+
+    let cookiejar: PrivateCookieJar = PrivateCookieJar::from_headers(
+        &request_headers,
+        oauth2_layer.private_cookiejar_key.clone(),
+    );
+
+    // Grab the csrf state cookie we stored when we generated the original auth redirect.
+    // We'll proactively remove it after we grab the value later.
+    let csrf_cookie = match cookiejar.get("csrf_state") {
+        Some(c) => c,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "unable to verify csrf state from external auth response",
+            )
+                .into_response()
+        }
+    };
+
+    // Compare the state we received when creating the original
+    // auth redirect TO azure with the state we just received in the request
+    // FROM Azure.
+    if *csrf_cookie.value() != query.state {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "csrf state of auth request did not match state from external auth response",
+        )
+            .into_response();
+    }
+
+    // Grab the pkce verifier cookie we stored when we generated the original auth redirect.
+    // We'll proactively remove it after we grab the value later.
+    let pkce_cookie = match cookiejar.get("pkce_verifier") {
+        Some(c) => c,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "unable to extract pkce verifier from cookie",
+            )
+                .into_response()
+        }
+    };
+
+    let pkce_verifier = PkceCodeVerifier::new(pkce_cookie.value().to_owned());
+
+    let token = match oauth2_layer
+        .client
+        .exchange_code(AuthorizationCode::new(query.code))
+        .set_pkce_verifier(pkce_verifier)
+        .request_async(|req| async_http_request_handler(&oauth2_layer.http_client, req))
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("bad token response from external auth service: {}", e),
+            )
+                .into_response()
+        }
+    };
+
+    let exp_secs = match token.expires_in() {
+        Some(d) => d.as_secs(),
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to find expiration in auth token",
+            )
+                .into_response()
+        }
+    };
+
+    let secs: i64 = match exp_secs.try_into() {
+        Ok(s) => s,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to convert auth expiration seconds between integer types",
+            )
+                .into_response()
+        }
+    };
+
+    let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(n) => n.as_secs(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response(),
+    };
+
+    // The token we got back from MS is a JWT.  We can ignore the header
+    // and signature and just grab the claims portion because we only want the
+    // user ID to save us an extra call to MS for https://graph.microsoft.com/v1.0/me.
+    // We will _only_ use the ID to make a call to MS to grab the groups of the user,
+    // and that requires sending the original token along for authorization, so we
+    // don't have to worry about trusting the data in the token in order to pull the ID
+    // because the subsequent call to pull groups can only work if this is a
+    // valid token that hasn't been tampered with.
+    let user = match token.access_token().secret().split(".").nth(1) {
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "response token is missing payload claims section",
+            )
+                .into_response()
+        }
+        Some(s) => {
+            let data = match BASE64_URL_SAFE_NO_PAD.decode(s) {
+                Ok(d) => d,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!(
+                            "invalid payload claims portion in oauth2 response token:  {}",
+                            e
+                        ),
+                    )
+                        .into_response()
+                }
+            };
+
+            match serde_json::from_slice::<OauthUserData>(&data) {
+                Ok(d) => d,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!(
+                            "failed to parse payload claims in oauth2 response token: {}",
+                            e
+                        ),
+                    )
+                        .into_response()
+                }
+            }
+        }
+    };
+
+    // Prepare headers we'll use for user and group calls.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        match HeaderValue::from_str(
+            format!("Bearer {}", token.access_token().secret().to_owned()).as_str(),
+        ) {
+            Ok(h) => h,
+            _ => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "unable to create authorization header",
+                )
+                    .into_response()
+            }
+        },
+    );
+
+    // Needed to perform the request with the $search applied.
+    headers.insert(
+        "ConsistencyLevel",
+        match HeaderValue::from_str("eventual") {
+            Ok(h) => h,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("bad header: {}", e),
+                )
+                    .into_response()
+            }
+        },
+    );
+
+    // Grab the group memberships of the user with a filter to reduce the response payload.
+    let request = HttpRequest {
+        url: match Url::parse(
+            format!(
+                "{}/{}/transitiveMemberOf?$search={}",
+                GRAPH_USER_GROUPS_ENDPOINT, user.oid, oauth2_layer.allowed_access_groups_filter,
+            )
+            .as_str(),
+        ) {
+            Ok(u) => u,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to parse group query URL: {}", e),
+                )
+                    .into_response()
+            }
+        },
+        method: Method::GET,
+        headers,
+        body: vec![],
+    };
+
+    let groups = match async_http_request_handler(&oauth2_layer.http_client, request).await {
+        Ok(response) => match serde_json::from_slice::<OauthUserGroups>(&response.body) {
+            Ok(g) => g,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to parse oauth2 user groups response: {}", e),
+                )
+                    .into_response();
+            }
+        },
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get oauth2 user groups: {}", e),
+            )
+                .into_response()
+        }
+    };
+
+    // If no groups were found, then this user doesn't have
+    // access.
+    if groups.value.is_empty() {
+        return (StatusCode::UNAUTHORIZED, "user not found in any groups").into_response();
+    }
+
+    // Otherwise, iterate through the groups they're in and see if any matches
+    // the permitted list.
+    // `groups` should be extremely small with the search filter applied and
+    // id_list is likely only ever going to be one or two items, and it should
+    // very likely be exactly one item after security cleans up how we use DLs,
+    if !groups
+        .value
+        .iter()
+        .any(|group| oauth2_layer.allowed_access_groups_ids.contains(&group.id))
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "user not found in any permitted groups",
+        )
+            .into_response();
+    }
+
+    // We're using a private cookie jar and really using the cookie similar to a simple JWT.
+    // When someone tries to access carbide-web, we just need to see that they have the cookie
+    // and that it's not expired and hasn't been tampered with, which we'll know when we decrypt it,
+    // so we don't have a use for storing the actual token secret for later use at the moment.
+    let cookie = Cookie::build("sid", format!("{}", now_seconds + exp_secs))
+        .domain(hostname.clone())
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .max_age(TimeDuration::seconds(secs))
+        .finish();
+
+    (
+        // Strip out any old cookies that might possibly exist,
+        // add in the new sid cookie, and send it along.
+        cookiejar
+            .remove(pkce_cookie)
+            .remove(csrf_cookie)
+            .remove(cookie.clone())
+            .add(cookie),
+        Redirect::to("/admin/"),
+    )
+        .into_response()
+}
+
+/// Used to grab the user ID from
+/// the JWT of the access token we receive from
+/// MS.
+/// What's really being parsed in the claims portion
+/// of the JWT, which holds a lot of user-data.
+#[derive(Debug, Deserialize)]
+pub struct OauthUserData {
+    oid: String,
+}
+
+/// A container for the list of groups return in  
+/// a graph response to a /transitiveMemberOf call
+#[derive(Debug, Deserialize)]
+pub struct OauthUserGroups {
+    value: Vec<OauthUserGroup>,
+}
+
+/// Holds the data of an individual group
+/// returned in a graph response to a
+/// /transitiveMemberOf call
+#[derive(Debug, Deserialize)]
+pub struct OauthUserGroup {
+    id: String,
+}
+
+/// Custom asynchronous HTTP request handler to use with oauth2 because
+/// the default one supplied by oauth2 doesn't use any timeouts.
+pub async fn async_http_request_handler(
+    client: &reqwest::Client,
+    request: HttpRequest,
+) -> Result<HttpResponse, reqwest::Error> {
+    let mut request_builder = client
+        .request(request.method, request.url.as_str())
+        .body(request.body);
+    for (name, value) in &request.headers {
+        request_builder = request_builder.header(name.as_str(), value.as_bytes());
+    }
+    let request = request_builder.build()?;
+
+    let response = client.execute(request).await?;
+
+    let status_code = response.status();
+    let headers = response.headers().to_owned();
+    let body = response.bytes().await?.to_vec();
+
+    if status_code.is_server_error() || status_code.is_client_error() {
+        if let Ok(body_str) = std::str::from_utf8(&body) {
+            tracing::error!(body_str=%body_str,"error response when making http request for oauth2 flow");
+        }
+    }
+
+    Ok(HttpResponse {
+        status_code,
+        headers,
+        body,
+    })
+}
