@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::domain::{self, Domain, NewDomain};
+use carbide::db::domain::{self, Domain, DomainMetadata, NewDomain, Soa};
 use carbide::db::ObjectColumnFilter;
 use carbide::{CarbideError, CarbideResult};
 use forge_uuid::domain::DomainId;
@@ -23,7 +23,13 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = NewDomain { name: test_name }.persist(&mut txn).await;
+    let domain = NewDomain {
+        name: test_name.clone(),
+        soa: Soa::new(test_name.as_str()),
+        metadata: DomainMetadata::default(),
+    }
+    .persist(&mut txn)
+    .await;
 
     assert!(domain.is_ok());
 
@@ -49,7 +55,13 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     let test_name = "DwRt".to_string();
 
-    let domain: CarbideResult<Domain> = NewDomain { name: test_name }.persist(&mut txn).await;
+    let domain: CarbideResult<Domain> = NewDomain {
+        name: test_name.clone(),
+        soa: Soa::new(test_name.as_str()),
+        metadata: DomainMetadata::default(),
+    }
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
@@ -65,6 +77,8 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
 
     let domain: CarbideResult<Domain> = NewDomain {
         name: "ihaveaspace.com ".to_string(),
+        soa: Soa::new("ihavespace.com "),
+        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;
@@ -83,7 +97,13 @@ async fn find_domain(pool: sqlx::PgPool) {
 
     let test_name = "nvfind.metal.net".to_string();
 
-    let domain = NewDomain { name: test_name }.persist(&mut txn).await;
+    let domain = NewDomain {
+        name: test_name.clone(),
+        soa: Soa::new(test_name.as_str()),
+        metadata: DomainMetadata::default(),
+    }
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
@@ -134,7 +154,13 @@ async fn update_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = NewDomain { name: test_name }.persist(&mut txn).await;
+    let domain = NewDomain {
+        name: test_name.clone(),
+        soa: Soa::new(test_name.as_str()),
+        metadata: DomainMetadata::default(),
+    }
+    .persist(&mut txn)
+    .await;
 
     txn.commit().await.unwrap();
 
