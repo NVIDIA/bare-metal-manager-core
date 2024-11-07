@@ -1,0 +1,19 @@
+[Unit]
+Description=Transceiver Exporter
+Documentation=https://github.com/wobcom/transceiver-exporter
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/transceiver-exporter -web.listen-address=localhost:9300 -collector.interface-features.enable=false
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+Type=simple
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

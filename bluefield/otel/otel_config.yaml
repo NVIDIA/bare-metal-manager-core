@@ -74,6 +74,14 @@ receivers:
                 node_timex_.*)$"
               action: keep
 
+  prometheus/transceiver:
+    config:
+      scrape_configs:
+        - job_name: 'transceiver-exporter-metrics'
+          scrape_interval: 1m
+          static_configs:
+            - targets: ['localhost:9300']
+
   prometheus/dts:
     config:
       scrape_configs:
@@ -246,6 +254,11 @@ processors:
       - key: component
         value: node-exporter
         action: upsert
+  resource/metrics-transceiver:
+    attributes:
+      - key: component
+        value: transceiver-exporter
+        action: upsert
   resourcedetection:
     # Add hostname at the resource level
     detectors: ["system"]
@@ -346,6 +359,15 @@ service:
         - resourcedetection
         - resource/metrics-dts
         - transform/metrics-dts
+        - telemetry_stats
+        - batch/metrics
+      exporters: [otlp/site, prometheus]
+    metrics/transceiver-exporter:
+      receivers: [prometheus/transceiver]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource/metrics-transceiver
         - telemetry_stats
         - batch/metrics
       exporters: [otlp/site, prometheus]

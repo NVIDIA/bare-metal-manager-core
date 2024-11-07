@@ -13,6 +13,7 @@ if [ "$1" = "configure" ]; then
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
 	systemctl enable node-exporter.service
+	systemctl enable transceiver-exporter.service
 
 	if [ -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml ]; then
 		rm -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml
