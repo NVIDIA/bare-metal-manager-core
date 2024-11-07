@@ -9,6 +9,7 @@
 ### Fixed
 
 - Fixed an issue where client certificate renewal on DPUs would not be retried before certificate expiry. This issue could have applied in cases where the initial renewal attempt had failed for any reason.
+- Added Azure SSO support to carbide-web to fix FORGE-4369
 
 ### Removed
 

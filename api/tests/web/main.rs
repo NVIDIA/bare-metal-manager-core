@@ -13,10 +13,13 @@ fn setup() {
 }
 
 fn make_test_app(env: &TestEnv) -> Router {
-    Router::new().nest_service("/admin", routes(env.api.clone()))
+    let r = routes(env.api.clone()).unwrap();
+    Router::new().nest_service("/admin", r)
 }
 
 fn authenticated_request_builder() -> Builder {
     // admin:Welcome123
-    Request::builder().header("Authorization", "Basic YWRtaW46V2VsY29tZTEyMw==")
+    Request::builder()
+        .header("Host", "with.the.most")
+        .header("Authorization", "Basic YWRtaW46V2VsY29tZTEyMw==")
 }

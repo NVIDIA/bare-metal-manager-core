@@ -62,10 +62,7 @@ prometheus = "0.13"
 pkcs1 = "0.7.5"
 rand = "0.8"
 regex = "1.6"
-reqwest = { version = "*", default-features = false, features = [
-  "rustls-tls",
-  "stream",
-] }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
 rsa = "0.9.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
@@ -123,6 +120,9 @@ utils = { path = "../common/utils" }
 duration-str = "0.7.1"
 prost-types = "0.12.6"
 rcgen = "0.13.1"
+axum-extra = { version = "0.8.0", features = ["cookie", "cookie-private"] }
+oauth2 = { version = "4.4.2", default-features = false }
+time = "0.3.36"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
