@@ -2241,8 +2241,6 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 }
             }
 
-            handler_restart_dpu(dpu_snapshot, services, txn).await?;
-
             Ok(StateHandlerOutcome::Transition(
                 ReprovisionState::BmcFirmwareUpgrade {
                     substate: BmcFirmwareUpgradeSubstate::FwUpdateCompleted,
@@ -2270,8 +2268,13 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
 
             if !all_equal(dpus_states_for_reprov)? {
                 return Ok(StateHandlerOutcome::Wait(
-                    "Waiting for DPUs to come in HostPowerCycle state.".to_string(),
+                    "Waiting for DPUs to come in BmcFirmwareUpgradeSubstate::FwUpdateCompleted"
+                        .to_string(),
                 ));
+            }
+
+            for dpu_snapshot in &dpus_for_reprov {
+                handler_restart_dpu(dpu_snapshot, services, txn).await?;
             }
 
             Ok(StateHandlerOutcome::Transition(
