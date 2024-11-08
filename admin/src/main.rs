@@ -1301,6 +1301,27 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 }
             }
+            cfg::carbide_options::MachineValidationCommand::Tests(
+                machine_validation_tests_command,
+            ) => match machine_validation_tests_command {
+                cfg::carbide_options::MachineValidationTestsCommand::Show(options) => {
+                    machine_validation::show_tests(
+                        api_config,
+                        options,
+                        config.format,
+                        config.extended,
+                    )
+                    .await?;
+                }
+                cfg::carbide_options::MachineValidationTestsCommand::Verify(options) => {
+                    machine_validation::machine_validation_test_verfied(api_config, options)
+                        .await?;
+                }
+                cfg::carbide_options::MachineValidationTestsCommand::EnabledDisable(options) => {
+                    machine_validation::machine_validation_test_enable_disable(api_config, options)
+                        .await?;
+                }
+            },
         },
         CarbideCommand::Storage(storage_cmd) => match storage_cmd {
             StorageActions::Cluster(storage_cluster) => match storage_cluster {

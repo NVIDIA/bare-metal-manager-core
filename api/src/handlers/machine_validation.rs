@@ -18,7 +18,7 @@ use crate::{
             MachineValidationStatus,
         },
         machine_validation_config::MachineValidationExternalConfig,
-        DatabaseError,
+        machine_validation_suites, DatabaseError,
     },
     model::machine::{
         machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
@@ -27,6 +27,7 @@ use crate::{
     CarbideError,
 };
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
+use config_version::ConfigVersion;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -561,4 +562,259 @@ pub(crate) async fn remove_machine_validation_external_config(
     txn.commit().await.unwrap();
 
     Ok(tonic::Response::new(()))
+}
+
+pub(crate) async fn update_machine_validation_test(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  update_machine_validation_test",
+            e,
+        ))
+    })?;
+
+    let existing = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest {
+            test_id: Some(req.test_id.clone()),
+            version: Some(req.version.clone()),
+            ..rpc::MachineValidationTestsGetRequest::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    if existing[0].read_only {
+        return Err(Status::invalid_argument(
+            "Cannot modify read-only test cases",
+        ));
+    }
+    let test_id = machine_validation_suites::MachineValidationTest::update(&mut txn, req.clone())
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit update_machine_validation_test",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestAddUpdateResponse {
+            test_id,
+            version: req.version,
+        },
+    ))
+}
+
+pub(crate) async fn add_machine_validation_test(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestAddRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  add_machine_validation_test",
+            e,
+        ))
+    })?;
+    let version = ConfigVersion::initial();
+    let test_id = machine_validation_suites::MachineValidationTest::save(&mut txn, req, version)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit add_machine_validation_test",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestAddUpdateResponse {
+            test_id,
+            version: version.version_string(),
+        },
+    ))
+}
+
+pub(crate) async fn get_machine_validation_tests(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_machine_validation_tests ",
+            e,
+        ))
+    })?;
+    let tests = machine_validation_suites::MachineValidationTest::find(&mut txn, req)
+        .await
+        .map_err(CarbideError::from)?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestsGetResponse {
+            tests: tests
+                .into_iter()
+                .map(rpc::MachineValidationTest::from)
+                .collect(),
+        },
+    ))
+}
+
+pub(crate) async fn machine_validation_test_verfied(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestVerfiedRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  update_machine_validation_test",
+            e,
+        ))
+    })?;
+
+    let existing = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest {
+            test_id: Some(req.test_id.clone()),
+            version: Some(req.version.clone()),
+            ..rpc::MachineValidationTestsGetRequest::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    let _ = machine_validation_suites::MachineValidationTest::mark_verified(
+        &mut txn,
+        req.test_id,
+        existing[0].version,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit machine_validation_test_verfied",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestVerfiedResponse {
+            message: "Success".to_string(),
+        },
+    ))
+}
+pub(crate) async fn machine_validation_test_next_version(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestNextVersionRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  machine_validation_test_next_version",
+            e,
+        ))
+    })?;
+
+    let existing = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest {
+            test_id: Some(req.test_id.clone()),
+            ..rpc::MachineValidationTestsGetRequest::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    let (test_id, next_version) =
+        machine_validation_suites::MachineValidationTest::clone(&mut txn, &existing[0])
+            .await
+            .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit machine_validation_test_next_version",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestNextVersionResponse {
+            test_id,
+            version: next_version.version_string(),
+        },
+    ))
+}
+
+pub(crate) async fn machine_validation_test_enable_disable_test(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  machine_validation_test_enable_disable_test",
+            e,
+        ))
+    })?;
+
+    let existing = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest {
+            test_id: Some(req.test_id.clone()),
+            version: Some(req.version.clone()),
+            ..rpc::MachineValidationTestsGetRequest::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    let _ = machine_validation_suites::MachineValidationTest::enabled_diable(
+        &mut txn,
+        req.test_id,
+        existing[0].version,
+        req.is_enabled,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit machine_validation_test_enable_disable_test",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationTestEnableDisableTestResponse {
+            message: "Success".to_string(),
+        },
+    ))
 }

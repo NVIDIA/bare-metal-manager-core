@@ -53,10 +53,13 @@ use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
-    add_update_machine_validation_external_config, get_machine_validation_external_config,
-    get_machine_validation_external_configs, get_machine_validation_results,
-    get_machine_validation_runs, mark_machine_validation_complete, on_demand_machine_validation,
-    persist_validation_result, remove_machine_validation_external_config,
+    add_machine_validation_test, add_update_machine_validation_external_config,
+    get_machine_validation_external_config, get_machine_validation_external_configs,
+    get_machine_validation_results, get_machine_validation_runs, get_machine_validation_tests,
+    machine_validation_test_enable_disable_test, machine_validation_test_next_version,
+    machine_validation_test_verfied, mark_machine_validation_complete,
+    on_demand_machine_validation, persist_validation_result,
+    remove_machine_validation_external_config, update_machine_validation_test,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::logging::log_limiter::LogLimiter;
@@ -4179,6 +4182,44 @@ impl Forge for Api {
         request: tonic::Request<rpc::RemoveMachineValidationExternalConfigRequest>,
     ) -> Result<tonic::Response<()>, Status> {
         remove_machine_validation_external_config(self, request).await
+    }
+    async fn get_machine_validation_tests(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
+        get_machine_validation_tests(self, request).await
+    }
+
+    async fn update_machine_validation_test(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+        update_machine_validation_test(self, request).await
+    }
+    async fn add_machine_validation_test(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestAddRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+        add_machine_validation_test(self, request).await
+    }
+
+    async fn machine_validation_test_verfied(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestVerfiedRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
+        machine_validation_test_verfied(self, request).await
+    }
+    async fn machine_validation_test_next_version(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestNextVersionRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
+        machine_validation_test_next_version(self, request).await
+    }
+    async fn machine_validation_test_enable_disable_test(
+        &self,
+        request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
+        machine_validation_test_enable_disable_test(self, request).await
     }
 }
 

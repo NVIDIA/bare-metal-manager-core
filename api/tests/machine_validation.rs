@@ -17,7 +17,10 @@ use carbide::{
         MachineState, MachineValidationFilter, ManagedHostState,
     },
 };
+use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestVerfiedRequest};
+use std::str::FromStr;
 use std::time::SystemTime;
 
 mod common;
@@ -752,5 +755,339 @@ async fn test_machine_validation_disabled(
         }
     }
     assert!(status_asserted);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_add_new_test_case(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let request = rpc::forge::MachineValidationTestAddRequest {
+        name: "dcgm_short_test".to_string(),
+        description: Some("Run run level 3 test cases".to_string()),
+        contexts: vec![
+            "Discovery".to_string(),
+            "CleanUp".to_string(),
+            "OnDemand".to_string(),
+        ],
+        img_name: Some("".to_string()),
+        execute_in_host: Some(false),
+        container_arg: Some("".to_string()),
+        command: "dcgmi".to_string(),
+        args: "diag -r 2".to_string(),
+        extra_output_file: Some("/tmp/output".to_string()),
+        extra_err_file: Some("/tmp/error".to_string()),
+        external_config_file: Some("".to_string()),
+        pre_condition: Some("nvdia-smi".to_string()),
+        timeout: Some(10),
+        supported_platforms: vec![
+            "sku_090e_modelname_poweredge_r750".to_string(),
+            "7z73cto1ww".to_string(),
+        ],
+        read_only: None,
+        custom_tags: vec!["dgxcloud".to_string()],
+        components: vec!["GPU".to_string()],
+        is_enabled: Some(true),
+    };
+    let add_update_response = env
+        .api
+        .add_machine_validation_test(tonic::Request::new(request.clone()))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some(add_update_response.clone().test_id),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert_eq!(test_list.len(), 1);
+    assert_eq!(add_update_response.clone().test_id, test_list[0].test_id);
+    assert_eq!(add_update_response.clone().version, test_list[0].version);
+
+    assert_eq!(test_list[0].name, request.name);
+    assert!(!test_list[0].verified);
+
+    assert_eq!(test_list[0].name, request.name);
+
+    assert_eq!(test_list[0].command, request.command);
+
+    assert_eq!(test_list[0].description, request.description);
+    assert_eq!(test_list[0].contexts, request.contexts);
+    assert_eq!(
+        test_list[0].supported_platforms,
+        request.supported_platforms
+    );
+
+    assert_eq!(test_list[0].img_name, request.img_name);
+    assert_eq!(test_list[0].execute_in_host, request.execute_in_host);
+
+    assert_eq!(test_list[0].container_arg, request.container_arg);
+    assert_eq!(test_list[0].command, request.command);
+    assert_eq!(test_list[0].args, request.args);
+
+    assert_eq!(test_list[0].extra_output_file, request.extra_output_file);
+    assert_eq!(test_list[0].extra_err_file, request.extra_err_file);
+    assert_eq!(test_list[0].pre_condition, request.pre_condition);
+    assert_eq!(test_list[0].timeout, request.timeout);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_update_existing_test(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let existing_test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some("dcgm_long_test".to_string()),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    let update_payload = rpc::forge::machine_validation_test_update_request::Payload {
+        contexts: vec!["Discovery".to_string(), "CleanUp".to_string()],
+        img_name: Some("nvcr.io/nvidia/shoreline:latest".to_string()),
+        execute_in_host: Some(true),
+        extra_output_file: Some("/tmp/output".to_string()),
+        external_config_file: Some("/tmp/shoreline".to_string()),
+        timeout: Some(100),
+        ..rpc::forge::machine_validation_test_update_request::Payload::default()
+    };
+    let update_request = rpc::forge::MachineValidationTestUpdateRequest {
+        test_id: existing_test_list[0].test_id.clone(),
+        payload: Some(update_payload.clone()),
+        version: existing_test_list[0].version.clone(),
+    };
+
+    let add_update_response = env
+        .api
+        .update_machine_validation_test(tonic::Request::new(update_request.clone()))
+        .await
+        .unwrap()
+        .into_inner();
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some(add_update_response.test_id.clone()),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+
+    assert_eq!(updated_tests[0].contexts, update_payload.contexts);
+    assert_eq!(updated_tests[0].test_id, add_update_response.test_id);
+    assert_eq!(updated_tests[0].version, add_update_response.version);
+    assert_eq!(updated_tests[0].img_name, update_payload.img_name);
+    assert_eq!(
+        updated_tests[0].execute_in_host,
+        update_payload.execute_in_host
+    );
+
+    assert_eq!(
+        updated_tests[0].external_config_file,
+        update_payload.external_config_file
+    );
+    assert_eq!(
+        updated_tests[0].extra_output_file,
+        update_payload.extra_output_file
+    );
+    assert_eq!(updated_tests[0].timeout, update_payload.timeout);
+    assert!(!updated_tests[0].verified);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_mark_test_as_verfied(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let existing_test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some("dcgm_long_test".to_string()),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert!(!existing_test_list[0].verified);
+
+    let return_message = env
+        .api
+        .machine_validation_test_verfied(tonic::Request::new(MachineValidationTestVerfiedRequest {
+            test_id: existing_test_list[0].test_id.clone(),
+            version: existing_test_list[0].version.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .message;
+    let tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                supported_platforms: Vec::new(),
+                contexts: Vec::new(),
+                test_id: Some(existing_test_list[0].test_id.clone()),
+                read_only: None,
+                custom_tags: Vec::new(),
+                version: None,
+                is_enabled: None,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert!(tests[0].verified);
+    assert_eq!(return_message, "Success");
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_create_clones(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let existing_test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some("dcgm_long_test".to_string()),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    let next_version = env
+        .api
+        .machine_validation_test_next_version(tonic::Request::new(
+            MachineValidationTestNextVersionRequest {
+                test_id: existing_test_list[0].test_id.clone(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        ConfigVersion::from_str(&next_version.version)?.version_nr(),
+        2
+    );
+    let next_version = env
+        .api
+        .machine_validation_test_next_version(tonic::Request::new(
+            MachineValidationTestNextVersionRequest {
+                test_id: existing_test_list[0].test_id.clone(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        ConfigVersion::from_str(&next_version.version)?.version_nr(),
+        3
+    );
+    let tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                test_id: Some(existing_test_list[0].test_id.clone()),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert_eq!(tests.len(), 3);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_test_disabled(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let existing_test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert_eq!(existing_test_list.len(), 2);
+
+    let _ = env
+        .api
+        .machine_validation_test_enable_disable_test(tonic::Request::new(
+            rpc::forge::MachineValidationTestEnableDisableTestRequest {
+                test_id: existing_test_list[0].test_id.clone(),
+                version: existing_test_list[0].version.clone(),
+                is_enabled: false,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let _ = env
+        .api
+        .machine_validation_test_enable_disable_test(tonic::Request::new(
+            rpc::forge::MachineValidationTestEnableDisableTestRequest {
+                test_id: existing_test_list[1].test_id.clone(),
+                version: existing_test_list[1].version.clone(),
+                is_enabled: false,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                is_enabled: Some(true),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert_eq!(updated_tests.len(), 0);
+
     Ok(())
 }

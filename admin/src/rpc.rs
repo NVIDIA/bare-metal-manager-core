@@ -2777,7 +2777,6 @@ pub async fn tpm_ca_show(
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
-
         Ok(ca_certs.tpm_ca_cert_details)
     })
     .await
@@ -2824,6 +2823,69 @@ pub async fn remove_machine_validation_external_config(
             tonic::Request::new(rpc::RemoveMachineValidationExternalConfigRequest { name });
         client
             .remove_machine_validation_external_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+pub async fn get_machine_validation_tests(
+    api_config: &ApiConfig<'_>,
+    test_id: Option<String>,
+    platforms: Vec<String>,
+    contexts: Vec<String>,
+) -> CarbideCliResult<rpc::MachineValidationTestsGetResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationTestsGetRequest {
+            supported_platforms: platforms,
+            contexts,
+            test_id,
+            ..rpc::MachineValidationTestsGetRequest::default()
+        });
+        let ret = client
+            .get_machine_validation_tests(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(ret)
+    })
+    .await
+}
+
+pub async fn machine_validation_test_verfied(
+    api_config: &ApiConfig<'_>,
+    test_id: String,
+    version: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request =
+            tonic::Request::new(rpc::MachineValidationTestVerfiedRequest { test_id, version });
+        client
+            .machine_validation_test_verfied(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn machine_validation_test_enable_disable(
+    api_config: &ApiConfig<'_>,
+    test_id: String,
+    version: String,
+    is_enabled: bool,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationTestEnableDisableTestRequest {
+            test_id,
+            version,
+            is_enabled,
+        });
+        client
+            .machine_validation_test_enable_disable_test(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
