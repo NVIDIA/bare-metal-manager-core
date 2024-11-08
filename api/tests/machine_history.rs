@@ -29,20 +29,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = env.pool.begin().await?;
-
-    let machine = Machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        carbide::db::machine::MachineSearchConfig {
-            include_history: true,
-            ..Default::default()
-        },
-    )
-    .await?
-    .unwrap();
-
-    let expected_initial_dpu_states = vec![
+    let expected_initial_states = vec![
         "{\"state\": \"created\"}".to_string(), 
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
@@ -53,133 +40,103 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}".to_string(),
         "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}".to_string()];
 
-    assert_eq!(
-        text_history(&machine.history()[0..9].to_vec()),
-        expected_initial_dpu_states
-    );
+    for machine_id in &[host_machine_id.clone(), dpu_machine_id.clone()] {
+        let mut txn = env.pool.begin().await?;
 
-    // Check that RPC APIs returns the History if asked for
-    // - GetMachine always returns history
-    // - FindMachines and FindMachinesById should do so if asked for it
-    let rpc_dpu_machine = env
-        .api
-        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
-        .await?
-        .into_inner();
-    let rpc_history: Vec<String> = rpc_dpu_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
-    let rpc_dpu_machine = env
-        .api
-        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(dpu_machine_id.to_string().into()),
-            fqdn: None,
-            search_config: Some(rpc::forge::MachineSearchConfig {
-                include_dpus: true,
+        let machine = Machine::find_one(
+            &mut txn,
+            &dpu_machine_id,
+            carbide::db::machine::MachineSearchConfig {
                 include_history: true,
-                include_predicted_host: false,
-                only_maintenance: false,
-                exclude_hosts: false,
-            }),
-        }))
+                ..Default::default()
+            },
+        )
         .await?
-        .into_inner()
-        .machines
-        .remove(0);
-    let rpc_history: Vec<String> = rpc_dpu_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
-    let rpc_dpu_machine = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id.to_string().into()],
-            include_history: true,
-        }))
-        .await?
-        .into_inner()
-        .machines
-        .remove(0);
-    let rpc_history: Vec<String> = rpc_dpu_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..9].to_vec(), expected_initial_dpu_states);
+        .unwrap();
 
-    let expected_initial_host_states = vec![
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"setuefipassword\"}}}}",
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"waitforpasswordjobscheduled\"}}}}",
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"powercyclehost\"}}}}",
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"waitforpasswordjobcompletion\"}}}}",
-    ];
+        assert_eq!(
+            text_history(&machine.history()[..expected_initial_states.len()].to_vec()),
+            expected_initial_states
+        );
 
-    let rpc_host_machine = env
-        .api
-        .get_machine(tonic::Request::new(host_machine_id.to_string().into()))
+        let machine = Machine::find_one(
+            &mut txn,
+            &dpu_machine_id,
+            carbide::db::machine::MachineSearchConfig::default(),
+        )
         .await?
-        .into_inner();
-    let rpc_history: Vec<String> = rpc_host_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
-    let rpc_host_machine = env
-        .api
-        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(host_machine_id.to_string().into()),
-            fqdn: None,
-            search_config: Some(rpc::forge::MachineSearchConfig {
-                include_dpus: false,
+        .unwrap();
+        assert!(machine.history().is_empty());
+        txn.commit().await?;
+
+        // Check that RPC APIs returns the History if asked for
+        // - GetMachine always returns history
+        // - FindMachines and FindMachinesById should do so if asked for it
+        let rpc_machine = env
+            .api
+            .get_machine(tonic::Request::new(machine_id.to_string().into()))
+            .await?
+            .into_inner();
+        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        assert_eq!(
+            rpc_history[..expected_initial_states.len()].to_vec(),
+            expected_initial_states
+        );
+
+        let rpc_machine = env
+            .api
+            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+                id: Some(machine_id.to_string().into()),
+                fqdn: None,
+                search_config: Some(rpc::forge::MachineSearchConfig {
+                    include_dpus: true,
+                    include_history: true,
+                    include_predicted_host: false,
+                    only_maintenance: false,
+                    exclude_hosts: false,
+                }),
+            }))
+            .await?
+            .into_inner()
+            .machines
+            .remove(0);
+        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        assert_eq!(
+            rpc_history[..expected_initial_states.len()].to_vec(),
+            expected_initial_states
+        );
+
+        let rpc_machine = env
+            .api
+            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+                machine_ids: vec![machine_id.to_string().into()],
                 include_history: true,
-                include_predicted_host: false,
-                only_maintenance: false,
-                exclude_hosts: false,
-            }),
-        }))
-        .await?
-        .into_inner()
-        .machines
-        .remove(0);
-    let rpc_history: Vec<String> = rpc_host_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
-    let rpc_host_machine = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![host_machine_id.to_string().into()],
-            include_history: true,
-        }))
-        .await?
-        .into_inner()
-        .machines
-        .remove(0);
-    let rpc_history: Vec<String> = rpc_host_machine
-        .events
-        .into_iter()
-        .map(|ev| ev.event)
-        .collect();
-    assert_eq!(rpc_history[0..6].to_vec(), expected_initial_host_states);
+            }))
+            .await?
+            .into_inner()
+            .machines
+            .remove(0);
+        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        assert_eq!(
+            rpc_history[..expected_initial_states.len()].to_vec(),
+            expected_initial_states
+        );
+    }
+
+    // Check if older history entries get deleted
+
+    let mut txn = env.pool.begin().await?;
 
     let machine = Machine::find_one(
         &mut txn,
-        &dpu_machine_id,
-        carbide::db::machine::MachineSearchConfig::default(),
+        &host_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+            ..Default::default()
+        },
     )
     .await?
     .unwrap();
-    assert!(machine.history().is_empty());
 
     for _ in 1..300 {
         machine
@@ -191,7 +148,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let result = db::machine_state_history::for_machine(&mut txn, &dpu_machine_id)
+    let result = db::machine_state_history::for_machine(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
@@ -200,7 +157,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let machine = Machine::find_one(
         &mut txn,
-        &dpu_machine_id,
+        &host_machine_id,
         carbide::db::machine::MachineSearchConfig {
             include_history: true,
             ..Default::default()

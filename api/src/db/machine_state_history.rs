@@ -118,3 +118,20 @@ pub async fn persist(
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         .map(Into::into)
 }
+
+/// Renames all history entries using one Machine ID into using another Machine ID
+pub async fn update_machine_ids(
+    txn: &mut Transaction<'_, Postgres>,
+    old_machine_id: &MachineId,
+    new_machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machine_state_history SET machine_id=$1 WHERE machine_id=$2";
+    sqlx::query(query)
+        .bind(new_machine_id.to_string())
+        .bind(old_machine_id.to_string())
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
