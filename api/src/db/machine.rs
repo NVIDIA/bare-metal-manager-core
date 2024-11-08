@@ -1379,6 +1379,10 @@ impl Machine {
             };
         }
 
+        // Update the machine history to account for the rename
+        db::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
+            .await?;
+
         // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
         // also change.
         let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING *";

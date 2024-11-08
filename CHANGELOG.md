@@ -5,6 +5,7 @@
 ### Changed
 
 - forge-dpu-agent no longer sends the legacy `NetworkHealth` health check format. It only emits the new alarm based `HealthReport` report. Since all consumers of DPU health had been updated for this before, there is no impact to users.
+- Machine state history is now retained when a Machine ID gets renamed from the predicted Machine ID to the stable Machine ID. This applies only to newly ingested Machines. Machines which had been ingested in the past will still miss the DPU ingestion states in history.
 
 ### Fixed
 
