@@ -393,6 +393,18 @@ service Forge {
   
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
+  // Machine-Validation test list
+  rpc GetMachineValidationTests(MachineValidationTestsGetRequest) returns (MachineValidationTestsGetResponse);
+
+  rpc AddMachineValidationTest(MachineValidationTestAddRequest) returns (MachineValidationTestAddUpdateResponse);
+  
+  rpc UpdateMachineValidationTest(MachineValidationTestUpdateRequest) returns (MachineValidationTestAddUpdateResponse);
+
+  rpc MachineValidationTestVerfied(MachineValidationTestVerfiedRequest) returns (MachineValidationTestVerfiedResponse);
+
+  rpc MachineValidationTestNextVersion(MachineValidationTestNextVersionRequest) returns (MachineValidationTestNextVersionResponse);
+  
+  rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
 
   // Bmc Endpoint Explorer Actions
   // Reset a BMC
@@ -3433,4 +3445,117 @@ message IsBmcInManagedHostResponse {
 
 message BmcCredentialStatusResponse {
   bool have_credentials = 1;
+}
+message MachineValidationTestsGetRequest {
+  repeated string supported_platforms = 1;
+  repeated string contexts = 2;
+  optional string test_id = 3;
+  optional bool read_only = 4;
+  repeated string custom_tags = 5;
+  optional string version = 6;
+  optional bool is_enabled = 7;
+}
+message MachineValidationTestUpdateRequest {
+  message Payload {
+    optional string name = 1;
+    optional string description = 2;
+    repeated string contexts = 3;
+    optional string img_name = 4;
+    optional bool execute_in_host = 5;
+    optional string container_arg = 6;
+    optional string command = 7;
+    optional string args = 8;
+    optional string extra_err_file = 9;
+    optional string external_config_file = 10;
+    optional string pre_condition = 11;
+    optional int64 timeout = 12;
+    optional string extra_output_file = 13;
+    repeated string supported_platforms = 14;
+    optional bool verified = 15;
+    repeated string custom_tags = 16;
+    repeated string components = 17;
+    optional bool is_enabled = 19;
+  }
+  string test_id = 1;
+  string version = 2;
+  Payload payload = 3;
+}
+
+message MachineValidationTestAddRequest {
+  string name = 1;
+  optional string description = 2;
+  repeated string contexts = 3;
+  optional string img_name = 4;
+  optional bool execute_in_host = 5;
+  optional string container_arg = 6;
+  string command = 7;
+  string args = 8;
+  optional string extra_err_file = 9;
+  optional string external_config_file = 10;
+  optional string pre_condition = 11;
+  optional int64 timeout = 12;
+  optional string extra_output_file = 13;
+  repeated string supported_platforms = 14;
+  optional bool read_only = 15;
+  repeated string custom_tags = 16;
+  repeated string components = 17;
+  optional bool is_enabled = 18;
+}
+message MachineValidationTestAddUpdateResponse {
+  string test_id = 1;
+  string version = 2;
+}
+
+message MachineValidationTestsGetResponse {
+  repeated MachineValidationTest tests = 1;
+}
+
+message MachineValidationTestVerfiedRequest {
+  string test_id = 1;
+  string version = 2;
+}
+message MachineValidationTestVerfiedResponse {
+  string message = 1;
+}
+message MachineValidationTest {
+  string test_id = 1;
+  string name = 2;
+  optional string description = 3;
+  repeated string contexts = 4;
+  optional string img_name = 5;
+  optional bool execute_in_host = 6;
+  optional string container_arg = 7;
+  string command = 8;
+  string args = 9;
+  optional string extra_err_file = 10;
+  optional string external_config_file = 11;
+  optional string pre_condition = 12;
+  optional int64 timeout = 13;
+  optional string extra_output_file = 14;
+  string version = 15;
+  repeated string supported_platforms = 16;
+  string modified_by = 17;
+  bool verified = 18;
+  bool read_only = 19;
+  repeated string custom_tags = 20;
+  repeated string components = 21;
+  string last_modified_at = 22;
+  bool is_enabled = 23;
+}
+message MachineValidationTestNextVersionResponse {
+  string test_id = 1;
+  string version = 2;
+}
+message MachineValidationTestNextVersionRequest {
+  string test_id = 1;
+}
+
+message MachineValidationTestEnableDisableTestRequest {
+  string test_id = 1;
+  string version = 2;
+  bool is_enabled = 3;
+}
+
+message MachineValidationTestEnableDisableTestResponse {
+  string message = 1;
 }

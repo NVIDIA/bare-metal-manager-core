@@ -292,6 +292,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "MachineValidationExternalConfig",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "MachineValidationTestUpdateRequest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "MachineValidationTestAddRequest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "MachineValidationTest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "MachineValidationTestsGetRequest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "MachineValidationTestUpdateRequest.Payload",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

@@ -9,8 +9,9 @@
  */
 use super::rpc;
 use crate::cfg::carbide_options::{
-    MachineValidationOnDemandOptions, ShowMachineValidationResultsOptions,
-    ShowMachineValidationRunsOptions,
+    MachineValidationEnableDisableTestOptions, MachineValidationOnDemandOptions,
+    MachineValidationVerifyTestOptions, ShowMachineValidationResultsOptions,
+    ShowMachineValidationRunsOptions, ShowMachineValidationTestOptions,
 };
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
@@ -377,7 +378,154 @@ pub async fn remove_external_config(
     api_config: &ApiConfig<'_>,
     name: String,
 ) -> CarbideCliResult<()> {
-    // Read the file data from disk
     rpc::remove_machine_validation_external_config(api_config, name).await?;
+    Ok(())
+}
+
+pub async fn show_tests(
+    api_config: &ApiConfig<'_>,
+    args: ShowMachineValidationTestOptions,
+    output_format: OutputFormat,
+    extended: bool,
+) -> CarbideCliResult<()> {
+    let tests =
+        rpc::get_machine_validation_tests(api_config, args.test_id, args.platforms, args.contexts)
+            .await?;
+    if extended {
+        let _ = show_tests_details(output_format == OutputFormat::Json, tests);
+    } else {
+        convert_tests_to_nice_table(tests.tests).printstd();
+    }
+
+    Ok(())
+}
+
+fn show_tests_details(
+    is_json: bool,
+    test: forgerpc::MachineValidationTestsGetResponse,
+) -> CarbideCliResult<()> {
+    if is_json {
+        for test in test.tests {
+            println!("{}", serde_json::to_string_pretty(&test).unwrap());
+        }
+    } else {
+        println!(
+            "{}",
+            convert_tests_to_nice_format(test.tests).unwrap_or_else(|x| x.to_string())
+        );
+    }
+    Ok(())
+}
+fn convert_tests_to_nice_table(tests: Vec<forgerpc::MachineValidationTest>) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row![
+        "TestId",
+        "Name",
+        "Command",
+        "Timeout",
+        "IsVerified",
+        "Version",
+        "IsEnabled",
+    ]);
+
+    for test in tests {
+        table.add_row(row![
+            test.test_id,
+            test.name,
+            test.command,
+            test.timeout.unwrap_or_default().to_string(),
+            test.verified,
+            test.version,
+            test.is_enabled,
+        ]);
+    }
+
+    table.into()
+}
+
+fn convert_tests_to_nice_format(
+    tests: Vec<forgerpc::MachineValidationTest>,
+) -> CarbideCliResult<String> {
+    let width = 14;
+    let mut lines = String::new();
+    if tests.is_empty() {
+        return Ok(lines);
+    }
+    // data.clear();
+    for test in tests {
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+        let contexts = match serde_json::to_string(&test.contexts) {
+            Ok(msg) => msg,
+            Err(_) => "[]".to_string(),
+        };
+        let platforms = match serde_json::to_string(&test.supported_platforms) {
+            Ok(msg) => msg,
+            Err(_) => "[]".to_string(),
+        };
+
+        let details = vec![
+            ("TestId", test.test_id),
+            ("Name", test.name),
+            ("Description", test.description.unwrap_or_default()),
+            ("Command", test.command),
+            ("Args", test.args),
+            ("Contexts", contexts),
+            ("SupportedPlatforms", platforms),
+            ("ImageName", test.img_name.unwrap_or_default()),
+            ("ContainerArgs", test.container_arg.unwrap_or_default()),
+            (
+                "ExecuteInHost",
+                test.execute_in_host.unwrap_or_default().to_string(),
+            ),
+            ("ExtraErrorFile", test.extra_err_file.unwrap_or_default()),
+            (
+                "ExtraOutPutFile",
+                test.extra_output_file.unwrap_or_default(),
+            ),
+            (
+                "ExternalConfigFile",
+                test.external_config_file.unwrap_or_default(),
+            ),
+            ("Version", test.version.to_string()),
+            ("LastModifiedAt", test.last_modified_at),
+            ("LastModifiedBy", test.modified_by),
+            ("IsVerified", test.verified.to_string()),
+            ("IsEnabled", test.is_enabled.to_string()),
+        ];
+
+        for (key, value) in details {
+            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        }
+        writeln!(
+            &mut lines,
+            "\t------------------------------------------------------------------------"
+        )?;
+    }
+    Ok(lines)
+}
+
+pub async fn machine_validation_test_verfied(
+    api_config: &ApiConfig<'_>,
+    options: MachineValidationVerifyTestOptions,
+) -> CarbideCliResult<()> {
+    rpc::machine_validation_test_verfied(api_config, options.test_id, options.version).await?;
+    Ok(())
+}
+
+pub async fn machine_validation_test_enable_disable(
+    api_config: &ApiConfig<'_>,
+    options: MachineValidationEnableDisableTestOptions,
+) -> CarbideCliResult<()> {
+    rpc::machine_validation_test_enable_disable(
+        api_config,
+        options.test_id,
+        options.version,
+        options.is_enable,
+    )
+    .await?;
     Ok(())
 }

@@ -1788,6 +1788,8 @@ pub enum MachineValidationCommand {
         visible_alias = "mvt"
     )]
     Runs(MachineValidationRunsCommand),
+    #[clap(about = "Supported Tests ", subcommand, visible_alias = "mvs")]
+    Tests(MachineValidationTestsCommand),
 }
 #[derive(Parser, Debug)]
 pub enum MachineValidationExternalConfigCommand {
@@ -1893,4 +1895,50 @@ pub struct MachineValidationOnDemandOptions {
 
     #[clap(long, help = "Allowed tests")]
     pub allowed_tests: Option<Vec<String>>,
+}
+
+#[derive(Parser, Debug)]
+pub enum MachineValidationTestsCommand {
+    #[clap(about = "Show tests")]
+    Show(ShowMachineValidationTestOptions),
+    #[clap(about = "Verify a given test")]
+    Verify(MachineValidationVerifyTestOptions),
+    #[clap(about = "Enabled disable a test")]
+    EnabledDisable(MachineValidationEnableDisableTestOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowMachineValidationTestOptions {
+    #[clap(short, long, help = "Unique identification of the test")]
+    pub test_id: Option<String>,
+
+    #[clap(short, long, help = "List of platforms")]
+    pub platforms: Vec<String>,
+
+    #[clap(short, long, help = "List of contexts/tags")]
+    pub contexts: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineValidationVerifyTestOptions {
+    #[clap(short, long, help = "Unique identification of the test")]
+    pub test_id: String,
+
+    #[clap(short, long, help = "Version to be verify")]
+    pub version: String,
+}
+#[derive(Parser, Debug)]
+pub struct MachineValidationEnableDisableTestOptions {
+    #[clap(short, long, help = "Unique identification of the test")]
+    pub test_id: String,
+
+    #[clap(short, long, help = "Version to be verify")]
+    pub version: String,
+
+    #[clap(
+        short,
+        long,
+        help = "flag for enable and disable. True for enable and false for disable"
+    )]
+    pub is_enable: bool,
 }
