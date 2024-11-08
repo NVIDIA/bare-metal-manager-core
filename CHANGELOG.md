@@ -1,18 +1,66 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...trunk)
 
 ### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2024.11.08-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc4-0...v2024.11.08-rc2-0)
+
+### Added
+
+- Added instructions and additional templates to health page
+- Will serve static PXE content from an nginx server when configured
+- Retain history from predicted machine on final machine
+- Added new fields in Domain model
+- Added transceiver-exporter metrics
+- Added oauth2 support to carbide-web UI
+- Record response body and code for EndpointExplorationError::InvalidDpuRedfishBiosResponse
+- Store and display last endpoint exploration duration
+- Added CLI for external config for Machine Validation feature
+- Added telemetry about the volume of logs and metrics
+
 ### Changed
 
 - forge-dpu-agent no longer sends the legacy `NetworkHealth` health check format. It only emits the new alarm based `HealthReport` report. Since all consumers of DPU health had been updated for this before, there is no impact to users.
 - Machine state history is now retained when a Machine ID gets renamed from the predicted Machine ID to the stable Machine ID. This applies only to newly ingested Machines. Machines which had been ingested in the past will still miss the DPU ingestion states in history.
+- Restructured client certificate renewal and retry renewal in case of failures
+- Improved error message when IB ports can not be registered at UFM
+- Updated libredfish version to ingest the newer Dell servers
+- Removed sending the legacy DPU Health report format
+- Updated to HBN version 2.3
 
 ### Fixed
 
 - Fixed an issue where client certificate renewal on DPUs would not be retried before certificate expiry. This issue could have applied in cases where the initial renewal attempt had failed for any reason.
 - Added Azure SSO support to carbide-web to fix FORGE-4369
+- Fixed the check in scout to determine if the server is a DPU or not.
+- No longer generate real host machine_ids in site exploration
+- Check if dmi.product_name contains "Bluefield"
+- Check correct redfish error for multipart FW update
+- Power cycle host if CEC doesn't support chassis reset
+- Now checks power state of machine before attempting power on/off
+- Configures QOS data on IB partition creation
+- Recover hosts stuck in Discovered state when machine validation is disabled
 
 ### Removed
+
+- Removed ntp service start from upgrade path
+- Removed unused `otlp_endpoint` references from config
+
+## [v2024.10.25-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc3-0...v2024.10.25-rc4-0)
+
+## Changed
+
+- Update libredfish version to ingest the newer Dell servers
+- Improved error message when a Health override with invalid mode is added
+
+## [v2024.10.25-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc2-0...v2024.10.25-rc3-0)
+
+## Fixed
+
+- Skip machine validation if set to disabled
 
 ## [v2024.10.25-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...v2024.10.25-rc2-0)
 
@@ -62,6 +110,36 @@
 - Fixed an issue where Carbide was incorrectly querying the status of SecureBoot in the Redfish API
 
 ## Removed
+
+## [v2024.10.11-rc3-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc3-2...v2024.10.11-rc3-3)
+
+### Changed
+
+- TPM EK Certificates are now checked against a CA
+
+## [v2024.10.11-rc3-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc3-1...v2024.10.11-rc3-2)
+
+### Fixed
+
+- Fixed an issue that causes machines to get stuck during DPU/Reprovisioning
+
+## [v2024.10.11-rc3-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc3-0...v2024.10.11-rc3-1)
+
+### Fixed
+
+- FIxed an issue that prevented the forge-admin-cli from working with the carbide-api service
+
+## [v2024.10.11-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.11-rc2-0...v2024.10.11-rc3-0)
+
+### Added
+
+- Now has the ability to ingest hosts other than Dell and Lenovo even if the BIOS password is not set
+- Create only one machine per site explorer run
+
+### Fixed
+
+- Added WaitingForMeasurements state to carbide-pxe
+- Modified the state machine queries for secure boot status
 
 ## [v2024.10.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.09.27-rc6-0...v2024.10.11-rc2-0)
 
