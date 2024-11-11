@@ -11,6 +11,10 @@ import network
 import ngc
 from vault import ForgeVaultClient
 
+
+WAIT_FOR_HOSTINIT = 60 * 60
+WAIT_FOR_READY = 60 * 120
+
 site_under_test = os.environ.get("SITE_UNDER_TEST")  # e.g. "reno-dev4"
 if site_under_test is None:
     print("ERROR: $SITE_UNDER_TEST environment variable must be set.\nExiting...", file=sys.stderr)
@@ -96,11 +100,11 @@ admin_cli.force_delete_machine(machine_under_test)
 try:
     # Wait up to 1 hour for HostInitializing/WaitingForDiscovery
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'HostInitializing/WaitingForDiscovery'")
-    admin_cli.wait_for_machine_waitingforhostdiscovery(machine_under_test_dpu, timeout=60 * 60)
+    admin_cli.wait_for_machine_waitingforhostdiscovery(machine_under_test_dpu, timeout=WAIT_FOR_HOSTINIT)
 
     # Wait for Ready state
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'Ready'")
-    admin_cli.wait_for_machine_ready(machine_under_test_dpu, timeout=60 * 120)
+    admin_cli.wait_for_machine_ready(machine_under_test_dpu, timeout=WAIT_FOR_READY)
 except Exception as e:
     print("Exception while waiting for machine Ready, putting machine into maintenance mode", file=sys.stderr)
     # We have to use managed host ID to do this, not DPU ID, but this may not exist
