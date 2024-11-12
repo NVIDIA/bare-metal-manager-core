@@ -15,10 +15,12 @@
  *  for making boilerplate copy-pasta code handled in a common way.
 */
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::{From, Into};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
 use std::vec::Vec;
 
@@ -513,4 +515,150 @@ where
             DatabaseError::new(file!(), line!(), "delete_object_where_unique_column", e)
         })?;
     Ok(result)
+}
+
+/// acquire_advisory_txn_lock acquires, as you'd expect,
+/// an advisory lock, which is primarily used for the
+/// purpose of ensuring unique/atomic creation of both
+/// measurement profiles and measurement bundles. Since
+/// bundles and profiles are comprised of multiple rows,
+/// we can't really do unique constraints, and I didn't
+/// really want to lock the entire table(s), so this is
+/// a nice option. The code here is generic, so we could
+/// also use it in other places that end up needing it.
+///
+/// This will block if the lock is currently held, and
+/// will wait until it it is released. If you don't want
+/// blocking behavior, use try_advisory_lock instead.
+///
+/// This will also automatically release at the end of
+/// the transaction (either commit or rollback), so you
+/// don't need to explicitly release the lock when
+/// you're done. If you want more control, you can
+/// use acquire_advisory_lock + release_advisory_lock.
+pub async fn acquire_advisory_txn_lock(
+    txn: &mut Transaction<'_, Postgres>,
+    key: &str,
+) -> Result<(), DatabaseError> {
+    let hash_key = advisory_lock_key_to_hash(key);
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(hash_key)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "acquire_advisory_txn_lock", e))?;
+    Ok(())
+}
+
+/// acquire_advisory_lock is the same as acquire_advisory_txn_lock
+/// above, except it doesn't automatically release on commit
+/// or rollback. If you don't want to worry about explicitly
+/// calling release_advisory_lock when you're done, then use
+/// that.
+pub async fn acquire_advisory_lock(
+    txn: &mut Transaction<'_, Postgres>,
+    key: &str,
+) -> Result<(), DatabaseError> {
+    let hash_key = advisory_lock_key_to_hash(key);
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(hash_key)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "acquire_advisory_lock", e))?;
+    Ok(())
+}
+
+/// release_advisory_lock releases an advisory lock once
+/// we're done with whatever operation required acquiring
+/// an advisory lock. See the acquire_advisory_lock docstring
+/// for more information about why these are used.
+pub async fn release_advisory_lock(
+    txn: &mut Transaction<'_, Postgres>,
+    key: &str,
+) -> CarbideResult<()> {
+    let hash_key = advisory_lock_key_to_hash(key);
+    sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(hash_key)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "release_advisory_lock", e))?;
+    Ok(())
+}
+
+/// try_advisory_lock tries to get an advisory lock
+/// for the given key. If the lock is not held, it
+/// will acquire and return true. If the lock is already
+/// held, it will immediately return false. If an error
+/// occurs, it will return an error.
+pub async fn try_advisory_lock(
+    txn: &mut Transaction<'_, Postgres>,
+    key: &str,
+) -> CarbideResult<bool> {
+    let hash_key = advisory_lock_key_to_hash(key);
+    let acquired = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
+        .bind(hash_key)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "try_advisory_lock", e))?;
+    Ok(acquired)
+}
+
+/// advisory_lock_key_to_hash takes an advisory lock key and
+/// converts it into an i64 for the purpose of acquiring or
+/// releasing an advisory lock.
+fn advisory_lock_key_to_hash(key: &str) -> i64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        acquire_advisory_lock, acquire_advisory_txn_lock, release_advisory_lock, try_advisory_lock,
+    };
+
+    #[sqlx::test]
+    pub async fn test_advisory_txn_locking(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // First, make sure that a txn scoped within the same scope
+        // as the txn lock can't acquire it.
+        {
+            let mut txn1 = pool.begin().await?;
+            acquire_advisory_txn_lock(&mut txn1, "my_lock").await?;
+            let mut scoped_txn2 = pool.begin().await?;
+            let scoped_txn2_acquired = try_advisory_lock(&mut scoped_txn2, "my_lock").await?;
+            assert!(!scoped_txn2_acquired);
+        }
+
+        // And now that we've fallen out of scope, txn1 will have been rolled back,
+        // so now txn2 can get the lock.
+        let mut txn2 = pool.begin().await?;
+        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
+        assert!(txn2_acquired);
+
+        Ok(())
+    }
+
+    #[sqlx::test]
+    pub async fn test_acquire_release_locking(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn1 = pool.begin().await?;
+        acquire_advisory_lock(&mut txn1, "my_lock").await?;
+
+        // txn1 is holding a lock, so this will fail
+        let mut txn2 = pool.begin().await?;
+        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
+        assert!(!txn2_acquired);
+
+        // And now explicitly release the lock.
+        release_advisory_lock(&mut txn1, "my_lock").await?;
+
+        // ...and now txn2 can get the lock.
+        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
+        assert!(txn2_acquired);
+
+        Ok(())
+    }
 }
