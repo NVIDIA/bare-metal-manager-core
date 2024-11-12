@@ -2,9 +2,8 @@ use std::future::Future;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Poll;
 use std::time::Duration;
-use std::{task, vec};
+use std::vec;
 
 use dsocket::Dsocket;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
@@ -242,11 +241,7 @@ impl<C: ConnectionProvider> Service<Name> for HickoryResolver<C> {
     type Error = ResolveError;
     type Future = HickoryResolverFuture;
 
-    fn poll_ready(&mut self, _cx: &mut task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, name: Name) -> Self::Future {
+    fn call(&self, name: Name) -> Self::Future {
         let resolver = self.resolver.clone();
 
         Box::pin(async move {

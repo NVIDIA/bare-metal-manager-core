@@ -187,7 +187,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 .status
                 .as_ref()
                 .and_then(|status| status.state_sla.as_ref())
-                .and_then(|sla| sla.sla.clone())
+                .and_then(|sla| sla.sla)
                 .map(|sla| {
                     config_version::format_duration(
                         chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),

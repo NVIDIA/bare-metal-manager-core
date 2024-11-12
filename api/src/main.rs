@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide::cfg::{Command, Options};
 use clap::CommandFactory;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::PgPool;
 use std::path::Path;
 use std::str::FromStr;
-
-use carbide::cfg::{Command, Options};
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {

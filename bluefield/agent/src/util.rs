@@ -14,6 +14,7 @@ use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use hickory_resolver::{config::ResolverConfig, Name};
+use hyper::service::Service;
 use resolv_conf::Config;
 use rpc::{
     forge::InstancePhoneHomeLastContactRequest,
@@ -22,7 +23,6 @@ use rpc::{
     forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
     Instance, Timestamp,
 };
-use tower::Service;
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
     let (left, right) = match strip_behavior {
@@ -173,7 +173,7 @@ pub async fn get_instance(
         }
     };
 
-    return Ok(instances.first().cloned());
+    Ok(instances.first().cloned())
 }
 
 pub async fn get_asn(

@@ -15,14 +15,10 @@ mod host_firmware;
 pub mod machine_update_module;
 mod metrics;
 
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-
 use host_firmware::HostFirmwareUpdate;
 use sqlx::{PgPool, Postgres, Transaction};
+use std::sync::atomic::Ordering;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
 use self::{
@@ -57,7 +53,7 @@ pub struct MachineUpdateManager {
     max_concurrent_machine_updates: i32,
     run_interval: Duration,
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
-    metrics: Option<Arc<Mutex<MachineUpdateManagerMetrics>>>,
+    metrics: Option<MachineUpdateManagerMetrics>,
 }
 
 impl MachineUpdateManager {
@@ -95,26 +91,8 @@ impl MachineUpdateManager {
             update_modules.push(Box::new(dpu_nic_firmware) as Box<dyn MachineUpdateModule>);
         }
 
-        let machine_update_metrics = Arc::new(Mutex::new(MachineUpdateManagerMetrics::new(&meter)));
-
-        let instruments = if let Ok(machine_update_metrics) = machine_update_metrics.lock() {
-            machine_update_metrics.instruments()
-        } else {
-            vec![]
-        };
-
-        let machine_update_metrics_clone = machine_update_metrics.clone();
-
-        if let Err(e) = meter.register_callback(&instruments, move |observer| {
-            if let Ok(mut machine_update_metrics) = machine_update_metrics_clone.lock() {
-                machine_update_metrics.observe(observer);
-            }
-        }) {
-            tracing::warn!(
-                "Failed to register callback for machine update manager metrics: {}",
-                e
-            );
-        }
+        let mut machine_update_metrics = MachineUpdateManagerMetrics::new();
+        machine_update_metrics.register_callbacks(&meter);
 
         if let Some(host_firmware) =
             HostFirmwareUpdate::new(config.clone(), meter.clone(), config.get_firmware_config())
@@ -244,10 +222,12 @@ impl MachineUpdateManager {
             })?;
         }
         if let Some(metrics) = self.metrics.as_ref() {
-            if let Ok(mut metrics) = metrics.lock() {
-                metrics.machine_updates_started = updates_started_count;
-                metrics.machines_in_maintenance = current_updating_count;
-            }
+            metrics
+                .machine_updates_started
+                .store(updates_started_count as u64, Ordering::Relaxed);
+            metrics
+                .machines_in_maintenance
+                .store(current_updating_count as u64, Ordering::Relaxed);
         }
 
         Ok(())

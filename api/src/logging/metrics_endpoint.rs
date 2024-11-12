@@ -10,22 +10,28 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
-use std::{convert::Infallible, net::SocketAddr};
-
+use bytes::Bytes;
+use http_body_util::Full;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
 use hyper::{
     header::{CONTENT_LENGTH, CONTENT_TYPE},
-    service::{make_service_fn, service_fn},
-    Body, Method, Request, Response, Server,
+    service::service_fn,
+    Method, Request, Response,
 };
+use hyper_util::rt::TokioIo;
 use prometheus::{Encoder, TextEncoder};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 
 /// Request handler
 async fn handle_metrics_request(
-    req: Request<Body>,
+    req: Request<Incoming>,
     state: Arc<MetricsHandlerState>,
-) -> Result<Response<Body>, hyper::Error> {
-    let response = match (req.method(), req.uri().path()) {
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let response: Response<Full<Bytes>> = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut buffer = vec![];
             let encoder = TextEncoder::new();
@@ -36,18 +42,16 @@ async fn handle_metrics_request(
                 .status(200)
                 .header(CONTENT_TYPE, encoder.format_type())
                 .header(CONTENT_LENGTH, buffer.len())
-                .body(Body::from(buffer))
+                .body(buffer.into())
                 .unwrap()
         }
         (&Method::GET, "/") => Response::builder()
             .status(200)
-            .body(Body::from(
-                "Metrics are exposed via /metrics. There is nothing else to see here",
-            ))
+            .body("Metrics are exposed via /metrics. There is nothing else to see here".into())
             .unwrap(),
         _ => Response::builder()
             .status(404)
-            .body(Body::from("Invalid URL"))
+            .body("Invalid URL".into())
             .unwrap(),
     };
 
@@ -66,23 +70,12 @@ pub struct MetricsEndpointConfig {
 }
 
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
-pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), hyper::Error> {
+pub async fn run_metrics_endpoint(
+    config: &MetricsEndpointConfig,
+    mut stop_rx: oneshot::Receiver<()>,
+) -> eyre::Result<()> {
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
-    });
-
-    // `connection_handler` defines the closure that will be called at the start
-    // of every TCP connection attempt to this server.
-    // There can be multiple requests on the same connection
-    let connection_handler = make_service_fn(move |_conn| {
-        let handler_state = handler_state.clone();
-        async move {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                // this is the function that will be called for every request
-                // on the connection
-                handle_metrics_request(req, handler_state.clone())
-            }))
-        }
     });
 
     tracing::info!(
@@ -90,10 +83,24 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
         "Starting metrics listener"
     );
 
-    // TODO: We need timeouts for this listener
-    let server = Server::bind(&config.address).serve(connection_handler);
-    // This will block until the server is shut down
-    server.await?;
+    let listener = TcpListener::bind(&config.address).await?;
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                let handler_state = handler_state.clone();
+                let (stream, _) = result?;
+                tokio::spawn(http1::Builder::new().serve_connection(
+                    TokioIo::new(stream),
+                    service_fn(move |req| {
+                        handle_metrics_request(req, handler_state.clone())
+                    }),
+                ));
+            },
+            _ = &mut stop_rx => {
+                break
+            }
+        }
+    }
 
     Ok(())
 }

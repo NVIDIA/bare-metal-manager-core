@@ -193,7 +193,7 @@ impl From<&Machine> for ManagedHostOutput {
             state_sla_duration: machine
                 .state_sla
                 .as_ref()
-                .and_then(|sla| sla.sla.clone())
+                .and_then(|sla| sla.sla)
                 .map(|sla| {
                     config_version::format_duration(
                         chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
@@ -229,15 +229,15 @@ impl From<&Machine> for ManagedHostOutput {
             maintenance_start_time: machine
                 .id
                 .as_ref()
-                .and_then(|id| to_time(machine.maintenance_start_time.clone(), id)),
+                .and_then(|id| to_time(machine.maintenance_start_time, id)),
             host_last_reboot_time: machine
                 .id
                 .as_ref()
-                .and_then(|id| to_time(machine.last_reboot_time.clone(), id)),
+                .and_then(|id| to_time(machine.last_reboot_time, id)),
             host_last_reboot_requested_time_and_mode: machine.id.as_ref().map(|id| {
                 format!(
                     "{}/{}",
-                    to_time(machine.last_reboot_requested_time.clone(), id)
+                    to_time(machine.last_reboot_requested_time, id)
                         .unwrap_or("Unknown".to_string()),
                     machine.last_reboot_requested_mode()
                 )
@@ -325,21 +325,15 @@ impl ManagedHostAttachedDpu {
             bmc_mac: get_bmc_info_from_machine!(dpu_machine, mac),
             bmc_version: get_bmc_info_from_machine!(dpu_machine, version),
             bmc_firmware_version: get_bmc_info_from_machine!(dpu_machine, firmware_version),
-            last_reboot_time: to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id),
+            last_reboot_time: to_time(dpu_machine.last_reboot_time, dpu_machine_id),
             exploration_report: exploration_map.cloned(),
             last_reboot_requested_time_and_mode: Some(format!(
                 "{}/{}",
-                to_time(
-                    dpu_machine.last_reboot_requested_time.clone(),
-                    dpu_machine_id
-                )
-                .unwrap_or("Unknown".to_string()),
+                to_time(dpu_machine.last_reboot_requested_time, dpu_machine_id)
+                    .unwrap_or("Unknown".to_string()),
                 dpu_machine.last_reboot_requested_mode()
             )),
-            last_observation_time: to_time(
-                dpu_machine.last_observation_time.clone(),
-                dpu_machine_id,
-            ),
+            last_observation_time: to_time(dpu_machine.last_observation_time, dpu_machine_id),
             oob_ip,
             oob_mac,
             switch_connections: connected_devices

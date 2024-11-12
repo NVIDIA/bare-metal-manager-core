@@ -256,7 +256,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             state_sla: segment
                 .state_sla
                 .as_ref()
-                .and_then(|sla| sla.sla.clone())
+                .and_then(|sla| sla.sla)
                 .map(|sla| {
                     config_version::format_duration(
                         chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),

@@ -35,19 +35,12 @@ async fn convert_network_to_nice_format(
     let data = vec![
         ("ID", segment.id.clone().unwrap_or_default().value),
         ("NAME", segment.name.clone()),
-        (
-            "CREATED",
-            segment.created.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "UPDATED",
-            segment.updated.clone().unwrap_or_default().to_string(),
-        ),
+        ("CREATED", segment.created.unwrap_or_default().to_string()),
+        ("UPDATED", segment.updated.unwrap_or_default().to_string()),
         (
             "DELETED",
             segment
                 .deleted
-                .clone()
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
         ),
@@ -129,7 +122,7 @@ async fn convert_network_to_nice_format(
                 "\t{:<15} {:25} {}",
                 serde_json::from_str::<NetworkState>(&x.state)?.state,
                 x.version,
-                x.time.clone().unwrap_or_default()
+                x.time.unwrap_or_default()
             )?;
         }
     }

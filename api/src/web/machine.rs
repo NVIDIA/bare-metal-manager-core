@@ -403,7 +403,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             state_sla: m
                 .state_sla
                 .as_ref()
-                .and_then(|sla| sla.sla.clone())
+                .and_then(|sla| sla.sla)
                 .map(|sla| {
                     config_version::format_duration(
                         chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
@@ -416,7 +416,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             last_reboot: to_time(
-                m.last_reboot_time.clone(),
+                m.last_reboot_time,
                 &rpc::MachineId {
                     id: machine_id.clone(),
                 },

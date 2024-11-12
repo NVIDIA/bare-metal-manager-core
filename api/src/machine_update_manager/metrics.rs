@@ -1,64 +1,38 @@
-use std::{any::Any, sync::Arc};
-
-use opentelemetry::metrics::{Meter, ObservableGauge, Observer};
+use opentelemetry::metrics::Meter;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 pub struct MachineUpdateManagerMetrics {
-    pub machines_in_maintenance: usize,
-    pub machine_updates_started: usize,
-    pub instruments: MachineUpdateManagerMetricsInstruments,
+    pub machines_in_maintenance: Arc<AtomicU64>,
+    pub machine_updates_started: Arc<AtomicU64>,
 }
 
 impl MachineUpdateManagerMetrics {
-    pub fn new(meter: &Meter) -> Self {
+    pub fn new() -> Self {
         MachineUpdateManagerMetrics {
-            machines_in_maintenance: 0,
-            machine_updates_started: 0,
-            instruments: MachineUpdateManagerMetricsInstruments::new(meter),
+            machines_in_maintenance: Arc::new(AtomicU64::new(0)),
+            machine_updates_started: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    pub fn observe(&mut self, observer: &dyn Observer) {
-        observer.observe_u64(
-            &self.instruments.machines_in_maintenance,
-            self.machines_in_maintenance as u64,
-            &[],
-        );
-        observer.observe_u64(
-            &self.instruments.machine_updates_started,
-            self.machine_updates_started as u64,
-            &[],
-        );
-        self.machine_updates_started = 0;
-    }
-
-    pub fn instruments(&self) -> Vec<Arc<dyn Any>> {
-        vec![
-            self.instruments.machines_in_maintenance.as_any(),
-            self.instruments.machine_updates_started.as_any(),
-        ]
-    }
-}
-
-pub struct MachineUpdateManagerMetricsInstruments {
-    pub machines_in_maintenance: ObservableGauge<u64>,
-    pub machine_updates_started: ObservableGauge<u64>,
-}
-
-impl MachineUpdateManagerMetricsInstruments {
-    pub fn new(meter: &Meter) -> Self {
-        MachineUpdateManagerMetricsInstruments {
-            machines_in_maintenance: meter
-                .u64_observable_gauge("forge_machines_in_maintenance_count")
-                .with_description(
-                    "The total number of machines in the system that are in maintenance.",
-                )
-                .init(),
-            machine_updates_started: meter
-                .u64_observable_gauge("forge_machine_updates_started_count")
-                .with_description(
-                    "The number of machines in the system that in the process of updating.",
-                )
-                .init(),
-        }
+    pub fn register_callbacks(&mut self, meter: &Meter) {
+        let machines_in_maintenance = self.machines_in_maintenance.clone();
+        let machine_updates_started = self.machine_updates_started.clone();
+        meter
+            .u64_observable_gauge("forge_machines_in_maintenance_count")
+            .with_description("The total number of machines in the system that are in maintenance.")
+            .with_callback(move |observer| {
+                observer.observe(machines_in_maintenance.load(Ordering::Relaxed), &[])
+            })
+            .init();
+        meter
+            .u64_observable_gauge("forge_machine_updates_started_count")
+            .with_description(
+                "The number of machines in the system that in the process of updating.",
+            )
+            .with_callback(move |observer| {
+                observer.observe(machine_updates_started.load(Ordering::Relaxed), &[])
+            })
+            .init();
     }
 }

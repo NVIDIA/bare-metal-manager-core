@@ -418,7 +418,7 @@ pub(crate) async fn record_dpu_network_status(
         id: dpu_machine_id.to_string(),
     })?;
 
-    let observed_at = match request.observed_at.clone() {
+    let observed_at = match request.observed_at {
         Some(ts) => {
             // Use DPU clock
             let system_time = std::time::SystemTime::try_from(ts).map_err(|err| {

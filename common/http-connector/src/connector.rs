@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 use std::{fmt, io};
 
 use futures_util::future::Either;
-use futures_util::ready;
 use hickory_resolver::Name;
 use hyper::http::uri::Scheme;
 use hyper::http::Uri;
 use hyper::service::Service;
+use hyper_util::rt::TokioIo;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
 use tokio_socks::tcp::Socks5Stream;
@@ -26,7 +26,7 @@ use tryhard::RetryFutureConfig;
 use crate::resolver;
 use crate::resolver::ForgeResolver;
 
-type ConnectResult = Result<TcpStream, ConnectError>;
+type ConnectResult = Result<TokioIo<TcpStream>, ConnectError>;
 
 /// ConnectorMetrics is intended as an ever-evolving metrics
 /// container of sorts, to allow a caller to collect connection
@@ -842,14 +842,14 @@ impl fmt::Debug for ForgeHttpConnector {
 }
 
 impl tower_service::Service<Uri> for ForgeHttpConnector {
-    type Response = TcpStream;
+    type Response = TokioIo<TcpStream>;
     //type Error = Box<dyn Error + Send + Sync>;
     type Error = ConnectError;
     //type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
     type Future = Pin<Box<dyn Future<Output = ConnectResult> + Send>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.resolver.poll_ready(cx)).map_err(ConnectError::dns)?;
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // ready!(self.resolver.poll_ready(cx)).map_err(ConnectError::dns)?;
         Poll::Ready(Ok(()))
     }
 
@@ -857,7 +857,7 @@ impl tower_service::Service<Uri> for ForgeHttpConnector {
         let mut self_ = self.clone();
         Box::pin(async move {
             let stream = self_.call_async(uri).await?;
-            Ok(stream)
+            Ok(TokioIo::new(stream))
         })
     }
 }

@@ -24,7 +24,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     fn try_from(obs: rpc::DpuNetworkStatus) -> Result<Self, Self::Error> {
         let observed_at = match obs.observed_at {
             Some(timestamp) => {
-                let system_time = SystemTime::try_from(timestamp.clone())
+                let system_time = SystemTime::try_from(timestamp)
                     .map_err(|_| Self::Error::InvalidTimestamp(timestamp.to_string()))?;
                 DateTime::from(system_time)
             }

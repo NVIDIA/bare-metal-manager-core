@@ -1,15 +1,15 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::{Arc, Mutex},
-};
-
 use crate::{
     cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::MachineUpdateManager, CarbideError, CarbideResult,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
+use std::sync::atomic::Ordering;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
@@ -25,7 +25,7 @@ use forge_uuid::machine::MachineId;
 
 pub struct DpuNicFirmwareUpdate {
     pub expected_dpu_firmware_versions: HashMap<String, String>,
-    pub metrics: Option<Arc<Mutex<DpuNicFirmwareUpdateMetrics>>>,
+    pub metrics: Option<DpuNicFirmwareUpdateMetrics>,
 }
 
 #[async_trait]
@@ -161,9 +161,9 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
-                    if let Ok(mut metrics) = metrics.lock() {
-                        metrics.pending_firmware_updates = outdated_dpus.len();
-                    }
+                    metrics
+                        .pending_firmware_updates
+                        .store(outdated_dpus.len() as u64, Ordering::Relaxed);
                 }
             }
             Err(e) => tracing::warn!(error=%e, "Error geting outdated dpus for metrics"),
@@ -177,9 +177,9 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
-                    if let Ok(mut metrics) = metrics.lock() {
-                        metrics.unavailable_dpu_updates = outdated_dpus.len();
-                    }
+                    metrics
+                        .unavailable_dpu_updates
+                        .store(outdated_dpus.len() as u64, Ordering::Relaxed);
                 }
             }
             Err(e) => tracing::warn!(
@@ -191,9 +191,9 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         match DpuMachineUpdate::get_fw_updates_running_count(txn).await {
             Ok(count) => {
                 if let Some(metrics) = &self.metrics {
-                    if let Ok(mut metrics) = metrics.lock() {
-                        metrics.running_dpu_updates = count as usize;
-                    }
+                    metrics
+                        .running_dpu_updates
+                        .store(count as u64, Ordering::Relaxed);
                 }
             }
             Err(e) => tracing::warn!(
@@ -212,23 +212,8 @@ impl DpuNicFirmwareUpdate {
 
         if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
         {
-            let metrics = Arc::new(Mutex::new(DpuNicFirmwareUpdateMetrics::new(meter.clone())));
-            let metrics_clone = metrics.clone();
-            if let Ok(locked_metrics) = metrics.lock() {
-                if let Err(e) =
-                    meter.register_callback(&locked_metrics.instruments(), move |observer| {
-                        if let Ok(mut locked_metrics_clone) = metrics_clone.lock() {
-                            locked_metrics_clone.observe(observer);
-                        }
-                    })
-                {
-                    tracing::warn!(
-                        "Failed to register metrics callback for DpuNicFirmwareUpdate: {}",
-                        e
-                    );
-                }
-            }
-
+            let mut metrics = DpuNicFirmwareUpdateMetrics::new();
+            metrics.register_callbacks(&meter);
             Some(DpuNicFirmwareUpdate {
                 expected_dpu_firmware_versions: expected_dpu_firmware_version.clone(),
                 metrics: Some(metrics),

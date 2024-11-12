@@ -21,15 +21,8 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use hyper::http::HeaderMap;
-use hyper::http::StatusCode;
-use oauth2::{
-    http::{
-        header::{HeaderValue, AUTHORIZATION},
-        Method,
-    },
-    AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse,
-};
+use http::{HeaderMap, StatusCode};
+use oauth2::{AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse};
 use reqwest;
 use serde::Deserialize;
 use time::Duration as TimeDuration;
@@ -53,6 +46,14 @@ pub async fn callback(
     Query(query): Query<AuthRequest>,
     Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
 ) -> Response {
+    // NOTE: oauth2 has an older version of the HTTP crate as of November 2024, so we can not use the
+    // 1.x HTTP types (which axum uses) when interacting with oauth2. Downgrading axum is not what we
+    // want, so we have to take care to use the pre-http types only for interacting with oauth2.
+    use oauth2::http::{
+        header as oauth2_header, HeaderMap as Oauth2HeaderMap, HeaderValue as Oauth2HeaderValue,
+        Method as Oauth2Method,
+    };
+
     let Some(oauth2_layer) = oauth2_layer else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -197,10 +198,10 @@ pub async fn callback(
     };
 
     // Prepare headers we'll use for user and group calls.
-    let mut headers = HeaderMap::new();
+    let mut headers = Oauth2HeaderMap::new();
     headers.insert(
-        AUTHORIZATION,
-        match HeaderValue::from_str(
+        oauth2_header::AUTHORIZATION,
+        match Oauth2HeaderValue::from_str(
             format!("Bearer {}", token.access_token().secret().to_owned()).as_str(),
         ) {
             Ok(h) => h,
@@ -217,7 +218,7 @@ pub async fn callback(
     // Needed to perform the request with the $search applied.
     headers.insert(
         "ConsistencyLevel",
-        match HeaderValue::from_str("eventual") {
+        match Oauth2HeaderValue::from_str("eventual") {
             Ok(h) => h,
             Err(e) => {
                 return (
@@ -247,7 +248,7 @@ pub async fn callback(
                     .into_response()
             }
         },
-        method: Method::GET,
+        method: Oauth2Method::GET,
         headers,
         body: vec![],
     };
@@ -299,13 +300,13 @@ pub async fn callback(
     // When someone tries to access carbide-web, we just need to see that they have the cookie
     // and that it's not expired and hasn't been tampered with, which we'll know when we decrypt it,
     // so we don't have a use for storing the actual token secret for later use at the moment.
-    let cookie = Cookie::build("sid", format!("{}", now_seconds + exp_secs))
+    let cookie = Cookie::build(("sid", format!("{}", now_seconds + exp_secs)))
         .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
         .max_age(TimeDuration::seconds(secs))
-        .finish();
+        .build();
 
     (
         // Strip out any old cookies that might possibly exist,

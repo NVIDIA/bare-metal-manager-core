@@ -441,11 +441,10 @@ pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::null_mut;
-    use std::thread;
-
     use super::*;
     use crate::mock_api_server;
+    use std::ptr::null_mut;
+    use std::thread;
 
     // Basic test passing null pointers
     #[test]

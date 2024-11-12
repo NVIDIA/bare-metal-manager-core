@@ -20,13 +20,10 @@ use figment::{
 };
 use forge_secrets::{
     credentials::CredentialProvider,
-    forge_vault::{
-        ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics, GaugeHolder,
-        VaultTokenGaugeHolder,
-    },
+    forge_vault::{ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics},
     ForgeVaultClient,
 };
-use opentelemetry::metrics::{Meter, Observer, Unit};
+use opentelemetry::metrics::Meter;
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
 use crate::legacy;
@@ -134,36 +131,25 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
         .with_description("The amount of tcp connections that were failures")
         .init();
     let vault_token_time_remaining_until_refresh_gauge = meter
-        .u64_observable_gauge("carbide-api.vault.token_time_until_refresh")
+        .f64_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
             "The amount of time, in seconds, until the vault token is required to be refreshed",
         )
-        .with_unit(Unit::new("s"))
+        .with_unit("s")
         .init();
     let vault_request_duration_histogram = meter
         .u64_histogram("carbide-api.vault.request_duration")
         .with_description("the duration of outbound vault requests, in milliseconds")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
-
-    let vault_token_gauge_holder = Arc::new(VaultTokenGaugeHolder::new(
-        vault_token_time_remaining_until_refresh_gauge,
-    ));
 
     let forge_vault_metrics = ForgeVaultMetrics {
         vault_requests_total_counter,
         vault_requests_succeeded_counter,
         vault_requests_failed_counter,
-        vault_token_gauge_holder: vault_token_gauge_holder.clone(),
+        vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
         vault_request_duration_histogram,
     };
-
-    meter
-        .register_callback(
-            &[vault_token_gauge_holder.emit_observable()],
-            move |observer: &dyn Observer| vault_token_gauge_holder.observe_callback(observer),
-        )
-        .wrap_err("unable to register callback?")?;
 
     let vault_client_config = ForgeVaultClientConfig {
         auth_type,
@@ -207,7 +193,7 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
     let mut database_connect_options = config
         .database_url
         .parse::<sqlx::postgres::PgConnectOptions>()?
-        .log_statements("INFO".parse().unwrap());
+        .log_statements("INFO".parse()?);
     if let Some(ref tls_config) = config.tls {
         let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
         if !tls_disabled {

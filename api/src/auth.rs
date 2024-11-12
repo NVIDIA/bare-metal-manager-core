@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use rustls_pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -96,11 +97,10 @@ impl Principal {
 
     // Note: no certificate verification is performed here!
     pub fn try_from_client_certificate(
-        certificate: &tokio_rustls::rustls::Certificate,
+        certificate: &CertificateDer,
         spiffe_context: &forge_spiffe::ForgeSpiffeContext,
     ) -> Result<Principal, SpiffeError> {
-        let der_bytes = &certificate.0;
-        match forge_spiffe::validate_x509_certificate(der_bytes.as_slice()) {
+        match forge_spiffe::validate_x509_certificate(certificate.as_ref()) {
             Ok(spiffe_id) => {
                 let service_id = spiffe_context.extract_service_identifier(&spiffe_id)?;
                 Ok(match service_id {
@@ -114,7 +114,7 @@ impl Principal {
             }
             Err(e) => {
                 // nvinit certs do not include a SPIFFE ID, check if we might be one of them
-                if let Some(nvinit_cert) = try_external_cert(der_bytes.as_slice()) {
+                if let Some(nvinit_cert) = try_external_cert(certificate.as_ref()) {
                     return Ok(nvinit_cert);
                 }
                 Err(SpiffeError::Validation(e))
@@ -200,6 +200,7 @@ fn nvinit_cert_values(subject: &X509Name) -> ExternalUserInfo {
 // This is added to the extensions of a request. The authentication (authn)
 // middleware populates the `principals` field, and the authorization (authz)
 // middleware sets the `authorization` field.
+#[derive(Clone)]
 pub struct AuthContext {
     pub principals: Vec<Principal>,
     pub authorization: Option<Authorization>,
@@ -423,7 +424,6 @@ mod tests {
     use super::*;
     use eyre::Context;
     use std::io::BufRead;
-    use tokio_rustls::rustls::Certificate;
 
     struct ClientCertTable {
         cert: String,
@@ -715,10 +715,8 @@ mod tests {
 
         for test in table {
             let clone = test.cert.clone();
-            let certs = rustls_pemfile::certs(&mut clone.as_bytes())?
-                .into_iter()
-                .map(Certificate)
-                .collect::<Vec<_>>();
+            let certs =
+                rustls_pemfile::certs(&mut clone.as_bytes()).collect::<Result<Vec<_>, _>>()?;
             let certificate = certs.first().unwrap();
             assert_eq!(
                 Principal::try_from_client_certificate(certificate, &context)

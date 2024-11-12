@@ -16,10 +16,10 @@ serde_yaml = "0.9.27"
 serde = { version = "1.0.190", features = ["derive"] }
 tokio = { workspace = true }
 tonic = { workspace = true }
-prost = "0.12"
+prost = "0.13"
 tokio-rustls = { version = "0.24.1", features = ["dangerous_configuration"] }
-hyper = "0.14.30"
-hyper-rustls = { version = "0.24", features = ["http2"] }
+hyper = { workspace = true }
+hyper-rustls = { workspace = true, features = ["http2"] }
 rustls-pemfile = "1.0.3"
 eyre = "0.6.8"
 tower = { version = "0.4", features = ["full"] }
@@ -44,4 +44,4 @@ rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
 
 [build-dependencies]
-tonic-build = { version = "^0.10", features = ["prost"] }
+tonic-build = { version = "^0.12", features = ["prost"] }

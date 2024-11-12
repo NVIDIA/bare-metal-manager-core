@@ -466,6 +466,9 @@ async fn post_phone_home(
 #[cfg(test)]
 mod tests {
     use axum::http;
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
+    use hyper_util::rt::TokioExecutor;
     use uuid::uuid;
 
     use ::rpc::Uuid;
@@ -497,8 +500,7 @@ mod tests {
         let std_listener = listener.into_std().unwrap();
 
         let server = tokio::spawn(async move {
-            hyper::Server::from_tcp(std_listener)
-                .unwrap()
+            axum_server::Server::from_tcp(std_listener)
                 .serve(router.into_make_service())
                 .await
                 .unwrap();
@@ -515,18 +517,18 @@ mod tests {
         expected_body: &str,
         expected_code: http::StatusCode,
     ) {
-        let client = hyper::Client::new();
-        let request = hyper::Request::builder()
+        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+        let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri(format!("http://127.0.0.1:{}/{}", port, path))
-            .body(hyper::Body::empty())
+            .body("".into())
             .unwrap();
 
         let response = client.request(request).await.unwrap();
 
         assert_eq!(response.status(), expected_code);
 
-        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
         let body_str = std::str::from_utf8(&body).unwrap();
 
         assert_eq!(body_str, expected_body);

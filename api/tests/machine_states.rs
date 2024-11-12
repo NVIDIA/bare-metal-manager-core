@@ -747,10 +747,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
         .remove(0);
     let sla = machine.state_sla.as_ref().unwrap();
     assert!(sla.time_in_state_above_sla);
-    assert_eq!(
-        sla.sla.clone().unwrap(),
-        std::time::Duration::from_secs(0).into()
-    );
+    assert_eq!(sla.sla.unwrap(), std::time::Duration::from_secs(0).into());
 }
 
 /// test_measurement_failed_state_transition is used to test the state

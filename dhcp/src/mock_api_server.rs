@@ -10,6 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::machine::Machine;
+use ::rpc::forge as rpc;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::server::conn::http2;
+use hyper::service::service_fn;
+use hyper::{body, Request, Response};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use mac_address::MacAddress;
+use prost::Message;
 /// A hyper / TCP server that pretends to be carbide-api, for unit testing.
 /// It responds to DHCP_DISCOVERY messages with a DHCP_OFFER of 172.20.0.{x}/32, where x is the
 /// last byte of the MAC address sent in the DISCOVERY packet.
@@ -17,19 +27,11 @@
 /// Module only included if #cfg(test)
 ///
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-
-use ::rpc::forge as rpc;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
-use mac_address::MacAddress;
-use prost::Message;
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-
-use crate::machine::Machine;
 
 pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
 
@@ -128,27 +130,38 @@ impl MockAPIServer {
         let i2 = inject_failure.clone();
         let calls = Arc::new(Mutex::new(HashMap::new()));
         let c2 = calls.clone();
-        let make_svc = make_service_fn(move |_conn| {
-            let c3 = c2.clone();
-            let i3 = i2.clone();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
-                    MockAPIServer::handler(req, c3.clone(), i3.clone())
-                }))
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let local_addr = listener.local_addr().unwrap().to_string();
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            loop {
+                let c3 = c2.clone();
+                let i3 = i2.clone();
+                tokio::select! {
+                    result = listener.accept() => {
+                        let (stream, _) = result.unwrap();
+                        tokio::spawn(async move {
+                            http2::Builder::new(TokioExecutor::new()).serve_connection(TokioIo::new(stream), service_fn(move |req: Request<body::Incoming>| {
+                                let c3 = c3.clone();
+                                let i3 = i3.clone();
+                                async move {
+                                    Ok::<Response<Full<Bytes>>, hyper::Error>(MockAPIServer::handler(req, c3.clone(), i3.clone()).await.unwrap())
+                                }
+                            })).await.inspect_err(|e| eprintln!("ERROR: {e:?}")).unwrap()
+                        });
+                    }
+                    _ = &mut rx => {
+                        break;
+                    }
+                }
             }
+            Ok::<(), hyper::Error>(())
         });
-        let server = Server::bind(&addr).http2_only(true).serve(make_svc);
-        let local_addr = server.local_addr();
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let server = server.with_graceful_shutdown(async move {
-            rx.await.ok();
-        });
-        let handle = tokio::spawn(server);
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await; // let it start
         MockAPIServer {
             calls,
             handle,
-            local_addr: format!("http://{}", local_addr),
+            local_addr: format!("http://{local_addr}"),
             tx: Some(tx),
             inject_failure,
         }
@@ -174,10 +187,10 @@ impl MockAPIServer {
     }
 
     async fn handler(
-        req: Request<Body>,
+        req: Request<Incoming>,
         calls: Arc<Mutex<HashMap<String, usize>>>,
         fail: Arc<Mutex<bool>>,
-    ) -> Result<Response<Body>, MockAPIServerError> {
+    ) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
         let path = req.uri().path();
         calls
             .lock()
@@ -201,8 +214,8 @@ impl MockAPIServer {
         }
     }
 
-    async fn discover_dhcp(req: Request<Body>) -> Vec<u8> {
-        let input_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
+    async fn discover_dhcp(req: Request<Incoming>) -> Vec<u8> {
+        let input_bytes = req.into_body().collect().await.unwrap().to_bytes();
 
         // slice is to strip the gRPC parts: 1 byte is_compressed and a 4 byte message length
         let disco = rpc::DhcpDiscovery::decode(input_bytes.slice(5..)).unwrap();

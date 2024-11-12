@@ -469,15 +469,13 @@ impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
             Uuid::try_from(value.validation_id.unwrap_or_default()).map_err(CarbideError::from)?;
         let start_time = match value.start_time {
             Some(time) => {
-                DateTime::from_timestamp(time.clone().seconds, time.nanos.try_into().unwrap())
-                    .unwrap()
+                DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()
             }
             None => Utc::now(),
         };
         let end_time = match value.end_time {
             Some(time) => {
-                DateTime::from_timestamp(time.clone().seconds, time.nanos.try_into().unwrap())
-                    .unwrap()
+                DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()
             }
             None => Utc::now(),
         };

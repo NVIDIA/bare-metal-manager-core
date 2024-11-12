@@ -14,7 +14,7 @@ use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use arc_swap::ArcSwapOption;
 use opentelemetry::{
-    metrics::{self, Counter, Histogram, Meter, ObservableGauge, Unit},
+    metrics::{self, Counter, Histogram, Meter, ObservableGauge},
     KeyValue,
 };
 
@@ -325,7 +325,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 "The overall time it took to handle state for all {} in the system",
                 object_type
             ))
-            .with_unit(Unit::new("ms"))
+            .with_unit("ms")
             .init();
         let total_objects_gauge = meter
             .u64_observable_gauge(format!("{}_total", object_type))
@@ -377,7 +377,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 "The amount of time objects of type {} have spent in a certain state",
                 object_type
             ))
-            .with_unit(Unit::new("s"))
+            .with_unit("s")
             .init();
         let handler_latency_in_state_histogram = meter
             .f64_histogram(format!("{}_handler_latency_in_state", object_type))
@@ -385,7 +385,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 "The amount of time it took to invoke the state handler for objects of type {} in a certain state",
                 object_type
             ))
-            .with_unit(Unit::new("ms"))
+            .with_unit("ms")
             .init();
 
         Self {

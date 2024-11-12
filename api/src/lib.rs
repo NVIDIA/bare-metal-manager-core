@@ -39,6 +39,7 @@ use model::{
     hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
     ConfigValidationError,
 };
+use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tonic::Status;
 use tracing::subscriber::NoSubscriber;
@@ -150,7 +151,8 @@ pub enum CarbideError {
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
 
-    #[error("Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}")]
+    #[error("Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}"
+    )]
     PredictedHostWrongNetworkSegment(MacAddress, NetworkSegmentId, NetworkSegmentType),
 
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
@@ -171,7 +173,8 @@ pub enum CarbideError {
     #[error("Generic error: {0}")]
     GenericError(String),
 
-    #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
+    #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
+    )]
     IdentifierSpecifiedForNewObject(String),
 
     #[error("Only one interface per machine can be marked as primary")]
@@ -379,14 +382,18 @@ pub async fn run(
     let metrics = create_metrics()?;
 
     // Spin up the webserver which servers `/metrics` requests
+    let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         tokio::task::Builder::new()
             .name("metrics_endpoint")
             .spawn(async move {
-                if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
-                    address: metrics_address,
-                    registry: metrics.registry,
-                })
+                if let Err(e) = run_metrics_endpoint(
+                    &MetricsEndpointConfig {
+                        address: metrics_address,
+                        registry: metrics.registry,
+                    },
+                    metrics_stop_rx,
+                )
                 .await
                 {
                     tracing::error!("Metrics endpoint failed with error: {}", e);
@@ -463,13 +470,28 @@ pub async fn run(
         }
     };
 
+    // Split stop_channel into a task which will stop both the API server and metrics server
+    let (api_stop_tx, api_stop_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        stop_channel.await.inspect_err(|error| {
+            tracing::error!(%error, "error waiting on stop channel");
+        })?;
+        _ = metrics_stop_tx.send(()).inspect_err(|_| {
+            tracing::error!("could not send stop signal to metrics server. already stopped?");
+        });
+        _ = api_stop_tx.send(()).inspect_err(|_| {
+            tracing::error!("could not send stop signal to api server. already stopped?");
+        });
+        Ok::<(), eyre::Report>(())
+    });
+
     setup::start_api(
         carbide_config,
         metrics.meter,
         dynamic_settings,
         redfish_pool,
         vault_client,
-        stop_channel,
+        api_stop_rx,
         ready_channel,
     )
     .await

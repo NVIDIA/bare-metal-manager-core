@@ -13,12 +13,12 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 log = "0.4.19"
 tracing = "0.1.40"
 socket2 = "0.5.5"
-hyper = { version = "0.14.30", default-features = false, features = [
-  "client",
-  "runtime",
-  "tcp",
+hyper = { workspace = true, features = [
+    "client",
 ] }
-hyper-rustls = { version = "0.24", default-features = false, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+hyper-util = { version = "0.1.10", features = ["tokio"] }
+
 pin-project-lite = "0.2.11"
 futures-util = "0.3.28"
 tower-service = "0.3.2"
@@ -29,10 +29,9 @@ tryhard = "0.5.1"
 dsocket = { path = "../dsocket" }
 
 [dev-dependencies]
-hyper = { version = "0.14", default-features = false, features = [
-  "client",
-  "tcp",
-  "http1",
-  "http2",
+hyper = { workspace = true, features = [
+    "client",
+    "http1",
+    "http2",
 ] }
 tokio = { workspace = true, features = ["rt", "macros"] }

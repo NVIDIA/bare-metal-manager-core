@@ -9,20 +9,35 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server};
-use opentelemetry::metrics::{Meter, MeterProvider};
+use std::{net::SocketAddr, sync::Arc};
+
+use bytes::Bytes;
+use http_body_util::Full;
+use hyper::{
+    body,
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
+    service::service_fn,
+    Method, Request, Response,
+};
+use hyper_util::{
+    rt::{TokioExecutor, TokioIo},
+    server::conn::auto::Builder,
+};
+use opentelemetry::{
+    metrics::{Meter, MeterProvider},
+    KeyValue,
+};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;
 use prometheus::{Encoder, TextEncoder};
-use std::convert::Infallible;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use tokio::net::TcpListener;
 
 #[derive(Debug, Clone)]
 pub struct MetricsSetup {
     pub registry: prometheus::Registry,
     pub meter: Meter,
+    // Need to retain this, if it's dropped, metrics are not held
+    pub meter_provider: SdkMeterProvider,
 }
 
 /// The shared state between HTTP requests
@@ -37,13 +52,13 @@ pub struct MetricsEndpointConfig {
 }
 
 pub fn new_metrics_setup(
-    service_name: &str,
-    service_namespace: &str,
+    service_name: &'static str,
+    service_namespace: &'static str,
 ) -> eyre::Result<MetricsSetup> {
     // This defines attributes that are set on the exported metrics
     let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
-        semconv::resource::SERVICE_NAME.string(service_name.to_string()),
-        semconv::resource::SERVICE_NAMESPACE.string(service_namespace.to_string()),
+        KeyValue::new(semconv::resource::SERVICE_NAME, service_name),
+        KeyValue::new(semconv::resource::SERVICE_NAMESPACE, service_namespace),
     ]);
 
     // This sets the global meter provider
@@ -56,7 +71,7 @@ pub fn new_metrics_setup(
         .without_scope_info()
         .without_target_info()
         .build()?;
-    let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
+    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metrics_exporter)
         .with_resource(service_telemetry_attributes)
         .with_view(create_metric_view_for_retry_histograms("*_attempts_*")?)
@@ -67,7 +82,8 @@ pub fn new_metrics_setup(
 
     Ok(MetricsSetup {
         registry: prometheus_registry,
-        meter: meter_provider.meter(service_name.to_string()),
+        meter: meter_provider.meter(service_name),
+        meter_provider,
     })
 }
 
@@ -91,41 +107,47 @@ fn create_metric_view_for_retry_histograms(
 }
 
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
-pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), hyper::Error> {
+pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
     });
 
-    // `connection_handler` defines the closure that will be called at the start of every TCP connection attempt to this server.
-    // There can be multiple requests on the same connection
-    let connection_handler = make_service_fn(move |_conn| {
-        let handler_state = handler_state.clone();
-        async move {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                // this is the function that will be called for every request on the connection
-                handle_metrics_request(req, handler_state.clone())
-            }))
-        }
-    });
+    let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
         address = config.address.to_string(),
         "Starting metrics listener"
     );
 
-    // TODO: We need timeouts for this listener
-    let server = Server::bind(&config.address).serve(connection_handler);
-    // This will block until the server is shut down
-    server.await?;
+    loop {
+        let (stream, _) = listener.accept().await?;
 
-    Ok(())
+        let io = TokioIo::new(stream);
+
+        let handler_state = handler_state.clone();
+
+        tokio::task::spawn(async move {
+            let handler_state = handler_state.clone();
+            if let Err(err) = Builder::new(TokioExecutor::new())
+                .serve_connection(
+                    io,
+                    service_fn(move |req: Request<body::Incoming>| {
+                        handle_metrics_request(req, handler_state.clone())
+                    }),
+                )
+                .await
+            {
+                tracing::warn!(error = err, "Error serving connection for metrics listener");
+            }
+        });
+    }
 }
 
 /// Metrics request handler
 async fn handle_metrics_request(
-    req: Request<Body>,
+    req: Request<body::Incoming>,
     state: Arc<MetricsHandlerState>,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut buffer = vec![];
@@ -137,18 +159,18 @@ async fn handle_metrics_request(
                 .status(200)
                 .header(CONTENT_TYPE, encoder.format_type())
                 .header(CONTENT_LENGTH, buffer.len())
-                .body(Body::from(buffer))
+                .body(Full::new(Bytes::from(buffer)))
                 .unwrap()
         }
         (&Method::GET, "/") => Response::builder()
             .status(200)
-            .body(Body::from(
+            .body(Full::new(Bytes::from(
                 "Metrics are exposed via /metrics. There is nothing else to see here",
-            ))
+            )))
             .unwrap(),
         _ => Response::builder()
             .status(404)
-            .body(Body::from("Invalid URL"))
+            .body(Full::new(Bytes::from("Invalid URL")))
             .unwrap(),
     };
 
@@ -178,36 +200,36 @@ mod tests {
             .build()
             .unwrap();
 
-        let meter_provider = metrics::MeterProvider::builder()
+        let meter_provider = metrics::MeterProviderBuilder::default()
             .with_reader(metrics_exporter)
             .with_view(create_metric_view_for_retry_histograms("*_attempts_*").unwrap())
             .with_view(create_metric_view_for_retry_histograms("*_retries_*").unwrap())
             .build();
 
         let meter = meter_provider.meter("myservice");
-        let x = meter.u64_observable_gauge("mygauge").init();
 
         let state = KeyValue::new("state", "mystate");
         let p1 = vec![state.clone(), KeyValue::new("error", "ErrA")];
         let p2 = vec![state.clone(), KeyValue::new("error", "ErrB")];
         let p3 = vec![state.clone(), KeyValue::new("error", "ErrC")];
 
-        let counter = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = Arc::new(AtomicUsize::new(0));
 
         meter
-            .register_callback(&[x.as_any()], move |observer| {
+            .u64_observable_gauge("mygauge")
+            .with_callback(move |observer| {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
                 println!("Collection {}", count);
                 if count % 2 == 0 {
-                    observer.observe_u64(&x, 1, &p1);
+                    observer.observe(1, &p1);
                 } else {
-                    observer.observe_u64(&x, 1, &p2);
+                    observer.observe(1, &p2);
                 }
                 if count % 3 == 1 {
-                    observer.observe_u64(&x, 1, &p3);
+                    observer.observe(1, &p3);
                 }
             })
-            .unwrap();
+            .init();
 
         for i in 0..10 {
             let mut buffer = vec![];

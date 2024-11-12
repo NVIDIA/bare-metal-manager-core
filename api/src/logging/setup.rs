@@ -15,6 +15,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semcov;
 use tracing_subscriber::{
     filter, filter::EnvFilter, filter::LevelFilter, layer::Filter, prelude::*,
@@ -33,6 +34,8 @@ pub struct Logging {
 pub struct Metrics {
     pub registry: prometheus::Registry,
     pub meter: Meter,
+    // Need to retain this, if it's dropped, metrics are not held
+    pub meter_provider: SdkMeterProvider,
 }
 
 pub async fn setup_logging(
@@ -95,21 +98,9 @@ pub async fn setup_logging(
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
-        // Start tokio-console server. Returns a tracing-subscriber Layer.
-        let tokio_console_layer = console_subscriber::ConsoleLayer::builder()
-            .with_default_env()
-            .server_addr(([0, 0, 0, 0], console_subscriber::Server::DEFAULT_PORT))
-            .spawn();
-        // tokio-console wants "runtime=trace,tokio=trace"
-        let tokio_console_filter = tracing_subscriber::filter::Targets::new()
-            .with_default(LevelFilter::ERROR)
-            .with_target("runtime", LevelFilter::TRACE)
-            .with_target("tokio", LevelFilter::TRACE);
-
         // Set up the tracing subscriber
         tracing_subscriber::registry()
             .with(logfmt_stdout_formatter.with_filter(combined_filter))
-            .with(tokio_console_layer.with_filter(tokio_console_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;
@@ -123,9 +114,10 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError>
     // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
     // for tracking milliseconds
     // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
+    use opentelemetry::KeyValue;
     let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
-        semcov::resource::SERVICE_NAME.string("carbide-api"),
-        semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
+        KeyValue::new(semcov::resource::SERVICE_NAME, "carbide-api"),
+        KeyValue::new(semcov::resource::SERVICE_NAMESPACE, "forge-system"),
     ]);
     let prometheus_registry = prometheus::Registry::new();
     let metrics_exporter = opentelemetry_prometheus::exporter()
@@ -133,7 +125,7 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError>
         .without_scope_info()
         .without_target_info()
         .build()?;
-    let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
+    let meter_provider = opentelemetry_sdk::metrics::MeterProviderBuilder::default()
         .with_reader(metrics_exporter)
         .with_resource(service_telemetry_attributes)
         .with_view(create_metric_view_for_retry_histograms("*_attempts_*")?)
@@ -141,10 +133,12 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError>
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
+    let meter = meter_provider.meter("carbide-api");
 
     Ok(Metrics {
         registry: prometheus_registry,
-        meter: meter_provider.meter("carbide-api"),
+        meter,
+        meter_provider,
     })
 }
 
@@ -190,7 +184,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let meter_provider = metrics::MeterProvider::builder()
+        let meter_provider = metrics::MeterProviderBuilder::default()
             .with_reader(metrics_exporter)
             .with_view(create_metric_view_for_retry_histograms("*_attempts_*").unwrap())
             .with_view(create_metric_view_for_retry_histograms("*_retries_*").unwrap())

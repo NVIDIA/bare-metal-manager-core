@@ -33,6 +33,7 @@ use oauth2::{
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
+use tonic::service::AxumBody;
 use tower_http::normalize_path::NormalizePath;
 
 use crate::api::Api;
@@ -285,11 +286,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
     ))
 }
 
-pub async fn auth_oauth2<T>(
+pub async fn auth_oauth2(
     Host(hostname): Host,
     headers: HeaderMap,
-    req: Request<T>,
-    next: Next<T>,
+    req: Request<AxumBody>,
+    next: Next,
 ) -> Result<Response, StatusCode> {
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
@@ -350,21 +351,21 @@ pub async fn auth_oauth2<T>(
     // Store the pkce verifier so we can use it later
     // during code exchange when they hit our callback URL.
     // Using this with a cookie is a little weird, but it'll be encrypted.
-    let pkce_cookie = Cookie::build("pkce_verifier", pkce_verifier.secret().to_owned())
+    let pkce_cookie = Cookie::build(("pkce_verifier", pkce_verifier.secret().to_owned()))
         .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
-        .finish();
+        .build();
 
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
-    let csrf_cookie = Cookie::build("csrf_state", csrf_state.secret().to_owned())
+    let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
         .domain(hostname)
         .path("/")
         .secure(true)
         .http_only(true)
-        .finish();
+        .build();
 
     Ok((
         cookiejar
@@ -377,7 +378,7 @@ pub async fn auth_oauth2<T>(
         .into_response())
 }
 
-pub async fn auth_basic<T>(req: Request<T>, next: Next<T>) -> Result<Response, StatusCode> {
+pub async fn auth_basic(req: Request<AxumBody>, next: Next) -> Result<Response, StatusCode> {
     let must_auth = (
         StatusCode::UNAUTHORIZED,
         [(WWW_AUTHENTICATE, "Basic realm=Carbide")],

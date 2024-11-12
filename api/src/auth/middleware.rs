@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use axum::body::BoxBody;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response, StatusCode};
+use tonic::service::AxumBody;
 use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
@@ -122,7 +122,7 @@ where
     B: Send + Sync + 'static,
 {
     type RequestBody = B;
-    type ResponseBody = BoxBody;
+    type ResponseBody = AxumBody;
     type Future = BoxFuture<'static, Result<Request<B>, Response<Self::ResponseBody>>>;
 
     fn authorize(&mut self, mut request: Request<B>) -> Self::Future {
@@ -227,10 +227,10 @@ impl<B> From<&Request<B>> for RequestClass {
     }
 }
 
-fn empty_response_with_status(status: StatusCode) -> Response<BoxBody> {
+fn empty_response_with_status(status: StatusCode) -> Response<AxumBody> {
     Response::builder()
         .status(status)
-        .body(BoxBody::default())
+        .body(AxumBody::default())
         .unwrap()
 }
 
@@ -252,7 +252,7 @@ where
     B: Send + Sync + 'static,
 {
     type RequestBody = B;
-    type ResponseBody = BoxBody;
+    type ResponseBody = AxumBody;
     type Future = BoxFuture<'static, Result<Request<B>, Response<Self::ResponseBody>>>;
 
     fn authorize(&mut self, mut request: Request<B>) -> Self::Future {
@@ -303,7 +303,7 @@ where
                 true => Ok(request),
                 false => Err(Response::builder()
                     .status(StatusCode::FORBIDDEN)
-                    .body(BoxBody::default())
+                    .body(AxumBody::default())
                     .unwrap()),
             }
         })

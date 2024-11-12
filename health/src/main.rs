@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
+use std::io;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,18 +23,24 @@ use cfg::Options;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use forge_tls::client_config::ClientCert;
+use http_body_util::Full;
+use hyper::body::{Bytes, Incoming};
+use hyper::server::conn::http2;
 use hyper::{
+    body,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
-    service::{make_service_fn, service_fn},
-    Body, Method, Request, Response, Server,
+    service::service_fn,
+    Method, Request, Response,
 };
-use opentelemetry::global::{logger_provider, GlobalLoggerProvider, ObjectSafeLoggerProvider};
-use opentelemetry::logs::LogError;
-use opentelemetry::metrics::{Histogram, MeterProvider as _, Unit};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+
+use opentelemetry::logs::{LogError, Logger, LoggerProvider};
+use opentelemetry::metrics::{Histogram, MeterProvider};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::metrics::MeterProvider;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{Encoder, TextEncoder};
 use rpc::Machine;
+use tokio::net::TcpListener;
 use tracing::error;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -207,9 +214,9 @@ pub struct HealthMetricsState {
 }
 
 pub async fn serve_metrics(
-    req: Request<Body>,
+    req: Request<Incoming>,
     state: Arc<HealthMetricsState>,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut buffer = vec![];
@@ -220,16 +227,14 @@ pub async fn serve_metrics(
                     .status(200)
                     .header(CONTENT_TYPE, encoder.format_type())
                     .header(CONTENT_LENGTH, buffer.len())
-                    .body(Body::from(buffer)),
+                    .body(buffer.into()),
                 Err(e) => Response::builder()
                     .status(500)
-                    .body(Body::from(format!("Encoding error: {e}"))),
+                    .body(format!("Encoding error: {e}").into()),
             }
         }
-        (&Method::GET, "/") => Response::builder().status(200).body(Body::from("/metrics")),
-        _ => Response::builder()
-            .status(404)
-            .body(Body::from("Invalid URL")),
+        (&Method::GET, "/") => Response::builder().status(200).body("/metrics".into()),
+        _ => Response::builder().status(404).body("Invalid URL".into()),
     };
 
     Ok(response.expect("BUG: Response::builder error"))
@@ -238,21 +243,34 @@ pub async fn serve_metrics(
 // setup the /metrics prometheus endpoint, adapted from:
 // https://github.com/open-telemetry/opentelemetry-rust/blob/main/opentelemetry-prometheus/examples/hyper.rs
 // and carbide/api/src/logging/metrics_endpoint.rs
-pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), hyper::Error> {
-    let make_svc = make_service_fn(move |_conn| {
-        let state = state.clone();
-        async move { Ok::<_, Infallible>(service_fn(move |req| serve_metrics(req, state.clone()))) }
-    });
+pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), io::Error> {
     // using port 9009, configured for scraping by prometheus
-    let listen_address = ([0, 0, 0, 0], 9009).into();
-    let server = Server::bind(&listen_address).serve(make_svc);
-    server.await?;
-    Ok(())
+    let listen_address = SocketAddr::from(([0, 0, 0, 0], 9009));
+    let listener = TcpListener::bind(listen_address).await?;
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let io = TokioIo::new(stream);
+        let state = state.clone();
+
+        tokio::task::spawn(async move {
+            let state = state.clone();
+            http2::Builder::new(TokioExecutor::new())
+                .serve_connection(
+                    io,
+                    service_fn(move |req: Request<body::Incoming>| {
+                        serve_metrics(req, state.clone())
+                    }),
+                )
+                .await?;
+            Ok::<(), hyper::Error>(())
+        });
+    }
 }
 
 pub async fn scrape_machines_health(
-    provider: MeterProvider,
-    logger: GlobalLoggerProvider,
+    provider: SdkMeterProvider,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
     config: Options,
 ) -> Result<(), HealthError> {
     // we may eventually want a config for this service with these items:
@@ -267,27 +285,29 @@ pub async fn scrape_machines_health(
     )
     .await?;
 
-    let box_logger = Arc::new(logger.boxed_logger(Arc::new(Default::default())));
-
     let mut machines_hash: HashMap<String, HealthHashData> = HashMap::new();
 
     // build a meter for carbide api response time
-    let api_meter = provider.meter("api-server-client".to_string());
+    let api_meter = provider.meter("api-server-client");
+
     let find_machines_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_findmachines_latency")
         .with_description("api server response time for FindMachines")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
+
     let get_bmc_metadata_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_getbmcmetadata_latency")
         .with_description("api server response time for GetBMCMetaData")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
+
     let iteration_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_iteration_latency")
         .with_description("The time it took to perform one hardware health monitor iteration")
-        .with_unit(Unit::new("ms"))
+        .with_unit("ms")
         .init();
+
     loop {
         let loop_start = std::time::Instant::now();
         let get_machines_result = get_machines(&mut grpc_client).await;
@@ -459,7 +479,7 @@ pub async fn scrape_machines_health(
             match scrape_machine_health(
                 &mut grpc_client,
                 provider.clone(),
-                box_logger.clone(),
+                logger.clone(),
                 machine_id,
                 health_data,
             )
@@ -513,21 +533,21 @@ pub async fn scrape_machines_health(
     }
 }
 
-fn init_logging() -> Result<opentelemetry_sdk::logs::Logger, LogError> {
-    opentelemetry_otlp::new_pipeline()
+fn init_logging(
+) -> Result<Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>, LogError>
+{
+    let provider = opentelemetry_otlp::new_pipeline()
         .logging()
-        .with_log_config(opentelemetry_sdk::logs::Config::default().with_resource(
-            opentelemetry_sdk::Resource::new(vec![opentelemetry::KeyValue::new(
-                "carbide-hardware-health",
-                "machine-logs",
-            )]),
-        ))
+        .with_resource(opentelemetry_sdk::Resource::new(vec![
+            opentelemetry::KeyValue::new("carbide-hardware-health", "machine-logs"),
+        ]))
         .with_exporter(
             opentelemetry_otlp::new_exporter()
                 .tonic()
                 .with_endpoint("http://opentelemetry-collector.otel.svc.cluster.local:4317"),
         )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+    Ok(Arc::new(provider.logger("health")))
 }
 
 #[tokio::main]
@@ -542,13 +562,16 @@ async fn main() -> Result<(), HealthError> {
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
         .build()?;
-    let provider = MeterProvider::builder().with_reader(exporter).build();
+
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+
     // logger only for pushing bmc / machine scraped events and data, not this service's logs
-    let _logger = init_logging()?;
-    let logger_provider = logger_provider();
+    let logger_provider = init_logging()?;
+
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::Layer::default().compact())
         .with(env_filter)

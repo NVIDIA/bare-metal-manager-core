@@ -1,7 +1,7 @@
 use std::io::ErrorKind;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
-use std::time::SystemTime;
 
 use eyre::Result;
 use forge_http_connector::connector::ForgeHttpConnector;
@@ -9,36 +9,61 @@ use forge_http_connector::resolver::ForgeResolver;
 use forge_http_connector::resolver::ForgeResolverOpts;
 use forge_tls::client_config::ClientCert;
 use hickory_resolver::config::ResolverConfig;
-use hyper::http::uri::Scheme;
-use hyper::Uri;
-use tokio_rustls::rustls;
-use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
-use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
+use hyper::body::Incoming;
+use tonic::transport::Uri;
+
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::{
+    pki_types::CertificateDer, pki_types::PrivateKeyDer, pki_types::ServerName,
+    pki_types::UnixTime, ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
+};
 use tonic::body::BoxBody;
 
+use crate::forge_resolver;
+use crate::protos::forge::forge_client::ForgeClient;
+use hyper_util::client::legacy;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use tower::util::BoxService;
 use tower::ServiceExt;
 use tryhard::backoff_strategies::FixedBackoff;
 use tryhard::{NoOnRetry, RetryFutureConfig};
 use x509_parser::prelude::{FromDer, X509Certificate};
 
-use crate::forge_resolver;
-use crate::protos::forge::forge_client::ForgeClient;
-
-pub type ForgeClientT =
-    ForgeClient<BoxService<hyper::Request<BoxBody>, hyper::Response<hyper::Body>, hyper::Error>>;
+pub type ForgeClientT = ForgeClient<
+    BoxService<
+        hyper::Request<BoxBody>,
+        hyper::Response<Incoming>,
+        hyper_util::client::legacy::Error,
+    >,
+>;
 
 //this code was copy and pasted from the implementation of the same struct in sqlx::core,
 //and is only necessary for as long as we're optionally validating TLS
-struct DummyTlsVerifier {
+#[derive(Debug)]
+pub struct DummyTlsVerifier {
     print_warning: bool,
 }
 
+impl Default for DummyTlsVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DummyTlsVerifier {
+    #[cfg(not(test))]
     pub fn new() -> Self {
         Self {
             // Warnings are suppressed if this is running in a unit-test
             print_warning: std::env::var_os("CARGO_MANIFEST_DIR").is_none(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new() -> Self {
+        Self {
+            // Warnings are suppressed if this is running in a unit-test
+            print_warning: false,
         }
     }
 }
@@ -50,12 +75,11 @@ const VRF_NAME: &str = "mgmt";
 impl ServerCertVerifier for DummyTlsVerifier {
     fn verify_server_cert(
         &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
-        _now: SystemTime,
+        _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         if self.print_warning {
             eprintln!(
@@ -63,6 +87,52 @@ impl ServerCertVerifier for DummyTlsVerifier {
             );
         }
         Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        if self.print_warning {
+            eprintln!(
+                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
+            );
+        }
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        if self.print_warning {
+            eprintln!(
+                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
+            );
+        }
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA1,
+            SignatureScheme::ECDSA_SHA1_Legacy,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+            SignatureScheme::ED448,
+        ]
     }
 }
 
@@ -157,8 +227,7 @@ impl ForgeClientConfig {
     pub async fn client_cert_expiry(&self) -> Option<i64> {
         if let Some((client_certs, _key)) = self.read_client_cert().await {
             if let Some(client_public_key) = client_certs.first() {
-                if let Ok((_rem, cert)) = X509Certificate::from_der(client_public_key.0.as_slice())
-                {
+                if let Ok((_rem, cert)) = X509Certificate::from_der(client_public_key) {
                     Some(cert.validity.not_after.timestamp())
                 } else {
                     None // couldn't parse certificate to x509
@@ -171,7 +240,9 @@ impl ForgeClientConfig {
         }
     }
 
-    pub async fn read_client_cert(&self) -> Option<(Vec<Certificate>, PrivateKey)> {
+    pub async fn read_client_cert(
+        &self,
+    ) -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
         if let Some(client_cert) = self.client_cert.as_ref() {
             let cert_path = client_cert.cert_path.clone();
             let key_path = client_cert.key_path.clone();
@@ -182,13 +253,18 @@ impl ForgeClientConfig {
                         Err(_) => return None,
                     };
                     let mut buf = std::io::BufReader::new(&fd);
-                    match rustls_pemfile::certs(&mut buf) {
-                        Ok(certs) => certs.into_iter().map(Certificate).collect::<Vec<_>>(),
-                        Err(_error) => {
-                            // tracing::error!("Rustls error reading certs: {:?}", error);
-                            return None;
-                        }
+
+                    let mut errors = vec![];
+
+                    let valid_certificates = rustls_pemfile::certs(&mut buf)
+                        .filter_map(|result| result.map_err(|e| errors.push(e)).ok())
+                        .collect();
+
+                    if !errors.is_empty() {
+                        tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
                     }
+
+                    valid_certificates
                 };
 
                 let key = {
@@ -199,19 +275,12 @@ impl ForgeClientConfig {
                     let mut buf = std::io::BufReader::new(&fd);
 
                     use rustls_pemfile::Item;
+
                     match rustls_pemfile::read_one(&mut buf) {
                         Ok(Some(item)) => match item {
-                            Item::RSAKey(rsa_key) => Some(PrivateKey(rsa_key)),
-                            Item::PKCS8Key(pkcs8_key) => Some(PrivateKey(pkcs8_key)),
-                            Item::ECKey(ec_key) => Some(PrivateKey(ec_key)),
-                            Item::X509Certificate(_) => {
-                                // expected a private key, found a certificate.
-                                None
-                            }
-                            Item::Crl(_) => {
-                                // expected a private key, found a certificate revocation list.
-                                None
-                            }
+                            Item::Pkcs1Key(key) => Some(key.into()),
+                            Item::Pkcs8Key(key) => Some(key.into()),
+                            Item::Sec1Key(key) => Some(key.into()),
                             _ => None,
                         },
                         _ => None,
@@ -361,14 +430,15 @@ impl ForgeTlsClient {
 
         // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
         if let Some(scheme) = uri.scheme() {
-            if scheme == &Scheme::HTTPS {
+            if scheme == &tonic::codegen::http::uri::Scheme::HTTPS {
                 // TODO: by reading the pemfile every time, we're automatically getting hot-reload
                 // TODO: -- but we could use inotify in order to make this more performant.
                 match tokio::fs::read(&self.forge_client_config.root_ca_path).await {
                     Ok(pem_file) => {
                         let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-                        let (_added, _ignored) = roots
-                            .add_parsable_certificates(&rustls_pemfile::certs(&mut cert_cursor)?);
+                        let (_added, _ignored) = roots.add_parsable_certificates(
+                            rustls_pemfile::certs(&mut cert_cursor).filter_map(|cert| cert.ok()),
+                        );
                     }
                     Err(error) => match error.kind() {
                         ErrorKind::NotFound => {
@@ -385,22 +455,26 @@ impl ForgeTlsClient {
             }
         }
 
+        let base_config_builder = || {
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+        };
+
         let tls = if self.forge_client_config.enforce_tls {
             let roots_clone = roots.clone();
             let build_no_client_auth_config = || {
-                ClientConfig::builder()
-                    .with_safe_defaults()
+                base_config_builder()
                     .with_root_certificates(roots_clone)
                     .with_no_client_auth()
             };
 
             if let Some((certs, key)) = self.forge_client_config.read_client_cert().await {
-                if let Ok(config) = ClientConfig::builder()
-                    .with_safe_defaults()
+                if let Ok(config) = base_config_builder()
                     .with_root_certificates(roots)
                     .with_client_auth_cert(certs, key)
                 {
-                    config // happy path, full valid TLS client config with client cert
+                    config.clone() // happy path, full valid TLS client config with client cert
                 } else {
                     build_no_client_auth_config() // error building client config from cert/key
                 }
@@ -409,8 +483,8 @@ impl ForgeTlsClient {
             }
         } else {
             // tls disabled by environment variable
-            ClientConfig::builder()
-                .with_safe_defaults()
+            base_config_builder()
+                .dangerous()
                 .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
                 .with_no_client_auth()
         };
@@ -481,7 +555,7 @@ impl ForgeTlsClient {
 
         // ping interval + ping timeout should add up to less than tcp_user_timeout,
         // so that the application gets a chance to fix things before the kernel.
-        let hyper_client = hyper::client::Client::builder()
+        let hyper_client = legacy::Client::builder(TokioExecutor::new())
             .http2_only(true)
             // Send a PING frame every this
             .http2_keep_alive_interval(Some(Duration::from_secs(10)))
@@ -492,6 +566,7 @@ impl ForgeTlsClient {
             // How many connections will be kept open, per host.
             // We never make more than a single connection to carbide at a time.
             .pool_max_idle_per_host(2)
+            .timer(TokioTimer::new())
             .build(connector)
             .boxed();
 
@@ -516,18 +591,10 @@ pub type ForgeTlsClientResult<T> = Result<T, ForgeTlsClientError>;
 
 #[cfg(test)]
 mod tests {
-    use super::DummyTlsVerifier;
-    use crate::forge_resolver;
-    use forge_http_connector::connector::{ConnectorMetrics, ForgeHttpConnector};
-    use forge_http_connector::resolver::ForgeResolver;
-    use forge_http_connector::resolver::ForgeResolverOpts;
-    use hickory_resolver::config::ResolverConfig;
-    use hyper::Uri;
+    use super::*;
+    use forge_http_connector::connector::ConnectorMetrics;
     use hyper_rustls::HttpsConnector;
     use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::time::Duration;
-    use tokio_rustls::rustls::ClientConfig;
 
     #[tokio::test]
     // test_max_retries builds up an instance of hyper client using
@@ -574,10 +641,14 @@ mod tests {
         // implementation of tower_service::Service.
         let connector = tower::ServiceBuilder::new()
             .layer_fn(move |s| {
-                let tls = ClientConfig::builder()
-                    .with_safe_defaults()
-                    .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
-                    .with_no_client_auth();
+                let tls = ClientConfig::builder_with_provider(Arc::new(
+                    rustls::crypto::ring::default_provider(),
+                ))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .dangerous()
+                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
+                .with_no_client_auth();
 
                 hyper_rustls::HttpsConnectorBuilder::new()
                     .with_tls_config(tls)
@@ -588,8 +659,8 @@ mod tests {
             .service(http);
 
         // And then create a new hyper HTTP client with the connector.
-        let hyper_client: hyper::Client<HttpsConnector<ForgeHttpConnector>> =
-            hyper::client::Client::builder().build(connector);
+        let hyper_client: legacy::Client<HttpsConnector<ForgeHttpConnector>, BoxBody> =
+            legacy::Client::builder(TokioExecutor::new()).build(connector);
 
         // We're finally here. Fire off an HTTP request. Behind he scenes,
         // the ForgeHttpConnector is going to attempt to connect, fail, and
