@@ -43,7 +43,6 @@ hyper-timeout = { workspace = true }
 hyper-util = { workspace = true }
 ipnetwork = { version = "^0.20.0", features = ["serde"] }
 itertools = "*"
-jsonwebtoken = { version = "8.1", default-features = false }
 lazy_static = "1.5.0"
 libredfish = { workspace = true }
 libnvmesh = { workspace = true }

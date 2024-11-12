@@ -910,7 +910,6 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.13.0",
- "jsonwebtoken",
  "lazy_static",
  "libnvmesh",
  "libredfish",
@@ -3529,18 +3528,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a88f1bda2bd75b0452a14784937d796722fdebfe50df998aeb3f0b7603019a9"
 dependencies = [
  "wasm-bindgen",
-]
-
-[[package]]
-name = "jsonwebtoken"
-version = "8.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
-dependencies = [
- "base64 0.21.7",
- "ring 0.16.20",
- "serde",
- "serde_json",
 ]
 
 [[package]]
