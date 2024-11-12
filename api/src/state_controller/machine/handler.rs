@@ -4802,7 +4802,8 @@ pub async fn handler_host_power_control(
             || action == SystemPowerControl::GracefulShutdown))
         || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On)
     {
-        tracing::warn!("Target power state {power_state} is already reached. Skipping power control action {action}");
+        let machine_id = &managedhost_snapshot.host_snapshot.machine_id;
+        tracing::warn!("Target power state {power_state} for {machine_id} is already reached. Skipping power control action {action}");
         return Ok(());
     }
 
