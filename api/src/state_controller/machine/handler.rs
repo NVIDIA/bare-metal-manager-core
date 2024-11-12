@@ -4803,22 +4803,20 @@ pub async fn handler_host_power_control(
         || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On)
     {
         let machine_id = &managedhost_snapshot.host_snapshot.machine_id;
-        tracing::warn!("Target power state {power_state} for {machine_id} is already reached. Skipping power control action {action}");
-        return Ok(());
+        tracing::warn!(%machine_id, %power_state, %action, "Target power state is already reached. Skipping power control action");
+    } else {
+        host_power_control(
+            redfish_client.as_ref(),
+            &managedhost_snapshot.host_snapshot,
+            action,
+            services.ipmi_tool.clone(),
+            txn,
+        )
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
+        })?;
     }
-
-    host_power_control(
-        redfish_client.as_ref(),
-        &managedhost_snapshot.host_snapshot,
-        action,
-        services.ipmi_tool.clone(),
-        txn,
-    )
-    .await
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
-    })?;
-
     // If host is forcedOff/On, it will impact DPU also. So DPU timestamp should also be updated
     // here.
     if action == SystemPowerControl::ForceOff || action == SystemPowerControl::On {
