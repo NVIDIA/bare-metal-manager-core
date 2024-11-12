@@ -19,14 +19,14 @@ askama = "0.12.1"
 askama_escape = "0.10"
 async-trait = "*"
 axum = { version = "0.7", features = ["http2"] }
-base64 = "0.21.5"
+base64 = "0.22.1"
 byteorder = "1.5.0"
 bytes = "1.8.0"
 casbin = { version = "2.0", features = ["glob"] }
 chrono = "0.4.34"
 clap = { workspace = true }
 const_format = "0.2.26"
-dashmap = "5.5.3"
+dashmap = "6.1.0"
 data-encoding = "2.3.3"
 domain = "0.10.1"
 eyre = "*"
@@ -52,10 +52,10 @@ names = { version = "0.14.0", default-features = false }
 num_cpus = "1.16.0"
 num-bigint-dig = "0.8.4"
 octseq = "0.5.1"
-oid-registry = "0.6"
+oid-registry = "0.7"
 once_cell = "1.13.1"
 opentelemetry = { workspace = true, features = ["logs"] }
-opentelemetry-semantic-conventions = { version = "0.26", features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { version = "0.27", features = ["semconv_experimental"] }
 opentelemetry-prometheus.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio"] }
 toml = "0.8.8"
@@ -65,7 +65,7 @@ prometheus = "0.13"
 pkcs1 = "0.7.5"
 rand = "0.8"
 regex = "1.6"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rsa = "0.9.6"
 rustls = { workspace = true, features = ["default", "ring"] }
 rustls-pki-types = { workspace = true }
@@ -75,18 +75,8 @@ serde_regex = "*"
 sha2 = "0.10.3"
 strum_macros = "*"
 strum = "*"
-sqlx = { version = "0.7.1", features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
-] }
-thiserror = "1.0"
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+thiserror = "2.0"
 tempdir = "0.3.7"
 tokio = { workspace = true }
 tokio-rustls = "0.26"
@@ -95,7 +85,7 @@ tokio-stream = "*"
 tonic = { workspace = true }
 tonic-reflection = "0.12"
 url = { version = "2", features = ["serde"] }
-tower = "0.4"
+tower = "0.5"
 tower-http = { version = "0.6.1", features = [
     "add-extension",
     "auth",
@@ -107,9 +97,9 @@ tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tss-esapi = { version = "7.5.0", optional = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.7"
-version-compare = "0.1.1"
+version-compare = "0.2.0"
 webpki = { version = "0.22.4", features = ["alloc", "std"] }
-x509-parser = { version = "0.15.1", features = ["verify"] }
+x509-parser = { version = "0.16.0", features = ["verify"] }
 
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
@@ -123,7 +113,7 @@ health-report = { path = "../common/health-report" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
-duration-str = "0.7.1"
+duration-str = "0.11.2"
 prost-types = "0.13"
 rcgen = "0.13.1"
 axum-extra = { version = "0.9", features = ["cookie", "cookie-private"] }
@@ -135,5 +125,5 @@ forge-version = { path = "../common/version" }
 
 [dev-dependencies]
 figment = { version = "0.10.10", features = ["env", "test", "toml"] }
-ctor = "0.1"
+ctor = "0.2"
 lazy_static = "1.4.0"

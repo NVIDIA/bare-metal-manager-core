@@ -11,13 +11,13 @@ name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.21.5"
+base64 = "0.22.1"
 clap = { workspace = true }
 rocket = { version = "= 0.5.1", features = ["uuid"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 tera = "*"
-thiserror = "1.0"
+thiserror = "2.0"
 tokio = { workspace = true }
 toml = "0.8.8"
 tonic = { workspace = true }

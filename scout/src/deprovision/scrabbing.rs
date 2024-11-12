@@ -9,15 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fs;
-use std::str::FromStr;
-
 use ::rpc::forge as rpc;
-// use procfs::Meminfo;
 use regex::Regex;
-// use rlimit::Resource;
 use scout::CarbideClientError;
 use serde::Deserialize;
+use std::fs;
+use std::str::FromStr;
 use uname::uname;
 
 use crate::cfg::Options;
@@ -28,7 +25,7 @@ use crate::IN_QEMU_VM;
 use forge_host_support::hardware_enumeration::discovery_ibs;
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
-    let name = match efivar::efi::VariableName::from_str(
+    let name = match efivar::efi::Variable::from_str(
         "MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829",
     ) {
         Ok(o) => o,
@@ -40,15 +37,15 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
         }
     };
     let s = efivar::system();
-    let mut buffer = [0u8; 1];
-    match s.read(&name, &mut buffer) {
-        Ok(o) => {
-            if o.0 == 1 && buffer[0] == 1 {
+    match s.read(&name) {
+        Ok((buffer, _)) => {
+            if buffer.len() == 1 && buffer[0] == 1 {
                 return Ok(());
             }
             Err(CarbideClientError::GenericError(format!(
                 "Invalid result when reading MemoryOverwriteRequestControl efivar size={} value={}",
-                o.0, buffer[0]
+                buffer.len(),
+                buffer[0]
             )))
         }
         Err(e) => Err(CarbideClientError::GenericError(format!(

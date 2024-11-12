@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,7 +22,11 @@ use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use http::{HeaderMap, StatusCode};
-use oauth2::{AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse};
+use oauth2::{
+    http::HeaderMap as Oauth2HeaderMap, http::HeaderName as Oauth2HeaderName,
+    http::HeaderValue as Oauth2HeaderValue, http::StatusCode as Oauth2StatusCode,
+    AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse,
+};
 use reqwest;
 use serde::Deserialize;
 use time::Duration as TimeDuration;
@@ -352,8 +356,12 @@ pub async fn async_http_request_handler(
     client: &reqwest::Client,
     request: HttpRequest,
 ) -> Result<HttpResponse, reqwest::Error> {
+    // Note: oauth2 uses a way older HTTP version, so we have to convert the request into newer
+    // types to use reqwest. Unwrapping is ok because we know the method is a legal value at this
+    // point.
+    let method = http::Method::from_str(request.method.as_str()).unwrap();
     let mut request_builder = client
-        .request(request.method, request.url.as_str())
+        .request(method, request.url.as_str())
         .body(request.body);
     for (name, value) in &request.headers {
         request_builder = request_builder.header(name.as_str(), value.as_bytes());
@@ -362,8 +370,16 @@ pub async fn async_http_request_handler(
 
     let response = client.execute(request).await?;
 
-    let status_code = response.status();
-    let headers = response.headers().to_owned();
+    // Similarly, convert reqwest's response into oauth2's HTTP version.
+    let status_code = Oauth2StatusCode::from_u16(response.status().as_u16()).unwrap();
+    let headers = Oauth2HeaderMap::from_iter(response.headers().iter().map(
+        |(header_name, header_value)| {
+            (
+                Oauth2HeaderName::from_str(header_name.as_str()).unwrap(),
+                Oauth2HeaderValue::from_bytes(header_value.as_bytes()).unwrap(),
+            )
+        },
+    ));
     let body = response.bytes().await?.to_vec();
 
     if status_code.is_server_error() || status_code.is_client_error() {

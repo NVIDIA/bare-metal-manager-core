@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::Row;
+use sqlx::{Database, Postgres, Row};
 use std::{
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -18,6 +18,8 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
 
 /// A value that is accompanied by a version field
 ///
@@ -284,9 +286,12 @@ where
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for ConfigVersion {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+    ) -> Result<IsNull, BoxDynError> {
         buf.extend(self.to_string().as_bytes());
-        sqlx::encode::IsNull::No
+        Ok(sqlx::encode::IsNull::No)
     }
 }
 
@@ -296,7 +301,7 @@ where
     String: sqlx::Decode<'r, DB>,
 {
     fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+        value: <DB as sqlx::database::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let source = String::decode(value)?;
         let config_version =

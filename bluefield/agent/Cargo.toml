@@ -36,7 +36,7 @@ ipnetwork = "0.20.0"
 lazy_static = "*"
 libc = "*"
 mac_address = "1.1.2"
-mockall = "0.11.4"
+mockall = "0.13.0"
 netlink-packet-route = "=0.19"
 nonzero_ext = "*"
 
@@ -85,7 +85,7 @@ forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
 chrono = "0.4.34"
-ctor = "0.1"
+ctor = "0.2"
 tempfile = "3"
 prost = "0.13"
 reqwest = { version = "*", default-features = false, features = [

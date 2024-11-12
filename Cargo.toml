@@ -58,11 +58,13 @@ opentelemetry-otlp = { version = "0.17", features = ["metrics"] } # Any newer an
 
 # Other otel crates can be on latest versions, per testing
 opentelemetry-prometheus = { version = "0.17.0" }
-opentelemetry-http = "0.26"
-opentelemetry-semantic-conventions = "0.26"
+opentelemetry-http = "0.27"
+opentelemetry-semantic-conventions = "0.27"
 
 rustls = { version = "0.23.16" }
 rustls-pki-types = "1.10.0"
+
+sqlx = { version = "0.8.2" }
 
 [profile.release]
 debug = true            # Enable debuginfo

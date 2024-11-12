@@ -15,8 +15,10 @@ use ::rpc::errors::RpcDataConversionError;
 use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo};
-use sqlx::Row;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
+use sqlx::{Database, Postgres, Row};
 use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
@@ -141,9 +143,12 @@ pub struct MachineId {
 
 // Make MachineId bindable directly into a sqlx query
 impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+    ) -> Result<IsNull, BoxDynError> {
         buf.extend(self.to_string().as_bytes());
-        sqlx::encode::IsNull::No
+        Ok(sqlx::encode::IsNull::No)
     }
 }
 
@@ -153,7 +158,7 @@ where
     String: sqlx::Decode<'r, DB>,
 {
     fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+        value: <DB as sqlx::database::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let str_id: String = String::decode(value)?;
         Ok(MachineId::from_str(&str_id).map_err(|e| sqlx::Error::Decode(Box::new(e)))?)

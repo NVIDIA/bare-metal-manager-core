@@ -376,7 +376,7 @@ impl Tui {
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                    .split(f.size());
+                    .split(f.area());
 
                 let left_chunks = Layout::default()
                     .direction(Direction::Vertical)
@@ -443,12 +443,12 @@ impl Tui {
                         f.render_widget(p, layout[0]);
 
                         if let Some(offset) = state.get_cursor_offset() {
-                            f.set_cursor(
+                            f.set_cursor_position(Position::new(
                                 // Add 1 for border, three for "- /" prefix.
                                 layout[1].x + offset.0 + 4,
                                 // Add 1 for border.
                                 layout[1].y + offset.1 + 1,
-                            );
+                            ));
                         }
 
                         let mut block = Block::default().borders(Borders::ALL);
