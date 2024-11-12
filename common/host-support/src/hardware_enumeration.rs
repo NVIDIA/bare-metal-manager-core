@@ -9,6 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::machine_discovery as rpc_discovery;
+use ::utils::cmd::CmdError;
+use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
+use base64::prelude::*;
+use libudev::Device;
+use procfs::{CpuInfo, FromRead};
+use rpc::machine_discovery::MemoryDevice;
+use std::fs::File;
 use std::{
     fmt::Write,
     fs,
@@ -16,13 +24,6 @@ use std::{
     path::Path,
     str::Utf8Error,
 };
-
-use ::rpc::machine_discovery as rpc_discovery;
-use ::utils::cmd::CmdError;
-use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
-use base64::prelude::*;
-use libudev::Device;
-use rpc::machine_discovery::MemoryDevice;
 use tracing::{error, warn};
 use uname::uname;
 use utils::cmd::Cmd;
@@ -359,8 +360,13 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     // cpus
     // TODO(baz): make this work with udev one day... I tried and it gave me useless information on the cpu subsystem
-    let cpu_info = procfs::CpuInfo::new()
-        .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
+    let cpu_info = {
+        let file = File::open("/proc/cpuinfo")
+            .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
+        let reader = BufReader::new(file);
+        CpuInfo::from_read(reader)
+            .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?
+    };
 
     let cpu_part = cpu_info
         .get_info(0)

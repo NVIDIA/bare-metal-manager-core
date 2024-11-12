@@ -20,9 +20,9 @@ use eyre::Report;
 use forge_tls::client_config::ClientCert;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing::{error, info, warn};
+use trust_dns_resolver::proto::op::{Header, ResponseCode};
+use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
 use trust_dns_server::authority::MessageResponseBuilder;
-use trust_dns_server::client::op::{Header, ResponseCode};
-use trust_dns_server::client::rr::{DNSClass, Name, RData};
 use trust_dns_server::proto::rr::Record;
 use trust_dns_server::proto::rr::RecordType::A;
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
@@ -82,7 +82,7 @@ impl RequestHandler for DnsServer {
                                 .set_name(Name::from(request_info.query.name()))
                                 .set_record_type(A)
                                 .set_dns_class(DNSClass::IN)
-                                .set_data(Some(RData::A(value)))
+                                .set_data(Some(RData::A(value.into())))
                                 .clone();
                             Some(a_record)
                         }

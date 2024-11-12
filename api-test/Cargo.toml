@@ -14,17 +14,7 @@ lazy_static = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 serial_test = "3"
-sqlx = { version = "0.7.1", features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
-] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 tempfile = "3"
 tokio.workspace = true
 toml = "0.8.8"
@@ -49,7 +39,7 @@ utils = { path = "../common/utils" }
 [dependencies]
 async-trait = "0.1.72"
 libredfish.workspace = true
-thiserror = "1"
+thiserror = "2"
 rustls = { workspace = true }
 
 [build-dependencies]

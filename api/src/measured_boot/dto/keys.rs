@@ -30,8 +30,10 @@ use forge_uuid::machine::MachineId;
 use forge_uuid::DbPrimaryUuid;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo};
-use sqlx::{FromRow, Type};
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::postgres::PgTypeInfo;
+use sqlx::{Database, FromRow, Postgres, Type};
 use std::convert::{Into, TryFrom};
 use std::error::Error;
 use std::fmt;
@@ -83,9 +85,12 @@ impl fmt::Display for TrustedMachineId {
 // Make TrustedMachineId bindable directly into a sqlx query.
 // Similar code exists for other IDs, including MachineId.
 impl sqlx::Encode<'_, sqlx::Postgres> for TrustedMachineId {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+    ) -> Result<IsNull, BoxDynError> {
         buf.extend(self.to_string().as_bytes());
-        sqlx::encode::IsNull::No
+        Ok(sqlx::encode::IsNull::No)
     }
 }
 

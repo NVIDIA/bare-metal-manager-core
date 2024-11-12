@@ -15,12 +15,13 @@ async-trait = "0.1.43"
 clap = { workspace = true }
 eyre = "*"
 futures = "0.3"
-thiserror = "1.0"
+thiserror = "2.0"
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-trust-dns-server = { version = "0.21.1" }
+trust-dns-server = "0.23.2"
+trust-dns-resolver = "0.23.2"
 
 # [local-dependencies]
 forge-tls = { path = "../common/tls" }

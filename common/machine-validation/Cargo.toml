@@ -17,7 +17,7 @@ serde_yaml = "0.9.25"
 regex = "1.6"
 colored = "2.0"
 rayon = "1.5"
-thiserror = { version = "1", registry = "cratesio" }
+thiserror = { version = "2", registry = "cratesio" }
 anyhow = { version = "1", registry = "cratesio" }
 async-trait = "*"
 futures = { version = "0.3", default-features = false }

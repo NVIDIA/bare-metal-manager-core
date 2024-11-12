@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use byte_unit::UnitType;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
-
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use rpc::common::MachineIdList;
@@ -517,28 +517,36 @@ fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
     let mut breakdown = BTreeMap::default();
     let mut total_size = 0;
     for md in memory_devices {
-        let size =
-            byte_unit::Byte::from_unit(md.size_mb.unwrap_or(0) as f64, byte_unit::ByteUnit::MiB)
-                .unwrap_or_default();
-        total_size += size.get_bytes();
+        let size = byte_unit::Byte::from_f64_with_unit(
+            md.size_mb.unwrap_or(0) as f64,
+            byte_unit::Unit::MiB,
+        )
+        .unwrap_or_default();
+        total_size += size.as_u64();
         *breakdown.entry(size).or_insert(0u32) += 1;
     }
 
     let total_size = byte_unit::Byte::from(total_size);
 
     if memory_devices.len() == 1 {
-        Some(total_size.get_appropriate_unit(true).to_string())
-    } else if total_size.get_bytes() > 0 {
+        Some(
+            total_size
+                .get_appropriate_unit(UnitType::Binary)
+                .to_string(),
+        )
+    } else if total_size.as_u64() > 0 {
         let mut breakdown_str = String::default();
         for (ind, s) in breakdown.iter().enumerate() {
             if ind != 0 {
                 breakdown_str.push_str(", ");
             }
-            breakdown_str.push_str(format!("{}x{}", s.0.get_appropriate_unit(true), s.1).as_ref());
+            breakdown_str.push_str(
+                format!("{}x{}", s.0.get_appropriate_unit(UnitType::Binary), s.1).as_ref(),
+            );
         }
         Some(format!(
             "{} ({})",
-            total_size.get_appropriate_unit(true),
+            total_size.get_appropriate_unit(UnitType::Binary),
             breakdown_str
         ))
     } else {
