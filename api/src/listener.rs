@@ -10,25 +10,24 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::SocketAddr, sync::Arc, time::Instant};
-
+use crate::{api::Api, auth, cfg::AuthConfig, logging::api_logs::LogLayer};
 use ::rpc::forge as rpc;
-use hyper::server::conn::Http;
+use hyper::server::conn::http2;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::service::TowerToHyperService;
 use opentelemetry::{metrics::Meter, KeyValue};
+use rustls::server::WebPkiClientVerifier;
+use rustls_pki_types::CertificateDer;
+use std::{net::SocketAddr, sync::Arc, time::Instant};
 use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio_rustls::{
-    rustls::{
-        server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
-        ServerConfig,
-    },
+    rustls::{RootCertStore, ServerConfig},
     TlsAcceptor,
 };
 use tonic_reflection::server::Builder;
 use tower_http::{add_extension::AddExtensionLayer, auth::AsyncRequireAuthorizationLayer};
-
-use crate::{api::Api, auth, cfg::AuthConfig, logging::api_logs::LogLayer};
 
 pub struct ApiTlsConfig {
     pub identity_pemfile_path: String,
@@ -45,74 +44,86 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
             Err(_) => return None,
         };
         let mut buf = std::io::BufReader::new(&fd);
-        match rustls_pemfile::certs(&mut buf) {
-            Ok(certs) => certs.into_iter().map(Certificate).collect(),
-            Err(error) => {
+        rustls_pemfile::certs(&mut buf)
+            .collect::<Result<Vec<_>, _>>()
+            .inspect_err(|error| {
                 tracing::error!(?error, "Rustls error reading certs");
-                return None;
-            }
-        }
-    };
+            })
+            .ok()
+    }?;
 
-    let key = {
-        let fd = match std::fs::File::open(&tls_config.identity_keyfile_path) {
-            Ok(fd) => fd,
-            Err(_) => return None,
-        };
-        let mut buf = std::io::BufReader::new(&fd);
-
-        match rustls_pemfile::ec_private_keys(&mut buf) {
-            Ok(keys) => keys.into_iter().map(PrivateKey).next(),
-            error => {
+    let key = std::fs::File::open(&tls_config.identity_keyfile_path)
+        .inspect_err(|error| tracing::error!(?error, "Error reading key"))
+        .ok()
+        .and_then(|fd| {
+            let mut buf = std::io::BufReader::new(&fd);
+            let key = rustls_pemfile::ec_private_keys(&mut buf).next();
+            key
+        })
+        .and_then(|keys| {
+            keys.inspect_err(|error| {
                 tracing::error!(?error, "Rustls error reading key");
-                None
-            }
-        }
-    };
-
-    let key = match key {
-        Some(key) => key,
-        None => {
+            })
+            .ok()
+        })
+        .or_else(|| {
             tracing::error!("Rustls error: no keys?");
-            return None;
-        }
-    };
+            None
+        })?;
 
-    let mut roots = RootCertStore::empty();
-    match std::fs::read(&tls_config.root_cafile_path) {
-        Ok(pem_file) => {
-            let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-            let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
-                Ok(certs) => certs,
-                Err(error) => {
-                    tracing::error!(?error, "error parsing root ca cert file");
-                    return None;
-                }
-            };
-            let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
-        }
-        Err(error) => {
-            tracing::error!(?error, "error reading root ca cert file");
-            return None;
-        }
-    }
+    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
 
-    if let Ok(pem_file) = std::fs::read(&tls_config.admin_root_cafile_path) {
-        let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-        let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
-            Ok(certs) => certs,
+    let roots = {
+        let mut roots = RootCertStore::empty();
+        match std::fs::read(&tls_config.root_cafile_path) {
+            Ok(pem_file) => {
+                let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
+                let certs_to_add = rustls_pemfile::certs(&mut cert_cursor)
+                    .collect::<Result<Vec<_>, _>>()
+                    .inspect_err(|error| {
+                        tracing::error!(?error, "error parsing root ca cert file");
+                    })
+                    .ok()?;
+                let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add);
+            }
             Err(error) => {
-                tracing::error!(?error, "error parsing admin ca cert file");
+                tracing::error!(?error, "error reading root ca cert file");
                 return None;
             }
-        };
-        let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
-    }
+        }
 
-    match ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots).boxed())
-        .with_single_cert(certs, key)
+        if let Ok(pem_file) = std::fs::read(&tls_config.admin_root_cafile_path) {
+            let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
+            let certs_to_add = rustls_pemfile::certs(&mut cert_cursor)
+                .collect::<Result<Vec<_>, _>>()
+                .inspect_err(|error| {
+                    tracing::error!(?error, "error parsing admin ca cert file");
+                })
+                .ok()?;
+            let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add);
+        }
+        Arc::new(roots)
+    };
+
+    let client_cert_verifier =
+        WebPkiClientVerifier::builder_with_provider(roots, crypto_provider.clone())
+            .allow_unauthenticated()
+            .allow_unknown_revocation_status()
+            .build()
+            .inspect_err(|error| {
+                tracing::error!(
+                    "Could not build client cert verifier. Does root CA file at {} contain no root trust anchors? {}",
+                    tls_config.root_cafile_path,
+                    error
+                );
+            })
+            .ok()?;
+
+    match ServerConfig::builder_with_provider(crypto_provider.clone())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_client_cert_verifier(client_cert_verifier)
+        .with_single_cert(certs, rustls_pki_types::PrivateKeyDer::Sec1(key))
     {
         Ok(mut tls) => {
             tls.alpn_protocols = vec![b"h2".to_vec()];
@@ -131,7 +142,7 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
 // extensions typemap, so .get::<Arc<ConnectionAttributes>>() is what you want.
 pub struct ConnectionAttributes {
     peer_address: SocketAddr,
-    peer_certificates: Vec<Certificate>,
+    peer_certificates: Vec<CertificateDer<'static>>,
 }
 
 impl ConnectionAttributes {
@@ -139,7 +150,7 @@ impl ConnectionAttributes {
         &self.peer_address
     }
 
-    pub fn peer_certificates(&self) -> &[Certificate] {
+    pub fn peer_certificates(&self) -> &[CertificateDer<'static>] {
         self.peer_certificates.as_slice()
     }
 }
@@ -156,7 +167,7 @@ pub async fn listen_and_serve(
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
-        .build()?;
+        .build_v1alpha()?;
 
     let tls_config = Arc::new(tls_config);
     let tls_config_clone = tls_config.clone();
@@ -167,8 +178,7 @@ pub async fn listen_and_serve(
         .await?;
 
     let listener = TcpListener::bind(listen_port).await?;
-    let mut http = Http::new();
-    http.http2_only(true);
+    let http = http2::Builder::new(TokioExecutor::new());
 
     let cert_description_layer = auth::middleware::CertDescriptionMiddleware::default();
     let casbin_layer = if let Some(auth_config) = auth_config {
@@ -279,9 +289,10 @@ pub async fn listen_and_serve(
             if let Some(tls_acceptor) = tls_acceptor {
                 match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
+                        let conn = TokioIo::new(conn);
                         connection_succeeded_counter.add(1, &[]);
 
-                        let (_, session) = conn.get_ref();
+                        let (_, session) = conn.inner().get_ref();
                         let connection_attributes = {
                             let peer_address = addr;
                             let peer_certificates =
@@ -300,7 +311,7 @@ pub async fn listen_and_serve(
 
                         // TODO: Why does this returns an error Io / UnexpectedEof on every single request?
                         // `h2` already logs the error at DEBUG level
-                        let _ = http.serve_connection(conn, app_with_ext).await;
+                        let _ = http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await;
                     }
                     Err(error) => {
                         tracing::error!(%error, address = %addr, "error accepting tls connection");
@@ -311,7 +322,7 @@ pub async fn listen_and_serve(
             } else {
                 // servicing without tls -- HTTP only
                 connection_succeeded_counter.add(1, &[]);
-                if let Err(error) = http.serve_connection(conn, app).await {
+                if let Err(error) = http.serve_connection(TokioIo::new(conn), TowerToHyperService::new(app)).await {
                     tracing::debug!(%error, "error servicing plain http connection");
                 }
             }

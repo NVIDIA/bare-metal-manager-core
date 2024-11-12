@@ -11,7 +11,7 @@
  */
 
 use common::test_meter::TestMeter;
-use opentelemetry::{metrics::Unit, KeyValue};
+use opentelemetry::KeyValue;
 
 mod common;
 
@@ -28,7 +28,7 @@ fn test_test_meter() {
 
     let a = meter.u64_counter("a").init();
     let b = meter.u64_counter("b").init();
-    let c = meter.u64_histogram("c").with_unit(Unit::new("s")).init();
+    let c = meter.u64_histogram("c").with_unit("s").init();
 
     a.add(123, &[]);
     let attrs = &[KeyValue::new("attr1", "abc"), KeyValue::new("attr2", "def")];

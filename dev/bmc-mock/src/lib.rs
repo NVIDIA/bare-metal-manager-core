@@ -23,6 +23,9 @@ use axum::Router;
 use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
+use rustls::pki_types::PrivateKeyDer;
+use rustls::ServerConfig;
+use rustls_pemfile::Item;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
@@ -139,16 +142,12 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
         key_file = cert_path.join("tls.key");
     }
     info!("Loading {:?} and {:?}", cert_file, key_file);
-    let config = RustlsConfig::from_pem_file(cert_file.clone(), key_file)
-        .await
-        .inspect_err(|e| {
-            tracing::error!(
-                "Could not get cert from {}: {}",
-                cert_file.to_string_lossy(),
-                e
-            )
-        })
-        .unwrap();
+    let tls_config = make_rustls_server_config(
+        std::fs::read(cert_file)?.as_slice(),
+        std::fs::read(key_file)?.as_slice(),
+    )
+    .map_err(|e| BmcMockError::Config(format!("Error building rustls config: {e}")))?;
+    let config = RustlsConfig::from_config(Arc::new(tls_config));
 
     let bmc_service = BmcService {
         routers: bmc_routers_by_ip_address,
@@ -351,4 +350,36 @@ async fn call_router_with_new_request(
     let inner_request = rb.body(body).unwrap();
 
     router.call(inner_request).await.expect("Infallible error")
+}
+
+// Note: Axum has a simple RustlsConfig::from_pem we could use, but it constructs a rustls
+// ServerConfig without a default crypto provider. So we have to make our own rustls::ServerConfig
+// and pass that to RustlsConfig::from.
+fn make_rustls_server_config(tls_cert: &[u8], tls_key: &[u8]) -> eyre::Result<ServerConfig> {
+    let certs =
+        rustls_pemfile::certs(&mut tls_cert.to_vec().as_ref()).collect::<Result<Vec<_>, _>>()?;
+
+    // Check the entire PEM file for the key in case it is not first section
+    let key = rustls_pemfile::read_all(&mut tls_key.to_vec().as_ref())
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Sec1Key(key) => Some(key.secret_sec1_der().to_vec()),
+            Item::Pkcs1Key(key) => Some(key.secret_pkcs1_der().to_vec()),
+            Item::Pkcs8Key(key) => Some(key.secret_pkcs8_der().to_vec()),
+            _ => None,
+        })
+        .map(|data| PrivateKeyDer::try_from(data).map_err(|s| eyre::eyre!("{s}")))
+        .next()
+        .ok_or(eyre::eyre!("No keys in key file"))??;
+
+    let mut server_config =
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)?;
+    // This is what axum is normally doing for you
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(server_config)
 }

@@ -46,7 +46,6 @@ impl From<forgerpc::Domain> for DomainRowDisplay {
             updated: d.updated.unwrap_or_default().to_string(),
             deleted: d
                 .deleted
-                .clone()
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
         }

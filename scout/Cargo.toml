@@ -37,7 +37,7 @@ reqwest = { version = "*", default-features = false, features = [
   "stream",
 ] }
 futures-util = "0.3"
-prost-types = "0.12.6"
+prost-types = "0.13"
 
 # [local-dependencies]
 rpc = { path = "../rpc" }

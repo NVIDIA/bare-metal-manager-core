@@ -10,14 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use opentelemetry::metrics::Meter;
-use opentelemetry::metrics::MeterProvider;
+use opentelemetry::metrics::{Meter, MeterProvider};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::Encoder;
 use prometheus::TextEncoder;
 
 pub struct TestMeter {
     meter: Meter,
     registry: prometheus::Registry,
+    // the meter provider can't be dropped or all metrics are lost
+    meter_provider: SdkMeterProvider,
 }
 
 impl TestMeter {
@@ -104,13 +106,14 @@ impl Default for TestMeter {
             .without_target_info()
             .build()
             .unwrap();
-        let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
+        let meter_provider = opentelemetry_sdk::metrics::MeterProviderBuilder::default()
             .with_reader(metrics_exporter)
             .build();
 
         TestMeter {
             meter: meter_provider.meter("carbide-api"),
             registry: prometheus_registry,
+            meter_provider,
         }
     }
 }

@@ -664,10 +664,9 @@ async fn test_machine_validation_disabled(
     assert_eq!(
         runs.runs[0]
             .status
-            .clone()
             .unwrap_or_default()
             .machine_validation_state
-            .unwrap_or(skipped_state_int.clone()),
+            .unwrap_or(skipped_state_int),
         skipped_state_int
     );
 
@@ -713,10 +712,9 @@ async fn test_machine_validation_disabled(
             status_asserted = true;
             assert_eq!(
                 run.status
-                    .clone()
                     .unwrap_or_default()
                     .machine_validation_state
-                    .unwrap_or(started_state_int.clone()),
+                    .unwrap_or(started_state_int),
                 started_state_int
             );
         }
@@ -746,10 +744,9 @@ async fn test_machine_validation_disabled(
             status_asserted = true;
             assert_eq!(
                 run.status
-                    .clone()
                     .unwrap_or_default()
                     .machine_validation_state
-                    .unwrap_or(skipped_state_int.clone()),
+                    .unwrap_or(skipped_state_int),
                 skipped_state_int
             );
         }

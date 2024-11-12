@@ -10,16 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use std::{env, fs};
-
 use agent::Options;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum_server::tls_rustls::RustlsConfig;
-use hyper::body::Body;
+use rustls::ServerConfig;
+use rustls_pemfile::Item;
+use rustls_pki_types::PrivateKeyDer;
+use std::net::{SocketAddr, TcpListener};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::{env, fs};
 use tempfile::{NamedTempFile, TempDir};
 
 const TLS_CERT: &[u8] = include_bytes!("../../test-certs/tls.crt");
@@ -113,14 +115,13 @@ pub fn setup_agent_run_env(
 }
 
 pub async fn run_grpc_server(
-    app: axum::Router<(), Body>,
+    app: axum::Router<()>,
 ) -> eyre::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?; // 0 let OS choose available port
     let addr = listener.local_addr()?;
+    let server_config = make_rustls_server_config()?;
     let join_handle = tokio::spawn(async move {
-        let config = RustlsConfig::from_pem(TLS_CERT.to_vec(), TLS_KEY.to_vec())
-            .await
-            .unwrap();
+        let config = RustlsConfig::from_config(Arc::new(server_config));
         axum_server::from_tcp_rustls(listener, config)
             .serve(app.into_make_service())
             .await
@@ -129,6 +130,38 @@ pub async fn run_grpc_server(
     wait_for_server_to_start(addr).await?;
 
     Ok((addr, join_handle))
+}
+
+// Note: Axum has a simple RustlsConfig::from_pem we could use, but it constructs a rustls
+// ServerConfig without a default crypto provider. So we have to make our own rustls::ServerConfig
+// and pass that to RustlsConfig::from.
+fn make_rustls_server_config() -> eyre::Result<ServerConfig> {
+    let certs =
+        rustls_pemfile::certs(&mut TLS_CERT.to_vec().as_ref()).collect::<Result<Vec<_>, _>>()?;
+
+    // Check the entire PEM file for the key in case it is not first section
+    let key = rustls_pemfile::read_all(&mut TLS_KEY.to_vec().as_ref())
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Sec1Key(key) => Some(key.secret_sec1_der().to_vec()),
+            Item::Pkcs1Key(key) => Some(key.secret_pkcs1_der().to_vec()),
+            Item::Pkcs8Key(key) => Some(key.secret_pkcs8_der().to_vec()),
+            _ => None,
+        })
+        .map(|data| PrivateKeyDer::try_from(data).map_err(|s| eyre::eyre!("{s}")))
+        .next()
+        .ok_or(eyre::eyre!("No keys in key file"))??;
+
+    let mut server_config =
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)?;
+    // This is what axum is normally doing for you
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(server_config)
 }
 
 async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {

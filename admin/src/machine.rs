@@ -105,7 +105,7 @@ fn convert_machine_to_nice_format(
                 "\t{:<max_state_len$} {:<max_version_len$} {}",
                 x.event,
                 x.version,
-                x.time.clone().unwrap_or_default()
+                x.time.unwrap_or_default()
             )?;
         }
     }

@@ -18,13 +18,14 @@ use crate::{
 };
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;
-use opentelemetry::metrics::{ObservableGauge, Observer};
+use opentelemetry::metrics::Meter;
 use sqlx::{Postgres, Transaction};
-use std::{any::Any, collections::HashSet, fmt, sync::Arc};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::{collections::HashSet, fmt, sync::Arc};
 use tokio::sync::Mutex;
 
 pub struct HostFirmwareUpdate {
-    pub metrics: Option<Arc<std::sync::Mutex<HostFirmwareUpdateMetrics>>>,
+    pub metrics: HostFirmwareUpdateMetrics,
     config: Arc<CarbideConfig>,
     firmware_config: FirmwareConfig,
     desired_firmware_set: Arc<Mutex<bool>>,
@@ -60,11 +61,9 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
         let machine_updates = self.check_for_updates(txn, available_updates).await?;
         let mut updates_started = HashSet::default();
-        if let Some(metrics) = &self.metrics {
-            if let Ok(mut metrics) = metrics.lock() {
-                metrics.pending_firmware_updates = machine_updates.len();
-            }
-        }
+        self.metrics
+            .pending_firmware_updates
+            .store(machine_updates.len() as u64, Ordering::Relaxed);
 
         for machine_update in machine_updates.iter() {
             if updating_host_machines.contains(machine_update) {
@@ -95,21 +94,17 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             .await
         {
             Ok(upgrade_needed) => {
-                if let Some(metrics) = &self.metrics {
-                    if let Ok(mut metrics) = metrics.lock() {
-                        metrics.pending_firmware_updates = upgrade_needed.len();
-                    }
-                }
+                self.metrics
+                    .pending_firmware_updates
+                    .store(upgrade_needed.len() as u64, Ordering::Relaxed);
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade needed for metrics"),
         };
         match HostMachineUpdate::find_upgrade_in_progress(txn).await {
             Ok(upgrade_in_progress) => {
-                if let Some(metrics) = &self.metrics {
-                    if let Ok(mut metrics) = metrics.lock() {
-                        metrics.active_firmware_updates = upgrade_in_progress.len();
-                    }
-                }
+                self.metrics
+                    .active_firmware_updates
+                    .store(upgrade_in_progress.len() as u64, Ordering::Relaxed);
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade in progress for metrics"),
         };
@@ -126,29 +121,13 @@ impl HostFirmwareUpdate {
 
         let config = config.clone();
 
-        let metrics = Arc::new(std::sync::Mutex::new(HostFirmwareUpdateMetrics::new(
-            meter.clone(),
-        )));
-        let metrics_clone = metrics.clone();
-        if let Ok(locked_metrics) = metrics.lock() {
-            if let Err(e) =
-                meter.register_callback(&locked_metrics.instruments(), move |observer| {
-                    if let Ok(mut locked_metrics_clone) = metrics_clone.lock() {
-                        locked_metrics_clone.observe(observer);
-                    }
-                })
-            {
-                tracing::warn!(
-                    "Failed to register metrics callback for DpuNicFirmwareUpdate: {}",
-                    e
-                );
-            }
-        }
+        let metrics = HostFirmwareUpdateMetrics::new();
+        metrics.register_callbacks(&meter);
 
         Some(Self {
             firmware_config,
             config,
-            metrics: Some(metrics),
+            metrics,
             desired_firmware_set: Arc::new(Mutex::new(false)),
         })
     }
@@ -194,50 +173,37 @@ impl fmt::Display for HostFirmwareUpdate {
 }
 
 pub struct HostFirmwareUpdateMetrics {
-    pub pending_firmware_updates: usize,
-    pub active_firmware_updates: usize,
-
-    pub pending_firmware_updates_gauge: ObservableGauge<u64>,
-    pub active_firmware_updates_gauge: ObservableGauge<u64>,
+    pub pending_firmware_updates: Arc<AtomicU64>,
+    pub active_firmware_updates: Arc<AtomicU64>,
 }
 
 impl HostFirmwareUpdateMetrics {
-    pub fn new(meter: opentelemetry::metrics::Meter) -> Self {
+    pub fn new() -> Self {
         HostFirmwareUpdateMetrics {
-            pending_firmware_updates: 0,
-            pending_firmware_updates_gauge: meter
-                .u64_observable_gauge("forge_pending_host_firmware_update_count")
-                .with_description(
-                    "The number of host machines in the system that need a firmware update.",
-                )
-                .init(),
-                active_firmware_updates: 0,
-                active_firmware_updates_gauge: meter
-                .u64_observable_gauge("forge_active_host_firmware_update_count")
-                .with_description(
-                    "The number of host machines in the system currently working on updating their firmware.",
-                )
-                .init(),
+            pending_firmware_updates: Arc::new(AtomicU64::new(0)),
+            active_firmware_updates: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    pub fn instruments(&self) -> Vec<Arc<dyn Any>> {
-        vec![
-            self.pending_firmware_updates_gauge.as_any(),
-            self.active_firmware_updates_gauge.as_any(),
-        ]
-    }
-
-    pub fn observe(&mut self, observer: &dyn Observer) {
-        observer.observe_u64(
-            &self.pending_firmware_updates_gauge,
-            self.pending_firmware_updates as u64,
-            &[],
-        );
-        observer.observe_u64(
-            &self.active_firmware_updates_gauge,
-            self.active_firmware_updates as u64,
-            &[],
-        );
+    pub fn register_callbacks(&self, meter: &Meter) {
+        let pending_firmware_updates = self.pending_firmware_updates.clone();
+        let active_firmware_updates = self.active_firmware_updates.clone();
+        meter
+            .u64_observable_gauge("forge_pending_host_firmware_update_count")
+            .with_description(
+                "The number of host machines in the system that need a firmware update.",
+            )
+            .with_callback(move |observer| {
+                observer.observe(pending_firmware_updates.load(Ordering::Relaxed), &[])
+            })
+            .init();
+        meter
+            .u64_observable_gauge("forge_active_host_firmware_update_count")
+            .with_description(
+                "The number of host machines in the system currently working on updating their firmware.",
+            )
+            .with_callback(move |observer|
+                observer.observe(active_firmware_updates.load(Ordering::Relaxed), &[]))
+            .init();
     }
 }

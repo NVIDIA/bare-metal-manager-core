@@ -12,7 +12,7 @@
 
 use std::{cell::RefCell, marker::PhantomData};
 
-use opentelemetry::metrics::{Counter, Histogram, Meter, Unit};
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tracing::{field, metadata::LevelFilter, span, Event, Id, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
 
@@ -296,7 +296,7 @@ impl DatabaseMetricEmitters {
         let db_span_query_times = meter
             .f64_histogram("carbide-api.db.span_query_time")
             .with_description("Total time the request spent inside a span on database transactions")
-            .with_unit(Unit::new("ms"))
+            .with_unit("ms")
             .init();
 
         Self {

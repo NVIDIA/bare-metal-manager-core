@@ -150,17 +150,11 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
         ("NAME", vpc.name.clone()),
         ("TENANT ORG", vpc.tenant_organization_id.clone()),
         ("VERSION", vpc.version.clone()),
-        (
-            "CREATED",
-            vpc.created.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "UPDATED",
-            vpc.updated.clone().unwrap_or_default().to_string(),
-        ),
+        ("CREATED", vpc.created.unwrap_or_default().to_string()),
+        ("UPDATED", vpc.updated.unwrap_or_default().to_string()),
         (
             "DELETED",
-            match vpc.deleted.clone() {
+            match vpc.deleted {
                 Some(ts) => ts.to_string(),
                 None => "".to_string(),
             },

@@ -15,6 +15,8 @@
 //! interact with the API Service
 //!
 
+extern crate core;
+
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ops::Deref;
@@ -80,7 +82,7 @@ impl Ord for Timestamp {
 
 /// A wrapper around the prost timestamp which allows for serde serialization
 /// and has helper methods to convert from and into std::time::SystemTime and DateTime
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, PartialEq, Copy, Eq, Default, Debug)]
 pub struct Timestamp(prost_types::Timestamp);
 
 impl PartialOrd for Timestamp {
@@ -155,7 +157,7 @@ impl serde::Serialize for Timestamp {
         S: serde::Serializer,
     {
         // We serialize the timestamp as chrono string
-        match chrono::DateTime::<chrono::Utc>::try_from(self.clone()) {
+        match chrono::DateTime::<chrono::Utc>::try_from(*self) {
             Ok(ts) => ts.serialize(s),
             Err(_) => chrono::DateTime::<chrono::Utc>::default().serialize(s),
         }
@@ -163,23 +165,21 @@ impl serde::Serialize for Timestamp {
 }
 
 impl prost::Message for Timestamp {
-    fn encode_raw<B>(&self, buf: &mut B)
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where
-        B: prost::bytes::BufMut,
         Self: Sized,
     {
         self.0.encode_raw(buf)
     }
 
-    fn merge_field<B>(
+    fn merge_field(
         &mut self,
         tag: u32,
         wire_type: prost::encoding::WireType,
-        buf: &mut B,
+        buf: &mut impl prost::bytes::Buf,
         ctx: prost::encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
-        B: prost::bytes::Buf,
         Self: Sized,
     {
         self.0.merge_field(tag, wire_type, buf, ctx)
@@ -196,7 +196,7 @@ impl prost::Message for Timestamp {
 
 /// A wrapper around the prost Duration which allows for serde serialization
 /// and has helper methods to convert from and into std::time::Duration
-#[derive(Clone, PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Copy, Default, Debug)]
 pub struct Duration(prost_types::Duration);
 
 impl std::fmt::Display for Duration {
@@ -274,7 +274,7 @@ impl serde::Serialize for Duration {
         S: serde::Serializer,
     {
         // We serialize the duration as std::time::Duration
-        match std::time::Duration::try_from(self.clone()) {
+        match std::time::Duration::try_from(*self) {
             Ok(duration) => duration.serialize(s),
             Err(_) => std::time::Duration::ZERO.serialize(s),
         }
@@ -292,23 +292,21 @@ impl<'de> serde::Deserialize<'de> for Duration {
 }
 
 impl prost::Message for Duration {
-    fn encode_raw<B>(&self, buf: &mut B)
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where
-        B: prost::bytes::BufMut,
         Self: Sized,
     {
         self.0.encode_raw(buf)
     }
 
-    fn merge_field<B>(
+    fn merge_field(
         &mut self,
         tag: u32,
         wire_type: prost::encoding::WireType,
-        buf: &mut B,
+        buf: &mut impl prost::bytes::Buf,
         ctx: prost::encoding::DecodeContext,
     ) -> Result<(), prost::DecodeError>
     where
-        B: prost::bytes::Buf,
         Self: Sized,
     {
         self.0.merge_field(tag, wire_type, buf, ctx)

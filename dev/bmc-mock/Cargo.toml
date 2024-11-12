@@ -7,8 +7,8 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-axum = "0.7.5"
-axum-server = { version = "0.6.0", features = ["tls-rustls"] }
+axum = "0.7.7"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 libredfish = { workspace = true }
 clap = { workspace = true }
 tokio.workspace = true
@@ -21,7 +21,7 @@ tar = "0.4.40"
 eyre = "0.6.12"
 flate2 = "1.0.30"
 tower = "0.4.13"
-hyper = { version = "1.4.0", features = ["server", "http2"] }
+hyper = { workspace = true }
 http-body = "1.0.0"
 regex = "1.10.5"
 lazy_static = "1.5.0"
@@ -33,3 +33,5 @@ form_urlencoded = "1"
 itertools = "0.13"
 futures = "0.3"
 rand = "0.8"
+rustls = { workspace = true, features = ["default", "ring"] }
+rustls-pemfile = "2.2.0"

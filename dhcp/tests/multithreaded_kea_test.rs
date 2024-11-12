@@ -1,3 +1,4 @@
+use dhcp::mock_api_server;
 use dhcproto::{v4, Decodable, Decoder};
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -7,8 +8,6 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-
-use dhcp::mock_api_server;
 
 mod common;
 

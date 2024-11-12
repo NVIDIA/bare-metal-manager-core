@@ -960,7 +960,7 @@ fn spawn_metadata_service(
 /// Spawns a background task to run an axum server listening on given socket, and returns.
 fn start_server(address: String, router: Router) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = address.parse()?;
-    let server = axum::Server::try_bind(&addr)?;
+    let server = axum_server::Server::bind(addr);
 
     tokio::spawn(async move {
         if let Err(err) = server.serve(router.into_make_service()).await {

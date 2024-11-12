@@ -18,7 +18,7 @@ use std::{
 };
 
 use opentelemetry::{
-    metrics::{Histogram, Meter, Unit},
+    metrics::{Histogram, Meter},
     KeyValue,
 };
 use tracing::Instrument;
@@ -44,7 +44,7 @@ impl LogLayer {
         let request_times = meter
             .f64_histogram("carbide-api.grpc.server.duration")
             .with_description("Processing time for a request on the carbide API server")
-            .with_unit(Unit::new("ms"))
+            .with_unit("ms")
             .init();
 
         let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
@@ -178,13 +178,13 @@ where
 
             if let Some(service) = &grpc_service {
                 request_span.record(
-                    opentelemetry_semantic_conventions::trace::RPC_SERVICE.as_str(),
+                    opentelemetry_semantic_conventions::trace::RPC_SERVICE,
                     service,
                 );
             }
             if let Some(method) = &grpc_method {
                 request_span.record(
-                    opentelemetry_semantic_conventions::trace::RPC_METHOD.as_str(),
+                    opentelemetry_semantic_conventions::trace::RPC_METHOD,
                     method,
                 );
             }
@@ -209,8 +209,7 @@ where
                 Ok(result) => {
                     http_code = Some(result.status());
                     request_span.record(
-                        opentelemetry_semantic_conventions::trace::HTTP_RESPONSE_STATUS_CODE
-                            .as_str(),
+                        opentelemetry_semantic_conventions::trace::HTTP_RESPONSE_STATUS_CODE,
                         result.status().as_u16(),
                     );
 
@@ -245,8 +244,7 @@ where
                             .unwrap_or_else(String::new);
 
                         request_span.record(
-                            opentelemetry_semantic_conventions::trace::RPC_GRPC_STATUS_CODE
-                                .as_str(),
+                            opentelemetry_semantic_conventions::trace::RPC_GRPC_STATUS_CODE,
                             code as u64,
                         );
                         request_span.record(

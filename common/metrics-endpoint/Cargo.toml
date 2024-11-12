@@ -6,11 +6,16 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-hyper = { version = "0.14", features = ["full"] }
+hyper = { workspace = true }
+hyper-util = { version = "^0.1", features = ["server", "http1", "http2", "tokio"] }
+tokio = { workspace = true }
+http-body-util = "^0.1"
+bytes = "^1"
+
 prometheus = "0.13.4"
 tracing = "*"
 eyre = "*"
-opentelemetry = { version = "0.21", features = ["logs"] }
-opentelemetry-semantic-conventions = "0.13.0"
-opentelemetry-prometheus = "0.14.1"
-opentelemetry_sdk = { version = "0.21.1", features = ["logs", "rt-tokio"] }
+opentelemetry = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true, features = [ "semconv_experimental" ] }
+opentelemetry-prometheus = { workspace = true }
+opentelemetry_sdk = { workspace = true }

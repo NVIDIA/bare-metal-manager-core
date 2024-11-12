@@ -18,7 +18,7 @@ use std::{
 
 use arc_swap::ArcSwapOption;
 use opentelemetry::{
-    metrics::{self, Histogram, Meter, ObservableGauge, Unit},
+    metrics::{self, Histogram, Meter, ObservableGauge},
     KeyValue,
 };
 
@@ -222,17 +222,17 @@ impl SiteExplorerInstruments {
             endpoint_exploration_duration: meter
                 .f64_histogram("forge_endpoint_exploration_duration")
                 .with_description("The time it took to explore an endpoint")
-                .with_unit(Unit::new("ms"))
+                .with_unit("ms")
                 .init(),
             site_explorer_iteration_latency: meter
                 .f64_histogram("forge_site_explorer_iteration_latency")
                 .with_description("The time it took to perform one site explorer iteration")
-                .with_unit(Unit::new("ms"))
+                .with_unit("ms")
                 .init(),
             site_explorer_create_machines_latency: meter
                 .f64_histogram("forge_site_explorer_create_machines_latency")
                 .with_description("The time it to perform create_machines inside site-explorer")
-                .with_unit(Unit::new("ms"))
+                .with_unit("ms")
                 .init(),
             site_exploration_identified_managed_hosts_count: meter
                 .u64_observable_gauge("forge_site_exploration_identified_managed_hosts_count")

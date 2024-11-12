@@ -7,14 +7,16 @@ use axum::extract::State;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::routing::get;
 use axum::Router;
-use http_body::combinators::UnsyncBoxBody;
-use hyper::{Body, Request, Response};
+use http_body_util::Full;
+use hyper::body::Bytes;
+use hyper::{Request, Response};
 use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge};
 use opentelemetry::KeyValue;
 use tower::ServiceBuilder;
 use tracing::Span;
 
 use prometheus::{Encoder, TextEncoder};
+use tonic::service::AxumBody;
 
 pub mod config;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
@@ -247,7 +249,8 @@ pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
         .with_state(registry)
 }
 
-async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Body> {
+#[axum::debug_handler]
+async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
     let metric_families = registry.gather();
@@ -257,7 +260,7 @@ async fn export_metrics(State(registry): State<prometheus::Registry>) -> Respons
         .status(200)
         .header(CONTENT_TYPE, encoder.format_type())
         .header(CONTENT_LENGTH, buffer.len())
-        .body(Body::from(buffer))
+        .body(buffer.into())
         .unwrap()
 }
 pub trait WithTracingLayer {
@@ -268,16 +271,12 @@ impl WithTracingLayer for Router {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router {
         let metrics_copy = metrics.clone();
         let layer = tower_http::trace::TraceLayer::new_for_http()
-            .on_request(move |request: &Request<Body>, _span: &Span| {
+            .on_request(move |request: &Request<AxumBody>, _span: &Span| {
                 metrics.http_counter.add(1, &[]);
                 tracing::info!("started {} {}", request.method(), request.uri().path())
             })
             .on_response(
-                move |_response: &Response<
-                    UnsyncBoxBody<opentelemetry_http::Bytes, axum::Error>,
-                >,
-                      latency: Duration,
-                      _span: &Span| {
+                move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
                     // TODO revisit time units
                     metrics_copy
                         .http_req_latency_histogram

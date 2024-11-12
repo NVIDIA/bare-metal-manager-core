@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use base64::{engine::general_purpose, Engine as _};
@@ -19,6 +19,7 @@ use chrono::{DateTime, Utc};
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
 };
+use lazy_static::lazy_static;
 use libredfish::model::power::{PowerControl, PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
@@ -28,15 +29,18 @@ use libredfish::model::{ResourceHealth, ResourceState};
 use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
 use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
-use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry::Key;
 use opentelemetry::KeyValue;
-use opentelemetry_sdk::metrics::MeterProvider;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
 use rpc::forge_tls_client::ForgeClientT;
 use sha2::{Digest, Sha256};
 
 use crate::HealthError;
+
+lazy_static! {
+    static ref STATIC_MACHINE_ID_STRS: Mutex<HashMap<String, &'static str>> = Default::default();
+}
 
 pub struct HardwareHealth {
     thermal: Result<Thermal, HealthError>,
@@ -72,6 +76,18 @@ pub struct HealthHashData {
     pub dpu_user: String,
     pub password: String,
     pub dpu_password: String,
+}
+
+/// OpenTelemetry does not allow runtime-allocated strings to be used as the names of meters... they
+/// must be `&'static str`s. But we want machine_id's to be in the meter names, which are not static.
+/// This converts a `&str` to `&'static str` by "leaking" its memory a maximum of one time per unique
+/// machine ID, storing it in a global HashMap so we only leak it once.
+fn get_static_machine_id_str(machine_id: &str) -> &'static str {
+    STATIC_MACHINE_ID_STRS
+        .lock()
+        .unwrap()
+        .entry(machine_id.to_string())
+        .or_insert_with(|| Box::leak(machine_id.to_string().into_boxed_str()))
 }
 
 /// get all the metrics we want from the bmc
@@ -136,7 +152,7 @@ fn export_temperatures(
     let temperature_sensors = meter
         .i64_observable_gauge(gauge_name)
         .with_description("Temperature sensors for this hardware")
-        .with_unit(Unit::new("Celsius"))
+        .with_unit("Celsius")
         .init();
     for temperature in temperatures.iter() {
         if temperature.reading_celsius.is_none() {
@@ -159,7 +175,7 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
     let fan_sensors = meter
         .i64_observable_gauge("hw.fan.speed")
         .with_description("Fans for this hardware")
-        .with_unit(Unit::new("rpm"))
+        .with_unit("rpm")
         .init();
     for fan in fans.iter() {
         let sensor_name = match &fan.fan_name {
@@ -191,7 +207,7 @@ fn export_voltages(
     let voltage_sensors = meter
         .f64_observable_gauge("hw.voltage")
         .with_description("Voltages for this hardware")
-        .with_unit(Unit::new("V"))
+        .with_unit("V")
         .init();
     for voltage in voltages.unwrap().iter() {
         if voltage.reading_volts.is_none() {
@@ -221,17 +237,17 @@ fn export_power_supplies(
     let power_supplies_output_watts_sensors = meter
         .f64_observable_gauge("hw.power_supply.output")
         .with_description("Last output Wattage for this hardware")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     let power_supplies_utilization_sensors = meter
         .f64_observable_gauge("hw.power_supply.utilization")
         .with_description("Utilization of power supply capacity")
-        .with_unit(Unit::new("%"))
+        .with_unit("%")
         .init();
     let power_supplies_input_voltage_sensors = meter
         .i64_observable_gauge("hw.power_supply.input")
         .with_description("Input line Voltage")
-        .with_unit(Unit::new("V"))
+        .with_unit("V")
         .init();
     let power_state_sensor = meter
         .i64_observable_up_down_counter("hw.power_state")
@@ -304,27 +320,27 @@ fn export_power_control(
     let power_capacity_sensors = meter
         .f64_observable_gauge("hw.power_control.capacity")
         .with_description("Power Capacity of this host")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     let power_acinput_sensors = meter
         .f64_observable_gauge("hw.power_control.acinput")
         .with_description("Power AC Input for this host")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     let power_average_consumed_sensors = meter
         .f64_observable_gauge("hw.power_control.average")
         .with_description("Average Power Consumed for this host")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     let power_min_consumed_sensors = meter
         .f64_observable_gauge("hw.power_control.min")
         .with_description("Min Power Consumed for this host")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     let power_max_consumed_sensors = meter
         .f64_observable_gauge("hw.power_control.max")
         .with_description("Max Power Consumed for this host")
-        .with_unit(Unit::new("Watts"))
+        .with_unit("Watts")
         .init();
     for power_ctrl in power_control {
         if power_ctrl.member_id != "0" {
@@ -394,7 +410,7 @@ fn export_gpu_sensors(
         meter
             .f64_observable_gauge(format!("hw.gpu.{name}"))
             .with_description(format!("GPU {name} readings"))
-            .with_unit(Unit::new(unit))
+            .with_unit(unit)
             .init()
     });
     for gpu in gpu_sensors.iter() {
@@ -429,18 +445,18 @@ fn export_gpu_sensors(
 }
 
 fn export_otel_logs(
-    logger: Arc<Box<dyn Logger + Send + Sync>>,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
     firmwares: Vec<SoftwareInventory>,
     logs: Vec<LogEntry>,
     machine_id: &str,
     description: &str,
 ) -> Result<(), HealthError> {
     let dt = SystemTime::now();
-    let mut log_hdr = LogRecord::builder().build();
+    let mut log_hdr = opentelemetry_sdk::logs::LogRecord::default();
     log_hdr.timestamp = Some(dt);
-    log_hdr.observed_timestamp = dt;
+    log_hdr.observed_timestamp = Some(dt);
     log_hdr.body = Some(AnyValue::from(description.to_string()));
-    log_hdr.attributes = Some(vec![
+    log_hdr.add_attributes(vec![
         (
             Key::from("machine_id".to_string()),
             AnyValue::from(machine_id.to_string()),
@@ -457,9 +473,9 @@ fn export_otel_logs(
         if firmware.version.is_none() {
             continue;
         }
-        let mut log_record = LogRecord::builder().build();
+        let mut log_record = opentelemetry_sdk::logs::LogRecord::default();
         log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = dt;
+        log_record.observed_timestamp = Some(dt);
         log_record.body = Some(AnyValue::from(
             format!(
                 "Component: {}, Version: {}\n",
@@ -468,7 +484,7 @@ fn export_otel_logs(
             )
             .to_string(),
         ));
-        log_record.attributes = Some(vec![
+        log_record.add_attributes(vec![
             (
                 Key::from("machine_id".to_string()),
                 AnyValue::from(machine_id.to_string()),
@@ -482,9 +498,9 @@ fn export_otel_logs(
     }
 
     for sel_entry in logs.iter() {
-        let mut log_record = LogRecord::builder().build();
+        let mut log_record = opentelemetry_sdk::logs::LogRecord::default();
         log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = dt;
+        log_record.observed_timestamp = Some(dt);
         log_record.body = Some(AnyValue::from(
             format!(
                 "ID: {}, Created: {}, Severity: {}, Message: {}\n",
@@ -492,7 +508,7 @@ fn export_otel_logs(
             )
             .to_string(),
         ));
-        log_record.attributes = Some(vec![
+        log_record.add_attributes(vec![
             (
                 Key::from("machine_id".to_string()),
                 AnyValue::from(machine_id.to_string()),
@@ -515,8 +531,8 @@ fn export_otel_logs(
 // hw.state and hw.health are custom attributes based on redfish schema
 #[allow(clippy::too_many_arguments)]
 pub async fn export_metrics(
-    provider: MeterProvider,
-    logger: Arc<Box<dyn Logger + Send + Sync>>,
+    provider: impl opentelemetry::metrics::MeterProvider,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
     health: HardwareHealth,
     dpu_health: DpuHealth,
     last_firmware_digest: String,
@@ -526,7 +542,7 @@ pub async fn export_metrics(
     machine_id: &str,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     // build or get meter for each machine
-    let meter = provider.meter(machine_id.to_string());
+    let meter = provider.meter(get_static_machine_id_str(machine_id));
     let now: DateTime<Utc> = Utc::now();
     let mut polled_ts: i64 = 0;
     let mut recorded_ts: i64 = 0;
@@ -595,8 +611,8 @@ pub async fn export_metrics(
 /// get a single machine's health metrics and export it
 pub async fn scrape_machine_health(
     client: &mut ForgeClientT,
-    provider: MeterProvider,
-    logger: Arc<Box<dyn Logger + Send + Sync>>,
+    provider: SdkMeterProvider,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
     machine_id: &str,
     health_hash: &HealthHashData,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {

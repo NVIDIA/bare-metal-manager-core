@@ -32,6 +32,6 @@ reqwest = { version = "*", default-features = false, features = [
   "stream",
 ] }
 futures-util = "0.3"
-prost-types = "0.12.6"
+prost-types = "0.13"
 flate2 = "1.0.30"
 tar = "0.4.40"

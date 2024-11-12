@@ -122,7 +122,7 @@ impl TryFrom<rpc::forge::InstanceStorageStatusObservation> for InstanceStorageSt
     ) -> Result<Self, Self::Error> {
         let observed_at = match observation.observed_at {
             Some(timestamp) => {
-                let system_time = std::time::SystemTime::try_from(timestamp.clone())
+                let system_time = std::time::SystemTime::try_from(timestamp)
                     .map_err(|_| RpcDataConversionError::InvalidTimestamp(timestamp.to_string()))?;
                 DateTime::from(system_time)
             }

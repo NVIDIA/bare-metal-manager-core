@@ -51,7 +51,6 @@ mod utils;
 mod vault;
 mod vpc;
 
-/// Integration test that shells out to start the real carbide-api, and then does all the steps
 /// that `bootstrap-forge-docker` would do.
 /// It requires `grpcurl` and `vault` on the PATH,
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
