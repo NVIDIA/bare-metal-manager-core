@@ -565,7 +565,7 @@ mod tests {
             interfaces: vec![
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
-                    network_segment_id: base_uuid,
+                    network_segment_id: Some(base_uuid),
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
@@ -576,10 +576,13 @@ mod tests {
                         "127.0.0.1/32".parse().unwrap(),
                     )]),
                     host_inband_mac_address: None,
+                    network_details: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
+                    network_segment_id: Some(
+                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
+                    ),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
                         "127.0.0.2".parse().unwrap(),
@@ -593,10 +596,13 @@ mod tests {
                         "127.0.0.2/32".parse().unwrap(),
                     )]),
                     host_inband_mac_address: None,
+                    network_details: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
+                    network_segment_id: Some(
+                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
+                    ),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
                         "127.0.0.3".parse().unwrap(),
@@ -610,6 +616,7 @@ mod tests {
                         "127.0.0.3/32".parse().unwrap(),
                     )]),
                     host_inband_mac_address: None,
+                    network_details: None,
                 },
             ],
         }
@@ -625,7 +632,7 @@ mod tests {
             interfaces: vec![
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
-                    network_segment_id: base_uuid,
+                    network_segment_id: Some(base_uuid),
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.1.2".parse().unwrap())]),
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
@@ -636,10 +643,13 @@ mod tests {
                         "127.0.1.1/24".parse().unwrap(),
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
+                    network_details: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
+                    network_segment_id: Some(
+                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
+                    ),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
                         "127.0.2.2".parse().unwrap(),
@@ -653,10 +663,13 @@ mod tests {
                         "127.0.2.1/24".parse().unwrap(),
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
+                    network_details: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
+                    network_segment_id: Some(
+                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
+                    ),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
                         "127.0.3.2".parse().unwrap(),
@@ -670,6 +683,7 @@ mod tests {
                         "127.0.3.1/24".parse().unwrap(),
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
+                    network_details: None,
                 },
             ],
         }

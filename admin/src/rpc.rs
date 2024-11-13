@@ -2132,6 +2132,7 @@ pub async fn allocate_instance(
         let interface_config = rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: network_segment_id.cloned(),
+            network_details: None,
         };
 
         let tenant_config = rpc::TenantConfig {

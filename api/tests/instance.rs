@@ -678,10 +678,12 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+                network_details: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+                network_details: None,
             },
         ],
     });
@@ -1604,10 +1606,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+                network_details: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+                network_details: None,
             },
         ],
     });
@@ -2043,4 +2047,92 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         err.message(),
         "More than 10 Tenant KeySet IDs are not allowed"
     );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_instance_with_old_network_segemnt(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let instance_metadata = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance does not have labels.".to_string(),
+        labels: vec![],
+    };
+
+    let mut nw_config = single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID);
+    for interface in &mut nw_config.interfaces {
+        interface.network_details = None;
+    }
+
+    let (instance_id, _instance) = create_instance_with_labels(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(nw_config),
+        None,
+        None,
+        vec![],
+        instance_metadata.clone(),
+    )
+    .await;
+
+    // Test searching based on instance id.
+    let mut instance_matched_by_id = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+
+    instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
+        metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
+        metadata
+    });
+
+    assert_eq!(
+        instance_matched_by_id.metadata,
+        Some(instance_metadata.clone())
+    );
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
+        });
+    assert_eq!(fetched_instance.machine_id, host_machine_id);
+
+    let network_config = fetched_instance.config.network.clone();
+    assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
+    let mut network_config_no_addresses = network_config.clone();
+    for iface in network_config_no_addresses.interfaces.iter_mut() {
+        assert_eq!(iface.ip_addrs.len(), 1);
+        assert_eq!(iface.interface_prefixes.len(), 1);
+        iface.ip_addrs.clear();
+        iface.interface_prefixes.clear();
+        iface.network_segment_gateways.clear();
+    }
+    let mut expected_nw_config = InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID);
+    for interface in &mut expected_nw_config.interfaces {
+        interface.network_details = None;
+    }
+    assert_eq!(network_config_no_addresses, expected_nw_config);
 }

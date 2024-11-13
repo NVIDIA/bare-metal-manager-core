@@ -17,7 +17,10 @@ use carbide::{
     model::machine::{CleanupState, MachineState, ManagedHostState},
 };
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
-use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};
+use rpc::{
+    forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
+    InstanceReleaseRequest, Timestamp,
+};
 
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
@@ -122,6 +125,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id.into()),
+            network_details: Some(NetworkDetails::SegmentId(segment_id.into())),
         }],
     }
 }

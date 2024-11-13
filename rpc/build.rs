@@ -49,6 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.InstanceInterfaceConfig.network_details",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstanceIBInterfaceConfig",
             "#[derive(serde::Serialize)]",
         )

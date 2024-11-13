@@ -23,6 +23,7 @@
 use std::ops::{Deref, DerefMut};
 
 use forge_uuid::network::NetworkSegmentId;
+use instance::config::network::InterfaceFunctionId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +61,9 @@ pub enum ConfigValidationError {
 
     #[error("Found unknown segments.")]
     UnknownSegments,
+
+    #[error("Segment is still not updated for {0:?}.")]
+    MissingSegment(InterfaceFunctionId),
 
     #[error("No Vpc is attached to segment {0}.")]
     VpcNotAttachedToSegment(NetworkSegmentId),

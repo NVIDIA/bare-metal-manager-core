@@ -99,6 +99,8 @@ pub async fn allocate_instance(
     database: &PgPool,
     hardware_health_reports: HardwareHealthReportsConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
+    // TODO: Allocate network segment here before validate if vpc_prefix_id is mentioned.
+
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
@@ -265,8 +267,12 @@ pub async fn circuit_id_to_function_id(
         .interfaces
         .iter()
         .find_map(|x| {
-            if x.network_segment_id == segment.id {
-                Some(x.function_id.clone())
+            if let Some(network_segment_id) = x.network_segment_id {
+                if network_segment_id == segment.id {
+                    Some(x.function_id.clone())
+                } else {
+                    None
+                }
             } else {
                 None
             }
