@@ -16,7 +16,7 @@ receivers:
     start_at: beginning
     storage: file_storage/cursors
 
-  journald:
+  journald/forge-dpu-agent:
     directory: /var/log/journal
     units:
       - forge-dpu-agent
@@ -35,6 +35,26 @@ receivers:
             warn: 'WARN'
             info: 'INFO'
             debug: 'DEBUG'
+
+  journald/kernel:
+    directory: /var/log/journal
+    dmesg: true
+    storage: file_storage/cursors
+    operators:
+      - type: severity_parser
+        parse_from: body.PRIORITY
+        mapping:
+          fatal:
+            - 0
+            - 1
+          error:
+            - 2
+            - 3
+          warn: 4
+          info: 5
+          debug: 6
+          trace: 7
+        overwrite_text: true
 
   prometheus/fmds:
     config:
@@ -206,6 +226,8 @@ processors:
         by_label:
           names:
             - component
+            - log.file.path
+            - systemd.unit
     labels:
       - name: component
         value: telemetry_stats
@@ -281,6 +303,25 @@ processors:
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
           - set(body, body["MESSAGE"])
           - delete_key(attributes, "level")
+  transform/journald-kernel:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          # kernel is not actually a systemd unit, but treat it like one to
+          # facilitate grouping in grafana.
+          - set(attributes["systemd.unit"], "kernel")
+          - set(attributes["PRIORITY"], body["PRIORITY"])
+          - set(attributes["BOOT_ID"], body["_BOOT_ID"])
+          - set(attributes["CURSOR"], body["__CURSOR"])
+          - set(attributes["KERNEL_DEVICE"], body["_KERNEL_DEVICE"])
+          - set(attributes["KERNEL_SUBSYSTEM"], body["_KERNEL_SUBSYSTEM"])
+          - set(attributes["MONOTONIC_TIMESTAMP"], body["__MONOTONIC_TIMESTAMP"])
+          - set(attributes["SOURCE_MONOTONIC_TIMESTAMP"], body["_SOURCE_MONOTONIC_TIMESTAMP"])
+          - set(attributes["SYSLOG_FACILITY"], body["SYSLOG_FACILITY"])
+          - set(attributes["SYSLOG_IDENTIFIER"], body["SYSLOG_IDENTIFIER"])
+          - set(attributes["UDEV_SYSNAME"], body["_UDEV_SYSNAME"])
+          - set(body, body["MESSAGE"])
   transform/metrics-dts:
     error_mode: ignore
     metric_statements:
@@ -314,13 +355,24 @@ exporters:
 service:
   pipelines:
     logs/journald:
-      receivers: [journald]
+      receivers: [journald/forge-dpu-agent]
       processors:
         - memory_limiter
         - resourcedetection
         - fileresource
         - resource/logs-journald
         - transform/journald
+        - telemetry_stats
+        - batch/logs
+      exporters: [otlp/site]
+    logs/journald-kernel:
+      receivers: [journald/kernel]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - fileresource
+        - resource/logs-journald
+        - transform/journald-kernel
         - telemetry_stats
         - batch/logs
       exporters: [otlp/site]
