@@ -23,6 +23,8 @@ echo server_uri=$server_uri >> "/opt/forge/forge-scout.env"
 echo machine_id=$machine_id >> "/opt/forge/forge-scout.env"
 echo cli_cmd=$cli_cmd >> "/opt/forge/forge-scout.env"
 
+curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca
+
 mkdir -p ~/.ssh
 
 if [ ! -f ~/.ssh/privatekey.pem ]; then
