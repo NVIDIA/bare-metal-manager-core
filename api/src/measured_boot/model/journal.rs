@@ -45,7 +45,6 @@ use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 pub struct MeasurementJournal {
     pub journal_id: MeasurementJournalId,
     pub machine_id: MachineId,
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
     pub report_id: MeasurementReportId,
     #[serde(skip_serializing_if = "serde_just_print_summary")]
     pub profile_id: Option<MeasurementSystemProfileId>,

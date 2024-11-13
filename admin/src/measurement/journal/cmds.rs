@@ -202,6 +202,7 @@ impl ToTable for MeasurementJournalRecordList {
             table.add_row(prettytable::row![
                 "journal_id",
                 "machine_id",
+                "report_id",
                 "state",
                 "created_ts"
             ]);
@@ -229,6 +230,7 @@ impl ToTable for MeasurementJournalRecordList {
                 table.add_row(prettytable::row![
                     journal.journal_id,
                     journal.machine_id,
+                    journal.report_id,
                     journal.state,
                     journal.ts
                 ]);
@@ -271,8 +273,8 @@ impl ToTable for MeasurementJournalList {
             };
             let mut details_table = prettytable::Table::new();
             details_table.add_row(prettytable::row!["machine_id", journal.machine_id]);
+            details_table.add_row(prettytable::row!["report_id", journal.report_id]);
             if !just_print_summary() {
-                details_table.add_row(prettytable::row!["report_id", journal.report_id]);
                 details_table.add_row(prettytable::row!["profile_id", profile_id]);
                 details_table.add_row(prettytable::row!["bundle_id", bundle_id]);
             }
