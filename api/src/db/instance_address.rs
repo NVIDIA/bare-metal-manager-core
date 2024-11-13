@@ -196,16 +196,19 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "begin", e)))?;
 
+        let segment_ids = updated_config
+            .interfaces
+            .iter()
+            .filter_map(|x| x.network_segment_id)
+            .collect_vec();
+
+        if segment_ids.len() != updated_config.interfaces.len() {
+            return Err(CarbideError::NetworkSegmentNotAllocated);
+        }
+
         let segments = NetworkSegment::find_by(
             &mut inner_txn,
-            ObjectColumnFilter::List(
-                network_segment::IdColumn,
-                &updated_config
-                    .interfaces
-                    .iter()
-                    .map(|x| x.network_segment_id)
-                    .collect_vec()[..],
-            ),
+            ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
             NetworkSegmentSearchConfig::default(),
         )
         .await?;
@@ -220,15 +223,20 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
         // Assign all addresses in one shot.
         for iface in &mut updated_config.interfaces {
-            let segment = match segments
-                .iter()
-                .find(|x| x.id() == &iface.network_segment_id)
-            {
+            let segment = match segments.iter().find(|x| {
+                iface
+                    .network_segment_id
+                    .map(|a| &a == x.id())
+                    .unwrap_or(false)
+            }) {
                 Some(x) => x,
                 None => {
-                    return Err(CarbideError::FindOneReturnedNoResultsError(
-                        iface.network_segment_id.into(),
-                    ));
+                    if let Some(segment_id) = iface.network_segment_id {
+                        return Err(CarbideError::FindOneReturnedNoResultsError(
+                            segment_id.into(),
+                        ));
+                    }
+                    return Err(CarbideError::NetworkSegmentNotAllocated);
                 }
             };
 
@@ -425,13 +433,17 @@ impl AssignIpsFrom<(&MachineSnapshot, &NetworkPrefix)> for InstanceInterfaceConf
         let host_interfaces_in_instance_segment = machine_snapshot
             .interfaces
             .iter()
-            .filter(|i| i.segment_id == self.network_segment_id)
+            .filter(|i| {
+                self.network_segment_id
+                    .map(|a| a == i.segment_id)
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>();
 
         if host_interfaces_in_instance_segment.len() > 1 {
             tracing::error!("Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config.");
             return Err(CarbideError::FindOneReturnedManyResultsError(
-                self.network_segment_id.0,
+                self.network_segment_id.map(|a| a.0).unwrap_or_default(),
             ));
         }
 
@@ -573,7 +585,12 @@ mod tests {
                     Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128).into();
                 InstanceInterfaceConfig {
                     function_id,
-                    network_segment_id,
+                    network_segment_id: Some(network_segment_id),
+                    network_details: Some(
+                        crate::model::instance::config::network::NetworkDetails::NetworkSegment(
+                            network_segment_id,
+                        ),
+                    ),
                     ip_addrs: HashMap::default(),
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),

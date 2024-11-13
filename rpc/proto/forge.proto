@@ -1405,6 +1405,14 @@ message InstanceInterfaceConfig {
   // Network segment ID can change. It if changes - we require a new IP address
   common.UUID network_segment_id = 3;
 
+  // Cloud can send prefix id as well.
+  oneof network_details {
+    common.UUID segment_id = 5;
+    // In case of vpc_prefix_id, carbide should allocate a network segment 
+    // and continue IP allocation.
+    common.UUID vpc_prefix_id = 6;
+  }
+
   // The ID of security group that is attached to this interface
   // Note: This is commented because we will not supported setting these in the first
   // release of the new Instance API

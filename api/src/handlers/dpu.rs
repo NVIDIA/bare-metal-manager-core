@@ -128,7 +128,12 @@ pub(crate) async fn get_managed_host_network_config(
         None => vec![],
         Some(instance) => {
             let interfaces = &instance.config.network.interfaces;
-            let vpc = Vpc::find_by_segment(&mut txn, interfaces[0].network_segment_id)
+            let Some(network_segment_id) = interfaces[0].network_segment_id else {
+                // Network segment allocation is done before persisting record in db. So if still
+                // network segment is empty, return error.
+                return Err(CarbideError::NetworkSegmentNotAllocated.into());
+            };
+            let vpc = Vpc::find_by_segment(&mut txn, network_segment_id)
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -183,10 +188,7 @@ pub(crate) async fn get_managed_host_network_config(
             //Get Domain
             let segments = &NetworkSegment::find_by(
                 &mut txn,
-                ObjectColumnFilter::One(
-                    network_segment::IdColumn,
-                    &interfaces[0].network_segment_id,
-                ),
+                ObjectColumnFilter::One(network_segment::IdColumn, &network_segment_id),
                 NetworkSegmentSearchConfig::default(),
             )
             .await
@@ -194,7 +196,7 @@ pub(crate) async fn get_managed_host_network_config(
             let Some(segment) = segments.first() else {
                 return Err(Status::internal(format!(
                     "Tenant network segment id '{}' matched more than one segment",
-                    interfaces[0].network_segment_id
+                    network_segment_id
                 )));
             };
 

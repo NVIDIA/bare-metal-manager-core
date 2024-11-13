@@ -162,6 +162,9 @@ pub enum CarbideError {
     #[error("Admin network is not configured.")]
     AdminNetworkNotConfigured,
 
+    #[error("All Network Segments are not allocated yet.")]
+    NetworkSegmentNotAllocated,
+
     #[error("Network has attached VPC or Subdomain : {0}")]
     NetworkSegmentDelete(String),
 

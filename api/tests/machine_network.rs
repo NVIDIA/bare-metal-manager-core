@@ -99,6 +99,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+            network_details: None,
         }],
     });
     let (_instance_id, _instance) = instance::create_instance(

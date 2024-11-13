@@ -489,8 +489,8 @@ pub async fn allocate_instance(
 
         let interface_config = rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-            network_segment_id:
-            network_segment_id.cloned(),
+            network_segment_id: network_segment_id.cloned(),
+            network_details: network_segment_id.cloned().map(rpc::forge::instance_interface_config::NetworkDetails::SegmentId)
         };
 
         let tenant_config = rpc::TenantConfig {

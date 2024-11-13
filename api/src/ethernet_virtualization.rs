@@ -180,9 +180,13 @@ pub async fn tenant_network(
     iface: &InstanceInterfaceConfig,
     fqdn: String,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
+    let Some(network_segment_id) = iface.network_segment_id else {
+        return Err(CarbideError::NetworkSegmentNotAllocated.into());
+    };
+
     let segments = &NetworkSegment::find_by(
         txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &iface.network_segment_id),
+        ObjectColumnFilter::One(network_segment::IdColumn, &network_segment_id),
         NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -190,7 +194,7 @@ pub async fn tenant_network(
     let Some(segment) = segments.first() else {
         return Err(Status::internal(format!(
             "Tenant network segment id '{}' matched more than one segment",
-            iface.network_segment_id
+            network_segment_id
         )));
     };
 
