@@ -1656,7 +1656,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     // no reboots should be forced during firmware update
     for _ in 1..5 {
-        update_time_params(&env.pool, &dpu, 1).await;
+        update_time_params(&env.pool, &dpu, 1, None).await;
         env.run_machine_state_controller_iteration().await;
 
         let mut txn = env.pool.begin().await.unwrap();
@@ -1708,7 +1708,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     txn.rollback().await.unwrap();
 
-    update_time_params(&env.pool, &dpu, 1).await;
+    update_time_params(&env.pool, &dpu, 1, None).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -1729,7 +1729,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     txn.rollback().await.unwrap();
 
-    update_time_params(&env.pool, &dpu, 1).await;
+    update_time_params(&env.pool, &dpu, 1, None).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -1754,7 +1754,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 
     // Retry 1
-    update_time_params(&env.pool, &dpu, 1).await;
+    update_time_params(&env.pool, &dpu, 1, None).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1770,7 +1770,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // Retry 2
-    update_time_params(&env.pool, &dpu, 2).await;
+    update_time_params(&env.pool, &dpu, 2, None).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_ = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1800,7 +1800,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // Retry 3
-    update_time_params(&env.pool, &dpu, 3).await;
+    update_time_params(&env.pool, &dpu, 3, None).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1815,7 +1815,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // Retry 4
-    update_time_params(&env.pool, &dpu, 4).await;
+    update_time_params(&env.pool, &dpu, 4, None).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1830,7 +1830,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // Retry 5
-    update_time_params(&env.pool, &dpu, 5).await;
+    update_time_params(&env.pool, &dpu, 5, None).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1845,7 +1845,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // Retry 6
-    update_time_params(&env.pool, &dpu, 5).await;
+    update_time_params(&env.pool, &dpu, 5, None).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())

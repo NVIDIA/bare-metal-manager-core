@@ -803,7 +803,7 @@ impl MachineStateHandler {
                         if cleanedup_after_state_transition(
                             mh_snapshot.host_snapshot.current.version,
                             mh_snapshot.host_snapshot.last_cleanup_time,
-                        ) && details.failed_at
+                        ) && mh_snapshot.host_snapshot.failure_details.failed_at
                             < mh_snapshot
                                 .host_snapshot
                                 .last_cleanup_time

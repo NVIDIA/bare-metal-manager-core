@@ -33,6 +33,7 @@ use common::api_fixtures::{
 use forge_uuid::machine::MachineId;
 
 use carbide::model::machine::{FailureCause, FailureSource};
+use chrono::Duration;
 use common::api_fixtures::{create_test_env_with_overrides, get_config};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{TpmCaCert, TpmCaCertId};
@@ -194,6 +195,11 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
 
     let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
         machine_id: Some(rpc::MachineId {
@@ -216,7 +222,56 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
+    update_time_params(
+        &env.pool,
+        &host,
+        1,
+        Some(host.last_reboot_requested().unwrap().time - Duration::seconds(59)),
+    )
+    .await;
     // let state machine check the failure condition.
+    env.run_machine_state_controller_iteration().await;
+
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::NVMECleanFailed { .. },
+                ..
+            },
+            retry_count: 0,
+            ..
+        }
+    ));
+
+    // Fail again
+    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: Some(rpc::MachineId {
+            id: host_machine_id.to_string(),
+        }),
+        nvme: Some(
+            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+                message: "test nvme failure".to_string(),
+            },
+        ),
+        ram: None,
+        mem_overwrite: None,
+        ib: None,
+        result: 0,
+    });
+    env.api
+        .cleanup_machine_completed(clean_failed_req)
+        .await
+        .unwrap();
+
+    // let state machine check the failure condition.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -232,10 +287,10 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
                 cause: carbide::model::machine::FailureCause::NVMECleanFailed { .. },
                 ..
             },
+            retry_count: 1,
             ..
         }
     ));
-
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
         machine_id: Some(rpc::MachineId {
@@ -426,7 +481,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    update_time_params(&env.pool, &host, 1).await;
+    update_time_params(&env.pool, &host, 1, None).await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
