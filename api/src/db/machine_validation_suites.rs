@@ -42,7 +42,7 @@ pub struct MachineValidationTest {
     pub modified_by: String,
     pub verified: bool,
     pub read_only: bool,
-    pub custom_tags: Vec<String>,
+    pub custom_tags: Option<Vec<String>>,
     pub components: Vec<String>,
     pub last_modified_at: DateTime<Utc>,
     pub is_enabled: bool,
@@ -100,7 +100,7 @@ impl From<MachineValidationTest> for rpc::forge::MachineValidationTest {
             modified_by: value.modified_by,
             verified: value.verified,
             read_only: value.read_only,
-            custom_tags: value.custom_tags,
+            custom_tags: value.custom_tags.unwrap_or_default(),
             components: value.components,
             last_modified_at: value.last_modified_at.to_string(),
             is_enabled: value.is_enabled,
@@ -130,7 +130,11 @@ impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
             modified_by: value.modified_by,
             verified: value.verified,
             read_only: value.read_only,
-            custom_tags: value.custom_tags,
+            custom_tags: if value.custom_tags.is_empty() {
+                None
+            } else {
+                Some(value.custom_tags)
+            },
             components: value.components,
             last_modified_at: Utc::now(),
             is_enabled: value.is_enabled,
@@ -337,7 +341,7 @@ impl MachineValidationTest {
         Ok(ret)
     }
     pub fn generate_test_id(name: &str) -> String {
-        name.to_string()
+        format!("forge_{}", name)
     }
     pub async fn save(
         txn: &mut Transaction<'_, Postgres>,
@@ -404,7 +408,7 @@ impl MachineValidationTest {
             extra_output_file: test.extra_output_file.clone(),
             supported_platforms: test.supported_platforms.clone(),
             read_only: None,
-            custom_tags: test.custom_tags.clone(),
+            custom_tags: test.custom_tags.clone().unwrap_or_default(),
             components: test.components.clone(),
             is_enabled: Some(test.is_enabled),
         };
