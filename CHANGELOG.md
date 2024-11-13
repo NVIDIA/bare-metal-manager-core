@@ -4,6 +4,9 @@
 ### Added
 ### Changed
 ### Fixed
+
+- fixed an issue where a host would end up in a reboot loop when it entered the NVMECleanFailed state. The reboot retries are now limited to 15.
+
 ### Removed
 
 ## [v2024.11.08-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc4-0...v2024.11.08-rc2-0)

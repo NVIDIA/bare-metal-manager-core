@@ -1891,7 +1891,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     txn.commit().await.unwrap();
 
-    update_time_params(&env.pool, &host, 1).await;
+    update_time_params(&env.pool, &host, 1, None).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,

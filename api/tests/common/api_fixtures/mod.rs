@@ -79,7 +79,7 @@ use carbide::{
     },
     storage::{NvmeshClientPool, NvmeshSimClient},
 };
-use chrono::Duration;
+use chrono::{DateTime, Duration, Utc};
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
@@ -1176,10 +1176,19 @@ pub async fn create_managed_host_with_config(
     )
 }
 
-pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_count: i64) {
+pub async fn update_time_params(
+    pool: &sqlx::PgPool,
+    machine: &Machine,
+    retry_count: i64,
+    last_reboot_requested: Option<DateTime<Utc>>,
+) {
     let mut txn = pool.begin().await.unwrap();
     let data = MachineLastRebootRequested {
-        time: machine.last_reboot_requested().unwrap().time - Duration::minutes(1),
+        time: if let Some(last_reboot_requested) = last_reboot_requested {
+            last_reboot_requested
+        } else {
+            machine.last_reboot_requested().unwrap().time - Duration::minutes(1)
+        },
         mode: machine.last_reboot_requested().unwrap().mode,
     };
 
