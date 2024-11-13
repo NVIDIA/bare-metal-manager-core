@@ -3581,7 +3581,10 @@ async fn trigger_reboot_if_needed(
                 }
             };
 
-            let status = if cycle % 4 == 0 {
+            // Dont power down the host on the first cycle
+            let power_down_host = cycle != 0 && cycle % 4 == 0;
+
+            let status = if power_down_host {
                 // PowerDown
                 // DPU or host, in both cases power down is triggered from host.
                 let action = SystemPowerControl::ForceOff;
@@ -3608,6 +3611,9 @@ async fn trigger_reboot_if_needed(
                     time_elapsed_since_state_change
                 )
             };
+
+            tracing::info!("Machine {}: {status}", target.machine_id,);
+
             Ok(RebootStatus {
                 increase_retry_count: true,
                 status,
