@@ -692,7 +692,6 @@ pub struct MeasurementJournalRecord {
     pub machine_id: MachineId,
 
     // report_id is the report record that this journal entry is for.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
     pub report_id: MeasurementReportId,
 
     // profile_id is the matched system profile for the machine
