@@ -848,7 +848,7 @@ async fn test_machine_validation_update_existing_test(
         .api
         .get_machine_validation_tests(tonic::Request::new(
             rpc::forge::MachineValidationTestsGetRequest {
-                test_id: Some("dcgm_long_test".to_string()),
+                test_id: Some("forge_dcgm_long_test".to_string()),
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
             },
         ))
@@ -923,7 +923,7 @@ async fn test_machine_validation_mark_test_as_verfied(
         .api
         .get_machine_validation_tests(tonic::Request::new(
             rpc::forge::MachineValidationTestsGetRequest {
-                test_id: Some("dcgm_long_test".to_string()),
+                test_id: Some("forge_dcgm_long_test".to_string()),
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
             },
         ))
@@ -975,7 +975,7 @@ async fn test_machine_validation_create_clones(
         .api
         .get_machine_validation_tests(tonic::Request::new(
             rpc::forge::MachineValidationTestsGetRequest {
-                test_id: Some("dcgm_long_test".to_string()),
+                test_id: Some("forge_dcgm_long_test".to_string()),
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
             },
         ))
@@ -1044,7 +1044,7 @@ async fn test_machine_validation_test_disabled(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(existing_test_list.len(), 2);
+    assert_eq!(existing_test_list.len(), 11);
 
     let _ = env
         .api
@@ -1084,7 +1084,7 @@ async fn test_machine_validation_test_disabled(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(updated_tests.len(), 0);
+    assert_eq!(updated_tests.len(), 9);
 
     Ok(())
 }
