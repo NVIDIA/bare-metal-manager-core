@@ -69,7 +69,15 @@ pub(crate) async fn record_infiniband_status_observation(
             error: e.into(),
         })?;
 
-    let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
+    let mut ib_interfaces_status: Vec<InstanceIbInterfaceStatusObservation> =
+        Vec::with_capacity(ib_interfaces.len());
+    for iter_if in ib_interfaces.iter() {
+        ib_interfaces_status.push(InstanceIbInterfaceStatusObservation {
+            guid: iter_if.clone().guid,
+            lid: 0xffff_u32,
+            addresses: vec![],
+        })
+    }
 
     for (k, guids) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find_by(
@@ -98,6 +106,17 @@ pub(crate) async fn record_infiniband_status_observation(
             .await
             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
+        for port in ports.iter() {
+            for iter_status in ib_interfaces_status.iter_mut() {
+                if port.guid == iter_status.guid.clone().unwrap_or_default() {
+                    let status = InstanceIbInterfaceStatusObservation::from(port);
+                    iter_status.lid = status.lid;
+                    iter_status.addresses = status.addresses;
+                    break;
+                }
+            }
+        }
+
         if ports.len() != guids.len() {
             let mut expected_guids = HashSet::new();
             expected_guids.extend(guids.clone());
@@ -105,7 +124,7 @@ pub(crate) async fn record_infiniband_status_observation(
                 expected_guids.remove(&port.guid);
             }
 
-            return Err(StateHandlerError::IBFabricError {
+            let e = StateHandlerError::IBFabricError {
                 operation: "find_ib_port".to_string(),
                 error: eyre::eyre!(format!(
                     "UFM did not return port information for GUIDs: {}",
@@ -114,23 +133,9 @@ pub(crate) async fn record_infiniband_status_observation(
                         .collect::<Vec<String>>()
                         .join(", ")
                 )),
-            });
+            };
+            tracing::error!("Detected invalid infiniband confiuration {e}");
         }
-
-        ib_interfaces_status.extend(
-            ports
-                .iter()
-                .map(InstanceIbInterfaceStatusObservation::from)
-                .collect::<Vec<_>>(),
-        );
-    }
-
-    if ib_interfaces.len() != ib_interfaces_status.len() {
-        return Err(StateHandlerError::InvalidState(format!(
-            "{} infiniband interfaces with {} statuses",
-            ib_interfaces.len(),
-            ib_interfaces_status.len()
-        )));
     }
 
     let status = InstanceInfinibandStatusObservation {
