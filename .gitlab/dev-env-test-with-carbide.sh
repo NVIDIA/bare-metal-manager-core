@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
 #
-# Used in pipeline job 'dev-env-test'. Designed to run directly on a GitLab runner machine.
+# Used in pipeline job 'dev-env-test-with-carbide'. Designed to run directly on a GitLab runner machine.
 #
-# This script sets up a single-node Forge control plane kubernetes deployment (from the 'forged' repo), builds the
+# This script sets up a single Forge kubernetes deployment (from the 'forged' repo), builds the
 # carbide images, and deploys those to the node.
 # It then checks that the expected carbide pods were created, and that all kubernetes resources are healthy.
+#
+# NOTE: Any changes made to this script must (likely) also be made to the script of the same name in the forged repo
 #
 
 set -xeuo pipefail
@@ -105,7 +107,7 @@ docker pull "$(grep unbound: bases/unbound/deployment.yaml | awk '{print $2}')"
 
 # Bring up the base k3s resources (excludes carbide)
 echo "Bringing up the base kubernetes node..."
-.gitlab/dev-env-test.sh  # Not to be confused with the file of the same name in this repo (i.e. this file)
+.gitlab/dev-env-test.sh
 
 # Configure DNS
 eval "$(direnv export bash)"

@@ -36,10 +36,10 @@ function update_forged() {
   gitlab --server-url "${GITLAB_SERVER_URL_NO_PORT}" --private-token "${FORGED_PROJECT_ACCESS_TOKEN}" project-merge-request merge \
     --project-id "${FORGED_PROJECT_ID}" --iid "${MR_IID}" --should-remove-source-branch true --merge-when-pipeline-succeeds true
 
-  echo "Waiting up to 30 mins for MR to be merged..."
+  echo "Waiting up to 40 mins for MR to be merged..."
   MR_STATE_CMD="gitlab --verbose --server-url \"${GITLAB_SERVER_URL_NO_PORT}\" --private-token \"${FORGED_PROJECT_ACCESS_TOKEN}\" project-merge-request list \
     --project-id \"${FORGED_PROJECT_ID}\" --iid \"${MR_IID}\" | grep \"^state\" | awk -F ' ' '{print \$2}'"
-  timeout=$((SECONDS + (60*30)))
+  timeout=$((SECONDS + (60*40)))
   while true; do
     if [[ $SECONDS -ge $timeout ]]; then echo "Error: Timeout waiting for MR to be merged"; exit 1; fi
     state=$(eval "${MR_STATE_CMD}")
