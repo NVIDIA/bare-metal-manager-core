@@ -17,9 +17,11 @@
  *  - `journal delete`: Delete a journal entry.
  *  - `journal show`: Show all info about journal entr(ies).
  *  - `journal list`: List all journal entries.
+ *  - `journal promote`: Promote the report from a journal entry into a bundle.
 */
 
 use carbide::measured_boot::dto::keys::MeasurementJournalId;
+use carbide::measured_boot::interface::common::{parse_pcr_index_input, PcrSet};
 use clap::Parser;
 use forge_uuid::machine::MachineId;
 
@@ -35,6 +37,12 @@ pub enum CmdJournal {
 
     #[clap(about = "List all journal IDs and machines.", visible_alias = "l")]
     List(List),
+
+    #[clap(
+        about = "Promote a journal entry report to a bundle.",
+        visible_alias = "p"
+    )]
+    Promote(Promote),
 }
 
 /// Delete is used to delete an existing journal entry.
@@ -57,4 +65,19 @@ pub struct List {
 pub struct Show {
     #[clap(help = "The optional journal entry ID.")]
     pub journal_id: Option<MeasurementJournalId>,
+}
+
+/// Promote is used to promote a journal entry's report
+/// into a measurement bundle.
+#[derive(Parser, Debug)]
+pub struct Promote {
+    #[clap(help = "The journal entry ID to promote a report from.")]
+    pub journal_id: MeasurementJournalId,
+
+    #[clap(
+        long,
+        help = "Select specific PCR range(s) to use for the promoted bundle."
+    )]
+    #[arg(value_parser = parse_pcr_index_input)]
+    pub pcr_registers: Option<PcrSet>,
 }
