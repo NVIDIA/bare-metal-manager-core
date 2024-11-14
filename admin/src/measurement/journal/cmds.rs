@@ -15,7 +15,10 @@
 //!
 
 use crate::measurement::global;
-use crate::measurement::journal::args::{CmdJournal, Delete, List, Show};
+use crate::measurement::journal::args::{CmdJournal, Delete, List, Promote, Show};
+use crate::measurement::report::{
+    args::Promote as ReportPromoteArgs, cmds::promote as report_promote,
+};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
@@ -24,7 +27,7 @@ use ::rpc::protos::measured_boot::{
     ShowMeasurementJournalsRequest,
 };
 use carbide::measured_boot::dto::records::MeasurementJournalRecord;
-use carbide::measured_boot::model::journal::MeasurementJournal;
+use carbide::measured_boot::model::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
 use utils::admin_cli::{
     cli_output, just_print_summary, CarbideCliError, CarbideCliResult, ToTable,
@@ -62,6 +65,13 @@ pub async fn dispatch(
         CmdJournal::List(local_args) => {
             cli_output(
                 list(cli.grpc_conn, local_args).await?,
+                &cli.args.format,
+                utils::admin_cli::Destination::Stdout(),
+            )?;
+        }
+        CmdJournal::Promote(local_args) => {
+            cli_output(
+                promote(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
                 utils::admin_cli::Destination::Stdout(),
             )?;
@@ -187,6 +197,36 @@ pub async fn list(
             })
             .collect::<CarbideCliResult<Vec<MeasurementJournalRecord>>>()?,
     ))
+}
+
+/// promote promotes the report from a journal entry into
+/// a measurement bundle.
+///
+/// Instead of its own dedicated API call, this makes two API
+/// calls: one to get the journal data, and the other to promote
+/// the report associated with the journal.
+///
+/// `journal promote <journal-id> [--pcr-registers <range0>,...]`
+pub async fn promote(
+    grpc_conn: &mut ForgeClientT,
+    promote: &Promote,
+) -> CarbideCliResult<MeasurementBundle> {
+    let journal = show_by_id(
+        grpc_conn,
+        &Show {
+            journal_id: Some(promote.journal_id),
+        },
+    )
+    .await?;
+
+    report_promote(
+        grpc_conn,
+        &ReportPromoteArgs {
+            report_id: journal.report_id,
+            pcr_registers: promote.pcr_registers.clone(),
+        },
+    )
+    .await
 }
 
 /// MeasurementJournalRecordList just implements a newtype pattern
