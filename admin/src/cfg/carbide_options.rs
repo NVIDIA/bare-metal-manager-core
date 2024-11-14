@@ -1938,6 +1938,7 @@ pub struct MachineValidationEnableDisableTestOptions {
     #[clap(
         short,
         long,
+        default_value = "true",
         help = "flag for enable and disable. True for enable and false for disable"
     )]
     pub is_enable: bool,
