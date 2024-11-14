@@ -1575,8 +1575,8 @@ impl SiteExplorer {
             return;
         }
 
-        // Dont let site explorer issue either a force-restart or bmc-reset more than once every 6 hours.
-        let rate_limit_hours = 6;
+        // Dont let site explorer issue either a force-restart or bmc-reset more than once an hour.
+        let rate_limit_hours = 1;
         let min_time_since_last_action_mins = 20;
         let start = Utc::now();
         let time_since_redfish_reboot =
