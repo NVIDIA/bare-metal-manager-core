@@ -40,83 +40,40 @@ use crate::MACHINE_VALIDATION_SERVER;
 use crate::SCHME;
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
-pub fn default_time_out() -> Option<u64> {
-    Some(DEFAULT_TIMEOUT)
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Suite {
-    #[serde(flatten)]
-    components: HashMap<String, Component>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-struct Component {
-    #[serde(flatten)]
-    subcategories: HashMap<String, HashMap<String, ExecCommand>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ExecCommand {
-    #[serde(rename = "ContainerImageName")]
-    img_name: Option<String>,
-    #[serde(rename = "ExecuteInHost")]
-    execute_in_host: Option<bool>,
-    #[serde(rename = "ContainerArg")]
-    container_arg: Option<String>,
-    #[serde(rename = "Command")]
-    command: String,
-    #[serde(rename = "Args")]
-    args: String,
-    #[serde(rename = "ExtraOutputFile")]
-    extra_output_file: Option<String>,
-    #[serde(rename = "ExtraErrFile")]
-    extra_err_file: Option<String>,
-    #[serde(rename = "RequiredExternalConfigFile")]
-    required_external_config_file: Option<String>,
-    #[serde(rename = "Desc")]
-    description: String,
-    #[serde(rename = "Contexts")]
-    contexts: Vec<String>,
-    #[serde(rename = "PreCondition")]
-    pre_condition: Option<String>,
-    #[serde(rename = "Timeout", default = "default_time_out")]
-    timeout: Option<u64>,
-}
 
 impl MachineValidation {
     pub fn new(options: MachineValidationOptions) -> Self {
         MachineValidation { options }
     }
-    pub(crate) async fn download_external_config(
+    pub(crate) async fn get_external_config(
         self,
-        external_config: Option<Vec<String>>,
+        external_config_file: String,
     ) -> Result<(), MachineValidationError> {
-        let Some(config_names) = external_config else {
-            return Ok(());
+        tracing::info!("{}", external_config_file);
+        let path = Path::new(&external_config_file);
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+
+        let mut client = self.clone().create_forge_client().await?;
+        let request =
+            tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigRequest { name });
+        let response = match client.get_machine_validation_external_config(request).await {
+            Ok(res) => res,
+            Err(e) => {
+                return Err(MachineValidationError::ApiClient(
+                    "get_external_config".to_owned(),
+                    e.to_string(),
+                ))
+            }
         };
-        for name in config_names {
-            let file_name = format!("/tmp/machine_validation/external_config/{}", name.clone());
-            tracing::info!("{}", file_name);
-            let mut client = self.clone().create_forge_client().await?;
-            let request =
-                tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigRequest { name });
-            let response = match client.get_machine_validation_external_config(request).await {
-                Ok(res) => res,
-                Err(err) => {
-                    error!("{}", err.to_string());
-                    continue;
-                }
-            };
-
-            let config = response.into_inner().config.unwrap().config;
-
-            let mut file = File::create(file_name.clone())
-                .map_err(|e| MachineValidationError::File(file_name.clone(), e.to_string()))?;
-            let s = String::from_utf8(config).expect("Found invalid UTF-8");
-            file.write_all(s.as_bytes())
-                .map_err(|e| MachineValidationError::File(file_name.clone(), e.to_string()))?;
-        }
+        let config = response.into_inner().config.unwrap().config;
+        let mut file = File::create(external_config_file.clone()).map_err(|e| {
+            MachineValidationError::File(external_config_file.clone(), e.to_string())
+        })?;
+        let s = String::from_utf8(config)
+            .map_err(|e| MachineValidationError::Generic(e.to_string()))?;
+        file.write_all(s.as_bytes()).map_err(|e| {
+            MachineValidationError::File(external_config_file.clone(), e.to_string())
+        })?;
         Ok(())
     }
     pub(crate) async fn create_forge_client(
@@ -156,6 +113,27 @@ impl MachineValidation {
                 )
             })?;
         Ok(())
+    }
+
+    pub(crate) async fn get_machine_validation_tests(
+        self,
+        test_request: rpc::forge::MachineValidationTestsGetRequest,
+    ) -> Result<Vec<rpc::forge::MachineValidationTest>, MachineValidationError> {
+        tracing::info!("{:?}", test_request);
+        let mut client = self.create_forge_client().await?;
+        let request = tonic::Request::new(test_request);
+        let response = client
+            .get_machine_validation_tests(request)
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "get_machine_validation_tests".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner();
+
+        Ok(response.tests)
     }
 
     pub async fn get_container_images() -> Result<(), MachineValidationError> {
@@ -235,42 +213,39 @@ impl MachineValidation {
         }
     }
     async fn execute_machinevalidation_command(
+        self,
         machine_id: &str,
-        name: String,
-        cmd: ExecCommand,
+        test: &rpc::forge::MachineValidationTest,
         in_context: String,
         uuid: rpc::common::Uuid,
     ) -> Option<rpc::forge::MachineValidationResult> {
-        if cmd.required_external_config_file.is_some() {
-            let file_name = format!(
-                "/tmp/machine_validation/external_config/{}",
-                cmd.required_external_config_file.unwrap_or_default()
-            );
-            //TODO in future, the test case editing per site will change this logic,
-            // This is stop gap solution
-            if std::fs::metadata(file_name.clone()).is_err() {
-                let start_time = Utc::now();
-                let end_time = Utc::now();
-
-                return Some(rpc::forge::MachineValidationResult {
-                    name,
-                    description: cmd.description.clone(),
-                    command: cmd.command.clone(),
-                    args: cmd.args.clone(),
-                    std_out: format!("{} doesnt exist", file_name.clone()),
-                    std_err: format!("{} doesnt exist", file_name),
-                    context: in_context.clone(),
-                    exit_code: 0,
-                    start_time: Some(start_time.into()),
-                    end_time: Some(end_time.into()),
-                    validation_id: Some(uuid),
-                });
+        let mut mc_result = rpc::forge::MachineValidationResult {
+            name: test.name.clone(),
+            description: test.description.clone().unwrap_or_default(),
+            command: test.command.clone(),
+            args: test.args.clone(),
+            context: in_context.clone(),
+            validation_id: Some(uuid.clone()),
+            ..rpc::forge::MachineValidationResult::default()
+        };
+        if test.external_config_file.is_some() {
+            let file_name = test.external_config_file.clone().unwrap_or_default();
+            match self.get_external_config(file_name.clone()).await {
+                Ok(()) => trace!("Fetched {} config", file_name),
+                Err(e) => {
+                    mc_result.start_time = Some(Utc::now().into());
+                    mc_result.end_time = Some(Utc::now().into());
+                    mc_result.std_err = format!("Error {}", e);
+                    mc_result.std_out = format!("Skipped: Error {}", e);
+                    mc_result.exit_code = 0;
+                    return Some(mc_result);
+                }
             }
         }
 
         // Check pre_condition
-        if cmd.pre_condition.is_some() {
-            match TokioCmd::new(cmd.pre_condition.unwrap_or("/bin/true".to_owned()))
+        if test.pre_condition.is_some() {
+            match TokioCmd::new(test.pre_condition.clone().unwrap_or("/bin/true".to_owned()))
                 .timeout(DEFAULT_TIMEOUT)
                 .env("CONTEXT".to_owned(), in_context.clone())
                 .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
@@ -281,54 +256,40 @@ impl MachineValidation {
                 Ok(result) => {
                     let exit_code = result.exit_code;
                     if exit_code != 0 {
-                        return Some(rpc::forge::MachineValidationResult {
-                            name,
-                            description: cmd.description.clone(),
-                            command: cmd.command.clone(),
-                            args: cmd.args.clone(),
-                            std_out: "Skipped : Pre condition failed".to_owned(),
-                            std_err: result.stderr,
-                            context: in_context.clone(),
-                            exit_code: 0,
-                            start_time: Some(result.start_time.into()),
-                            end_time: Some(result.end_time.into()),
-                            validation_id: Some(uuid),
-                        });
+                        mc_result.start_time = Some(result.start_time.into());
+                        mc_result.end_time = Some(result.end_time.into());
+                        mc_result.std_err = result.stderr;
+                        mc_result.std_out = "Skipped : Pre condition failed".to_owned();
+                        mc_result.exit_code = 0;
+                        return Some(mc_result);
                     }
                 }
                 Err(e) => {
-                    return Some(rpc::forge::MachineValidationResult {
-                        name,
-                        description: cmd.description.clone(),
-                        command: cmd.command.clone(),
-                        args: cmd.args.clone(),
-                        std_out: "Skipped : Pre condition failed".to_owned(),
-                        std_err: e.to_string(),
-                        context: in_context.clone(),
-                        exit_code: 0,
-                        start_time: Some(Utc::now().into()),
-                        end_time: Some(Utc::now().into()),
-                        validation_id: Some(uuid),
-                    });
+                    mc_result.start_time = Some(Utc::now().into());
+                    mc_result.end_time = Some(Utc::now().into());
+                    mc_result.std_err = e.to_string();
+                    mc_result.std_out = "Skipped : Pre condition failed".to_owned();
+                    mc_result.exit_code = 0;
+                    return Some(mc_result);
                 }
             }
         }
         // Execute command
-        let mut command_string = format!("{} {}", cmd.command, cmd.args);
+        let mut command_string = format!("{} {}", test.command, test.args);
         // Check if container
-        if cmd.img_name.is_some() {
-            if cmd.execute_in_host.unwrap_or(false) {
+        if test.img_name.is_some() {
+            if test.execute_in_host.unwrap_or(false) {
                 // Execute command in host
                 command_string = format!("chroot /host /bin/bash -c \"{}\"", command_string);
             }
-            Self::pull_container(&cmd.img_name.clone().unwrap_or_default()).await;
-            let ctr_arg = cmd.container_arg.unwrap_or("".to_string());
+            Self::pull_container(&test.img_name.clone().unwrap_or_default()).await;
+            let ctr_arg = test.container_arg.clone().unwrap_or("".to_string());
             command_string = format!(
                 "ctr run --rm --privileged --no-pivot \
                 --mount type=bind,src=/,dst=/host,options=rbind:rw {} \
                 {} runner {}",
                 ctr_arg,
-                cmd.img_name.unwrap_or_default(),
+                test.img_name.clone().unwrap_or_default(),
                 command_string
             );
         };
@@ -353,7 +314,7 @@ impl MachineValidation {
 
         match TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
-            .timeout(cmd.timeout.unwrap_or_default())
+            .timeout(test.timeout.unwrap_or(7200).try_into().unwrap())
             .env("CONTEXT".to_owned(), in_context.clone())
             .env("MACHINE_VALIDATION_RUN_ID".to_owned(), uuid.to_string())
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
@@ -363,68 +324,59 @@ impl MachineValidation {
             Ok(result) => {
                 let mut stdout_str = result.stdout;
                 let mut stderr_str = result.stderr;
-                if cmd.extra_output_file.is_some() {
-                    let message: String =
-                        match tokio::fs::read_to_string(cmd.extra_output_file.unwrap_or_default())
-                            .await
-                        {
-                            Ok(data) => data,
-                            Err(_) => "".to_owned(),
-                        };
+                if test.extra_output_file.is_some() {
+                    let message: String = match tokio::fs::read_to_string(
+                        test.extra_output_file.clone().unwrap_or_default(),
+                    )
+                    .await
+                    {
+                        Ok(data) => data,
+                        Err(_) => "".to_owned(),
+                    };
                     stdout_str = stdout_str + &message;
                 }
-                if cmd.extra_err_file.is_some() {
-                    let message: String =
-                        match tokio::fs::read_to_string(cmd.extra_err_file.unwrap_or_default())
-                            .await
-                        {
-                            Ok(data) => data,
-                            Err(_) => "".to_owned(),
-                        };
+                if test.extra_err_file.is_some() {
+                    let message: String = match tokio::fs::read_to_string(
+                        test.extra_err_file.clone().unwrap_or_default(),
+                    )
+                    .await
+                    {
+                        Ok(data) => data,
+                        Err(_) => "".to_owned(),
+                    };
                     stderr_str = stderr_str + &message;
                 }
-                Some(rpc::forge::MachineValidationResult {
-                    name,
-                    description: cmd.description.clone(),
-                    command: cmd.command.clone(),
-                    args: cmd.args.clone(),
-                    std_out: if stdout_str.len() > MAX_STRING_STD_SIZE {
-                        stdout_str[..MAX_STRING_STD_SIZE].to_string()
-                    } else {
-                        stdout_str
-                    },
-                    std_err: if stderr_str.len() > MAX_STRING_STD_SIZE {
-                        stderr_str[..MAX_STRING_STD_SIZE].to_string()
-                    } else {
-                        stderr_str
-                    },
-                    context: in_context,
-                    exit_code: result.exit_code,
-                    start_time: Some(result.start_time.into()),
-                    end_time: Some(result.end_time.into()),
-                    validation_id: Some(uuid),
-                })
+
+                mc_result.start_time = Some(result.start_time.into());
+                mc_result.end_time = Some(result.end_time.into());
+                mc_result.std_err = if stderr_str.len() > MAX_STRING_STD_SIZE {
+                    stderr_str[..MAX_STRING_STD_SIZE].to_string()
+                } else {
+                    stderr_str
+                };
+                mc_result.std_out = if stdout_str.len() > MAX_STRING_STD_SIZE {
+                    stdout_str[..MAX_STRING_STD_SIZE].to_string()
+                } else {
+                    stdout_str
+                };
+                mc_result.exit_code = result.exit_code;
+                Some(mc_result)
             }
-            Err(e) => Some(rpc::forge::MachineValidationResult {
-                name,
-                description: cmd.description.clone(),
-                command: cmd.command.clone(),
-                args: cmd.args.clone(),
-                std_out: e.to_string(),
-                std_err: e.to_string(),
-                context: in_context,
-                exit_code: -1,
-                start_time: Some(Utc::now().into()),
-                end_time: Some(Utc::now().into()),
-                validation_id: Some(uuid),
-            }),
+            Err(e) => {
+                mc_result.start_time = Some(Utc::now().into());
+                mc_result.end_time = Some(Utc::now().into());
+                mc_result.std_err = e.to_string();
+                mc_result.std_out = e.to_string();
+                mc_result.exit_code = -1;
+                Some(mc_result)
+            }
         }
     }
 
     pub async fn run(
         self,
         machine_id: &str,
-        s: Suite,
+        tests: Vec<rpc::forge::MachineValidationTest>,
         context: String,
         uuid: String,
         execute_tests_sequentially: bool,
@@ -432,34 +384,28 @@ impl MachineValidation {
     ) -> Result<(), MachineValidationError> {
         Self::get_container_images().await?;
         if execute_tests_sequentially {
-            for (suite_name, components) in s.components {
-                info!("-Suite {}", suite_name);
-                for (category_name, category) in components.subcategories {
-                    info!("-- Category {}", category_name);
-                    for (test_name, command) in category {
-                        if !command.contexts.contains(&context) {
-                            continue;
-                        }
-                        if !machine_validation_filter.allowed_tests.is_empty()
-                            && !machine_validation_filter.allowed_tests.contains(&test_name)
-                        {
-                            continue;
-                        }
-                        let result = MachineValidation::execute_machinevalidation_command(
-                            machine_id,
-                            test_name.clone(),
-                            command,
-                            context.to_string(),
-                            rpc::common::Uuid {
-                                value: uuid.clone(),
-                            },
-                        )
-                        .await;
-                        match self.clone().persist(result).await {
-                            Ok(_) => info!("Successfully send to api server - {}", test_name),
-                            Err(e) => error!("{}", e.to_string()),
-                        }
-                    }
+            for test in tests {
+                if !machine_validation_filter.allowed_tests.is_empty()
+                    && !machine_validation_filter
+                        .allowed_tests
+                        .contains(&test.test_id)
+                {
+                    continue;
+                }
+                let result = self
+                    .clone()
+                    .execute_machinevalidation_command(
+                        machine_id,
+                        &test,
+                        context.to_string(),
+                        rpc::common::Uuid {
+                            value: uuid.clone(),
+                        },
+                    )
+                    .await;
+                match self.clone().persist(result).await {
+                    Ok(_) => info!("Successfully sent to api server - {}", test.name),
+                    Err(e) => error!("{}", e.to_string()),
                 }
             }
         } else {

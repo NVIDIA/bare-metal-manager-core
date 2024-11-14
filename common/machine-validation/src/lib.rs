@@ -11,14 +11,10 @@
  */
 
 use errors::MachineValidationError;
-use flate2::write::GzDecoder;
 use futures_util::StreamExt;
-use machine_validation::Suite;
 use serde::{Deserialize, Serialize};
-use tar::Archive;
 
 use std::cmp::min;
-use std::fs::File;
 use std::time::Duration;
 
 use std::io::Write;
@@ -28,24 +24,12 @@ mod machine_validation;
 
 pub const MACHINE_VALIDATION_SERVER: &str = "carbide-pxe.forge";
 pub const SCHME: &str = "http";
-pub const MACHINE_VALIDATION_CONFIG_PATH: &str =
-    "/public/blobs/internal/machine-validation/config/";
-pub const MACHINE_VALIDATION_CONFIG_TAR: &str = "config.tar";
 
 pub const MACHINE_VALIDATION_IMAGE_PATH: &str = "/public/blobs/internal/machine-validation/images/";
-pub const MACHINE_VALIDATION_CONFIG_FILE: &str = "/tmp/config.yaml";
 pub const MACHINE_VALIDATION_IMAGE_FILE: &str = "/tmp/machine_validation.tar";
 pub const MACHINE_VALIDATION_RUNNER_BASE_PATH: &str = "nvcr.io/nvidian/nvforge/";
 pub const MACHINE_VALIDATION_RUNNER_TAG: &str = "latest";
 pub const IMAGE_LIST_FILE: &str = "/tmp/list.json";
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct MachineValidationConfiguration {
-    #[serde(rename = "ExternalConfigs")]
-    pub external_configs: Option<Vec<String>>,
-    #[serde(rename = "Tests")]
-    pub suite: Suite,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineValidationOptions {
@@ -68,24 +52,6 @@ pub struct MachineValidationFilter {
 pub struct MachineValidationManager {}
 
 impl MachineValidationManager {
-    pub fn read_yaml_data(
-        file_name: &str,
-    ) -> Result<MachineValidationConfiguration, MachineValidationError> {
-        let yaml_content = match std::fs::read_to_string(file_name) {
-            Ok(content) => content,
-            Err(e) => {
-                return Err(MachineValidationError::ConfigFileRead(e.to_string()));
-            }
-        };
-        let parsed_data: Result<MachineValidationConfiguration, serde_yaml::Error> =
-            serde_yaml::from_str(&yaml_content);
-        let config = match parsed_data {
-            Ok(data) => data,
-            Err(e) => return Err(MachineValidationError::Parse(e.to_string())),
-        };
-        Ok(config)
-    }
-
     pub async fn download_file(url: &str, output_file: &str) -> Result<(), MachineValidationError> {
         let client = reqwest::ClientBuilder::new()
             .timeout(Duration::from_secs(30))
@@ -138,28 +104,6 @@ impl MachineValidationManager {
         Ok(path)
     }
 
-    pub async fn get_machine_validation_config_files() -> Result<(), MachineValidationError> {
-        let url: String = format!(
-            "{}://{}{}{}",
-            SCHME,
-            MACHINE_VALIDATION_SERVER,
-            MACHINE_VALIDATION_CONFIG_PATH,
-            MACHINE_VALIDATION_CONFIG_TAR
-        );
-        tracing::info!(url);
-        let output_file = format!("/tmp/{}", MACHINE_VALIDATION_CONFIG_TAR);
-        Self::download_file(&url, output_file.as_str()).await?;
-
-        let tar_gz = File::open(output_file)
-            .map_err(|e| MachineValidationError::Generic(format!("File: {e}")))?;
-        let tar = GzDecoder::new(tar_gz);
-        let mut archive = Archive::new(tar);
-        archive
-            .unpack("/tmp/config/")
-            .map_err(|e| MachineValidationError::Generic(format!("Archive: {e}")))?;
-
-        Ok(())
-    }
     pub async fn run(
         machine_id: &str,
         platform_name: String,
@@ -169,24 +113,19 @@ impl MachineValidationManager {
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         let mc = MachineValidation::new(options);
-        match Self::get_machine_validation_config_files().await {
-            Ok(_) => println!("fetch config files complete"),
-            Err(e) => {
-                println!("{}", e);
-                return Err(e);
-            }
-        }
-        let config_file = Self::get_config_file(platform_name).await?;
 
-        let mvc = Self::read_yaml_data(&config_file)
-            .map_err(|e| MachineValidationError::Generic(format!("Machine Validation: {e}")))?;
-
-        mc.clone()
-            .download_external_config(mvc.external_configs)
+        let tests = mc
+            .clone()
+            .get_machine_validation_tests(rpc::forge::MachineValidationTestsGetRequest {
+                supported_platforms: vec![platform_name],
+                contexts: vec![context.clone()],
+                is_enabled: Some(true),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            })
             .await?;
         mc.run(
             machine_id,
-            mvc.suite,
+            tests,
             context,
             uuid,
             true,
