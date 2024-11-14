@@ -1287,7 +1287,7 @@ scheduled-test:machine-lifecycle-test:
 #
 # TODO: Expand test to cover connecting to an Acorn managed-host
 #
-dev-env-test-e2e:
+dev-env-test-with-carbide:
   stage: test
   tags:
     - dev-env-carbide
@@ -1337,7 +1337,7 @@ dev-env-test-e2e:
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
-    - .gitlab/dev-env-test-e2e.sh
+    - .gitlab/dev-env-test-with-carbide.sh
   after_script:
     - set -euo pipefail
     - cp /tmp/argo_watch.log .
