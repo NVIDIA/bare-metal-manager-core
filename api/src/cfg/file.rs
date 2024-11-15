@@ -555,6 +555,11 @@ pub struct SiteExplorerConfig {
     /// Whether SiteExplorer should create Managed Host state machine
     pub create_machines: Arc<ArcSwap<bool>>,
 
+    #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
+    /// How many ManagedHosts should be created in a single run.
+    /// Default is 1.
+    pub machines_created_per_run: u64,
+
     /// DEPRECATED: Use `bmc_proxy` instead.
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
@@ -594,6 +599,16 @@ pub struct SiteExplorerConfig {
     /// - If the value is set to true or false, it will be respected through the lifetime of the
     ///   process.
     pub allow_changing_bmc_proxy: Option<bool>,
+
+    #[serde(
+        default = "SiteExplorerConfig::default_reset_rate_limit",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    /// Represents the minimum amount of time in between consecutive force-restarts or bmc-resets
+    /// initiated by SiteExplorer.
+    /// Default is 1 hour.
+    pub reset_rate_limit: Duration,
 }
 
 impl Default for SiteExplorerConfig {
@@ -604,11 +619,13 @@ impl Default for SiteExplorerConfig {
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),
             create_machines: crate::dynamic_settings::create_machines(false),
+            machines_created_per_run: Self::default_machines_created_per_run(),
             override_target_ip: None,
             override_target_port: None,
             allow_zero_dpu_hosts: false,
             bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
             allow_changing_bmc_proxy: None,
+            reset_rate_limit: Self::default_reset_rate_limit(),
         }
     }
 }
@@ -636,6 +653,14 @@ impl SiteExplorerConfig {
 
     pub const fn default_explorations_per_run() -> u64 {
         90
+    }
+
+    pub const fn default_machines_created_per_run() -> u64 {
+        1
+    }
+
+    pub const fn default_reset_rate_limit() -> Duration {
+        Duration::hours(1)
     }
 }
 
@@ -1556,11 +1581,13 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: crate::dynamic_settings::create_machines(true),
+                machines_created_per_run: 1,
                 override_target_ip: None,
                 override_target_port: None,
                 allow_zero_dpu_hosts: false,
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
+                reset_rate_limit: Duration::hours(1),
             }
         );
         assert_eq!(
@@ -1681,11 +1708,13 @@ mod tests {
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
                 create_machines: crate::dynamic_settings::create_machines(true),
+                machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
+                reset_rate_limit: Duration::hours(2),
             }
         );
 
@@ -1822,11 +1851,13 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: crate::dynamic_settings::create_machines(true),
+                machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
                 allow_zero_dpu_hosts: false,
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
+                reset_rate_limit: Duration::hours(2),
             }
         );
 

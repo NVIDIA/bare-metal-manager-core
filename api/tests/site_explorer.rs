@@ -684,11 +684,13 @@ async fn test_site_explorer_audit_exploration_results(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: carbide::dynamic_settings::create_machines(true),
+        machines_created_per_run: 1,
         override_target_ip: None,
         override_target_port: None,
         allow_zero_dpu_hosts: false,
         allow_changing_bmc_proxy: None,
         bmc_proxy: Arc::default(),
+        reset_rate_limit: chrono::Duration::hours(1),
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
