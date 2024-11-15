@@ -432,7 +432,9 @@ impl SiteExplorer {
             {
                 Ok(true) => {
                     metrics.created_machines += 1;
-                    break;
+                    if metrics.created_machines as u64 == self.config.machines_created_per_run {
+                        break;
+                    }
                 }
                 Ok(false) => {}
                 Err(error) => tracing::error!(%error, "Failed to create managed host {:#?}", host),
@@ -1575,8 +1577,8 @@ impl SiteExplorer {
             return;
         }
 
-        // Dont let site explorer issue either a force-restart or bmc-reset more than once an hour.
-        let rate_limit_hours = 1;
+        // Dont let site explorer issue either a force-restart or bmc-reset more than the rate limit.
+        let reset_rate_limit = self.config.reset_rate_limit;
         let min_time_since_last_action_mins = 20;
         let start = Utc::now();
         let time_since_redfish_reboot =
@@ -1616,7 +1618,7 @@ impl SiteExplorer {
         // for the DPU to come back up after the reboot, lets try resetting the BMC to see if it helps.
 
         if error.is_dpu_redfish_bios_response_invalid()
-            && time_since_redfish_reboot.num_hours() > rate_limit_hours
+            && time_since_redfish_reboot > reset_rate_limit
             && !is_managed_host_created_for_endpoint
             && self
                 .force_restart(&endpoint)
@@ -1633,7 +1635,7 @@ impl SiteExplorer {
             return;
         }
 
-        if time_since_redfish_bmc_reset.num_hours() > rate_limit_hours
+        if time_since_redfish_bmc_reset > reset_rate_limit
             && self
                 .redfish_reset_bmc(&endpoint)
                 .await
@@ -1649,7 +1651,7 @@ impl SiteExplorer {
             return;
         }
 
-        if time_since_ipmitool_bmc_reset.num_hours() > rate_limit_hours {
+        if time_since_ipmitool_bmc_reset > reset_rate_limit {
             let _ = self.ipmitool_reset_bmc(&endpoint).await.map_err(|err| {
                 tracing::error!(
                     "Site Explorer failed to reset BMC {} through ipmitool: {}",
