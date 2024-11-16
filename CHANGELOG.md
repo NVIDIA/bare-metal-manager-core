@@ -3,6 +3,9 @@
 
 ### Added
 ### Changed
+
+- When connections from carbide to Host BMCs are established, a timeout of 10s is now utilized for TCP connection establishment and the TLS handshake, and a timeout of 2min is utilized for performing the full request. Previous versions did only use the 2min timeout, which lead to often waiting for 2min for unresponsive BMCs.
+
 ### Fixed
 
 - fixed an issue where a host would end up in a reboot loop when it entered the NVMECleanFailed state. The reboot retries are now limited to 15.
