@@ -480,7 +480,7 @@ pub(crate) async fn on_demand_machine_validation(
                             tags: req.tags,
                             allowed_tests: req.allowed_tests,
                             run_unverfied_tests: Some(req.run_unverfied_tests),
-                            contexts: req.contexts,
+                            contexts: Some(req.contexts),
                         },
                     )
                     .await

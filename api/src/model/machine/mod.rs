@@ -1971,7 +1971,7 @@ pub struct MachineValidationFilter {
     pub tags: Vec<String>,
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
-    pub contexts: Vec<String>,
+    pub contexts: Option<Vec<String>>,
 }
 
 impl Display for MachineValidationFilter {
