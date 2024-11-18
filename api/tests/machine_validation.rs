@@ -1358,7 +1358,7 @@ async fn test_on_demant_machine_validation_all_contexts(
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
                 serde_json::from_str(&item.value)?;
-            for c in machine_validation_filter.contexts {
+            for c in machine_validation_filter.contexts.unwrap_or_default() {
                 assert!(contexts.contains(&c));
             }
         }
