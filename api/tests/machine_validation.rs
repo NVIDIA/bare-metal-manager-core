@@ -1059,7 +1059,7 @@ async fn test_machine_validation_test_disabled(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(existing_test_list.len(), 11);
+    assert_eq!(existing_test_list.len(), 12);
 
     let _ = env
         .api
@@ -1099,7 +1099,7 @@ async fn test_machine_validation_test_disabled(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(updated_tests.len(), 9);
+    assert_eq!(updated_tests.len(), 10);
 
     Ok(())
 }
@@ -1194,7 +1194,9 @@ async fn test_on_demant_un_verified_machine_validation(
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
                 serde_json::from_str(&item.value)?;
-            assert!(machine_validation_filter.run_unverfied_tests);
+            assert!(machine_validation_filter
+                .run_unverfied_tests
+                .unwrap_or_default());
         }
     }
 
@@ -1252,7 +1254,7 @@ async fn test_machine_validation_get_unverified_tests(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(test_list.len(), 3);
+    assert_eq!(test_list.len(), 4);
     assert_eq!(add_update_response.clone().test_id, test_list[0].test_id);
     assert!(!test_list[0].verified);
     assert!(!test_list[1].verified);
