@@ -479,6 +479,8 @@ pub(crate) async fn on_demand_machine_validation(
                         MachineValidationFilter {
                             tags: req.tags,
                             allowed_tests: req.allowed_tests,
+                            run_unverfied_tests: req.run_unverfied_tests,
+                            contexts: req.contexts,
                         },
                     )
                     .await

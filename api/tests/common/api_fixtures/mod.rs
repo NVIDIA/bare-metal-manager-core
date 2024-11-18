@@ -1358,6 +1358,8 @@ pub async fn on_demand_machine_validation(
     machine_id: rpc::common::MachineId,
     tags: Vec<String>,
     allowed_tests: Vec<String>,
+    run_unverfied_tests: bool,
+    contexts: Vec<String>,
 ) -> rpc::forge::MachineValidationOnDemandResponse {
     env.api
         .on_demand_machine_validation(Request::new(rpc::forge::MachineValidationOnDemandRequest {
@@ -1365,6 +1367,8 @@ pub async fn on_demand_machine_validation(
             action: rpc::forge::machine_validation_on_demand_request::Action::Start.into(),
             tags,
             allowed_tests,
+            run_unverfied_tests,
+            contexts,
         }))
         .await
         .unwrap()

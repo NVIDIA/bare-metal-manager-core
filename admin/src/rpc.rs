@@ -2404,6 +2404,8 @@ pub async fn on_demand_machine_validation(
     machine_id: String,
     tags: Option<Vec<String>>,
     allowed_tests: Option<Vec<String>>,
+    run_unverfied_tests: bool,
+    contexts: Option<Vec<String>>,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
     with_forge_client(api_config, |mut client| async move {
@@ -2412,6 +2414,8 @@ pub async fn on_demand_machine_validation(
             tags: tags.unwrap_or_default(),
             allowed_tests: allowed_tests.unwrap_or_default(),
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
+            run_unverfied_tests,
+            contexts: contexts.unwrap_or_default(),
         });
         let ret = client
             .on_demand_machine_validation(request)

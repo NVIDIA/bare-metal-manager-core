@@ -370,8 +370,15 @@ pub async fn on_demand_machine_validation(
     api_config: &ApiConfig<'_>,
     args: MachineValidationOnDemandOptions,
 ) -> CarbideCliResult<()> {
-    rpc::on_demand_machine_validation(args.machine, args.tags, args.allowed_tests, api_config)
-        .await?;
+    rpc::on_demand_machine_validation(
+        args.machine,
+        args.tags,
+        args.allowed_tests,
+        args.run_unverfied_tests,
+        args.contexts,
+        api_config,
+    )
+    .await?;
     Ok(())
 }
 pub async fn remove_external_config(

@@ -1895,6 +1895,12 @@ pub struct MachineValidationOnDemandOptions {
 
     #[clap(long, help = "Allowed tests")]
     pub allowed_tests: Option<Vec<String>>,
+
+    #[clap(long, default_value = "false", help = "Run not verfified tests")]
+    pub run_unverfied_tests: bool,
+
+    #[clap(long, help = "Contexts")]
+    pub contexts: Option<Vec<String>>,
 }
 
 #[derive(Parser, Debug)]
