@@ -206,9 +206,15 @@ async fn test_machine_validation_with_error(
         .into()
     );
 
-    let _ =
-        on_demand_machine_validation(&env, machine.id.unwrap_or_default(), Vec::new(), Vec::new())
-            .await;
+    let _ = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        Vec::new(),
+        false,
+        Vec::new(),
+    )
+    .await;
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
@@ -303,9 +309,15 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .remove(0);
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
-    let _ =
-        on_demand_machine_validation(&env, machine.id.unwrap_or_default(), Vec::new(), Vec::new())
-            .await;
+    let _ = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        Vec::new(),
+        false,
+        Vec::new(),
+    )
+    .await;
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
@@ -589,6 +601,8 @@ async fn test_machine_validation_test_on_demand_filter(
         machine.id.unwrap_or_default(),
         Vec::new(),
         allowed_tests.clone(),
+        false,
+        Vec::new(),
     )
     .await;
 
@@ -677,9 +691,15 @@ async fn test_machine_validation_disabled(
         .remove(0);
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
-    let on_demand_response =
-        on_demand_machine_validation(&env, machine.id.unwrap_or_default(), Vec::new(), Vec::new())
-            .await;
+    let on_demand_response = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        Vec::new(),
+        false,
+        Vec::new(),
+    )
+    .await;
     let mut txn = env.pool.begin().await?;
 
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -947,13 +967,8 @@ async fn test_machine_validation_mark_test_as_verfied(
         .api
         .get_machine_validation_tests(tonic::Request::new(
             rpc::forge::MachineValidationTestsGetRequest {
-                supported_platforms: Vec::new(),
-                contexts: Vec::new(),
                 test_id: Some(existing_test_list[0].test_id.clone()),
-                read_only: None,
-                custom_tags: Vec::new(),
-                version: None,
-                is_enabled: None,
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -1085,6 +1100,267 @@ async fn test_machine_validation_test_disabled(
         .into_inner()
         .tests;
     assert_eq!(updated_tests.len(), 9);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_on_demant_un_verified_machine_validation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+    let machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "test1".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Discovery".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+    };
+
+    let host_machine_id = create_host_with_machine_validation(
+        &env,
+        &host_sim.config,
+        &dpu_machine_id,
+        Some(machine_validation_result.clone()),
+        None,
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    match machine.current_state() {
+        ManagedHostState::Ready => {}
+        s => {
+            panic!("Incorrect state: {}", s);
+        }
+    }
+
+    let machine = env
+        .find_machines(Some(host_machine_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
+    let on_demand_response = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        allowed_tests.clone(),
+        true,
+        Vec::new(),
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        1,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default())
+                    .unwrap(),
+                completed: 1,
+                total: 1,
+                is_enabled: env.config.machine_validation_config.enabled,
+            },
+        },
+    )
+    .await;
+    let response = forge_agent_control(&env, host_machine_id.clone()).await;
+
+    for item in response.data.unwrap().pair {
+        if item.key == "MachineValidationFilter" {
+            let machine_validation_filter: MachineValidationFilter =
+                serde_json::from_str(&item.value)?;
+            assert!(machine_validation_filter.run_unverfied_tests);
+        }
+    }
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_get_unverified_tests(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let request = rpc::forge::MachineValidationTestAddRequest {
+        name: "dcgm_short_test".to_string(),
+        description: Some("Run run level 3 test cases".to_string()),
+        contexts: vec![
+            "Discovery".to_string(),
+            "CleanUp".to_string(),
+            "OnDemand".to_string(),
+        ],
+        img_name: Some("".to_string()),
+        execute_in_host: Some(false),
+        container_arg: Some("".to_string()),
+        command: "dcgmi".to_string(),
+        args: "diag -r 2".to_string(),
+        extra_output_file: Some("/tmp/output".to_string()),
+        extra_err_file: Some("/tmp/error".to_string()),
+        external_config_file: Some("".to_string()),
+        pre_condition: Some("nvdia-smi".to_string()),
+        timeout: Some(10),
+        supported_platforms: vec![
+            "sku_090e_modelname_poweredge_r750".to_string(),
+            "7z73cto1ww".to_string(),
+        ],
+        read_only: None,
+        custom_tags: vec!["dgxcloud".to_string()],
+        components: vec!["GPU".to_string()],
+        is_enabled: Some(true),
+    };
+    let add_update_response = env
+        .api
+        .add_machine_validation_test(tonic::Request::new(request.clone()))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let test_list = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest {
+                verified: Some(false),
+                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .tests;
+    assert_eq!(test_list.len(), 3);
+    assert_eq!(add_update_response.clone().test_id, test_list[0].test_id);
+    assert!(!test_list[0].verified);
+    assert!(!test_list[1].verified);
+    assert!(!test_list[2].verified);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_on_demant_machine_validation_all_contexts(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+    let machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "test1".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Discovery".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+    };
+
+    let host_machine_id = create_host_with_machine_validation(
+        &env,
+        &host_sim.config,
+        &dpu_machine_id,
+        Some(machine_validation_result.clone()),
+        None,
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    match machine.current_state() {
+        ManagedHostState::Ready => {}
+        s => {
+            panic!("Incorrect state: {}", s);
+        }
+    }
+
+    let machine = env
+        .find_machines(Some(host_machine_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
+    let contexts = vec![
+        "Discovery".to_string(),
+        "Cleanup".to_string(),
+        "OnDemand".to_string(),
+    ];
+    let on_demand_response = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        allowed_tests.clone(),
+        false,
+        contexts.clone(),
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        1,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "OnDemand".to_string(),
+                id: uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default())
+                    .unwrap(),
+                completed: 1,
+                total: 1,
+                is_enabled: env.config.machine_validation_config.enabled,
+            },
+        },
+    )
+    .await;
+    let response = forge_agent_control(&env, host_machine_id.clone()).await;
+
+    for item in response.data.unwrap().pair {
+        if item.key == "MachineValidationFilter" {
+            let machine_validation_filter: MachineValidationFilter =
+                serde_json::from_str(&item.value)?;
+            for c in machine_validation_filter.contexts {
+                assert!(contexts.contains(&c));
+            }
+        }
+    }
 
     Ok(())
 }

@@ -47,6 +47,8 @@ pub struct MachineValidation {
 pub struct MachineValidationFilter {
     pub tags: Vec<String>,
     pub allowed_tests: Vec<String>,
+    pub run_unverfied_tests: bool,
+    pub contexts: Vec<String>,
 }
 
 pub struct MachineValidationManager {}
@@ -118,8 +120,18 @@ impl MachineValidationManager {
             .clone()
             .get_machine_validation_tests(rpc::forge::MachineValidationTestsGetRequest {
                 supported_platforms: vec![platform_name],
-                contexts: vec![context.clone()],
+                contexts: if machine_validation_filter.clone().contexts.is_empty() {
+                    vec![context.clone()]
+                } else {
+                    machine_validation_filter.clone().contexts
+                },
                 is_enabled: Some(true),
+                verified: if machine_validation_filter.run_unverfied_tests {
+                    Some(true)
+                } else {
+                    None
+                },
+                custom_tags: machine_validation_filter.clone().tags,
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
             })
             .await?;

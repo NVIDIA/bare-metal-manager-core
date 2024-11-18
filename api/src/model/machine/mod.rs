@@ -1970,6 +1970,8 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
 pub struct MachineValidationFilter {
     pub tags: Vec<String>,
     pub allowed_tests: Vec<String>,
+    pub run_unverfied_tests: bool,
+    pub contexts: Vec<String>,
 }
 
 impl Display for MachineValidationFilter {

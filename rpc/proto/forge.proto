@@ -3396,6 +3396,8 @@ message MachineValidationOnDemandRequest {
   }
   Action action = 3;
   repeated string allowed_tests = 4;
+  bool run_unverfied_tests = 5;
+  repeated string contexts = 6;
 }
 
 message MachineValidationOnDemandResponse {
@@ -3462,6 +3464,7 @@ message MachineValidationTestsGetRequest {
   repeated string custom_tags = 5;
   optional string version = 6;
   optional bool is_enabled = 7;
+  optional bool verified = 8;
 }
 message MachineValidationTestUpdateRequest {
   message Payload {
