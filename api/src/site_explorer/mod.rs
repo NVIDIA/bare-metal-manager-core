@@ -48,8 +48,8 @@ use crate::{
         },
         site_explorer::{
             EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-            ExploredEndpoint, ExploredManagedHost, MachineExpectation, NicMode, PreingestionState,
-            Service,
+            ExploredEndpoint, ExploredManagedHost, MachineExpectation, NicMode, PowerState,
+            PreingestionState, Service,
         },
     },
     resource_pool::common::CommonPools,
@@ -391,6 +391,16 @@ impl SiteExplorer {
         self.check_preconditions(metrics).await?;
 
         let matched_expected_machines = self.update_explored_endpoints(metrics).await?;
+
+        // Create a list of DPUs and hosts that site explorer should try to ingest. Site explorer uses the following criteria to determine whether
+        // to ingest a given endpoint (creating a managed host containing the endpoint and adding it to the state machine):
+        // 1) Pre-ingestion must have completed for a given endpoint
+        // 2a) If the endpoint is for a DPU: make sure that site explorer can retrieve the mac address of the pf0 interface that the DPU exposes to the host.
+        // If site explorer is unable to retrieve this mac address, there is no point in creating a managed host: we will not be able to configure the host appropriately.
+        // 2b) If the endpoint is for a host: make sure that the host is on and that infinite boot is enabled. Otherwise, we will not be able to provision the DPU appropriately
+        // once we create a managed host and add it to the state machine.
+        let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest().await?;
+
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
         // the generation of both reports is not necessarily atomic.
@@ -398,7 +408,12 @@ impl SiteExplorer {
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
         let identified_hosts = self
-            .identify_managed_hosts(metrics, &matched_expected_machines)
+            .identify_managed_hosts(
+                metrics,
+                &matched_expected_machines,
+                explored_dpus,
+                explored_hosts,
+            )
             .await?;
 
         if **self.config.create_machines.load() {
@@ -530,16 +545,21 @@ impl SiteExplorer {
         Ok(true)
     }
 
-    async fn identify_managed_hosts(
+    /// identify_machines_to_ingest returns two maps.
+    /// The first map returned identifies all of the DPUs that site explorer will try to ingest.
+    /// The latter identifies all of the hosts the the site explorer will try to ingest.
+    /// Both map from machine BMC IP address to the corresponding explored endpoint.
+    async fn identify_machines_to_ingest(
         &self,
-        metrics: &mut SiteExplorationMetrics,
-        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
-    ) -> CarbideResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
+    ) -> CarbideResult<(
+        HashMap<IpAddr, ExploredEndpoint>,
+        HashMap<IpAddr, ExploredEndpoint>,
+    )> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
                 file!(),
                 line!(),
-                "begin load update_explored_endpoints data",
+                "load find_all_preingestion_complete data",
                 e,
             )
         })?;
@@ -550,19 +570,41 @@ impl SiteExplorer {
         let explored_endpoints =
             DbExploredEndpoint::find_all_preingestion_complete(&mut txn).await?;
 
+        txn.commit().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "end find_all_preingestion_complete data",
+                e,
+            )
+        })?;
+
         let mut explored_dpus = HashMap::new();
         let mut explored_hosts = HashMap::new();
         for ep in explored_endpoints.into_iter() {
             if ep.report.endpoint_type != EndpointType::Bmc {
                 continue;
             }
+
             if ep.report.is_dpu() {
-                explored_dpus.insert(ep.address, ep);
-            } else {
+                if self.can_ingest_dpu_endpoint(&ep).await? {
+                    explored_dpus.insert(ep.address, ep);
+                }
+            } else if self.can_ingest_host_endpoint(&ep).await? {
                 explored_hosts.insert(ep.address, ep);
             }
         }
 
+        Ok((explored_dpus, explored_hosts))
+    }
+
+    async fn identify_managed_hosts(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
+        explored_dpus: HashMap<IpAddr, ExploredEndpoint>,
+        explored_hosts: HashMap<IpAddr, ExploredEndpoint>,
+    ) -> CarbideResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
         // Match HOST and DPU using SerialNumber.
         // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
         let mut dpu_sn_to_endpoint = HashMap::new();
@@ -732,6 +774,15 @@ impl SiteExplorer {
             ));
             metrics.exploration_identified_managed_hosts += 1;
         }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "begin load update_explored_endpoints data",
+                e,
+            )
+        })?;
 
         DbExploredManagedHost::update(
             &mut txn,
@@ -1599,7 +1650,7 @@ impl SiteExplorer {
         tracing::info!("Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
 
         let is_managed_host_created_for_endpoint = match self
-            .is_managed_host_created_for_endpoint(&endpoint)
+            .is_managed_host_created_for_endpoint(endpoint.address)
             .await
         {
             Ok(managed_host_exists) => managed_host_exists,
@@ -1765,7 +1816,7 @@ impl SiteExplorer {
 
     async fn is_managed_host_created_for_endpoint(
         &self,
-        endpoint: &Endpoint,
+        bmc_ip_address: IpAddr,
     ) -> CarbideResult<bool> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
@@ -1777,7 +1828,7 @@ impl SiteExplorer {
         })?;
 
         let is_endpoint_in_managed_host =
-            is_endpoint_in_managed_host(endpoint.address, &mut txn).await?;
+            is_endpoint_in_managed_host(bmc_ip_address, &mut txn).await?;
 
         txn.commit().await.map_err(|e| {
             DatabaseError::new(
@@ -1789,6 +1840,180 @@ impl SiteExplorer {
         })?;
 
         Ok(is_endpoint_in_managed_host)
+    }
+
+    /// can_ingest_dpu_endpoint returns a boolean indicating whether the site explorer should continue ingesting a DPU endpoint.
+    /// it will always return true for a DPU that has already been ingested.
+    async fn can_ingest_dpu_endpoint(
+        &self,
+        dpu_endpoint: &ExploredEndpoint,
+    ) -> CarbideResult<bool> {
+        let is_managed_host_created_for_endpoint = match self
+            .is_managed_host_created_for_endpoint(dpu_endpoint.address)
+            .await
+        {
+            Ok(managed_host_exists) => managed_host_exists,
+            Err(e) => {
+                tracing::error!(%e, "failed to retrieve whether managed host was created for DPU endpoint: {dpu_endpoint}");
+                // return true by default
+                true
+            }
+        };
+
+        if is_managed_host_created_for_endpoint {
+            // this dpu has already been ingested
+            return Ok(true);
+        }
+
+        match find_host_pf_mac_address(dpu_endpoint) {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+                Ok(false)
+            }
+        }
+    }
+
+    async fn find_machine_interface_for_ip(
+        &self,
+        ip_address: IpAddr,
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin find_machine_interface_for_ip", e)
+        })?;
+
+        let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
+
+        txn.commit().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "end find_machine_interface_for_ip", e)
+        })?;
+
+        match machine_interface {
+            Some(interface) => Ok(interface),
+            None => Err(CarbideError::NotFoundError {
+                kind: "machine_interface",
+                id: format!("remote_ip={ip_address:?}"),
+            }),
+        }
+    }
+
+    //// can_ingest_host_endpoint will return true if the site explorer should proceed with ingesting a given host endpoint.
+    /// It will always return true for a host that has already been ingested.
+    ///
+    /// If the host has not been ingested, and is not on, the function will try to turn the host on and return false.
+    /// If the host has not been ingested, is a Lenovo,  and infinite boot is disabled, the function will try to enable
+    /// infinite boot and return false.
+    /// Otherwise, the function will return true.
+    async fn can_ingest_host_endpoint(
+        &self,
+        host_endpoint: &ExploredEndpoint,
+    ) -> CarbideResult<bool> {
+        let is_managed_host_created_for_endpoint = match self
+            .is_managed_host_created_for_endpoint(host_endpoint.address)
+            .await
+        {
+            Ok(managed_host_exists) => managed_host_exists,
+            Err(e) => {
+                tracing::error!(%e, "failed to retrieve whether managed host was created for Host endpoint: {host_endpoint}");
+                // return true by default
+                true
+            }
+        };
+
+        if is_managed_host_created_for_endpoint {
+            // this host has already been ingested
+            return Ok(true);
+        }
+
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(host_endpoint.address, bmc_target_port);
+        let Some(system) = host_endpoint.report.systems.first() else {
+            tracing::warn!(
+                "Site Explorer could not find the system report for a host (bmc_ip_address: {})",
+                host_endpoint.address,
+            );
+
+            return Ok(false);
+        };
+
+        let mut ingest_host = true;
+
+        if !matches!(system.power_state, PowerState::On) {
+            tracing::warn!(
+                "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
+                host_endpoint.address,
+                system.power_state
+            );
+
+            let interface = self
+                .find_machine_interface_for_ip(host_endpoint.address)
+                .await?;
+
+            let _ = self.endpoint_explorer
+                .redfish_power_control(
+                    bmc_target_addr,
+                    &interface.clone(),
+                    libredfish::SystemPowerControl::On,
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
+                        host_endpoint.address,
+                        err
+                    )
+                });
+
+            ingest_host = false;
+        }
+
+        if host_endpoint.report.vendor.unwrap_or_default().is_lenovo()
+            && system
+                .attributes
+                .is_infinite_boot_enabled
+                .is_some_and(|status| !status)
+        {
+            tracing::warn!(
+                "Site Explorer found an uningested Lenovo (bmc_ip_address: {}) without infinite boot enabled; System Report: {:#?}",
+                host_endpoint.address,
+                system
+                .attributes
+            );
+
+            let interface = self
+                .find_machine_interface_for_ip(bmc_target_addr.ip())
+                .await?;
+
+            let _ = self.endpoint_explorer
+                .forge_setup(bmc_target_addr, &interface.clone(), None)
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Site Explorer failed to call forge_setup against Lenovo (bmc_ip_address: {}): {}",
+                        host_endpoint.address,
+                        err
+                    )
+                });
+
+            let _ = self.endpoint_explorer
+                .redfish_power_control(
+                    bmc_target_addr,
+                    &interface,
+                    libredfish::SystemPowerControl::ForceRestart,
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Site Explorer failed to restart Lenovo (bmc_ip_address: {}) after calling forge_setup: {}",
+                        host_endpoint.address,
+                        err
+                    )
+                });
+
+            ingest_host = false;
+        }
+
+        Ok(ingest_host)
     }
 }
 

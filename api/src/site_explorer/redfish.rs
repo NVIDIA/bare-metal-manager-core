@@ -18,7 +18,7 @@ use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{ForgeSetupStatus, Redfish, RedfishError, RoleId};
+use libredfish::{EnabledDisabled, ForgeSetupStatus, Redfish, RedfishError, RoleId};
 use regex::Regex;
 use serde_json::Value;
 
@@ -306,13 +306,17 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         username: String,
         password: String,
+        boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, username, password)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client.forge_setup(None).await.map_err(map_redfish_error)?;
+        client
+            .forge_setup(boot_interface_mac)
+            .await
+            .map_err(map_redfish_error)?;
 
         Ok(())
     }
@@ -443,7 +447,9 @@ async fn fetch_system(
         None
     };
 
-    let http_dev1_interface = if vendor.unwrap_or_default().is_dell() {
+    let vendor = vendor.unwrap_or_default();
+
+    let http_dev1_interface = if vendor.is_dell() {
         Some(
             bios_attributes
                 .get("HttpDev1Interface")
@@ -459,6 +465,32 @@ async fn fetch_system(
         None
     };
 
+    let is_infinite_boot_enabled = if vendor.is_dell() || vendor.is_lenovo() {
+        if vendor.is_dell() {
+            let infinite_boot_status = bios_attributes
+                .get("BootSeqRetry")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| RedfishError::MissingKey {
+                    key: "BootSeqRetry".to_string(),
+                    url: "Bios attributes".to_string(),
+                })
+                .map_err(map_redfish_error)?;
+            Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
+        } else {
+            let infinite_boot_status = bios_attributes
+                .get("BootModes_InfiniteBootRetry")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| RedfishError::MissingKey {
+                    key: "BootModes_InfiniteBootRetry".to_string(),
+                    url: "Bios attributes".to_string(),
+                })
+                .map_err(map_redfish_error)?;
+            Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
+        }
+    } else {
+        None
+    };
+
     Ok(ComputerSystem {
         ethernet_interfaces,
         id: system.id,
@@ -468,6 +500,7 @@ async fn fetch_system(
         attributes: ComputerSystemAttributes {
             nic_mode,
             http_dev1_interface,
+            is_infinite_boot_enabled,
         },
         pcie_devices,
         base_mac,

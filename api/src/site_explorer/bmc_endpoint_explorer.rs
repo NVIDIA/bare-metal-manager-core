@@ -270,13 +270,14 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
         self.redfish_client
-            .forge_setup(bmc_ip_address, username, password)
+            .forge_setup(bmc_ip_address, username, password, boot_interface_mac)
             .await
     }
 
@@ -450,11 +451,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.forge_setup(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.forge_setup(bmc_ip_address, credentials, boot_interface_mac)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,

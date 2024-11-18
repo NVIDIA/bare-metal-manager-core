@@ -110,6 +110,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
+        _boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

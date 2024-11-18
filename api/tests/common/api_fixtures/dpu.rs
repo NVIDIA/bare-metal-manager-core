@@ -161,6 +161,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                     http_dev1_interface: None,
+                    is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![PCIeDevice {
                     odata: OData {

@@ -70,6 +70,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn forge_setup_status(
