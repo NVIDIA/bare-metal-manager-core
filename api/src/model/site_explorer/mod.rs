@@ -872,6 +872,7 @@ impl FromStr for NicMode {
 pub struct ComputerSystemAttributes {
     pub nic_mode: Option<NicMode>,
     pub http_dev1_interface: Option<String>,
+    pub is_infinite_boot_enabled: Option<bool>,
 }
 
 impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
@@ -1353,6 +1354,7 @@ mod tests {
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                     http_dev1_interface: None,
+                    is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),
@@ -1407,6 +1409,7 @@ mod tests {
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                     http_dev1_interface: None,
+                    is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),

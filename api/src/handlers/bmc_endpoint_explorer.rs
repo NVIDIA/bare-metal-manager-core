@@ -117,7 +117,7 @@ pub(crate) async fn forge_setup(
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
-        .forge_setup(bmc_addr, &machine_interface)
+        .forge_setup(bmc_addr, &machine_interface, None)
         .await
         .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 

@@ -42,8 +42,8 @@ impl ManagedHost {
 }
 
 pub async fn is_endpoint_in_managed_host(
-    endpoint: IpAddr,
+    bmc_ip_address: IpAddr,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<bool, DatabaseError> {
-    DbExploredManagedHost::is_managed_host_created_for_endpoint(txn, endpoint).await
+    DbExploredManagedHost::is_managed_host_created_for_endpoint(txn, bmc_ip_address).await
 }

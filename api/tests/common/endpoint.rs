@@ -85,6 +85,7 @@ fn build_exploration_report(
             attributes: ComputerSystemAttributes {
                 nic_mode: None,
                 http_dev1_interface: Some("NIC.Slot.5-1".to_string()),
+                is_infinite_boot_enabled: Some(true),
             },
             pcie_devices: vec![],
             base_mac: None,
