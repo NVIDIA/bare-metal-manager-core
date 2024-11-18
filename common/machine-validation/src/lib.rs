@@ -47,7 +47,7 @@ pub struct MachineValidation {
 pub struct MachineValidationFilter {
     pub tags: Vec<String>,
     pub allowed_tests: Vec<String>,
-    pub run_unverfied_tests: bool,
+    pub run_unverfied_tests: Option<bool>,
     pub contexts: Vec<String>,
 }
 
@@ -126,10 +126,13 @@ impl MachineValidationManager {
                     machine_validation_filter.clone().contexts
                 },
                 is_enabled: Some(true),
-                verified: if machine_validation_filter.run_unverfied_tests {
-                    Some(true)
+                verified: if machine_validation_filter
+                    .run_unverfied_tests
+                    .unwrap_or(false)
+                {
+                    None // This indicates run all tests including un verified
                 } else {
-                    None
+                    Some(true)
                 },
                 custom_tags: machine_validation_filter.clone().tags,
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
