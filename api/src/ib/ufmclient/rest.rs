@@ -12,6 +12,7 @@
 
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::ib::ufmclient::UFMCert;
@@ -24,7 +25,7 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::{connect::HttpConnector, Client as HyperClient};
 use hyper_util::rt::TokioExecutor;
 use rpc::forge_tls_client::DummyTlsVerifier;
-use rustls::{ClientConfig, RootCertStore};
+use rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -216,13 +217,13 @@ impl RestClient {
             };
 
             let build_no_client_auth_config = || {
-                ClientConfig::builder()
+                rustls_client_builder()
                     .with_root_certificates(roots.clone())
                     .with_no_client_auth()
             };
 
             if !certs.is_empty() && key.is_some() {
-                if let Ok(config) = ClientConfig::builder()
+                if let Ok(config) = rustls_client_builder()
                     .with_root_certificates(roots.clone())
                     .with_client_auth_cert(certs, key.unwrap())
                 {
@@ -237,7 +238,7 @@ impl RestClient {
                 build_no_client_auth_config()
             }
         } else {
-            ClientConfig::builder()
+            rustls_client_builder()
                 .dangerous()
                 .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
                 .with_no_client_auth()
@@ -352,4 +353,13 @@ impl RestClient {
             _ => Err(RestError::Internal(body)),
         }
     }
+}
+
+// Wrap ClientConfig::builder_with_provider() with defaults
+fn rustls_client_builder() -> ConfigBuilder<ClientConfig, WantsVerifier> {
+    ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        // unwrap safety: the error only comes if the configured protocol versions are
+        // invalid, which should never happen with the safe defaults.
+        .unwrap()
 }
