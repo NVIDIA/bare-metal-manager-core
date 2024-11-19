@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -18,7 +17,10 @@ use crate::{
     saturating_add_duration_to_instant,
     tui::{HostDetails, UiEvent},
 };
-use bmc_mock::{BmcCommand, HostMachineInfo, MachineInfo};
+use bmc_mock::{
+    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
+    SystemPowerControl,
+};
 use rpc::MachineId;
 
 #[derive(Debug)]
@@ -181,8 +183,15 @@ impl HostMachine {
             }
             Some(cmd) = self.bmc_control_rx.recv() => {
                 match cmd {
-                    BmcCommand::Reboot(time) => {
-                        self.reboot(time);
+                    BmcCommand::SetSystemPower { request, reply } => {
+                        let response = self.set_system_power(request);
+                        if let Some(reply) = reply {
+                            _ = reply.send(response);
+                        }
+                    }
+                    BmcCommand::GetSystemPower(reply) => {
+                        _ = reply.send(self.state_machine.redfish_power_state());
+                        return true; // go back to sleeping
                     }
                 }
                 // continue to process_state
@@ -192,7 +201,7 @@ impl HostMachine {
         let sleep_duration = self.process_state().await;
 
         self.sleep_until = saturating_add_duration_to_instant(Instant::now(), sleep_duration);
-        return true;
+        true
     }
 
     async fn process_state(&mut self) -> Duration {
@@ -282,17 +291,34 @@ impl HostMachine {
         }
     }
 
-    fn reboot(&mut self, time: DateTime<Utc>) {
-        tracing::debug!("Host reboot requested at {time}");
-        for (dpu_index, dpu) in self.dpus.iter_mut().enumerate() {
-            _ = dpu.reboot(time).inspect_err(|e| {
-                tracing::error!(
-                    error = %e,
-                    "Could not reboot DPU {dpu_index}",
-                )
-            });
+    fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+        tracing::debug!("Host set_system_power request: {request:?}");
+
+        match request.reset_type {
+            // Force-restart does not restart DPUs
+            SystemPowerControl::ForceRestart => {}
+            // Other power actions happen on the DPUs too (power cycle, force-off, etc.)
+            _ => {
+                // Graceful restart might not restart DPUs if an OS is running (let's emulate that)
+                if matches!(request.reset_type, SystemPowerControl::GracefulRestart)
+                    && self.state_machine.booted_os().0.is_some()
+                {
+                    tracing::debug!(
+                        "Got graceful restart when host is booted to an OS, will not reboot DPUs"
+                    );
+                } else {
+                    for (dpu_index, dpu) in self.dpus.iter_mut().enumerate() {
+                        _ = dpu.set_system_power(request).inspect_err(|e| {
+                            tracing::error!(
+                                error = %e,
+                                "Could not send power request to DPU {dpu_index}",
+                            )
+                        });
+                    }
+                }
+            }
         }
-        self.state_machine.power_down()
+        self.state_machine.set_system_power(request)
     }
 
     async fn maybe_update_tui(&self) {
@@ -332,6 +358,7 @@ impl HostMachine {
                 .unwrap_or_default(),
             dpus: dpu_details,
             booted_os: self.state_machine.booted_os().to_string(),
+            power_state: self.state_machine.redfish_power_state(),
         }
     }
 

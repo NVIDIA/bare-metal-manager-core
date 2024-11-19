@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
@@ -15,7 +14,7 @@ use crate::{
     dhcp_relay::DhcpRelayClient,
     saturating_add_duration_to_instant,
 };
-use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo};
+use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -30,7 +29,6 @@ pub struct DpuMachine {
     app_context: MachineATronContext,
     api_state: String,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
-    reboot_requested: Option<DateTime<Utc>>,
     observed_machine_id: Option<rpc::MachineId>,
     paused: bool,
     sleep_until: Instant,
@@ -70,7 +68,6 @@ impl DpuMachine {
 
             api_state: "Unknown".to_string(),
             bmc_control_rx,
-            reboot_requested: None,
             observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
@@ -130,8 +127,15 @@ impl DpuMachine {
             }
             Some(cmd) = self.bmc_control_rx.recv() => {
                 match cmd {
-                    BmcCommand::Reboot(time) => {
-                        self.request_reboot(time);
+                    BmcCommand::SetSystemPower {request, reply} => {
+                        let response = self.state_machine.set_system_power(request);
+                        if let Some(reply) = reply {
+                            _ = reply.send(response)
+                        }
+                    }
+                    BmcCommand::GetSystemPower(reply) => {
+                        _ = reply.send(self.state_machine.redfish_power_state());
+                        return true; // go back to sleeping
                     }
                 }
             }
@@ -152,8 +156,11 @@ impl DpuMachine {
 
     async fn handle_actor_message(&mut self, message: DpuMachineMessage) -> HandleMessageResult {
         match message {
-            DpuMachineMessage::Reboot(time) => {
-                self.request_reboot(time);
+            DpuMachineMessage::SetSystemPower { request, reply } => {
+                let response = self.state_machine.set_system_power(request);
+                if let Some(reply) = reply {
+                    _ = reply.send(response);
+                }
                 HandleMessageResult::ProcessStateNow
             }
             DpuMachineMessage::IsUp(reply) => {
@@ -190,11 +197,6 @@ impl DpuMachine {
             return Duration::MAX;
         }
 
-        if let Some(time) = self.reboot_requested.take() {
-            tracing::info!("reboot requested at {time}",);
-            self.state_machine.power_down()
-        }
-
         tracing::trace!("state_machine.advance start");
         let result = self.state_machine.advance(true).await;
         tracing::trace!("state_machine.advance end");
@@ -213,11 +215,6 @@ impl DpuMachine {
         result
     }
 
-    fn request_reboot(&mut self, time: DateTime<Utc>) {
-        tracing::debug!("DPU reboot requested at {time}",);
-        self.reboot_requested = Some(time);
-    }
-
     fn is_up(&self) -> bool {
         self.state_machine.is_up()
     }
@@ -228,7 +225,10 @@ impl DpuMachine {
 }
 
 enum DpuMachineMessage {
-    Reboot(DateTime<Utc>),
+    SetSystemPower {
+        request: SetSystemPowerReq,
+        reply: Option<oneshot::Sender<SetSystemPowerResult>>,
+    },
     Stop(oneshot::Sender<()>),
     GetHostDetails(oneshot::Sender<HostDetails>),
     IsUp(oneshot::Sender<bool>),
@@ -250,8 +250,11 @@ pub struct DpuMachineActor {
 }
 
 impl DpuMachineActor {
-    pub fn reboot(&self, time: DateTime<Utc>) -> eyre::Result<()> {
-        Ok(self.message_tx.send(DpuMachineMessage::Reboot(time))?)
+    pub fn set_system_power(&self, request: SetSystemPowerReq) -> eyre::Result<()> {
+        Ok(self.message_tx.send(DpuMachineMessage::SetSystemPower {
+            request,
+            reply: None,
+        })?)
     }
 
     pub async fn is_up(&self) -> eyre::Result<bool> {
@@ -303,6 +306,7 @@ impl From<&DpuMachine> for HostDetails {
                 .unwrap_or_default(),
             dpus: Vec::default(),
             booted_os: val.state_machine.booted_os().to_string(),
+            power_state: val.state_machine.redfish_power_state(),
         }
     }
 }

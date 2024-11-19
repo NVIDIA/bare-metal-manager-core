@@ -8,7 +8,7 @@ use crossterm::{
 };
 
 use futures::StreamExt;
-
+use libredfish::PowerState;
 #[allow(unused_imports)]
 use ratatui::{prelude::*, symbols::DOT, widgets::*};
 use tokio::{
@@ -77,6 +77,7 @@ impl SubnetDetails {
 pub struct HostDetails {
     pub mat_id: Uuid,
     pub machine_id: Option<String>,
+    pub power_state: PowerState,
     pub mat_state: String,
     pub api_state: String,
     pub oob_ip: String,
@@ -109,6 +110,7 @@ impl HostDetails {
         ));
         result.push_str(&format!("Machine IP: {}\n", self.machine_ip));
         result.push_str(&format!("BMC IP: {}\n", self.oob_ip));
+        result.push_str(&format!("Power State: {}\n", self.power_state));
         result.push_str(&format!("Booted OS: {}\n", self.booted_os));
         result.push_str(&format!("MAT State: {}\n", self.mat_state));
         result.push_str(&format!("API State: {}\n", self.api_state));

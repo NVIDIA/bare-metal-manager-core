@@ -23,9 +23,11 @@ use axum::Router;
 use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
+use libredfish::PowerState;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::ServerConfig;
 use rustls_pemfile::Item;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
@@ -43,7 +45,9 @@ mod redfish_expander;
 mod tar_router;
 
 pub use machine_info::{DpuMachineInfo, HostMachineInfo, MachineInfo};
-pub use mock_machine_router::{wrap_router_with_mock_machine, BmcCommand};
+pub use mock_machine_router::{
+    wrap_router_with_mock_machine, BmcCommand, SetSystemPowerError, SetSystemPowerResult,
+};
 pub use redfish_expander::wrap_router_with_redfish_expander;
 pub use tar_router::{tar_router, EntryMap, TarGzOption};
 
@@ -100,6 +104,55 @@ impl BmcMockHandle {
             Ok(())
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetSystemPowerReq {
+    pub reset_type: SystemPowerControl,
+}
+
+// https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2023.3.html
+// 6.5.5.1 ResetType
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone, Copy)]
+pub enum SystemPowerControl {
+    /// Power on a machine
+    On,
+    /// Graceful host shutdown
+    GracefulShutdown,
+    /// Forcefully powers a machine off
+    ForceOff,
+    /// Graceful restart. Asks the OS to restart via ACPI
+    /// - Might restart DPUs if no OS is running
+    /// - Will not apply pending BIOS/UEFI setting changes
+    GracefulRestart,
+    /// Force restart. This is equivalent to pressing the reset button on the front panel.
+    /// - Will not restart DPUs
+    /// - Will apply pending BIOS/UEFI setting changes
+    ForceRestart,
+
+    //
+    // libredfish doesn't support these yet, and not all vendors provide them
+    //
+
+    // Cut then restore the power
+    PowerCycle,
+
+    // Forcefully power a machine on (?)
+    ForceOn,
+
+    // Like it says, pretend the button got pressed
+    PushPowerButton,
+
+    // Non-maskable interrupt then power off
+    Nmi,
+
+    // Write state to disk and power off
+    Suspend,
+
+    // VM / Hypervisor
+    Pause,
+    Resume,
 }
 
 /// Mock multiple BMCs while listening on a single IP/port.
@@ -284,14 +337,18 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
     let (command_tx, mut command_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
-            tokio::select! {
-                command = command_rx.recv() => {
-                    let Some(command) = command else {
-                        break;
-                    };
-                    if !matches!(command, BmcCommand::Reboot(_)) {
-                        continue;
-                    }
+            let Some(command) = command_rx.recv().await else {
+                break;
+            };
+            match command {
+                // Just return that it's on
+                BmcCommand::GetSystemPower(reply) => {
+                    _ = reply.send(PowerState::On);
+                    continue;
+                }
+                // Assume SetSystemPower is just a reboot
+                BmcCommand::SetSystemPower { .. } => {}
+            }
             let reboot_output = match Command::new("virsh")
                 .arg("reboot")
                 .arg("ManagedHost")
@@ -300,7 +357,7 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                 Ok(o) => o,
                 Err(err) if matches!(err.kind(), ErrorKind::NotFound) => {
                     info!("`virsh` not found. Cannot reboot QEMU host.");
-                continue;
+                    continue;
                 }
                 Err(err) => {
                     error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
@@ -319,8 +376,6 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                 }
                 None => {
                     error!("Reboot command killed by signal");
-                }
-            }
                 }
             }
         }

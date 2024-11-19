@@ -19,9 +19,15 @@ use crate::machine_utils::{
     forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PxeError,
     PxeResponse,
 };
-use bmc_mock::{BmcCommand, BmcMockError, BmcMockHandle, MachineInfo};
+use bmc_mock::{
+    BmcCommand, BmcMockError, BmcMockHandle, MachineInfo, SetSystemPowerError, SetSystemPowerReq,
+    SetSystemPowerResult, SystemPowerControl,
+};
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 use rpc::forge_agent_control_response::Action;
+
+// Simulate a 5-second power cycle
+const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///
@@ -30,6 +36,7 @@ use rpc::forge_agent_control_response::Action;
 #[derive(Debug)]
 pub struct MachineStateMachine {
     state: MachineState,
+    power_state: PowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
 
     machine_info: MachineInfo,
     machine_dhcp_id: Uuid,
@@ -70,6 +77,13 @@ enum MachineState {
     MachineUp(MachineUpState),
 }
 
+#[derive(Debug, Copy, Clone)]
+enum PowerState {
+    On,
+    Off,
+    PowerCycling { since: Instant },
+}
+
 enum NextState {
     Advance(MachineState),
     SleepFor(Duration),
@@ -85,8 +99,14 @@ impl MachineStateMachine {
         bmc_listen_mode: BmcRegistrationMode,
         tpm_ek_certificate: Option<Vec<u8>>,
     ) -> MachineStateMachine {
+        // TODO: we want to support cases where machines are racked and plugged in but powered off,
+        // but currently the machine state controller doesn't appear to turn machines on, and they
+        // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
+        let initial_power_state = PowerState::On;
+
         MachineStateMachine {
             state: MachineState::BmcInit,
+            power_state: initial_power_state,
             machine_info,
             bmc_command_channel,
             machine_dhcp_id: Uuid::new_v4(),
@@ -100,6 +120,16 @@ impl MachineStateMachine {
     }
 
     pub async fn advance(&mut self, nic_available: bool) -> Duration {
+        if let PowerState::PowerCycling { since } = self.power_state {
+            let elapsed = since.elapsed();
+            if elapsed > POWER_CYCLE_DELAY {
+                self.power_state = PowerState::On;
+            } else {
+                tracing::info!("Simulating 5-second power cycle");
+                return POWER_CYCLE_DELAY - elapsed;
+            }
+        }
+
         let next_state = self.next_state(nic_available).await;
         match next_state {
             Ok(NextState::Advance(next_state)) => {
@@ -168,17 +198,41 @@ impl MachineStateMachine {
                         },
                     )))
                 } else {
-                    Ok(NextState::Advance(MachineState::Init(InitState {
-                        bmc_state: BmcInitializedState {
-                            _bmc_mock_handle: maybe_bmc_mock_handle,
-                            bmc_dhcp_info: dhcp_info,
-                        },
-                        installed_os: OsImage::NoOs,
-                    })))
+                    let bmc_state = BmcInitializedState {
+                        _bmc_mock_handle: maybe_bmc_mock_handle,
+                        bmc_dhcp_info: dhcp_info,
+                    };
+                    Ok(NextState::Advance(match self.power_state {
+                        PowerState::On => MachineState::Init(InitState {
+                            bmc_state,
+                            installed_os: OsImage::default(),
+                        }),
+                        PowerState::Off | PowerState::PowerCycling { .. } => {
+                            MachineState::MachineDown(MachineDownState {
+                                since: start,
+                                bmc_state,
+                                installed_os: OsImage::default(),
+                                bmc_only: false,
+                            })
+                        }
+                    }))
                 }
             }
             MachineState::BmcOnly(_) => Ok(NextState::SleepFor(Duration::MAX)),
             MachineState::MachineDown(inner_state) => {
+                match self.power_state {
+                    PowerState::Off => {
+                        tracing::info!("Power is off, will wait for power signal");
+                        return Ok(NextState::SleepFor(Duration::MAX));
+                    }
+                    PowerState::PowerCycling { since } => {
+                        // Technically this should never be hit, since `advance()` will never call
+                        // next_state until the delay is over and the power is back on.
+                        tracing::info!("Power is cycling, will wait for a delay");
+                        return Ok(NextState::SleepFor(POWER_CYCLE_DELAY - since.elapsed()));
+                    }
+                    _ => {}
+                }
                 let reboot_delay_secs = match self.machine_info {
                     MachineInfo::Dpu(_) => self.config.dpu_reboot_delay,
                     MachineInfo::Host(_) => self.config.host_reboot_delay,
@@ -507,16 +561,96 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn power_down(&mut self) {
-        let Some(bmc_state) = self.bmc_state() else {
-            return;
+    pub fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+        let bmc_only = self.is_nic_mode_dpu();
+        use SystemPowerControl::*;
+        let (new_machine_state, new_power_state) = match (request.reset_type, self.power_state) {
+            // If we're off and we get an on or power-cycle signal, turn on.
+            // Ditto if we're on and get a power-cycle or restart signal.
+            (On | ForceOn | PushPowerButton | PowerCycle, PowerState::Off)
+            | (PowerCycle | GracefulRestart | ForceRestart, PowerState::On) => {
+                if matches!(self.power_state, PowerState::Off) {
+                    tracing::debug!("Powering on machine");
+                } else {
+                    tracing::debug!("Power cycling machine");
+                }
+
+                let new_power_state = match request.reset_type {
+                    PowerCycle => PowerState::PowerCycling {
+                        since: Instant::now(),
+                    },
+                    _ => PowerState::On,
+                };
+
+                // If we haven't initialized the BMC yet, no-op, as we haven't booted yet either.
+                let maybe_machine_state = self.bmc_state().map(|bmc_state| {
+                    // Set the time the machine has been down since to now, so that reboot_delay is respected.
+                    MachineState::MachineDown(MachineDownState {
+                        since: Instant::now(),
+                        bmc_state: bmc_state.clone(),
+                        installed_os: self.installed_os(),
+                        bmc_only,
+                    })
+                });
+
+                (maybe_machine_state, new_power_state)
+            }
+            (GracefulShutdown | ForceOff | PushPowerButton, PowerState::On) => {
+                tracing::debug!("Powering off machine");
+                let maybe_machine_state = self.bmc_state().map(|bmc_state| {
+                    MachineState::MachineDown(MachineDownState {
+                        since: Instant::now(),
+                        bmc_state: bmc_state.clone(),
+                        installed_os: self.installed_os(),
+                        bmc_only,
+                    })
+                });
+                (maybe_machine_state, PowerState::Off)
+            }
+            (GracefulShutdown | ForceOff | GracefulRestart | ForceRestart, PowerState::Off) => {
+                let msg =
+                    "Machine-a-tron mock: cannot power off machine, it is already off".to_string();
+                tracing::warn!("{msg}");
+                return Err(SetSystemPowerError::BadRequest(msg));
+            }
+            (On | ForceOn, PowerState::On) => {
+                let msg =
+                    "Machine-a-tron mock: cannot power on machine, it is already on".to_string();
+                tracing::warn!("{msg}");
+                return Err(SetSystemPowerError::BadRequest(msg));
+            }
+            (Nmi | Suspend | Pause | Resume, _) => {
+                let msg = format!("Machine-a-tron mock: unsupported power request {request:?}",);
+                tracing::warn!("{msg}");
+                return Err(SetSystemPowerError::BadRequest(msg));
+            }
+            (request, PowerState::PowerCycling { .. }) => {
+                let msg = format!("Machine-a-tron mock: Got power request while in the middle of power cycling {request:?}");
+                tracing::warn!("{msg}");
+                return Err(SetSystemPowerError::BadRequest(msg));
+            }
         };
-        self.state = MachineState::MachineDown(MachineDownState {
-            since: Instant::now(),
-            bmc_state: bmc_state.clone(),
-            installed_os: self.installed_os(),
-            bmc_only: self.is_nic_mode_dpu(),
-        })
+
+        self.power_state = new_power_state;
+        if let Some(new_machine_state) = new_machine_state {
+            self.state = new_machine_state;
+        }
+
+        Ok(())
+    }
+
+    pub fn redfish_power_state(&self) -> libredfish::PowerState {
+        match self.power_state {
+            PowerState::On => libredfish::PowerState::On,
+            PowerState::Off => libredfish::PowerState::Off,
+            PowerState::PowerCycling { since } => {
+                if since.elapsed() < POWER_CYCLE_DELAY {
+                    libredfish::PowerState::Off
+                } else {
+                    libredfish::PowerState::On
+                }
+            }
+        }
     }
 
     pub fn machine_id(&self) -> Option<&rpc::MachineId> {
@@ -763,7 +897,7 @@ impl Display for OsImage {
     }
 }
 
-pub struct MaybeOsImage(Option<OsImage>);
+pub struct MaybeOsImage(pub Option<OsImage>);
 
 impl Display for MaybeOsImage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
