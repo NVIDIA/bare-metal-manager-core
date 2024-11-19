@@ -104,7 +104,7 @@ x509-parser = { version = "0.16.0", features = ["verify"] }
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version" }
-forge-network = { path = "../common/network" }
+forge-network = { path = "../common/network", features = ["sqlx"] }
 forge-tls = { path = "../common/tls" }
 forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
 forge_secrets = { path = "../common/secrets" }
@@ -112,7 +112,7 @@ forge-version = { path = "../common/version" }
 health-report = { path = "../common/health-report" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
-utils = { path = "../common/utils" }
+utils = { path = "../common/utils", features = ["sqlx"] }
 duration-str = "0.11.2"
 prost-types = "0.13"
 rcgen = "0.13.1"

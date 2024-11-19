@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{Database, Postgres, Row};
 use std::{
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -18,8 +17,13 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    encode::IsNull,
+    error::BoxDynError,
+    {Database, Postgres, Row},
+};
 
 /// A value that is accompanied by a version field
 ///
@@ -271,6 +275,7 @@ impl<'de> serde::Deserialize<'de> for ConfigVersion {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<DB> sqlx::Type<DB> for ConfigVersion
 where
     DB: sqlx::Database,
@@ -285,6 +290,7 @@ where
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl sqlx::Encode<'_, sqlx::Postgres> for ConfigVersion {
     fn encode_by_ref(
         &self,
@@ -295,6 +301,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for ConfigVersion {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<'r, DB> sqlx::Decode<'r, DB> for ConfigVersion
 where
     DB: sqlx::Database,
@@ -310,6 +317,7 @@ where
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ConfigVersion {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let config_version = row.try_get(0)?;

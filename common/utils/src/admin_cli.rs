@@ -11,11 +11,13 @@ use ::rpc::common::MachineId;
 use ::rpc::forge::MachineType;
 use clap::ValueEnum;
 use serde::Serialize;
-use sqlx::{Pool, Postgres};
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(feature = "sqlx")]
+use sqlx::{Pool, Postgres};
 
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
@@ -52,6 +54,7 @@ pub fn get_db_url(db_url: &str, db_name: &str) -> String {
     db_base + "/" + db_name
 }
 
+#[cfg(feature = "sqlx")]
 /// connect connects to the database for the provided db_url, which probably
 /// comes from get_db_url.
 pub async fn connect(db_url: &str) -> eyre::Result<Pool<Postgres>> {

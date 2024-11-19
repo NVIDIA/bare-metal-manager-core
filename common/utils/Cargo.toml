@@ -7,6 +7,9 @@ authors.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+sqlx = ["forge-network/sqlx", "dep:sqlx"]
+
 [dependencies]
 byte-unit = "5.1.6"
 chrono = "0.4.34"
@@ -19,7 +22,7 @@ thiserror = "2.0.3"
 tracing = "*"
 tokio = { workspace = true }
 ipnetwork = "0.20.0"
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
