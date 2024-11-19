@@ -3347,6 +3347,10 @@ impl DpuMachineStateHandler {
                     )));
                 }
 
+                // We need to reboot the DPU after configuring the BIOS settings appropriately
+                // so that they are applied
+                handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+
                 let next_state = DpuInitState::WaitingForNetworkConfig
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
