@@ -15,6 +15,7 @@ def wait_for_host_port(hostname: str, port: int, max_retries: int = 20, sleep_ti
     while retry_count < max_retries:
         # Check if the port is up on the host: 0 for yes 1 for no
         if _test_host_port(hostname, port) == 0:
+            print(f"Successfully connected to {hostname} port {port}")
             return
         retry_count += 1
         print(f"{datetime.datetime.now(datetime.UTC)}: Unable to connect to {hostname} port {port} after {retry_count} attempts")
