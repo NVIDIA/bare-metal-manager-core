@@ -15,12 +15,12 @@ use tokio::sync::oneshot;
 
 use crate::{
     cfg::MeasuredBootMetricsCollectorConfig, db::DatabaseError, measured_boot,
-    measured_boot::dto::keys::MeasurementBundleId,
     measured_boot::dto::records::MeasurementBundleState,
     measured_boot::model::journal::MeasurementJournal, CarbideResult,
 };
 
 mod metrics;
+use forge_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.

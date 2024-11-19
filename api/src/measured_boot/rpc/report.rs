@@ -16,7 +16,6 @@
 
 use tonic::Status;
 
-use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::interface::report::{
     get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
     match_latest_reports,
@@ -29,6 +28,7 @@ use crate::measured_boot::{
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementReportId;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,

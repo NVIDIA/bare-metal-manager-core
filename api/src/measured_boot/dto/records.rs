@@ -22,17 +22,17 @@
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
 */
 
-use super::keys::UuidEmptyStringError;
 use crate::db::machine_topology::TopologyData;
-use crate::measured_boot::dto::keys::{
+use crate::measured_boot::interface::common::PcrRegisterValue;
+use chrono::DateTime;
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
-use crate::measured_boot::interface::common::PcrRegisterValue;
-use chrono::DateTime;
-use forge_uuid::machine::MachineId;
 use forge_uuid::DbTable;
+use forge_uuid::UuidEmptyStringError;
 use rpc::protos::measured_boot::{
     CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,

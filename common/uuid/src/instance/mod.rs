@@ -12,20 +12,25 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {FromRow, Type},
+};
 
 /// InstanceId is a strongly typed UUID specific to an instance ID,
 /// with trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc. This is similar
 /// to what we do for MachineId, VpcId, and basically all of the IDs
 /// in measured boot.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct InstanceId(pub uuid::Uuid);
 
 impl From<InstanceId> for uuid::Uuid {
@@ -91,6 +96,7 @@ impl InstanceId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for InstanceId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()

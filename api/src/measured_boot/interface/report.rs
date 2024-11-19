@@ -18,8 +18,8 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
+use forge_uuid::measured_boot::MeasurementReportId;
 
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;

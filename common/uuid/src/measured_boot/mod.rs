@@ -24,21 +24,23 @@
  *  mad because it cant bind it as a UUID.
 */
 
-use crate::CarbideError;
+use crate::machine::MachineId;
+use crate::DbPrimaryUuid;
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use forge_uuid::DbPrimaryUuid;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::postgres::PgTypeInfo;
-use sqlx::{Database, FromRow, Postgres, Type};
-use std::convert::{Into, TryFrom};
-use std::error::Error;
+use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    encode::IsNull,
+    error::BoxDynError,
+    postgres::PgTypeInfo,
+    {Database, FromRow, Postgres, Type},
+};
 
 /// TrustedMachineId is a special adaptation of a
 /// Carbide MachineId, which has support for being
@@ -84,6 +86,7 @@ impl fmt::Display for TrustedMachineId {
 
 // Make TrustedMachineId bindable directly into a sqlx query.
 // Similar code exists for other IDs, including MachineId.
+#[cfg(feature = "sqlx")]
 impl sqlx::Encode<'_, sqlx::Postgres> for TrustedMachineId {
     fn encode_by_ref(
         &self,
@@ -94,6 +97,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for TrustedMachineId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl sqlx::Type<sqlx::Postgres> for TrustedMachineId {
     fn type_info() -> PgTypeInfo {
         <&str as sqlx::Type<sqlx::Postgres>>::type_info()
@@ -110,17 +114,6 @@ impl DbPrimaryUuid for TrustedMachineId {
     }
 }
 
-#[derive(Debug)]
-pub struct UuidEmptyStringError {}
-
-impl fmt::Display for UuidEmptyStringError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "input UUID string cannot be empty",)
-    }
-}
-
-impl Error for UuidEmptyStringError {}
-
 /// MeasurementSystemProfileId
 ///
 /// Primary key for a measurement_system_profiles table entry, which is the table
@@ -129,8 +122,9 @@ impl Error for UuidEmptyStringError {}
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, Eq, Hash, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementSystemProfileId(pub uuid::Uuid);
 
 impl MeasurementSystemProfileId {
@@ -184,12 +178,14 @@ impl TryFrom<Uuid> for MeasurementSystemProfileId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementSystemProfileId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementSystemProfileId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementSystemProfileId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -199,8 +195,9 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileId {
 /// the table containing the attributes used to map machines to profiles.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementSystemProfileAttrId(pub uuid::Uuid);
 
 impl MeasurementSystemProfileAttrId {
@@ -249,12 +246,14 @@ impl TryFrom<Uuid> for MeasurementSystemProfileAttrId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementSystemProfileAttrId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementSystemProfileAttrId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -266,8 +265,9 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, ToTable for printing via prettytable,
 /// as well as other various trait impls as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, Eq, Hash, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleId(pub uuid::Uuid);
 
 impl MeasurementBundleId {
@@ -321,12 +321,14 @@ impl TryFrom<Uuid> for MeasurementBundleId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementBundleId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementBundleId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementBundleId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -336,8 +338,9 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleId {
 /// a single measurement that is part of a measurement bundle.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleValueId(pub uuid::Uuid);
 
 impl MeasurementBundleValueId {
@@ -385,12 +388,14 @@ impl TryFrom<Uuid> for MeasurementBundleValueId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementBundleValueId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementBundleValueId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -402,8 +407,9 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, FromRow, PartialEq, Type, Serialize, Deserialize)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementReportId(pub uuid::Uuid);
 
 impl MeasurementReportId {
@@ -457,12 +463,14 @@ impl TryFrom<Uuid> for MeasurementReportId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementReportId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementReportId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementReportId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -472,8 +480,9 @@ impl TryFrom<Option<Uuid>> for MeasurementReportId {
 /// backing values reported for each report into measurement_reports.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementReportValueId(pub uuid::Uuid);
 
 impl MeasurementReportValueId {
@@ -521,12 +530,14 @@ impl TryFrom<Uuid> for MeasurementReportValueId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementReportValueId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementReportValueId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -538,8 +549,9 @@ impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, FromRow, PartialEq, Type, Serialize, Deserialize)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementJournalId(pub uuid::Uuid);
 
 impl MeasurementJournalId {
@@ -593,12 +605,14 @@ impl TryFrom<Uuid> for MeasurementJournalId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementJournalId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementJournalId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementJournalId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -611,8 +625,9 @@ impl TryFrom<Option<Uuid>> for MeasurementJournalId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementApprovedMachineId(pub uuid::Uuid);
 
 impl MeasurementApprovedMachineId {
@@ -667,12 +682,14 @@ impl TryFrom<Uuid> for MeasurementApprovedMachineId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementApprovedMachineId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementApprovedMachineId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }
 
@@ -685,8 +702,9 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementApprovedProfileId(pub uuid::Uuid);
 
 impl MeasurementApprovedProfileId {
@@ -741,11 +759,13 @@ impl TryFrom<Uuid> for MeasurementApprovedProfileId {
 }
 
 impl TryFrom<Option<Uuid>> for MeasurementApprovedProfileId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("MeasurementApprovedProfileId").into());
+            return Err(RpcDataConversionError::MissingArgument(
+                "MeasurementApprovedProfileId",
+            ));
         };
-        Ok(Self::try_from(input_uuid)?)
+        Self::try_from(input_uuid)
     }
 }

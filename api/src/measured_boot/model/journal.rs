@@ -16,10 +16,6 @@
 */
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-    UuidEmptyStringError,
-};
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::journal::{
@@ -27,7 +23,13 @@ use crate::measured_boot::interface::journal::{
     get_measurement_journal_records_for_machine_id, insert_measurement_journal_record,
 };
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
+use forge_uuid::{
+    machine::MachineId,
+    measured_boot::{
+        MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
+    },
+    UuidEmptyStringError,
+};
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;

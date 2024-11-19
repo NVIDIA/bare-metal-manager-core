@@ -12,22 +12,25 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {FromRow, Type},
+};
 
 /// NetworkSegmentId is a strongly typed UUID specific to a network
 /// segment ID, with trait implementations allowing it to be passed
 /// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
 /// is similar to what we do for MachineId, VpcId, InstanceId, and
 /// basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct NetworkSegmentId(pub uuid::Uuid);
 
 impl From<NetworkSegmentId> for uuid::Uuid {
@@ -100,6 +103,7 @@ impl NetworkSegmentId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for NetworkSegmentId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()

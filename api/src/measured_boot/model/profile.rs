@@ -16,7 +16,6 @@
 */
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::MeasurementSystemProfileId;
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
 };
@@ -32,6 +31,7 @@ use crate::measured_boot::interface::{common, common::acquire_advisory_txn_lock}
 use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use rpc::protos::measured_boot::MeasurementSystemProfilePb;
 use serde::Serialize;
 use utils::admin_cli::ToTable;
@@ -703,9 +703,7 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::keys::{
-        MeasurementSystemProfileAttrId, MeasurementSystemProfileId,
-    };
+    use forge_uuid::measured_boot::{MeasurementSystemProfileAttrId, MeasurementSystemProfileId};
 
     use super::{attr_map_to_string, MeasurementSystemProfile, MeasurementSystemProfileAttrRecord};
     use chrono::Utc;

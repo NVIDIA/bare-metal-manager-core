@@ -17,12 +17,11 @@
 use tonic::Status;
 
 use crate::measured_boot::interface::bundle::get_measurement_bundle_records_with_txn;
+use crate::measured_boot::interface::bundle::{
+    get_machines_for_bundle_id, get_machines_for_bundle_name,
+};
 use crate::measured_boot::interface::common::PcrRegisterValue;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use crate::measured_boot::{
-    dto::keys::MeasurementBundleId,
-    interface::bundle::{get_machines_for_bundle_id, get_machines_for_bundle_name},
-};
 use rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, CreateMeasurementBundleResponse,
     DeleteMeasurementBundleRequest, DeleteMeasurementBundleResponse,
@@ -34,9 +33,9 @@ use rpc::protos::measured_boot::{
 };
 use sqlx::{Pool, Postgres};
 
-use crate::measured_boot::dto::keys::MeasurementSystemProfileId;
 use crate::measured_boot::dto::records::MeasurementBundleState;
 use crate::measured_boot::model::bundle::MeasurementBundle;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use rpc::protos::measured_boot::delete_measurement_bundle_request;
 use rpc::protos::measured_boot::list_measurement_bundle_machines_request;
 use rpc::protos::measured_boot::rename_measurement_bundle_request;

@@ -16,12 +16,12 @@
 */
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
 };
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use forge_uuid::{DbPrimaryUuid, DbTable};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Postgres, Transaction};
