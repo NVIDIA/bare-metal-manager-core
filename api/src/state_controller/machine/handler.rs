@@ -3288,12 +3288,33 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuInitState::WaitingForPlatformConfiguration => {
-                let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+                let dpu_redfish_client = match build_redfish_client_from_bmc_ip(
                     dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
-                .await?;
+                .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        let msg = format!("failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}", dpu_snapshot.machine_id, e);
+                        tracing::warn!(msg);
+                        // If we cannot create a redfish client for the DPU, this function call will never result in an actual DPU reboot.
+                        // The only side effect is turning the DPU's host back on if we turned it off earlier.
+                        let reboot_status = reboot_if_needed(
+                            state,
+                            dpu_snapshot,
+                            &self.reachability_params,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?;
+
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "{msg};\nDPU reboot status: {reboot_status:#?}",
+                        )));
+                    }
+                };
 
                 let boot_interface_mac = None; // libredfish will choose the DPU
                 if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
