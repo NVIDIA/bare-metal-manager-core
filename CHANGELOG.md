@@ -12,7 +12,7 @@
 
 ### Removed
 
-## [v2024.11.08-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc4-0...v2024.11.08-rc2-0)
+## [v2024.11.08-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc5-0...v2024.11.08-rc2-0)
 
 ### Added
 
@@ -54,6 +54,12 @@
 
 - Removed ntp service start from upgrade path
 - Removed unused `otlp_endpoint` references from config
+
+## [v2024.10.25-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc4-0...v2024.10.25-rc5-0)
+
+## Changed
+
+- Increased the length of the vpc name description fields
 
 ## [v2024.10.25-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.10.25-rc3-0...v2024.10.25-rc4-0)
 
