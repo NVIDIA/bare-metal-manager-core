@@ -106,6 +106,7 @@ try:
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'Ready'")
     admin_cli.wait_for_machine_ready(machine_under_test_dpu, timeout=WAIT_FOR_READY)
 except Exception as e:
+    print(e.args[0], file=sys.stderr)
     print("Exception while waiting for machine Ready, putting machine into maintenance mode", file=sys.stderr)
     # We have to use managed host ID to do this, not DPU ID, but this may not exist
     # in the database yet depending on where the process got to before it failed.
@@ -113,12 +114,23 @@ except Exception as e:
     try:
         admin_cli.put_machine_into_maintenance_mode(machine_under_test)
     except subprocess.CalledProcessError as e:
-        print("Setting maintenance mode failed, trying again using predicted host id...", file=sys.stderr)
-        admin_cli.put_machine_into_maintenance_mode(machine_under_test_predicted_host)
-    raise
+        print(e, file=sys.stderr)
+        try:
+            print("Setting maintenance mode failed, trying again using predicted host id...", file=sys.stderr)
+            admin_cli.put_machine_into_maintenance_mode(machine_under_test_predicted_host)
+        except Exception as e:
+            print(e, file=sys.stderr)
+        finally:
+            sys.exit(1)
+    finally:
+        sys.exit(1)
 
-print(f"Check {machine_under_test_dpu} is not in maintenance mode")
-admin_cli.check_machine_not_in_maintenance(machine_under_test_dpu)
+# Once the machine gets to Ready, wait 2 minutes to see if it will be taken for DPU reprovisioning
+time.sleep(60 * 2)
+# Wait for the machine to come out of maintenance (in the case DPU FW upgrade happens after de-provision)
+print("Wait for the machine to not be in maintenance mode...")
+admin_cli.wait_for_machine_not_in_maintenance(machine_under_test, timeout=60 * 90)
+
 
 # Verify that the original machine id is also reporting Ready
 print(f"Check managed host id {machine_under_test} also reports ready")
@@ -147,7 +159,7 @@ print(f"{vpc_uuid=}")
 # We could supply --user-data here to customize the OS with our SSH public key direct from vault,
 # but we can revisit this if we need to change anything. We expect it to be static.
 print("Creating an instance on the machine...")
-instance = ngc.create_instance("machine-lifecycle-test-instance", instance_type_uuid, subnet_uuid, os_uuid, vpc_uuid)
+instance = ngc.create_instance(f"machine-lifecycle-test-instance-{expected_number_of_dpus}", instance_type_uuid, subnet_uuid, os_uuid, vpc_uuid)
 instance_uuid = instance["id"]
 print(f"Instance {instance_uuid} creation success")
 
@@ -183,7 +195,6 @@ try:
         if exit_status != 0:
             print(f"{command!r} exited with status {exit_status}", file=sys.stderr)
 
-
     # Delete the instance
     print("Delete the instance")
     ngc.delete_instance(instance_uuid)
@@ -195,8 +206,10 @@ try:
     print(f"Wait for {machine_under_test} to report state 'Ready'")
     admin_cli.wait_for_machine_ready(machine_under_test, timeout=60 * 90)
 except Exception as e:
+    print(e, file=sys.stderr)
     print("Exception while waiting for instance creation/deletion, putting machine into maintenance mode", file=sys.stderr)
     admin_cli.put_machine_into_maintenance_mode(machine_under_test)
+    sys.exit(1)
 
 # Once the machine gets to Ready, wait 2 minutes to see if it will be taken for DPU reprovisioning
 time.sleep(60 * 2)
