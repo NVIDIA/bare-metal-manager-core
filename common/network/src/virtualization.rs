@@ -35,17 +35,18 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 /// population of the appropriate template.
 ///
 // TODO(chet): Rename
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "network_virtualization_type_t")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "network_virtualization_type_t"))]
 #[allow(clippy::enum_variant_names)]
 pub enum VpcVirtualizationType {
-    #[sqlx(rename = "etv")]
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "etv"))]
     EthernetVirtualizer = 0,
-    #[sqlx(rename = "etv_nvue")]
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "etv_nvue"))]
     EthernetVirtualizerWithNvue = 2,
-    #[sqlx(rename = "fnn_classic")]
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn_classic"))]
     FnnClassic = 3,
-    #[sqlx(rename = "fnn_l3")]
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn_l3"))]
     FnnL3 = 4,
 }
 
