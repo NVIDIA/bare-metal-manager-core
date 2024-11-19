@@ -1,21 +1,21 @@
 use crate::bmc_state::BmcState;
-use crate::{call_router_with_new_request, rf, DpuMachineInfo, MachineInfo};
+use crate::{call_router_with_new_request, rf, DpuMachineInfo, MachineInfo, SetSystemPowerReq};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{Method, Request, Response, StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::Router;
-use chrono::{DateTime, Utc};
+use http_body_util::BodyExt;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
-use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
+use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice, PowerState};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 lazy_static! {
     static ref UEFI_DEVICE_PATH_MAC_ADDRESS_REGEX: Regex =
@@ -32,9 +32,22 @@ struct MockWrapperState {
     bmc_state: BmcState,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+#[allow(clippy::enum_variant_names)] // they all *happen to* have the same suffix now
 pub enum BmcCommand {
-    Reboot(DateTime<Utc>),
+    SetSystemPower {
+        request: SetSystemPowerReq,
+        reply: Option<oneshot::Sender<SetSystemPowerResult>>,
+    },
+    GetSystemPower(oneshot::Sender<PowerState>),
+}
+
+pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum SetSystemPowerError {
+    #[error("Mock BMC reported bad request when setting system power: {0}")]
+    BadRequest(String),
 }
 
 /// Return an axum::Router that mocks various redfish calls to match the provided MachineInfo.
@@ -185,6 +198,12 @@ enum MockWrapperError {
     InnerRequest(Method, Uri, StatusCode, String),
     #[error("{0}")]
     NotFound(String),
+    #[error("{0}")]
+    SetSystemPower(#[from] SetSystemPowerError),
+    #[error("Error sending to BMC command channel: {0}")]
+    BmcCommandSendError(#[from] mpsc::error::SendError<BmcCommand>),
+    #[error("Error receiving from BMC command channel: {0}")]
+    BmcCommandReceiveError(#[from] oneshot::error::RecvError),
 }
 
 impl IntoResponse for MockWrapperError {
@@ -200,6 +219,9 @@ impl IntoResponse for MockWrapperError {
                 (status_code, body_bytes).into_response()
             }
             MockWrapperError::NotFound(reason) => (StatusCode::NOT_FOUND, reason).into_response(),
+            MockWrapperError::SetSystemPower(e) => {
+                (StatusCode::BAD_REQUEST, e.to_string()).into_response()
+            }
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
         }
     }
@@ -529,6 +551,15 @@ async fn get_system(
     let mut system = serde_json::from_slice::<ComputerSystem>(&inner_response)?;
     system.serial_number = state.machine_info.product_serial();
 
+    // Get the power state from the mock machine, if available
+    system.power_state = if let Some(command_channel) = &state.command_channel {
+        let (tx, rx) = oneshot::channel();
+        command_channel.send(BmcCommand::GetSystemPower(tx))?;
+        rx.await?
+    } else {
+        PowerState::On
+    };
+
     let MachineInfo::Host(host) = state.machine_info.clone() else {
         return Ok(Bytes::from(serde_json::to_string(&system)?));
     };
@@ -560,7 +591,7 @@ async fn get_system(
             )
             .await?;
 
-        let pcie_device: PCIeDevice = serde_json::from_slice(&upstream_response).unwrap();
+        let pcie_device: PCIeDevice = serde_json::from_slice(&upstream_response)?;
         // Keep all default PCIE devices. Just remove any of the DPU entries
         if pcie_device
             .manufacturer
@@ -790,12 +821,22 @@ async fn post_reset_system(
     State(mut state): State<MockWrapperState>,
     Path(_system_id): Path<String>,
     request: Request<Body>,
-) -> impl IntoResponse {
-    if let Some(command_channel) = &state.command_channel {
-        _ = command_channel.send(BmcCommand::Reboot(Utc::now()))
-    }
-
+) -> MockWrapperResult {
     // Dell specific call back after a reset -- sets the job status for all scheduled BIOS jobs to "Completed"
     state.bmc_state.complete_all_bios_jobs();
-    state.call_inner_router(request).await
+
+    if let Some(command_channel) = &state.command_channel {
+        let body = request.into_body().collect().await?.to_bytes();
+        let power_request: SetSystemPowerReq = serde_json::from_slice(&body)?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        command_channel.send(BmcCommand::SetSystemPower {
+            request: power_request,
+            reply: Some(reply_tx),
+        })?;
+        reply_rx.await??;
+        Ok("".into())
+    } else {
+        state.call_inner_router(request).await?;
+        Ok("".into())
+    }
 }

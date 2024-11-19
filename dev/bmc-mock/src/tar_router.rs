@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time;
 
+use crate::SetSystemPowerReq;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::http::{HeaderMap, Request, StatusCode};
@@ -31,7 +32,7 @@ use axum::{Json, Router};
 use bytes::Buf;
 use flate2::read::GzDecoder;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 const MAX_HISTORY_ENTRIES: usize = 1000;
 pub type EntryMap = Arc<Mutex<HashMap<String, String>>>;
@@ -241,57 +242,9 @@ fn maybe_power_back_on(state: &BmcState) {
     }
 }
 
-// https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2023.3.html
-// 6.5.5.1 ResetType
-#[derive(Debug, Deserialize, Serialize, PartialEq, Clone, Copy)]
-enum SystemPowerControl {
-    /// Power on a machine
-    On,
-    /// Graceful host shutdown
-    GracefulShutdown,
-    /// Forcefully powers a machine off
-    ForceOff,
-    /// Graceful restart. Asks the OS to restart via ACPI
-    /// - Might restart DPUs if no OS is running
-    /// - Will not apply pending BIOS/UEFI setting changes
-    GracefulRestart,
-    /// Force restart. This is equivalent to pressing the reset button on the front panel.
-    /// - Will not restart DPUs
-    /// - Will apply pending BIOS/UEFI setting changes
-    ForceRestart,
-
-    //
-    // libredfish doesn't support these yet, and not all vendors provide them
-    //
-
-    // Cut then restore the power
-    PowerCycle,
-
-    // Forcefully power a machine on (?)
-    ForceOn,
-
-    // Like it says, pretend the button got pressed
-    PushPowerButton,
-
-    // Non-maskable interrupt then power off
-    Nmi,
-
-    // Write state to disk and power off
-    Suspend,
-
-    // VM / Hypervisor
-    Pause,
-    Resume,
-}
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "PascalCase")]
-struct SetSystemPowerReq {
-    reset_type: SystemPowerControl,
-}
-
 fn set_system_power(shared_state: BmcState, req: SetSystemPowerReq) {
     tracing::debug!("Power action: {:?}", req.reset_type);
-    use SystemPowerControl::*;
+    use super::SystemPowerControl::*;
     match req.reset_type {
         On | ForceOn => {
             // Permanently on

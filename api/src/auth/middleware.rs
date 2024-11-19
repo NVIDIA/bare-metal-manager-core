@@ -283,7 +283,7 @@ where
                         } else {
                             "<Unable to determine client address>".to_string()
                         };
-                        tracing::error!(
+                        tracing::warn!(
                             "Request would have been denied: {client_address} {method_name} {principals:?}",
                         );
                     }
