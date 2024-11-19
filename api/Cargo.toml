@@ -103,7 +103,7 @@ x509-parser = { version = "0.16.0", features = ["verify"] }
 
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
-config-version = { path = "../common/config-version" }
+config-version = { path = "../common/config-version", features = ["sqlx"] }
 forge-network = { path = "../common/network", features = ["sqlx"] }
 forge-tls = { path = "../common/tls" }
 forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
