@@ -20,5 +20,4 @@
  * `traits`: Some basic traits that are used extensively by `interface`.
 */
 
-pub mod keys;
 pub mod records;

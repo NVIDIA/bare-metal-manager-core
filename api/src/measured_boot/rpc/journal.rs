@@ -17,9 +17,10 @@
 use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
+use crate::measured_boot::model::journal::MeasurementJournal;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use crate::measured_boot::{dto::keys::MeasurementJournalId, model::journal::MeasurementJournal};
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementJournalId;
 use rpc::protos::measured_boot::{
     list_measurement_journal_request, show_measurement_journal_request, MeasurementJournalRecordPb,
 };

@@ -16,10 +16,6 @@
 
 use tonic::Status;
 
-use crate::measured_boot::dto::keys::{
-    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-    TrustedMachineId,
-};
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
@@ -31,6 +27,10 @@ use crate::measured_boot::interface::site::{
 };
 use crate::measured_boot::model::site::SiteModel;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use forge_uuid::measured_boot::{
+    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+    TrustedMachineId,
+};
 
 use rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use rpc::protos::measured_boot::remove_measurement_trusted_profile_request;

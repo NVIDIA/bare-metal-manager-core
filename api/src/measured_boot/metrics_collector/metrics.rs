@@ -11,15 +11,13 @@
  */
 
 use crate::measured_boot::{
-    dto::{
-        keys::{MeasurementBundleId, MeasurementSystemProfileId},
-        records::{MeasurementBundleState, MeasurementMachineState},
-    },
+    dto::records::{MeasurementBundleState, MeasurementMachineState},
     interface::common::PcrRegisterValue,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use arc_swap::ArcSwapOption;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use opentelemetry::{
     metrics::{self, Meter, ObservableGauge},
     KeyValue,

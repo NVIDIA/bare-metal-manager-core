@@ -27,10 +27,10 @@
 */
 
 use crate::cfg::measurement::parse_pcr_register_values;
-use carbide::measured_boot::dto::keys::MeasurementReportId;
 use carbide::measured_boot::interface::common::{parse_pcr_index_input, PcrRegisterValue, PcrSet};
 use clap::Parser;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementReportId;
 
 // CmdReport provides a container for the `report`
 // subcommand, which itself contains other subcommands

@@ -12,22 +12,25 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {FromRow, Type},
+};
 
 /// IBPartitionId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed
 /// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
 /// is similar to what we do for MachineId, VpcId, InstanceId,
 /// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct IBPartitionId(pub uuid::Uuid);
 
 impl From<IBPartitionId> for uuid::Uuid {
@@ -100,6 +103,7 @@ impl IBPartitionId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for IBPartitionId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()

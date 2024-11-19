@@ -12,22 +12,25 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {FromRow, Type},
+};
 
 /// DomainId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed
 /// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
 /// is similar to what we do for MachineId, VpcId, InstanceId,
 /// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct DomainId(pub uuid::Uuid);
 
 impl From<DomainId> for uuid::Uuid {
@@ -100,6 +103,7 @@ impl DomainId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for DomainId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()

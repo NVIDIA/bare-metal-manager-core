@@ -24,10 +24,6 @@ use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
-    UuidEmptyStringError,
-};
 use crate::measured_boot::dto::records::{
     MeasurementApprovedType, MeasurementBundleState, MeasurementMachineState,
     MeasurementReportRecord, MeasurementReportValueRecord,
@@ -53,6 +49,10 @@ use crate::measured_boot::model::{
 };
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
+};
+use forge_uuid::UuidEmptyStringError;
 use utils::admin_cli::ToTable;
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,

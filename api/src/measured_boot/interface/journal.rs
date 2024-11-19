@@ -18,12 +18,12 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-};
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
+};
 use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_journal_record is a very basic insert of a

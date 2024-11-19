@@ -16,13 +16,13 @@
 
 use tonic::Status;
 
-use crate::measured_boot::dto::keys::MeasurementSystemProfileId;
 use crate::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
+use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_machines_request;

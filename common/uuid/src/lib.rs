@@ -1,9 +1,24 @@
+use std::error::Error;
+use std::fmt;
+
 pub mod domain;
 pub mod infiniband;
 pub mod instance;
 pub mod machine;
+pub mod measured_boot;
 pub mod network;
 pub mod vpc;
+
+#[derive(Debug)]
+pub struct UuidEmptyStringError;
+
+impl fmt::Display for UuidEmptyStringError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "input UUID string cannot be empty",)
+    }
+}
+
+impl Error for UuidEmptyStringError {}
 
 /// DbPrimaryUuid is a trait intended for primary keys which
 /// derive the sqlx UUID type. The intent is the db_primary_uuid_name

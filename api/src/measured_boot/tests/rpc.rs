@@ -17,7 +17,6 @@
 #[cfg(test)]
 mod tests {
     use crate::db::machine::Machine;
-    use crate::measured_boot::dto::keys::TrustedMachineId;
     use crate::measured_boot::dto::records::MeasurementApprovedMachineRecord;
     use crate::measured_boot::interface::common::PcrRegisterValue;
     use crate::measured_boot::model::report::MeasurementReport;
@@ -28,6 +27,7 @@ mod tests {
     use crate::measured_boot::rpc::report;
     use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use forge_uuid::measured_boot::TrustedMachineId;
     use rpc::protos::measured_boot;
     use std::str::FromStr;
 

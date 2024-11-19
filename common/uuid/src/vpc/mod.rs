@@ -12,17 +12,22 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {FromRow, Type},
+};
+
 /// VpcId is a strongly typed UUID specific to a VPC ID, with
 /// trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct VpcId(pub uuid::Uuid);
 
 impl From<VpcId> for uuid::Uuid {
@@ -77,6 +82,7 @@ impl TryFrom<Option<::rpc::common::Uuid>> for VpcId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for VpcId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()

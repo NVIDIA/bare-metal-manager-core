@@ -15,25 +15,27 @@ use ::rpc::errors::RpcDataConversionError;
 use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-use sqlx::{Database, Postgres, Row};
-use sqlx::{FromRow, Type};
 use std::convert::TryFrom;
 use std::fmt;
 use std::{fmt::Write, ops::Deref, str::FromStr};
 use tonic::Status;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    encode::IsNull,
+    error::BoxDynError,
+    postgres::{PgHasArrayType, PgTypeInfo},
+    {Database, Postgres, Row}, {FromRow, Type},
+};
 
 /// MachineInterfaceId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed
 /// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
 /// is similar to what we do for MachineId, VpcId, InstanceId,
 /// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
-)]
-#[sqlx(type_name = "UUID")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MachineInterfaceId(pub uuid::Uuid);
 
 impl From<MachineInterfaceId> for uuid::Uuid {
@@ -106,6 +108,7 @@ impl MachineInterfaceId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for MachineInterfaceId {
     fn array_type_info() -> PgTypeInfo {
         <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
@@ -142,6 +145,7 @@ pub struct MachineId {
 }
 
 // Make MachineId bindable directly into a sqlx query
+#[cfg(feature = "sqlx")]
 impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
     fn encode_by_ref(
         &self,
@@ -152,6 +156,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<'r, DB> sqlx::Decode<'r, DB> for MachineId
 where
     DB: sqlx::Database,
@@ -165,6 +170,7 @@ where
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for MachineId {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let id: MachineId = row.try_get(0)?;
@@ -172,6 +178,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for MachineId {
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl<DB> sqlx::Type<DB> for MachineId
 where
     DB: sqlx::Database,
@@ -186,6 +193,7 @@ where
     }
 }
 
+#[cfg(feature = "sqlx")]
 impl PgHasArrayType for MachineId {
     fn array_type_info() -> PgTypeInfo {
         <&str as PgHasArrayType>::array_type_info()

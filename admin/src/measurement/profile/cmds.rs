@@ -32,12 +32,10 @@ use ::rpc::protos::measured_boot::{
     ListMeasurementSystemProfilesRequest, RenameMeasurementSystemProfileRequest,
     ShowMeasurementSystemProfileRequest, ShowMeasurementSystemProfilesRequest,
 };
-use carbide::measured_boot::dto::{
-    keys::MeasurementBundleId, keys::MeasurementSystemProfileId,
-    records::MeasurementSystemProfileRecord,
-};
+use carbide::measured_boot::dto::records::MeasurementSystemProfileRecord;
 use carbide::measured_boot::model::profile::MeasurementSystemProfile;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use serde::Serialize;
 use std::str::FromStr;
 use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};

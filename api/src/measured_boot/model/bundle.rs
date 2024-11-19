@@ -16,7 +16,6 @@
 */
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
@@ -35,6 +34,7 @@ use crate::measured_boot::model::machine::{bundle_state_to_machine_state, Candid
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use itertools::Itertools;
 use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;

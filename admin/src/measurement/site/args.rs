@@ -26,12 +26,10 @@
 
 use clap::Parser;
 
-use carbide::measured_boot::dto::{
-    keys::{
-        MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-        TrustedMachineId,
-    },
-    records::MeasurementApprovedType,
+use carbide::measured_boot::dto::records::MeasurementApprovedType;
+use forge_uuid::measured_boot::{
+    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+    TrustedMachineId,
 };
 
 /// CmdSite provides a container for the `site` subcommand, which itself

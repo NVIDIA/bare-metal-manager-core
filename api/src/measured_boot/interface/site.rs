@@ -18,15 +18,15 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::keys::{
-    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-    TrustedMachineId,
-};
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+    TrustedMachineId,
+};
 use forge_uuid::DbTable;
 use sqlx::{Postgres, Transaction};
 
