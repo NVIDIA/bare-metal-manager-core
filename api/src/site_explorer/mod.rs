@@ -1116,7 +1116,8 @@ impl SiteExplorer {
                         .or_default() += 1;
 
                     if e.is_redfish() {
-                        self.handle_redfish_error(endpoint.clone(), e).await;
+                        self.handle_redfish_error(endpoint.clone(), metrics, e)
+                            .await;
                     }
                 }
             }
@@ -1618,7 +1619,12 @@ impl SiteExplorer {
         Ok(())
     }
 
-    pub async fn handle_redfish_error(&self, endpoint: Endpoint, error: &EndpointExplorationError) {
+    pub async fn handle_redfish_error(
+        &self,
+        endpoint: Endpoint,
+        metrics: &mut SiteExplorationMetrics,
+        error: &EndpointExplorationError,
+    ) {
         // If site explorer cant log in, theres nothing we can do.
         if !self
             .endpoint_explorer
@@ -1683,6 +1689,7 @@ impl SiteExplorer {
                 })
                 .is_ok()
         {
+            metrics.bmc_reboot_count += 1;
             return;
         }
 
@@ -1699,6 +1706,7 @@ impl SiteExplorer {
                 })
                 .is_ok()
         {
+            metrics.bmc_reset_count += 1;
             return;
         }
 
@@ -1710,6 +1718,7 @@ impl SiteExplorer {
                     err
                 )
             });
+            metrics.bmc_reset_count += 1;
         }
     }
 

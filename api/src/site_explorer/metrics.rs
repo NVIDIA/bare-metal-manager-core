@@ -66,6 +66,10 @@ pub struct SiteExplorationMetrics {
     pub created_machines: usize,
     /// The time it took to create machines
     pub create_machines_latency: Option<Duration>,
+    /// Total amount of BMC resets
+    pub bmc_reset_count: usize,
+    /// Total amount of BMC reboots
+    pub bmc_reboot_count: usize,
 }
 
 impl Default for SiteExplorationMetrics {
@@ -92,6 +96,8 @@ impl SiteExplorationMetrics {
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
             create_machines_latency: None,
+            bmc_reset_count: 0,
+            bmc_reboot_count: 0,
         }
     }
 
@@ -177,6 +183,8 @@ pub struct SiteExplorerInstruments {
     pub site_explorer_create_machines_latency: Histogram<f64>,
     pub site_exploration_identified_managed_hosts_count: ObservableGauge<u64>,
     pub site_explorer_created_machines_count: ObservableGauge<u64>,
+    pub site_explorer_bmc_reset_count: ObservableGauge<u64>,
+    pub site_explorer_bmc_reboot_count: ObservableGauge<u64>,
 }
 
 impl SiteExplorerInstruments {
@@ -242,6 +250,14 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge("forge_site_explorer_created_machines_count")
                 .with_description("The amount of Machine pairs that had been created by Site Explorer after being identified")
                 .init(),
+            site_explorer_bmc_reset_count: meter
+                .u64_observable_gauge("forge_site_explorer_bmc_reset_count")
+                .with_description("The amount of BMC resets initiated in the last SiteExplorer run")
+                .init(),
+            site_explorer_bmc_reboot_count: meter
+                .u64_observable_gauge("forge_site_explorer_bmc_reboot_count")
+                .with_description("The amount of BMC reboots initiated in the last SiteExplorer run")
+                .init(),
         }
     }
 
@@ -256,6 +272,8 @@ impl SiteExplorerInstruments {
             self.site_exploration_identified_managed_hosts_count
                 .as_any(),
             self.site_explorer_created_machines_count.as_any(),
+            self.site_explorer_bmc_reset_count.as_any(),
+            self.site_explorer_bmc_reboot_count.as_any(),
             self.endpoint_exploration_preingestions_incomplete_overall_count
                 .as_any(),
             self.endpoint_exploration_expected_serial_number_mismatches_overall_count
@@ -292,6 +310,18 @@ impl SiteExplorerInstruments {
         observer.observe_u64(
             &self.site_explorer_created_machines_count,
             metrics.created_machines as u64,
+            attributes,
+        );
+
+        observer.observe_u64(
+            &self.site_explorer_bmc_reboot_count,
+            metrics.bmc_reboot_count as u64,
+            attributes,
+        );
+
+        observer.observe_u64(
+            &self.site_explorer_bmc_reset_count,
+            metrics.bmc_reset_count as u64,
             attributes,
         );
 
