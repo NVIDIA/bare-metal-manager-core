@@ -16,13 +16,14 @@
 
 use tonic::Status;
 
+use crate::measured_boot::db;
 use crate::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
-use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::measured_boot::MeasurementSystemProfileId;
+use measured_boot::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_machines_request;
@@ -60,7 +61,7 @@ pub async fn handle_create_system_measurement_profile(
         vals.insert(kv_pair.key.clone(), kv_pair.value.clone());
     }
 
-    let system_profile = MeasurementSystemProfile::new_with_txn(&mut txn, req.name.clone(), &vals)
+    let system_profile = db::profile::new_with_txn(&mut txn, req.name.clone(), &vals)
         .await
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
@@ -81,7 +82,7 @@ pub async fn handle_rename_measurement_system_profile(
         // Rename for the given system_profile ID.
         Some(rename_measurement_system_profile_request::Selector::ProfileId(
             system_profile_uuid,
-        )) => MeasurementSystemProfile::rename_for_id(
+        )) => db::profile::rename_for_id(
             &mut txn,
             MeasurementSystemProfileId::from_grpc(Some(system_profile_uuid.clone()))?,
             req.new_profile_name.clone(),
@@ -92,7 +93,7 @@ pub async fn handle_rename_measurement_system_profile(
         // Rename for the given system_profile name.
         Some(rename_measurement_system_profile_request::Selector::ProfileName(
             system_profile_name,
-        )) => MeasurementSystemProfile::rename_for_name(
+        )) => db::profile::rename_for_name(
             &mut txn,
             system_profile_name.clone(),
             req.new_profile_name.clone(),
@@ -152,7 +153,7 @@ pub async fn handle_show_measurement_system_profile(
     let system_profile = match &req.selector {
         // Show a system profile with the given profile ID.
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
-            MeasurementSystemProfile::load_from_id_with_txn(
+            db::profile::load_from_id_with_txn(
                 &mut txn,
                 MeasurementSystemProfileId::from_grpc(Some(profile_uuid.clone()))?,
             )
@@ -161,7 +162,7 @@ pub async fn handle_show_measurement_system_profile(
         }
         // Show a system profile with the given profile name.
         Some(show_measurement_system_profile_request::Selector::ProfileName(profile_name)) => {
-            MeasurementSystemProfile::load_from_name(&mut txn, profile_name.clone())
+            db::profile::load_from_name(&mut txn, profile_name.clone())
                 .await
                 .map_err(|e| Status::internal(format!("{}", e)))?
         }
@@ -182,7 +183,7 @@ pub async fn handle_show_measurement_system_profiles(
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementSystemProfilesResponse {
-        system_profiles: MeasurementSystemProfile::get_all(&mut txn)
+        system_profiles: db::profile::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)
@@ -290,7 +291,7 @@ async fn delete_for_uuid(
     profile_uuid: Uuid,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match MeasurementSystemProfileId::try_from(profile_uuid) {
-        Ok(profile_id) => match MeasurementSystemProfile::delete_for_id(txn, profile_id).await {
+        Ok(profile_id) => match db::profile::delete_for_id(txn, profile_id).await {
             Ok(optional_profile) => Ok(optional_profile),
             Err(e) => Err(Status::internal(format!("error deleting profile: {}", e))),
         },
@@ -307,7 +308,7 @@ async fn delete_for_name(
     txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
-    match MeasurementSystemProfile::delete_for_name(txn, profile_name).await {
+    match db::profile::delete_for_name(txn, profile_name).await {
         Ok(optional_profile) => Ok(optional_profile),
         Err(e) => Err(Status::internal(format!("error deleting profile: {}", e))),
     }

@@ -10,14 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::measured_boot::{
-    dto::records::{MeasurementBundleState, MeasurementMachineState},
-    interface::common::PcrRegisterValue,
-};
+use measured_boot::pcr::PcrRegisterValue;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use arc_swap::ArcSwapOption;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use opentelemetry::{
     metrics::{self, Meter, ObservableGauge},
     KeyValue,

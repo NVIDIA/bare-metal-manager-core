@@ -17,21 +17,18 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::collections::HashSet;
-use std::convert::{From, Into};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
 use std::vec::Vec;
 
-use rpc::protos::measured_boot::PcrRegisterValuePb;
 use sqlx::postgres::PgRow;
-use sqlx::query_builder::QueryBuilder;
-use sqlx::{Encode, Pool, Postgres, Transaction};
+use sqlx::{Encode, Postgres, Transaction};
 
 use crate::db::DatabaseError;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::{DbPrimaryUuid, DbTable};
+use measured_boot::pcr::PcrRegisterValue;
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -66,11 +63,6 @@ pub fn filter_machine_discovery_attrs(
     Ok(filtered)
 }
 
-pub enum ConnType<'p, 'm, 't> {
-    DbConn(&'p Pool<Postgres>),
-    Txn(&'m Transaction<'t, Postgres>),
-}
-
 // PcrRange is a small struct used when parsing
 // --pcr-register values from the CLI as part of
 // the parse_pcr_index_input function.
@@ -86,205 +78,11 @@ impl fmt::Display for PcrRange {
     }
 }
 
-/// PcrSet is a list of PCR register indexes that are expected
-/// to be targeted. For example: 0,1,2,5,6. With this PCR set,
-/// an incoming list of PcrRegisterValues will have any values
-/// whose indexes match the register numbers from the PcrSet.
-///
-/// This includes implementations for iterating.
-#[derive(Clone, Debug)]
-pub struct PcrSet(pub Vec<i16>);
-
-impl Default for PcrSet {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PcrSet {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    pub fn iter(&self) -> PcrSetIter {
-        PcrSetIter {
-            current_slice: &self.0,
-        }
-    }
-}
-
-impl fmt::Display for PcrSet {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let vals: Vec<String> = self.iter().map(|&val| val.to_string()).collect();
-        write!(f, "{}", vals.join(","))
-    }
-}
-
-impl IntoIterator for PcrSet {
-    type Item = i16;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'p> IntoIterator for &'p PcrSet {
-    type Item = &'p i16;
-    type IntoIter = std::slice::Iter<'p, i16>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct PcrSetIter<'i> {
-    current_slice: &'i [i16],
-}
-
-impl<'i> Iterator for PcrSetIter<'i> {
-    type Item = &'i i16;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if !self.current_slice.is_empty() {
-            let (first, rest) = self.current_slice.split_first().unwrap();
-            self.current_slice = rest;
-            Some(first)
-        } else {
-            None
-        }
-    }
-}
-
-pub fn parse_pcr_index_input(arg: &str) -> CarbideResult<PcrSet> {
-    let groups: Vec<&str> = arg.split(',').collect();
-    let mut index_set: HashSet<i16> = HashSet::new();
-    for group in groups {
-        if group.contains('-') {
-            let pcr_range = parse_range(group)?;
-            for index in pcr_range.start..=pcr_range.end {
-                index_set.insert(index as i16);
-            }
-        } else {
-            index_set.insert(group.parse::<i16>().map_err(|e| {
-                CarbideError::GenericError(format!(
-                    "parse_pcr_index_input group parse failed: {}, {}",
-                    group, e
-                ))
-            })?);
-        }
-    }
-
-    let mut vals: Vec<i16> = index_set.into_iter().collect();
-    vals.sort();
-    Ok(PcrSet(vals))
-}
-
-pub fn parse_range(arg: &str) -> CarbideResult<PcrRange> {
-    let range: Vec<usize> = arg
-        .split('-')
-        .map(|s| {
-            s.parse::<usize>()
-                .map_err(|_| CarbideError::GenericError(format!("parse_range failed on {}", arg)))
-        })
-        .collect::<CarbideResult<Vec<usize>>>()?;
-
-    if range.len() != 2 {
-        return Err(CarbideError::GenericError(String::from(
-            "parse_range range expected 2 values",
-        )));
-    }
-
-    if range[0] > range[1] {
-        return Err(CarbideError::GenericError(String::from(
-            "end must be greater than start",
-        )));
-    }
-
-    Ok(PcrRange {
-        start: range[0],
-        end: range[1],
-    })
-}
-
 /// generate_name generates a unique name for the purpose
 /// of auto-generated {profile, bundle} names.
 pub fn generate_name() -> CarbideResult<String> {
     let mut generate = names::Generator::default();
     Ok(generate.next().unwrap())
-}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct PcrRegisterValue {
-    pub pcr_register: i16,
-    pub sha256: String,
-}
-
-pub struct PcrRegisterValueVec(Vec<PcrRegisterValue>);
-
-impl PcrRegisterValueVec {
-    pub fn into_inner(self) -> Vec<PcrRegisterValue> {
-        self.0
-    }
-}
-
-impl PcrRegisterValue {
-    pub fn from_pb_vec(pbs: &[PcrRegisterValuePb]) -> Vec<Self> {
-        pbs.iter().map(|value| value.clone().into()).collect()
-    }
-
-    pub fn to_pb_vec(values: &[Self]) -> Vec<PcrRegisterValuePb> {
-        values.iter().map(|value| value.clone().into()).collect()
-    }
-}
-
-impl From<PcrRegisterValue> for PcrRegisterValuePb {
-    fn from(val: PcrRegisterValue) -> Self {
-        Self {
-            pcr_register: val.pcr_register as i32,
-            sha256: val.sha256.clone(),
-        }
-    }
-}
-
-impl From<PcrRegisterValuePb> for PcrRegisterValue {
-    fn from(msg: PcrRegisterValuePb) -> Self {
-        Self {
-            pcr_register: msg.pcr_register as i16,
-            sha256: msg.sha256,
-        }
-    }
-}
-
-impl From<Vec<String>> for PcrRegisterValueVec {
-    fn from(pcr_strings: Vec<String>) -> Self {
-        let pcr_register_values = pcr_strings
-            .into_iter()
-            .enumerate()
-            .map(|(pcr_index, pcr_val)| PcrRegisterValue {
-                pcr_register: pcr_index as i16,
-                sha256: pcr_val,
-            })
-            .collect();
-        PcrRegisterValueVec(pcr_register_values)
-    }
-}
-
-pub fn pcr_register_values_to_map(
-    values: &[PcrRegisterValue],
-) -> CarbideResult<HashMap<i16, PcrRegisterValue>> {
-    let total_values = values.len();
-    let value_map: HashMap<i16, PcrRegisterValue> = values
-        .iter()
-        .map(|rec| (rec.pcr_register, rec.clone()))
-        .collect();
-    if total_values != value_map.len() {
-        return Err(CarbideError::GenericError(String::from(
-            "detected pcr_register collision in input bundle values",
-        )));
-    }
-    Ok(value_map)
 }
 
 /// get_object_for_id provides a generic for getting a fully populated
@@ -385,52 +183,6 @@ where
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_all_objects", e))?;
     Ok(result)
-}
-
-/// get_ids_for_bundle_values is a common mechanism for matching a
-/// set of input values to either a measurement bundle or journal
-///
-/// This builds something similar to:
-///
-/// let query = format!("select {} from {} where (pcr_register, sha256) in ((0,$1), (1,$2), (2,$3), (3,$4), (4,$5), (5,$6), (6,$7)) group by {} having count(distinct pcr_register) = $8",
-///    R::db_primary_uuid_name(),
-///   table_name,
-///    R::db_primary_uuid_name());
-pub async fn get_ids_for_bundle_values<R>(
-    txn: &mut Transaction<'_, Postgres>,
-    table_name: &str,
-    values: &[PcrRegisterValue],
-) -> Result<Vec<R>, DatabaseError>
-where
-    R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbPrimaryUuid,
-{
-    let mut query: QueryBuilder<'_, Postgres> = QueryBuilder::new(format!(
-        "select {} from {} where (pcr_register, sha256) in (",
-        R::db_primary_uuid_name(),
-        table_name
-    ));
-
-    for (value_index, value) in values.iter().enumerate() {
-        query.push(format!("({},", value.pcr_register));
-        query.push_bind(value.sha256.clone());
-        query.push(")");
-        if value_index < values.len() - 1 {
-            query.push(", ");
-        }
-    }
-    query.push(") ");
-
-    query.push(format!("group by {}", R::db_primary_uuid_name()));
-    query.push(" having count(distinct pcr_register) = ");
-    query.push_bind(values.len() as i32);
-
-    let query = query.build_query_as::<R>();
-    let ids = query
-        .fetch_all(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_ids_for_bundle_values", e))?;
-
-    Ok(ids)
 }
 
 /// delete_objects_where_id provides a generic way to delete one or more
@@ -549,59 +301,6 @@ pub async fn acquire_advisory_txn_lock(
     Ok(())
 }
 
-/// acquire_advisory_lock is the same as acquire_advisory_txn_lock
-/// above, except it doesn't automatically release on commit
-/// or rollback. If you don't want to worry about explicitly
-/// calling release_advisory_lock when you're done, then use
-/// that.
-pub async fn acquire_advisory_lock(
-    txn: &mut Transaction<'_, Postgres>,
-    key: &str,
-) -> Result<(), DatabaseError> {
-    let hash_key = advisory_lock_key_to_hash(key);
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(hash_key)
-        .execute(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "acquire_advisory_lock", e))?;
-    Ok(())
-}
-
-/// release_advisory_lock releases an advisory lock once
-/// we're done with whatever operation required acquiring
-/// an advisory lock. See the acquire_advisory_lock docstring
-/// for more information about why these are used.
-pub async fn release_advisory_lock(
-    txn: &mut Transaction<'_, Postgres>,
-    key: &str,
-) -> CarbideResult<()> {
-    let hash_key = advisory_lock_key_to_hash(key);
-    sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(hash_key)
-        .execute(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "release_advisory_lock", e))?;
-    Ok(())
-}
-
-/// try_advisory_lock tries to get an advisory lock
-/// for the given key. If the lock is not held, it
-/// will acquire and return true. If the lock is already
-/// held, it will immediately return false. If an error
-/// occurs, it will return an error.
-pub async fn try_advisory_lock(
-    txn: &mut Transaction<'_, Postgres>,
-    key: &str,
-) -> CarbideResult<bool> {
-    let hash_key = advisory_lock_key_to_hash(key);
-    let acquired = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
-        .bind(hash_key)
-        .fetch_one(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "try_advisory_lock", e))?;
-    Ok(acquired)
-}
-
 /// advisory_lock_key_to_hash takes an advisory lock key and
 /// converts it into an i64 for the purpose of acquiring or
 /// releasing an advisory lock.
@@ -611,54 +310,18 @@ fn advisory_lock_key_to_hash(key: &str) -> i64 {
     hasher.finish() as i64
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        acquire_advisory_lock, acquire_advisory_txn_lock, release_advisory_lock, try_advisory_lock,
-    };
-
-    #[sqlx::test]
-    pub async fn test_advisory_txn_locking(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // First, make sure that a txn scoped within the same scope
-        // as the txn lock can't acquire it.
-        {
-            let mut txn1 = pool.begin().await?;
-            acquire_advisory_txn_lock(&mut txn1, "my_lock").await?;
-            let mut scoped_txn2 = pool.begin().await?;
-            let scoped_txn2_acquired = try_advisory_lock(&mut scoped_txn2, "my_lock").await?;
-            assert!(!scoped_txn2_acquired);
-        }
-
-        // And now that we've fallen out of scope, txn1 will have been rolled back,
-        // so now txn2 can get the lock.
-        let mut txn2 = pool.begin().await?;
-        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
-        assert!(txn2_acquired);
-
-        Ok(())
+pub fn pcr_register_values_to_map(
+    values: &[PcrRegisterValue],
+) -> CarbideResult<HashMap<i16, PcrRegisterValue>> {
+    let total_values = values.len();
+    let value_map: HashMap<i16, PcrRegisterValue> = values
+        .iter()
+        .map(|rec| (rec.pcr_register, rec.clone()))
+        .collect();
+    if total_values != value_map.len() {
+        return Err(CarbideError::GenericError(String::from(
+            "detected pcr_register collision in input bundle values",
+        )));
     }
-
-    #[sqlx::test]
-    pub async fn test_acquire_release_locking(
-        pool: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut txn1 = pool.begin().await?;
-        acquire_advisory_lock(&mut txn1, "my_lock").await?;
-
-        // txn1 is holding a lock, so this will fail
-        let mut txn2 = pool.begin().await?;
-        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
-        assert!(!txn2_acquired);
-
-        // And now explicitly release the lock.
-        release_advisory_lock(&mut txn1, "my_lock").await?;
-
-        // ...and now txn2 can get the lock.
-        let txn2_acquired = try_advisory_lock(&mut txn2, "my_lock").await?;
-        assert!(txn2_acquired);
-
-        Ok(())
-    }
+    Ok(value_map)
 }

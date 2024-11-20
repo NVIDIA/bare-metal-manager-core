@@ -42,10 +42,7 @@ use crate::{
         machine_validation::MachineValidation,
     },
     firmware_downloader::FirmwareDownloader,
-    measured_boot::{
-        dto::records::{MeasurementBundleState, MeasurementMachineState},
-        model::machine::{get_measurement_bundle_state, get_measurement_machine_state},
-    },
+    measured_boot::db::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     model::{
         machine::{
             all_equal, get_display_ids, BmcFirmwareUpgradeSubstate, CleanupState,
@@ -71,6 +68,7 @@ use crate::{
         },
     },
 };
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 
 mod ib;
 mod storage;

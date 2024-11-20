@@ -20,12 +20,10 @@ use crate::measurement::site::args::{
     RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
 };
-use carbide::measured_boot::model::site::{ImportResult, SiteModel};
+use measured_boot::site::{ImportResult, SiteModel};
 use utils::admin_cli::cli_output;
 
-use carbide::measured_boot::dto::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord,
-};
+use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
 
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;

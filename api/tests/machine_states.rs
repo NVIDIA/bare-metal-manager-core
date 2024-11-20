@@ -13,8 +13,7 @@ pub mod common;
 
 use carbide::db;
 use carbide::db::machine::{Machine, MachineSearchConfig};
-use carbide::measured_boot::dto::records::MeasurementBundleState;
-use carbide::measured_boot::model::bundle::MeasurementBundle;
+use carbide::measured_boot::db as mbdb;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::hardware_info::TpmEkCertificate;
 use carbide::model::machine::machine_id::try_parse_machine_id;
@@ -32,15 +31,6 @@ use common::api_fixtures::{
 };
 use forge_uuid::machine::MachineId;
 
-use carbide::model::machine::{FailureCause, FailureSource};
-use chrono::Duration;
-use common::api_fixtures::{create_test_env_with_overrides, get_config};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
-use std::collections::HashMap;
-use tonic::Request;
-
 use crate::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
 use crate::common::api_fixtures::{
     discovery_completed,
@@ -50,6 +40,16 @@ use crate::common::api_fixtures::{
     },
     forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
 };
+use carbide::model::machine::{FailureCause, FailureSource};
+use chrono::Duration;
+use common::api_fixtures::{create_test_env_with_overrides, get_config};
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::records::MeasurementBundleState;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{TpmCaCert, TpmCaCertId};
+use rpc::forge_agent_control_response::Action;
+use std::collections::HashMap;
+use tonic::Request;
 
 #[ctor::ctor]
 fn setup() {
@@ -817,6 +817,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 /// a FailureCause::MeasurementsRetired state by retiring the bundle that
 /// put it into Ready state, and then re-activating the bundle to move
 /// the machine from ::Failed -> back to ::Ready.
+#[cfg(test)]
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
@@ -866,13 +867,10 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.pool.begin().await.unwrap();
-    let retired_bundle = MeasurementBundle::set_state_for_id(
-        &mut txn,
-        bundle.bundle_id,
-        MeasurementBundleState::Retired,
-    )
-    .await
-    .unwrap();
+    let retired_bundle =
+        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
+            .await
+            .unwrap();
     assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
     assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
     txn.commit().await.unwrap();
@@ -899,7 +897,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     // ..and now reactivate the bundle.
     let mut txn = env.pool.begin().await.unwrap();
-    let reactivated_bundle = MeasurementBundle::set_state_for_id(
+    let reactivated_bundle = mbdb::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -985,13 +983,10 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.pool.begin().await.unwrap();
-    let retired_bundle = MeasurementBundle::set_state_for_id(
-        &mut txn,
-        bundle.bundle_id,
-        MeasurementBundleState::Retired,
-    )
-    .await
-    .unwrap();
+    let retired_bundle =
+        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
+            .await
+            .unwrap();
     assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
     assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
     txn.commit().await.unwrap();
@@ -1020,7 +1015,7 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     // now, try to move into a ready state by reactivating the bundle - this will fail
     // due to the lack of ca cert
     let mut txn = env.pool.begin().await.unwrap();
-    let reactivated_bundle = MeasurementBundle::set_state_for_id(
+    let reactivated_bundle = mbdb::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,

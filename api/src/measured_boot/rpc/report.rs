@@ -16,19 +16,17 @@
 
 use tonic::Status;
 
+use crate::measured_boot::db;
 use crate::measured_boot::interface::report::{
     get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
     match_latest_reports,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use crate::measured_boot::{
-    interface::common::{parse_pcr_index_input, PcrRegisterValue, PcrSet},
-    model::report::MeasurementReport,
-};
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementReportId;
+use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue, PcrSet};
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,
@@ -50,7 +48,7 @@ pub async fn handle_create_measurement_report(
     req: &CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = MeasurementReport::new_with_txn(
+    let report = db::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
@@ -75,7 +73,7 @@ pub async fn handle_delete_measurement_report(
     req: &DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = MeasurementReport::delete_for_id(
+    let report = db::report::delete_for_id(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
@@ -102,15 +100,14 @@ pub async fn handle_promote_measurement_report(
         false => None,
     };
 
-    let report = MeasurementReport::from_id_with_txn(
+    let report = db::report::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {}", e)))?;
 
-    let bundle = report
-        .create_active_bundle_with_txn(&mut txn, &pcr_set)
+    let bundle = db::report::create_active_bundle_with_txn(&mut txn, &report, &pcr_set)
         .await
         .map_err(|e| {
             Status::internal(format!(
@@ -139,15 +136,14 @@ pub async fn handle_revoke_measurement_report(
         })?),
     };
 
-    let report = MeasurementReport::from_id_with_txn(
+    let report = db::report::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {}", e)))?;
 
-    let bundle = report
-        .create_revoked_bundle_with_txn(&mut txn, &pcr_set)
+    let bundle = db::report::create_revoked_bundle_with_txn(&mut txn, &report, &pcr_set)
         .await
         .map_err(|e| {
             Status::internal(format!(
@@ -171,7 +167,7 @@ pub async fn handle_show_measurement_report_for_id(
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportForIdResponse {
         report: Some(
-            MeasurementReport::from_id_with_txn(
+            db::report::from_id_with_txn(
                 &mut txn,
                 MeasurementReportId::from_grpc(req.report_id.clone())?,
             )
@@ -190,7 +186,7 @@ pub async fn handle_show_measurement_reports_for_machine(
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsForMachineResponse {
-        reports: MeasurementReport::get_all_for_machine_id(
+        reports: db::report::get_all_for_machine_id(
             &mut txn,
             MachineId::from_str(&req.machine_id).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidMachineId(
@@ -214,7 +210,7 @@ pub async fn handle_show_measurement_reports(
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsResponse {
-        reports: MeasurementReport::get_all(&mut txn)
+        reports: db::report::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)

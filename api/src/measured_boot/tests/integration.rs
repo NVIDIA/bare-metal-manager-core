@@ -16,13 +16,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
-    use crate::measured_boot::interface::common::parse_pcr_index_input;
-    use crate::measured_boot::interface::common::PcrRegisterValue;
-    use crate::measured_boot::model::journal::MeasurementJournal;
-    use crate::measured_boot::model::profile::MeasurementSystemProfile;
-    use crate::measured_boot::model::report::MeasurementReport;
+    use crate::measured_boot::db;
+    use crate::measured_boot::db::journal;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue};
+    use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 
     // test_measured_boot_integration tests all sorts of
     // things like it was a real active environment.
@@ -228,10 +226,9 @@ mod tests {
 
         // deal with princess-network and beer-louisiana
 
-        let dell_r750_profile =
-            MeasurementSystemProfile::new_with_txn(&mut txn, None, &dell_r750_attrs).await?;
+        let dell_r750_profile = db::profile::new_with_txn(&mut txn, None, &dell_r750_attrs).await?;
 
-        let princess_report = MeasurementReport::new_with_txn(
+        let princess_report = db::report::new_with_txn(
             &mut txn,
             princess_network.machine_id.clone(),
             &princess_values,
@@ -239,7 +236,7 @@ mod tests {
         .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
 
-        let princess_journal = MeasurementJournal::get_latest_for_machine_id(
+        let princess_journal = journal::test_support::get_latest_for_machine_id(
             &mut txn,
             princess_network.machine_id.clone(),
         )
@@ -255,15 +252,12 @@ mod tests {
         );
         assert_eq!(princess_journal.bundle_id, None);
 
-        let report = MeasurementReport::new_with_txn(
-            &mut txn,
-            beer_louisiana.machine_id.clone(),
-            &beer_values,
-        )
-        .await?;
+        let report =
+            db::report::new_with_txn(&mut txn, beer_louisiana.machine_id.clone(), &beer_values)
+                .await?;
         assert_eq!(report.machine_id, beer_louisiana.machine_id);
 
-        let beer_journal = MeasurementJournal::get_latest_for_machine_id(
+        let beer_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
             beer_louisiana.machine_id.clone(),
         )
@@ -273,15 +267,12 @@ mod tests {
         assert_eq!(beer_journal.state, MeasurementMachineState::PendingBundle);
         assert_eq!(beer_journal.bundle_id, None);
 
-        let lime_report = MeasurementReport::new_with_txn(
-            &mut txn,
-            lime_coconut.machine_id.clone(),
-            &bad_dell_values,
-        )
-        .await?;
+        let lime_report =
+            db::report::new_with_txn(&mut txn, lime_coconut.machine_id.clone(), &bad_dell_values)
+                .await?;
         assert_eq!(lime_report.machine_id, lime_coconut.machine_id);
 
-        let lime_journal = MeasurementJournal::get_latest_for_machine_id(
+        let lime_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
             lime_coconut.machine_id.clone(),
         )
@@ -291,7 +282,7 @@ mod tests {
         assert_eq!(lime_journal.state, MeasurementMachineState::PendingBundle);
 
         // and now deal with slippery-lilac
-        let report = MeasurementReport::new_with_txn(
+        let report = db::report::new_with_txn(
             &mut txn,
             slippery_lilac.machine_id.clone(),
             &dgx_h100_values,
@@ -299,11 +290,11 @@ mod tests {
         .await?;
         assert_eq!(report.machine_id, slippery_lilac.machine_id);
 
-        let slippery_profile = MeasurementSystemProfile::load_from_attrs(&mut txn, &dgx_h100_attrs)
+        let slippery_profile = db::profile::load_from_attrs(&mut txn, &dgx_h100_attrs)
             .await?
             .unwrap();
 
-        let slippery_journal = MeasurementJournal::get_latest_for_machine_id(
+        let slippery_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
             slippery_lilac.machine_id.clone(),
         )
@@ -321,7 +312,7 @@ mod tests {
         assert_eq!(slippery_journal.bundle_id, None);
 
         // and now kick off silly-salander and cat-videos
-        let report = MeasurementReport::new_with_txn(
+        let report = db::report::new_with_txn(
             &mut txn,
             silly_salamander.machine_id.clone(),
             &dgx_h100_v1_values,
@@ -329,40 +320,39 @@ mod tests {
         .await?;
         assert_eq!(report.machine_id, silly_salamander.machine_id);
 
-        let cat_report = MeasurementReport::new_with_txn(
-            &mut txn,
-            cat_videos.machine_id.clone(),
-            &dgx_h100_v1_values,
-        )
-        .await?;
+        let cat_report =
+            db::report::new_with_txn(&mut txn, cat_videos.machine_id.clone(), &dgx_h100_v1_values)
+                .await?;
         assert_eq!(cat_report.machine_id, cat_videos.machine_id);
 
-        let silly_journal = MeasurementJournal::get_latest_for_machine_id(
+        let silly_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
             silly_salamander.machine_id.clone(),
         )
         .await?
         .unwrap();
 
-        let cat_journal =
-            MeasurementJournal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id.clone())
-                .await?
-                .unwrap();
+        let cat_journal = db::journal::test_support::get_latest_for_machine_id(
+            &mut txn,
+            cat_videos.machine_id.clone(),
+        )
+        .await?
+        .unwrap();
 
         assert_eq!(silly_journal.profile_id, cat_journal.profile_id);
         assert_eq!(silly_journal.state, MeasurementMachineState::PendingBundle);
         assert_eq!(silly_journal.state, cat_journal.state);
 
         let pcr_set = parse_pcr_index_input("0-2,4")?;
-        let bundle = princess_report
-            .create_active_bundle_with_txn(&mut txn, &Some(pcr_set))
-            .await?;
+        let bundle =
+            db::report::create_active_bundle_with_txn(&mut txn, &princess_report, &Some(pcr_set))
+                .await?;
         assert_eq!(bundle.pcr_values().len(), 4);
         assert_eq!(bundle.state, MeasurementBundleState::Active);
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id.clone()
             )
@@ -373,7 +363,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id.clone()
             )
@@ -384,7 +374,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id.clone()
             )
@@ -395,7 +385,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id.clone()
             )
@@ -406,7 +396,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id.clone()
             )
@@ -417,22 +407,25 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id.clone())
-                .await?
-                .unwrap()
-                .state
+            db::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id.clone()
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
         let pcr_set = parse_pcr_index_input("1")?;
-        let bundle = lime_report
-            .create_revoked_bundle_with_txn(&mut txn, &Some(pcr_set))
-            .await?;
+        let bundle =
+            db::report::create_revoked_bundle_with_txn(&mut txn, &lime_report, &Some(pcr_set))
+                .await?;
         assert_eq!(bundle.pcr_values().len(), 1);
         assert_eq!(bundle.state, MeasurementBundleState::Revoked);
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id.clone()
             )
@@ -443,7 +436,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id.clone()
             )
@@ -454,7 +447,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id.clone()
             )
@@ -465,7 +458,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id.clone()
             )
@@ -476,7 +469,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id.clone()
             )
@@ -487,21 +480,23 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id.clone())
-                .await?
-                .unwrap()
-                .state
+            db::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id.clone()
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
-        let bundle = cat_report
-            .create_active_bundle_with_txn(&mut txn, &None)
-            .await?;
+        let bundle =
+            db::report::create_active_bundle_with_txn(&mut txn, &cat_report, &None).await?;
         assert_eq!(bundle.pcr_values().len(), 5);
         assert_eq!(bundle.state, MeasurementBundleState::Active);
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id.clone()
             )
@@ -512,7 +507,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id.clone()
             )
@@ -523,7 +518,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id.clone()
             )
@@ -534,7 +529,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id.clone()
             )
@@ -545,7 +540,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(
+            db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id.clone()
             )
@@ -556,10 +551,13 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            MeasurementJournal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id.clone())
-                .await?
-                .unwrap()
-                .state
+            db::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id.clone()
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
         Ok(())

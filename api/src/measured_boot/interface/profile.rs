@@ -16,13 +16,11 @@
 */
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::records::{
-    MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
-};
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use forge_uuid::{DbPrimaryUuid, DbTable};
+use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
@@ -139,21 +137,6 @@ pub async fn get_all_measurement_profile_records(
             file!(),
             line!(),
             "get_all_measurement_profile_records",
-            e.source,
-        )
-    })
-}
-
-/// get_all_measurement_profile_attr_records gets all system profile
-/// attribute records.
-pub async fn get_all_measurement_profile_attr_records(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_all_measurement_profile_attr_records",
             e.source,
         )
     })
@@ -537,4 +520,24 @@ pub async fn export_measurement_system_profiles_attrs(
             e.source,
         )
     })
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    /// get_all_measurement_profile_attr_records gets all system profile
+    /// attribute records.
+    pub async fn get_all_measurement_profile_attr_records(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
+        common::get_all_objects(txn).await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_all_measurement_profile_attr_records",
+                e.source,
+            )
+        })
+    }
 }

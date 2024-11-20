@@ -9,9 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use carbide::model::storage::StorageRaidLevels;
 use clap::Parser;
+use rpc::errors::RpcDataConversionError;
+use rpc::forge::StorageRaidLevels;
+use std::fmt;
+use std::str::FromStr;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]
@@ -214,7 +216,7 @@ pub struct CreateStoragePool {
         long,
         help = "Redundancy level: Raid0,Raid1,Raid10,Concatenated,ErasureCoding."
     )]
-    pub raid_level: StorageRaidLevels,
+    pub raid_level: StorageRaidLevelsOption,
     #[clap(short = 's', long, help = "Size of the storage pool in bytes.")]
     pub capacity: u64,
     #[clap(short = 't', long, help = "Tenant organization identifier.")]
@@ -461,4 +463,46 @@ pub struct UpdateOsImage {
         help = "Optional, Authentication token, usually in base64."
     )]
     pub auth_token: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageRaidLevelsOption(pub StorageRaidLevels);
+
+impl fmt::Display for StorageRaidLevelsOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+impl From<StorageRaidLevels> for StorageRaidLevelsOption {
+    fn from(value: StorageRaidLevels) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<i32> for StorageRaidLevelsOption {
+    type Error = RpcDataConversionError;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        let val = rpc::forge::StorageRaidLevels::try_from(value).map_err(|_e| {
+            RpcDataConversionError::InvalidValue("StorageRaidLevel".to_string(), value.to_string())
+        })?;
+        Ok(StorageRaidLevelsOption::from(val))
+    }
+}
+
+impl FromStr for StorageRaidLevelsOption {
+    type Err = RpcDataConversionError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Concatenated" => Ok(StorageRaidLevels::Concatenated.into()),
+            "Raid0" => Ok(StorageRaidLevels::Raid0.into()),
+            "Raid1" => Ok(StorageRaidLevels::Raid1.into()),
+            "Raid10" => Ok(StorageRaidLevels::Raid10.into()),
+            "ErasureCoding" => Ok(StorageRaidLevels::ErasureCoding.into()),
+            _ => Err(RpcDataConversionError::InvalidValue(
+                "StorageRaidLevel".to_string(),
+                s.to_string(),
+            )),
+        }
+    }
 }

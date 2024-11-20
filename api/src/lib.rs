@@ -28,6 +28,7 @@ use crate::logging::{
     setup::setup_logging,
 };
 use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
+use ::measured_boot::Error;
 use ::rpc::errors::RpcDataConversionError;
 use config_version::{ConfigVersion, ConfigVersionParseError};
 use dhcp::allocation::DhcpError;
@@ -276,6 +277,12 @@ pub enum CarbideError {
         /// The actual BMC MAC address found associated with the endpoint IP
         found_mac: String,
     },
+}
+
+impl From<::measured_boot::Error> for CarbideError {
+    fn from(value: Error) -> Self {
+        CarbideError::GenericError(value.to_string())
+    }
 }
 
 impl From<CarbideError> for tonic::Status {

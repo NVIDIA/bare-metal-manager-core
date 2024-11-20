@@ -22,7 +22,8 @@ use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
 use crate::cfg::storage::{OsImageActions, StorageActions};
-use carbide::ib::DEFAULT_IB_FABRIC_NAME;
+
+const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]

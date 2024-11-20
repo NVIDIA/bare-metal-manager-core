@@ -11,11 +11,9 @@
  */
 
 /*!
- * The `model` module provides most of the [business] logic for working
- * with measured boot, acting as a layer in front of the `interface`
- * and `dto` instances.
+ * The `db` module provides the basic database CRUD logic for models in the `measured-boot` crate,
+ * including:
  *
- * This includes models for all representations, including:
  *  - `bundle`: Measurement bundles.
  *  - `journal`: Measurement journals.
  *  - `machine`: Mock machines (will eventually go away).

@@ -19,15 +19,13 @@ use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidate
 use ::rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
 };
-use carbide::measured_boot::interface::common::PcrRegisterValue;
-use carbide::measured_boot::{
-    dto::records::CandidateMachineSummary,
-    model::{machine::CandidateMachine, report::MeasurementReport},
-};
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
 use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
+use measured_boot::records::CandidateMachineSummary;
 use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command
