@@ -405,6 +405,8 @@ service Forge {
   rpc MachineValidationTestNextVersion(MachineValidationTestNextVersionRequest) returns (MachineValidationTestNextVersionResponse);
   
   rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
+  
+  rpc UpdateMachineValidationRun(MachineValidationRunRequest) returns (MachineValidationRunResponse);
 
   // Bmc Endpoint Explorer Actions
   // Reset a BMC
@@ -3293,6 +3295,7 @@ message MachineValidationResult {
   google.protobuf.Timestamp start_time = 10;
   google.protobuf.Timestamp end_time = 11;
   common.UUID validation_id = 12;
+  optional string test_id = 13;
 }
 
 message MachineValidationResultPostRequest {
@@ -3332,7 +3335,7 @@ message MachineValidationStatus {
   }
 
   uint32 total = 4;
-  uint32 passed = 5;
+  uint32 completed_tests = 5;
 }
 message MachineValidationRun {
   common.UUID validation_id = 1;
@@ -3342,6 +3345,8 @@ message MachineValidationRun {
   string name = 5;
   optional string context = 6;
   MachineValidationStatus status = 7;
+  google.protobuf.Duration duration_to_complete = 8;  
+
 }
 
 message MachineSetAutoUpdateRequest {
@@ -3568,5 +3573,14 @@ message MachineValidationTestEnableDisableTestRequest {
 }
 
 message MachineValidationTestEnableDisableTestResponse {
+  string message = 1;
+}
+
+message MachineValidationRunRequest {
+  common.UUID validation_id = 1;
+  google.protobuf.Duration duration_to_complete = 2;  
+  uint32 total = 3;
+}
+message MachineValidationRunResponse {
   string message = 1;
 }

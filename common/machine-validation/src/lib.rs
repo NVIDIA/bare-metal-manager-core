@@ -146,6 +146,31 @@ impl MachineValidationManager {
                 ..rpc::forge::MachineValidationTestsGetRequest::default()
             })
             .await?;
+        let mut run_request = rpc::forge::MachineValidationRunRequest {
+            validation_id: Some(rpc::Uuid {
+                value: uuid.to_owned(),
+            }),
+            ..rpc::forge::MachineValidationRunRequest::default()
+        };
+        let mut expected_time_duration = 0;
+        for test in tests.clone() {
+            if !machine_validation_filter.allowed_tests.is_empty()
+                && !machine_validation_filter
+                    .allowed_tests
+                    .contains(&test.test_id)
+            {
+                continue;
+            }
+            run_request.total += 1;
+            expected_time_duration += test.timeout.unwrap_or(7200);
+        }
+        run_request.duration_to_complete = Some(rpc::Duration::from(
+            std::time::Duration::from_secs(expected_time_duration as u64),
+        ));
+        //Update the duration
+        mc.clone()
+            .update_machine_validation_run(run_request)
+            .await?;
         mc.run(
             machine_id,
             tests,

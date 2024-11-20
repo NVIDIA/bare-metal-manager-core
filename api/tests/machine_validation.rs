@@ -31,7 +31,8 @@ use common::api_fixtures::{
     instance::{create_instance, delete_instance, single_interface_network_config},
     machine_validation_completed,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    on_demand_machine_validation, reboot_completed, TestEnvOverrides,
+    on_demand_machine_validation, reboot_completed, update_machine_validation_run,
+    TestEnvOverrides,
 };
 use rpc::Timestamp;
 
@@ -139,6 +140,7 @@ async fn test_machine_validation_with_error(
         exit_code: -1,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_machine_id = create_host_with_machine_validation(
@@ -273,6 +275,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_machine_id = create_host_with_machine_validation(
@@ -371,6 +374,7 @@ async fn test_machine_validation_get_results(
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_remote_id = create_host_with_machine_validation(
@@ -560,6 +564,7 @@ async fn test_machine_validation_test_on_demand_filter(
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_machine_id = create_host_with_machine_validation(
@@ -1126,6 +1131,7 @@ async fn test_on_demant_un_verified_machine_validation(
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_machine_id = create_host_with_machine_validation(
@@ -1273,7 +1279,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let mut machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -1285,6 +1291,7 @@ async fn test_on_demant_machine_validation_all_contexts(
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
     };
 
     let host_machine_id = create_host_with_machine_validation(
@@ -1335,6 +1342,24 @@ async fn test_on_demant_machine_validation_all_contexts(
         contexts.clone(),
     )
     .await;
+    let success = update_machine_validation_run(
+        &env,
+        on_demand_response.clone().validation_id,
+        Some(rpc::Duration::from(std::time::Duration::from_secs(3600))),
+        0,
+    )
+    .await;
+    assert_eq!(success.message, "Success".to_string());
+    machine_validation_result.validation_id = on_demand_response.clone().validation_id;
+
+    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    for run in runs.runs {
+        if run.validation_id == on_demand_response.clone().validation_id {
+            assert_eq!(run.status.unwrap_or_default().total, 0);
+            assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
+            assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 3600);
+        }
+    }
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),

@@ -59,7 +59,8 @@ use crate::handlers::machine_validation::{
     machine_validation_test_enable_disable_test, machine_validation_test_next_version,
     machine_validation_test_verfied, mark_machine_validation_complete,
     on_demand_machine_validation, persist_validation_result,
-    remove_machine_validation_external_config, update_machine_validation_test,
+    remove_machine_validation_external_config, update_machine_validation_run,
+    update_machine_validation_test,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::logging::log_limiter::LogLimiter;
@@ -1605,10 +1606,12 @@ impl Forge for Api {
                         },
                 } => {
                     tracing::info!(
-                        " context : {} id: {} is_enabled: {}",
+                        " context : {} id: {} is_enabled: {}, completed {}, total {}",
                         context,
                         id,
-                        is_enabled
+                        is_enabled,
+                        completed,
+                        total,
                     );
                     if is_enabled {
                         MachineValidation::update_status(
@@ -1616,8 +1619,7 @@ impl Forge for Api {
                             &id,
                             MachineValidationStatus {
                                 state: MachineValidationState::InProgress,
-                                total: total.try_into().unwrap_or_default(),
-                                completed: completed.try_into().unwrap_or_default(),
+                                ..MachineValidationStatus::default()
                             },
                         )
                         .await?;
@@ -4220,6 +4222,12 @@ impl Forge for Api {
         request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
     ) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
         machine_validation_test_enable_disable_test(self, request).await
+    }
+    async fn update_machine_validation_run(
+        &self,
+        request: tonic::Request<rpc::MachineValidationRunRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
+        update_machine_validation_run(self, request).await
     }
 }
 

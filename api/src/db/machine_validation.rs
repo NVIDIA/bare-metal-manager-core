@@ -21,7 +21,7 @@ use crate::{
 
 use super::{
     machine::{Machine, MachineSearchConfig},
-    ObjectFilter,
+    machine_validation_suites, ObjectFilter,
 };
 
 use forge_uuid::machine::MachineId;
@@ -63,6 +63,7 @@ pub struct MachineValidation {
     pub context: Option<String>,
     pub status: Option<MachineValidationStatus>,
     pub description: Option<String>,
+    pub duration_to_complete: i64,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidation {
@@ -76,6 +77,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             total: row.try_get("total")?,
             completed: row.try_get("completed")?,
         };
+
         Ok(MachineValidation {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
@@ -86,6 +88,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             filter: filter.map(|x| x.0),
             status: Some(status),
             description: row.try_get("description")?,
+            duration_to_complete: row.try_get("duration_to_complete")?,
         })
     }
 }
@@ -150,14 +153,10 @@ impl MachineValidation {
         uuid: &Uuid,
         status: MachineValidationStatus,
     ) -> CarbideResult<()> {
-        // TODO Compute the machine validation state here
-        let query =
-            "UPDATE machine_validation SET state=$2,completed=$3,total=$4 WHERE id=$1 RETURNING *";
+        let query = "UPDATE machine_validation SET state=$2 WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(status.state.to_string())
-            .bind(status.completed)
-            .bind(status.total)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -168,19 +167,33 @@ impl MachineValidation {
         uuid: &Uuid,
         status: &MachineValidationStatus,
     ) -> CarbideResult<()> {
-        let query =
-            "UPDATE machine_validation SET end_time=NOW(),state=$2,completed=$3,total=$4  WHERE id=$1 RETURNING *";
+        let query = "UPDATE machine_validation SET end_time=NOW(),state=$2 WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(status.state.to_string())
-            .bind(status.completed)
-            .bind(status.total)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
+    pub async fn update_run(
+        txn: &mut Transaction<'_, Postgres>,
+        uuid: &Uuid,
+        total: i32,
+        duration_to_complete: i64,
+    ) -> CarbideResult<()> {
+        let query =
+            "UPDATE machine_validation SET duration_to_complete=$2,total=$3  WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(uuid)
+            .bind(duration_to_complete)
+            .bind(total)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
     pub async fn create_new_run(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -197,17 +210,14 @@ impl MachineValidation {
             context,
             end_time,
             description,
-            state,
-            completed,
-            total
+            state
         )
-        VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)
         ON CONFLICT DO NOTHING";
         // TODO fetch total number of test and repopulate the status
         let status = MachineValidationStatus {
             state: MachineValidationState::Started,
-            total: 1,
-            completed: 0,
+            ..MachineValidationStatus::default()
         };
         let _ = sqlx::query(query)
             .bind(id)
@@ -217,8 +227,6 @@ impl MachineValidation {
             .bind(context.clone())
             .bind(format!("Running validation on {}", machine_id))
             .bind(status.state.to_string())
-            .bind(status.completed)
-            .bind(status.total)
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -418,9 +426,12 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             }),
             status: Some(rpc::forge::MachineValidationStatus {
                 machine_validation_state: MachineValidation::from_state(status.state).into(),
-                total: status.total as u32,
-                passed: status.completed as u32,
+                total: status.total.try_into().unwrap_or(0),
+                completed_tests: status.completed.try_into().unwrap_or(0),
             }),
+            duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(
+                value.duration_to_complete.try_into().unwrap_or(0),
+            ))),
         }
     }
 }
@@ -442,6 +453,7 @@ pub struct MachineValidationResult {
     pub exit_code: i32,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
+    pub test_id: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
@@ -458,6 +470,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
             exit_code: row.try_get("exit_code")?,
             start_time: row.try_get("start_time")?,
             end_time: row.try_get("end_time")?,
+            test_id: row.try_get("test_id")?,
         })
     }
 }
@@ -491,6 +504,7 @@ impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
             exit_code: value.exit_code,
             start_time,
             end_time,
+            test_id: value.test_id,
         })
     }
 }
@@ -509,6 +523,7 @@ impl From<MachineValidationResult> for rpc::forge::MachineValidationResult {
             exit_code: value.exit_code,
             start_time: Some(value.start_time.into()),
             end_time: Some(value.end_time.into()),
+            test_id: value.test_id,
         }
     }
 }
@@ -651,9 +666,10 @@ impl MachineValidationResult {
             exit_code,
             machine_validation_id,
             start_time,
-            end_time
+            end_time,
+            test_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT DO NOTHING";
         let _result = sqlx::query(query)
             .bind(&self.name)
@@ -667,6 +683,9 @@ impl MachineValidationResult {
             .bind(self.validation_id)
             .bind(self.start_time)
             .bind(self.end_time)
+            .bind(self.test_id.clone().unwrap_or(
+                machine_validation_suites::MachineValidationTest::generate_test_id(&self.name),
+            ))
             .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
