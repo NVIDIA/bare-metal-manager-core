@@ -220,6 +220,7 @@ impl MachineValidation {
         uuid: rpc::common::Uuid,
     ) -> Option<rpc::forge::MachineValidationResult> {
         let mut mc_result = rpc::forge::MachineValidationResult {
+            test_id: Some(test.test_id.clone()),
             name: test.name.clone(),
             description: test.description.clone().unwrap_or_default(),
             command: test.command.clone(),
@@ -373,6 +374,24 @@ impl MachineValidation {
         }
     }
 
+    pub(crate) async fn update_machine_validation_run(
+        self,
+        data: rpc::forge::MachineValidationRunRequest,
+    ) -> Result<(), MachineValidationError> {
+        tracing::info!("{:?}", data.clone());
+        let mut client = self.create_forge_client().await?;
+        let request = tonic::Request::new(data);
+        let _response = client
+            .update_machine_validation_run(request)
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "update_machine_validation_run".to_owned(),
+                    e.to_string(),
+                )
+            })?;
+        Ok(())
+    }
     pub async fn run(
         self,
         machine_id: &str,

@@ -399,6 +399,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         exit_code: 0,
         start_time: Some(Timestamp::from(SystemTime::now())),
         end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("instance".to_string()),
     };
 
     let response = forge_agent_control(

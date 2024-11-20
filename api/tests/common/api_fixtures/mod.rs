@@ -1374,6 +1374,23 @@ pub async fn on_demand_machine_validation(
         .unwrap()
         .into_inner()
 }
+
+pub async fn update_machine_validation_run(
+    env: &TestEnv,
+    validation_id: Option<rpc::common::Uuid>,
+    duration_to_complete: Option<rpc::Duration>,
+    total: u32,
+) -> rpc::forge::MachineValidationRunResponse {
+    env.api
+        .update_machine_validation_run(Request::new(rpc::forge::MachineValidationRunRequest {
+            validation_id,
+            duration_to_complete,
+            total,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
 /// A hot swappable machine state handler.
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).

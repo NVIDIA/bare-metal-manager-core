@@ -820,3 +820,48 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         },
     ))
 }
+
+pub(crate) async fn update_machine_validation_run(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationRunRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
+    let req = request.into_inner();
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin  update_machine_validation_run",
+            e,
+        ))
+    })?;
+
+    let validation_id = match req.validation_id {
+        Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        None => {
+            return Err(CarbideError::MissingArgument("Validation id").into());
+        }
+    };
+
+    MachineValidation::update_run(
+        &mut txn,
+        &validation_id,
+        req.total
+            .try_into()
+            .map_err(|_e| Status::invalid_argument("total"))?,
+        req.duration_to_complete.unwrap_or_default().seconds,
+    )
+    .await?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit update_machine_validation_run",
+            e,
+        ))
+    })?;
+
+    Ok(tonic::Response::new(rpc::MachineValidationRunResponse {
+        message: "Success".to_string(),
+    }))
+}

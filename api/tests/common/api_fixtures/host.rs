@@ -19,6 +19,7 @@ use crate::common::api_fixtures::{
 };
 use crate::common::api_fixtures::{
     inject_machine_measurements, machine_validation_completed, persist_machine_validation_result,
+    update_machine_validation_run,
 };
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
@@ -425,10 +426,26 @@ pub async fn create_host_with_machine_validation(
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     if env.config.machine_validation_config.enabled {
         let uuid = &response.data.unwrap().pair[1].value;
-
-        machine_validation_result.validation_id = Some(rpc::Uuid {
+        let validation_id = Some(rpc::Uuid {
             value: uuid.to_owned(),
         });
+        let success = update_machine_validation_run(
+            env,
+            validation_id.clone(),
+            Some(rpc::Duration::from(std::time::Duration::from_secs(1200))),
+            1,
+        )
+        .await;
+        assert_eq!(success.message, "Success".to_string());
+        let runs = get_machine_validation_runs(env, host_rpc_machine_id.clone(), false).await;
+        for run in runs.runs {
+            if run.validation_id == validation_id {
+                assert_eq!(run.status.unwrap_or_default().total, 1);
+                assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
+                assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
+            }
+        }
+        machine_validation_result.validation_id = validation_id.clone();
         persist_machine_validation_result(env, machine_validation_result.clone()).await;
         assert_eq!(
             get_machine_validation_runs(env, host_rpc_machine_id.clone(), false)
@@ -439,6 +456,16 @@ pub async fn create_host_with_machine_validation(
         );
 
         machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
+
+        let runs = get_machine_validation_runs(env, host_rpc_machine_id.clone(), false).await;
+        for run in runs.runs {
+            if run.validation_id == validation_id {
+                assert_eq!(run.status.unwrap_or_default().total, 1);
+                assert_eq!(run.status.unwrap_or_default().completed_tests, 1);
+                assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
+            }
+        }
+
         if error.is_some() {
             env.run_machine_state_controller_iteration().await;
 
