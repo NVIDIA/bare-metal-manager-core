@@ -113,6 +113,7 @@ health-report = { path = "../common/health-report" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils", features = ["sqlx"] }
+measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
 duration-str = "0.11.2"
 prost-types = "0.13"
 rcgen = "0.13.1"

@@ -18,16 +18,15 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
-};
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
-use forge_uuid::DbTable;
+use measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
+};
 use sqlx::{Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(
@@ -178,88 +177,4 @@ pub async fn get_approval_for_profile_id(
         .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_profile_id", e))
-}
-
-/// import_measurement_approved_machines takes a vector of
-/// MeasurementApprovedMachineRecord and calls
-/// import_measurement_approved_machine for each of them.
-///
-/// This is used for doing full site imports, and is wrapped in a transaction
-/// such that, if any of it fails, none of it will be committed.
-pub async fn import_measurement_approved_machines(
-    txn: &mut Transaction<'_, Postgres>,
-    records: Vec<MeasurementApprovedMachineRecord>,
-) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
-    let mut committed = Vec::<MeasurementApprovedMachineRecord>::new();
-    for record in records.iter() {
-        committed.push(import_measurement_approved_machine(&mut *txn, record).await?);
-    }
-    Ok(committed)
-}
-
-/// import_measurement_approved_machine inserts a single
-/// MeasurementApprovedMachineRecord.
-///
-/// This is used for doing full site imports, and the intent is that this
-/// is called by import_measurement_approved_machines as part of inserting a
-/// bunch of machine approvals.
-pub async fn import_measurement_approved_machine(
-    txn: &mut Transaction<'_, Postgres>,
-    record: &MeasurementApprovedMachineRecord,
-) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
-    let query = format!(
-        "insert into {}(approval_id, machine_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
-        MeasurementApprovedMachineRecord::db_table_name()
-    );
-    sqlx::query_as(&query)
-        .bind(record.approval_id)
-        .bind(record.machine_id.clone())
-        .bind(record.approval_type)
-        .bind(record.ts)
-        .bind(record.comments.clone())
-        .fetch_one(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_approved_machine", e))
-}
-
-/// import_measurement_approved_profiles takes a vector of
-/// MeasurementApprovedMachineRecord and calls
-/// import_measurement_approved_profile for each of them.
-///
-/// This is used for doing full site imports, and is wrapped in a transaction
-/// such that, if any of it fails, none of it will be committed.
-pub async fn import_measurement_approved_profiles(
-    txn: &mut Transaction<'_, Postgres>,
-    records: Vec<MeasurementApprovedProfileRecord>,
-) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
-    let mut committed = Vec::<MeasurementApprovedProfileRecord>::new();
-    for record in records.iter() {
-        committed.push(import_measurement_approved_profile(&mut *txn, record).await?);
-    }
-    Ok(committed)
-}
-
-/// import_measurement_approved_profile inserts a single
-/// MeasurementApprovedProfileRecord.
-///
-/// This is used for doing full site imports, and the intent is that this
-/// is called by import_measurement_approved_profiles as part of inserting a
-/// bunch of machine approvals.
-pub async fn import_measurement_approved_profile(
-    txn: &mut Transaction<'_, Postgres>,
-    record: &MeasurementApprovedProfileRecord,
-) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
-    let query = format!(
-        "insert into {}(approval_id, profile_id, state, ts, comments) values($1, $2, $3, $4, $5) returning *",
-        MeasurementApprovedProfileRecord::db_table_name()
-    );
-    sqlx::query_as(&query)
-        .bind(record.approval_id)
-        .bind(record.profile_id)
-        .bind(record.approval_type)
-        .bind(record.ts)
-        .bind(record.comments.clone())
-        .fetch_one(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_approved_profile", e))
 }

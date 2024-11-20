@@ -17,10 +17,10 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::records::MeasurementMachineState;
-    use crate::measured_boot::model::journal::MeasurementJournal;
+    use crate::measured_boot::db;
     use forge_uuid::machine::MachineId;
     use forge_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
+    use measured_boot::records::MeasurementMachineState;
     use std::str::FromStr;
 
     // test_journal_crudl makes sure database constraints
@@ -32,7 +32,7 @@ mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")?;
         let report_id = MeasurementReportId(uuid::Uuid::new_v4());
         let profile_id = MeasurementSystemProfileId(uuid::Uuid::new_v4());
-        let journal = MeasurementJournal::new_with_txn(
+        let journal = db::journal::new_with_txn(
             &mut txn,
             machine_id.clone(),
             report_id,

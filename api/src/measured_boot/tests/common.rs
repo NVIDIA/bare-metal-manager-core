@@ -15,10 +15,11 @@
 /// Shared code by measured boot tests.
 use crate::db::machine::Machine;
 use crate::db::machine_topology::MachineTopology;
-use crate::measured_boot::model::machine::CandidateMachine;
+use crate::measured_boot::db;
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::ManagedHostState;
 use forge_uuid::machine::MachineId;
+use measured_boot::machine::CandidateMachine;
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 
@@ -41,7 +42,7 @@ pub async fn create_test_machine(
     let machine_id = MachineId::from_str(machine_id)?;
     Machine::create(txn, &machine_id, ManagedHostState::Ready).await?;
     MachineTopology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = CandidateMachine::from_id_with_txn(txn, machine_id.clone()).await?;
+    let machine = db::machine::from_id_with_txn(txn, machine_id.clone()).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

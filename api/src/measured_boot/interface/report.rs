@@ -18,11 +18,12 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 use forge_uuid::measured_boot::MeasurementReportId;
+use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
+use measured_boot::pcr::PcrRegisterValue;
 use sqlx::{Postgres, QueryBuilder, Transaction};
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:sha256)
@@ -30,10 +31,7 @@ use sqlx::{Postgres, QueryBuilder, Transaction};
 ///
 /// The intent is bundle operations can call this to see what reports
 /// match the bundle.
-pub fn where_pcr_pairs(
-    query: &mut QueryBuilder<'_, Postgres>,
-    values: &[common::PcrRegisterValue],
-) {
+pub fn where_pcr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &[PcrRegisterValue]) {
     query.push("where (pcr_register, sha256) in (");
     for (pair_index, value) in values.iter().enumerate() {
         query.push("(");
@@ -50,7 +48,7 @@ pub fn where_pcr_pairs(
 
 pub async fn match_latest_reports(
     txn: &mut Transaction<'_, Postgres>,
-    values: &[common::PcrRegisterValue],
+    values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     if values.is_empty() {
         return Err(DatabaseError::new(
@@ -114,7 +112,7 @@ pub async fn insert_measurement_report_record(
 pub async fn insert_measurement_report_value_records(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-    values: &[common::PcrRegisterValue],
+    values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     if values.is_empty() {
         return Err(DatabaseError::new(
@@ -136,7 +134,7 @@ pub async fn insert_measurement_report_value_records(
 async fn insert_measurement_report_value_record(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-    value: &common::PcrRegisterValue,
+    value: &PcrRegisterValue,
 ) -> Result<MeasurementReportValueRecord, DatabaseError> {
     let query = "insert into measurement_reports_values(report_id, pcr_register, sha256) values($1, $2, $3) returning *";
     sqlx::query_as(query)
@@ -166,22 +164,6 @@ pub async fn get_all_measurement_report_records(
             file!(),
             line!(),
             "get_all_measurement_report_records",
-            e.source,
-        )
-    })
-}
-
-/// get_all_measurement_report_value_records returns all
-/// MeasurementReportValueRecord instances in the database. This leverages
-/// the generic get_all_objects function since its a simple/common pattern.
-pub async fn get_all_measurement_report_value_records(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_all_measurement_report_value_records",
             e.source,
         )
     })
@@ -248,44 +230,6 @@ pub async fn get_measurement_report_values_for_report_id(
         })
 }
 
-/// get_measurement_report_ids_by_values returns a report
-/// whose values match the input values.
-pub async fn get_measurement_report_ids_by_values(
-    txn: &mut Transaction<'_, Postgres>,
-    values: &[common::PcrRegisterValue],
-) -> Result<Vec<MeasurementReportId>, DatabaseError> {
-    common::get_ids_for_bundle_values(txn, "measurement_reports_values", values)
-        .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_report_ids_by_values",
-                e.source,
-            )
-        })
-}
-
-/// get_latest_measurement_report_records_by_machine_id returns the most
-/// recent measurement report IDs sent by each machine.
-pub async fn get_latest_measurement_report_records_by_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
-    let query =
-        "select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc";
-    sqlx::query_as(query)
-        .fetch_all(txn.deref_mut())
-        .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_latest_measurement_report_records_by_machine_id",
-                e,
-            )
-        })
-}
-
 /// delete_report_for_id deletes a report record.
 pub async fn delete_report_for_id(
     txn: &mut Transaction<'_, Postgres>,
@@ -303,4 +247,25 @@ pub async fn delete_report_values_for_id(
     common::delete_objects_where_id(txn, report_id)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "delete_report_values_for_id", e.source))
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    /// get_all_measurement_report_value_records returns all
+    /// MeasurementReportValueRecord instances in the database. This leverages
+    /// the generic get_all_objects function since its a simple/common pattern.
+    pub async fn get_all_measurement_report_value_records(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
+        common::get_all_objects(txn).await.map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_all_measurement_report_value_records",
+                e.source,
+            )
+        })
+    }
 }

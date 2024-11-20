@@ -3238,7 +3238,7 @@ impl Forge for Api {
         // off the PCR values as a MeasurementReport.
         db_attest::SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
 
-        let pcr_values: measured_boot::interface::common::PcrRegisterValueVec = request
+        let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
             .into_inner()
             .pcr_values
             .drain(..)
@@ -3249,7 +3249,7 @@ impl Forge for Api {
         // In this case, we're not doing anything with
         // the resulting report (at least not yet), so just
         // throw it away.
-        let _report = measured_boot::model::report::MeasurementReport::new_with_txn(
+        let _report = crate::measured_boot::db::report::new_with_txn(
             &mut txn,
             machine_id.clone(),
             pcr_values.into_inner().as_slice(),

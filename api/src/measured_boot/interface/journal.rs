@@ -18,12 +18,12 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
+use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_journal_record is a very basic insert of a
@@ -111,24 +111,6 @@ pub async fn get_measurement_journal_records_for_machine_id(
                 file!(),
                 line!(),
                 "get_measurement_journal_records_for_machine_id",
-                e.source,
-            )
-        })
-}
-
-/// get_measurement_journal_ids_by_values returns a journal
-/// whose values match the input values.
-pub async fn get_measurement_journal_ids_by_values(
-    txn: &mut Transaction<'_, Postgres>,
-    values: &[common::PcrRegisterValue],
-) -> Result<Vec<MeasurementReportId>, DatabaseError> {
-    common::get_ids_for_bundle_values(txn, "measurement_journal_values", values)
-        .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_journal_ids_by_values",
                 e.source,
             )
         })

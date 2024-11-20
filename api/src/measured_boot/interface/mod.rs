@@ -11,7 +11,7 @@
  */
 
 /*!
- * The `interface` module provides thin functions to connect dto
+ * The `interface` module provides thin functions to connect db
  * types to the database via queries.
  *
  * This includes basic insert/select/delete/update calls for:

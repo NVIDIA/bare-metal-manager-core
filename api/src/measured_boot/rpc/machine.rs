@@ -14,15 +14,13 @@
  * gRPC handlers for measured boot mock-machine related API calls.
  */
 
+use crate::measured_boot::db;
 use crate::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use crate::measured_boot::{
-    interface::common::PcrRegisterValue, model::machine::CandidateMachine,
-    model::report::MeasurementReport,
-};
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
+use measured_boot::pcr::PcrRegisterValue;
 use rpc::protos::measured_boot::show_candidate_machine_request;
 use rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,
@@ -39,7 +37,7 @@ pub async fn handle_attest_candidate_machine(
     req: &AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let report = MeasurementReport::new_with_txn(
+    let report = db::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
@@ -66,7 +64,7 @@ pub async fn handle_show_candidate_machine(
     let machine = match &req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
-            CandidateMachine::from_id_with_txn(
+            db::machine::from_id_with_txn(
                 &mut txn,
                 MachineId::from_str(machine_uuid).map_err(|_| {
                     CarbideError::from(RpcDataConversionError::InvalidMachineId(
@@ -93,7 +91,7 @@ pub async fn handle_show_candidate_machines(
 ) -> Result<ShowCandidateMachinesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowCandidateMachinesResponse {
-        machines: CandidateMachine::get_all(&mut txn)
+        machines: db::machine::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)

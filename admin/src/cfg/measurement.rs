@@ -25,8 +25,8 @@ use crate::measurement::report;
 use crate::measurement::site;
 use utils::admin_cli::OutputFormat;
 
-use carbide::measured_boot::interface::common::PcrRegisterValue;
 use clap::Parser;
+use measured_boot::pcr::PcrRegisterValue;
 
 // KvPair is a really simple struct for holding
 // a key/value pair, and is used for parsing

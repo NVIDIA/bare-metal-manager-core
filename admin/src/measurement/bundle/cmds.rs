@@ -32,11 +32,11 @@ use ::rpc::protos::measured_boot::{
     RenameMeasurementBundleRequest, ShowMeasurementBundleRequest, ShowMeasurementBundlesRequest,
     UpdateMeasurementBundleRequest,
 };
-use carbide::measured_boot::dto::records::MeasurementBundleRecord;
-use carbide::measured_boot::interface::common::PcrRegisterValue;
-use carbide::measured_boot::model::bundle::MeasurementBundle;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementBundleId;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
 use std::str::FromStr;
 use utils::admin_cli::cli_output;

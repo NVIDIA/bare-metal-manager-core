@@ -18,14 +18,14 @@
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
-use crate::measured_boot::dto::records::{
-    MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleStateRecord,
-    MeasurementBundleValueRecord, MeasurementReportRecord,
-};
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use forge_uuid::{DbPrimaryUuid, DbTable};
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::{
+    MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
+};
 use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_bundle_record is a very basic insert of a
@@ -66,7 +66,7 @@ pub async fn insert_measurement_bundle_record(
 pub async fn insert_measurement_bundle_value_records(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-    values: &[common::PcrRegisterValue],
+    values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     let mut records: Vec<MeasurementBundleValueRecord> = Vec::new();
     for value in values.iter() {
@@ -188,24 +188,6 @@ pub async fn update_state_for_bundle_id(
     }
 }
 
-/// get_state_for_bundle_id gets the state for a given bundle ID.
-pub async fn get_state_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
-    bundle_id: MeasurementBundleId,
-) -> Result<Option<MeasurementBundleState>, DatabaseError> {
-    let query = format!(
-        "select state from {} where bundle_id = $1",
-        MeasurementBundleRecord::db_table_name()
-    );
-    let record = sqlx::query_as::<_, MeasurementBundleStateRecord>(&query)
-        .bind(bundle_id)
-        .fetch_optional(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_state_for_bundle_id", e))?;
-    let state = record.map(|r| r.state);
-    Ok(state)
-}
-
 /// get_measurement_bundle_by_id returns a populated MeasurementBundleRecord
 /// for the given `bundle_id`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
@@ -309,42 +291,6 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
                 file!(),
                 line!(),
                 "get_measurement_bundle_values_for_bundle_id",
-                e.source,
-            )
-        })
-}
-
-/// get_measurement_bundle_by_values returns a bundle
-/// whose values match the input values.
-pub async fn get_measurement_bundle_ids_by_values(
-    txn: &mut Transaction<'_, Postgres>,
-    values: &[common::PcrRegisterValue],
-) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
-    common::get_ids_for_bundle_values(txn, "measurement_bundles_values", values)
-        .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_bundle_ids_by_values",
-                e.source,
-            )
-        })
-}
-
-/// get_measurement_journals_for_bundle_id returns all measurement journal
-/// records that are associated with the given bundle ID.
-pub async fn get_measurement_journals_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
-    bundle_id: MeasurementBundleId,
-) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
-    common::get_objects_where_id(txn, bundle_id)
-        .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_journals_for_bundle_id",
                 e.source,
             )
         })

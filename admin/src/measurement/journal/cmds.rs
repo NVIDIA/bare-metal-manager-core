@@ -26,8 +26,8 @@ use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
     ShowMeasurementJournalsRequest,
 };
-use carbide::measured_boot::dto::records::MeasurementJournalRecord;
-use carbide::measured_boot::model::{bundle::MeasurementBundle, journal::MeasurementJournal};
+use measured_boot::records::MeasurementJournalRecord;
+use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
 use utils::admin_cli::{
     cli_output, just_print_summary, CarbideCliError, CarbideCliResult, ToTable,

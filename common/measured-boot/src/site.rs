@@ -17,26 +17,13 @@
  * This also provides code for importing/exporting (and working with) SiteModels.
 */
 
-use crate::measured_boot::dto::records::{
+use crate::records::{
     MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
     MeasurementSystemProfileRecord,
 };
-use crate::measured_boot::interface::bundle::{
-    get_measurement_bundle_records, get_measurement_bundles_values,
-};
-use crate::measured_boot::interface::bundle::{
-    import_measurement_bundles, import_measurement_bundles_values,
-};
-use crate::measured_boot::interface::profile::{
-    export_measurement_profile_records, export_measurement_system_profiles_attrs,
-};
-use crate::measured_boot::interface::profile::{
-    import_measurement_system_profiles, import_measurement_system_profiles_attrs,
-};
-use crate::CarbideResult;
 use rpc::protos::measured_boot::{ImportSiteMeasurementsResponse, SiteModelPb};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
+#[cfg(feature = "cli")]
 use utils::admin_cli::ToTable;
 
 #[derive(Serialize)]
@@ -52,6 +39,7 @@ impl From<&ImportSiteMeasurementsResponse> for ImportResult {
     }
 }
 
+#[cfg(feature = "cli")]
 impl ToTable for ImportResult {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -70,6 +58,7 @@ pub struct SiteModel {
     pub measurement_bundles_values: Vec<MeasurementBundleValueRecord>,
 }
 
+#[cfg(feature = "cli")]
 impl ToTable for SiteModel {
     fn to_table(&self) -> eyre::Result<String> {
         Ok("lol, not implemented for SiteModel. try -o json or -o yaml.".to_string())
@@ -77,55 +66,27 @@ impl ToTable for SiteModel {
 }
 
 impl SiteModel {
-    /// import takes a populated SiteModel and imports it by
-    /// populating the corresponding profile and bundle records
-    /// in the database.
-    pub async fn import(
-        txn: &mut Transaction<'_, Postgres>,
-        model: &SiteModel,
-    ) -> CarbideResult<()> {
-        import_measurement_system_profiles(txn, &model.measurement_system_profiles).await?;
-        import_measurement_system_profiles_attrs(txn, &model.measurement_system_profiles_attrs)
-            .await?;
-        import_measurement_bundles(txn, &model.measurement_bundles).await?;
-        import_measurement_bundles_values(txn, &model.measurement_bundles_values).await?;
-        Ok(())
-    }
-
-    /// export builds a SiteModel from the records in the database.
-    pub async fn export(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Self> {
-        let measurement_system_profiles = export_measurement_profile_records(txn).await?;
-        let measurement_system_profiles_attrs =
-            export_measurement_system_profiles_attrs(txn).await?;
-        let measurement_bundles = get_measurement_bundle_records(txn).await?;
-        let measurement_bundles_values = get_measurement_bundles_values(txn).await?;
-
-        Ok(Self {
-            measurement_system_profiles,
-            measurement_system_profiles_attrs,
-            measurement_bundles,
-            measurement_bundles_values,
-        })
-    }
-
     ////////////////////////////////////////////////////////////
     /// from_grpc takes an optional protobuf (as populated in a
     /// proto response from the API) and attempts to convert it
     /// to the backing model.
     ////////////////////////////////////////////////////////////
 
-    pub fn from_grpc(some_pb: Option<&SiteModelPb>) -> eyre::Result<Self> {
+    pub fn from_grpc(some_pb: Option<&SiteModelPb>) -> crate::Result<Self> {
         some_pb
-            .ok_or(eyre::eyre!("model is unexpectedly empty"))
+            .ok_or(crate::Error::RpcConversion(
+                "model is unexpectedly empty".to_string(),
+            ))
             .and_then(|pb| {
-                Self::from_pb(pb)
-                    .map_err(|e| eyre::eyre!("site failed pb->model conversion: {}", e))
+                Self::from_pb(pb).map_err(|e| {
+                    crate::Error::RpcConversion(format!("site failed pb->model conversion: {}", e))
+                })
             })
     }
 
     /// from_pb takes a SiteModelPb and converts it to a SiteModel,
     /// generally for the purpose of importing it into the database.
-    pub fn from_pb(model: &SiteModelPb) -> eyre::Result<Self> {
+    pub fn from_pb(model: &SiteModelPb) -> crate::Result<Self> {
         Ok(Self {
             measurement_system_profiles: MeasurementSystemProfileRecord::from_pb_vec(
                 &model.measurement_system_profiles,
@@ -142,7 +103,7 @@ impl SiteModel {
 
     /// to_pb takes a SiteModel and converts it to a SiteModelPb,
     /// generally for the purpose of handling a gRPC response.
-    pub fn to_pb(model: &SiteModel) -> CarbideResult<SiteModelPb> {
+    pub fn to_pb(model: &SiteModel) -> crate::Result<SiteModelPb> {
         let measurement_system_profiles = model
             .measurement_system_profiles
             .iter()

@@ -17,9 +17,7 @@
 #[cfg(test)]
 mod tests {
     use crate::db::machine::Machine;
-    use crate::measured_boot::dto::records::MeasurementApprovedMachineRecord;
-    use crate::measured_boot::interface::common::PcrRegisterValue;
-    use crate::measured_boot::model::report::MeasurementReport;
+    use crate::measured_boot::db;
     use crate::measured_boot::rpc::bundle;
     use crate::measured_boot::rpc::journal;
     use crate::measured_boot::rpc::machine;
@@ -27,8 +25,10 @@ mod tests {
     use crate::measured_boot::rpc::report;
     use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use ::measured_boot::pcr::PcrRegisterValue;
+    use ::measured_boot::records::MeasurementApprovedMachineRecord;
     use forge_uuid::measured_boot::TrustedMachineId;
-    use rpc::protos::measured_boot;
+    use rpc::protos::measured_boot as mbrpc;
     use std::str::FromStr;
 
     // test_measurement_system_profiles is used to test all of the different
@@ -41,7 +41,7 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Create a system profile and make sure it works.
         //////////////////////////////////////////////////
-        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+        let req = mbrpc::CreateMeasurementSystemProfileRequest {
             name: Some(String::from("test-profile")),
             vendor: String::from("Dell, Inc."),
             product: String::from("PowerEdge R750"),
@@ -55,9 +55,9 @@ mod tests {
 
         // And now fetch the first back by ID and make sure it works.
         /////////////////////////////////////////////////////////////
-        let req = measured_boot::ShowMeasurementSystemProfileRequest {
+        let req = mbrpc::ShowMeasurementSystemProfileRequest {
             selector: Some(
-                measured_boot::show_measurement_system_profile_request::Selector::ProfileId(
+                mbrpc::show_measurement_system_profile_request::Selector::ProfileId(
                     created_profile.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -71,9 +71,9 @@ mod tests {
 
         // And now fetch it back by name and make sure it works.
         ////////////////////////////////////////////////////////
-        let req = measured_boot::ShowMeasurementSystemProfileRequest {
+        let req = mbrpc::ShowMeasurementSystemProfileRequest {
             selector: Some(
-                measured_boot::show_measurement_system_profile_request::Selector::ProfileName(
+                mbrpc::show_measurement_system_profile_request::Selector::ProfileName(
                     created_profile.name.clone(),
                 ),
             ),
@@ -87,7 +87,7 @@ mod tests {
 
         // And now show all and make sure the one returned is the right one.
         /////////////////////////////////////////////////////////////////////
-        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
         let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let first_profile = &resp.system_profiles[0];
@@ -96,7 +96,7 @@ mod tests {
 
         // And make sure list all works also.
         /////////////////////////////////////
-        let req = measured_boot::ListMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ListMeasurementSystemProfilesRequest {};
         let resp = profile::handle_list_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let first_profile = &resp.system_profiles[0];
@@ -105,10 +105,10 @@ mod tests {
 
         // And make sure rename works.
         //////////////////////////////
-        let req = measured_boot::RenameMeasurementSystemProfileRequest {
+        let req = mbrpc::RenameMeasurementSystemProfileRequest {
             new_profile_name: String::from("test-renamed-profile"),
             selector: Some(
-                measured_boot::rename_measurement_system_profile_request::Selector::ProfileName(
+                mbrpc::rename_measurement_system_profile_request::Selector::ProfileName(
                     created_profile.name.clone(),
                 ),
             ),
@@ -123,11 +123,11 @@ mod tests {
 
         // Create a second system profile and make sure it works.
         //////////////////////////////////////////////////
-        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+        let req = mbrpc::CreateMeasurementSystemProfileRequest {
             name: Some(String::from("test-profile-2")),
             vendor: String::from("Lenovo"),
             product: String::from("ThinkSystem SR670 V2"),
-            extra_attrs: vec![measured_boot::KvPair {
+            extra_attrs: vec![mbrpc::KvPair {
                 key: String::from("bios_version"),
                 value: String::from("U8E122J-1.51"),
             }],
@@ -138,9 +138,9 @@ mod tests {
         assert_eq!(created_profile2.name, String::from("test-profile-2"));
 
         // ..and lets delete the first.
-        let req = measured_boot::DeleteMeasurementSystemProfileRequest {
+        let req = mbrpc::DeleteMeasurementSystemProfileRequest {
             selector: Some(
-                measured_boot::delete_measurement_system_profile_request::Selector::ProfileName(
+                mbrpc::delete_measurement_system_profile_request::Selector::ProfileName(
                     renamed_profile.name.clone(),
                 ),
             ),
@@ -156,7 +156,7 @@ mod tests {
         // And make sure list all just shows
         // the other profile that was made.
         /////////////////////////////////////
-        let req = measured_boot::ListMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ListMeasurementSystemProfilesRequest {};
         let resp = profile::handle_list_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let second_profile = &resp.system_profiles[0];
@@ -191,7 +191,7 @@ mod tests {
             },
         ];
 
-        let princess_report = MeasurementReport::new_with_txn(
+        let princess_report = db::report::new_with_txn(
             &mut txn,
             princess_network.machine_id.clone(),
             &princess_values,
@@ -201,9 +201,9 @@ mod tests {
         txn.commit().await?;
 
         // One machine!
-        let req = measured_boot::ListMeasurementSystemProfileMachinesRequest{
+        let req = mbrpc::ListMeasurementSystemProfileMachinesRequest {
             selector: Some(
-                measured_boot::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                mbrpc::list_measurement_system_profile_machines_request::Selector::ProfileId(
                     created_profile2.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -213,9 +213,9 @@ mod tests {
         assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
 
         // No bundles though.
-        let req = measured_boot::ListMeasurementSystemProfileBundlesRequest {
+        let req = mbrpc::ListMeasurementSystemProfileBundlesRequest {
             selector: Some(
-                measured_boot::list_measurement_system_profile_bundles_request::Selector::ProfileId(
+                mbrpc::list_measurement_system_profile_bundles_request::Selector::ProfileId(
                     created_profile2.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -226,9 +226,9 @@ mod tests {
         // And now try to delete the second one by ID,
         // which should fail, since there is corresponding
         // journal data referencing the profile.
-        let req = measured_boot::DeleteMeasurementSystemProfileRequest {
+        let req = mbrpc::DeleteMeasurementSystemProfileRequest {
             selector: Some(
-                measured_boot::delete_measurement_system_profile_request::Selector::ProfileId(
+                mbrpc::delete_measurement_system_profile_request::Selector::ProfileId(
                     created_profile2.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -255,12 +255,10 @@ mod tests {
         txn.commit().await?;
 
         // Now lets make sure the show(id) call works.
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    princess_network.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                princess_network.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -268,14 +266,14 @@ mod tests {
         assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
 
         // And show all works.
-        let req = measured_boot::ShowCandidateMachinesRequest {};
+        let req = mbrpc::ShowCandidateMachinesRequest {};
         let resp = machine::handle_show_candidate_machines(&db_conn, &req).await?;
         assert_eq!(1, resp.machines.len());
         let machine = &resp.machines[0];
         assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
 
         // And list all works.
-        let req = measured_boot::ListCandidateMachinesRequest {};
+        let req = mbrpc::ListCandidateMachinesRequest {};
         let resp = machine::handle_list_candidate_machines(&db_conn, &req).await?;
         assert_eq!(1, resp.machines.len());
         let machine = &resp.machines[0];
@@ -292,7 +290,7 @@ mod tests {
                 sha256: "bb".to_string(),
             },
         ];
-        let req = measured_boot::AttestCandidateMachineRequest {
+        let req = mbrpc::AttestCandidateMachineRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
         };
@@ -307,13 +305,13 @@ mod tests {
         assert_eq!(2, report.values.len());
 
         // - A profile (and that the profile is wired to the machine)
-        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
         let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let profile = &resp.system_profiles[0];
-        let req = measured_boot::ListMeasurementSystemProfileMachinesRequest{
+        let req = mbrpc::ListMeasurementSystemProfileMachinesRequest {
             selector: Some(
-                measured_boot::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                mbrpc::list_measurement_system_profile_machines_request::Selector::ProfileId(
                     profile.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -323,7 +321,7 @@ mod tests {
         assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
 
         // - A journal entry (with the correct mappings).
-        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let req = mbrpc::ShowMeasurementJournalsRequest {};
         let resp = journal::handle_show_measurement_journals(&db_conn, &req).await?;
         assert_eq!(1, resp.journals.len());
         let journal = &resp.journals[0];
@@ -333,7 +331,7 @@ mod tests {
         assert_eq!(journal.bundle_id, None);
 
         // - No bundle (since we didn't promote one).
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(0, resp.bundles.len());
 
@@ -372,7 +370,7 @@ mod tests {
         ];
 
         // Make the report.
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
         };
@@ -383,13 +381,13 @@ mod tests {
         let report = resp.report.unwrap();
 
         // Make sure a profile was created (and wired to the machine).
-        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
         let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let profile = &resp.system_profiles[0];
-        let req = measured_boot::ListMeasurementSystemProfileMachinesRequest{
+        let req = mbrpc::ListMeasurementSystemProfileMachinesRequest {
             selector: Some(
-                measured_boot::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                mbrpc::list_measurement_system_profile_machines_request::Selector::ProfileId(
                     profile.profile_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -399,7 +397,7 @@ mod tests {
         assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
 
         // Make sure a journal entry was added.
-        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let req = mbrpc::ShowMeasurementJournalsRequest {};
         let resp = journal::handle_show_measurement_journals(&db_conn, &req).await?;
         assert_eq!(1, resp.journals.len());
         let journal = &resp.journals[0];
@@ -409,12 +407,12 @@ mod tests {
         assert_eq!(journal.bundle_id, None);
 
         // Make sure no bundles exist.
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(0, resp.bundles.len());
 
         // Now lets do a basic show for the report.
-        let req = measured_boot::ShowMeasurementReportForIdRequest {
+        let req = mbrpc::ShowMeasurementReportForIdRequest {
             report_id: report.report_id.clone(),
         };
         let resp = report::handle_show_measurement_report_for_id(&db_conn, &req).await?;
@@ -425,7 +423,7 @@ mod tests {
         assert_eq!(report.values.len(), read_report.values.len());
 
         // And now show all reports.
-        let req = measured_boot::ShowMeasurementReportsRequest {};
+        let req = mbrpc::ShowMeasurementReportsRequest {};
         let resp = report::handle_show_measurement_reports(&db_conn, &req).await?;
         assert_eq!(1, resp.reports.len());
         let read_from_show = &resp.reports[0];
@@ -434,7 +432,7 @@ mod tests {
         assert_eq!(report.values.len(), read_from_show.values.len());
 
         // And now list all reports.
-        let req = measured_boot::ListMeasurementReportRequest { selector: None };
+        let req = mbrpc::ListMeasurementReportRequest { selector: None };
         let resp = report::handle_list_measurement_report(&db_conn, &req).await?;
         assert_eq!(1, resp.reports.len());
         let read_from_list_all = &resp.reports[0];
@@ -443,7 +441,7 @@ mod tests {
 
         // And now show reports for our machine (which is
         // just the single report).
-        let req = measured_boot::ShowMeasurementReportsForMachineRequest {
+        let req = mbrpc::ShowMeasurementReportsForMachineRequest {
             machine_id: princess_network.machine_id.to_string(),
         };
         let resp = report::handle_show_measurement_reports_for_machine(&db_conn, &req).await?;
@@ -454,12 +452,10 @@ mod tests {
         assert_eq!(report.values.len(), read_for_machine.values.len());
 
         // And now list reports for the machine.
-        let req = measured_boot::ListMeasurementReportRequest {
-            selector: Some(
-                measured_boot::list_measurement_report_request::Selector::MachineId(
-                    princess_network.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ListMeasurementReportRequest {
+            selector: Some(mbrpc::list_measurement_report_request::Selector::MachineId(
+                princess_network.machine_id.to_string(),
+            )),
         };
 
         let resp = report::handle_list_measurement_report(&db_conn, &req).await?;
@@ -470,7 +466,7 @@ mod tests {
 
         // Now that the basic stuff is out of the way, lets try to
         // promote a report into a bundle.
-        let req = measured_boot::PromoteMeasurementReportRequest {
+        let req = mbrpc::PromoteMeasurementReportRequest {
             report_id: report.report_id.clone(),
             pcr_registers: String::from(""),
         };
@@ -479,18 +475,15 @@ mod tests {
         let bundle = resp.bundle.unwrap();
         assert_eq!(bundle.profile_id, profile.profile_id);
         assert_eq!(2, bundle.values.len());
-        assert_eq!(
-            measured_boot::MeasurementBundleStatePb::Active as i32,
-            bundle.state
-        );
+        assert_eq!(mbrpc::MeasurementBundleStatePb::Active as i32, bundle.state);
 
         // And make sure there is now a bundle!
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(1, resp.bundles.len());
 
         // Now lets make a second revoked bundle from PCR value 0.
-        let req = measured_boot::RevokeMeasurementReportRequest {
+        let req = mbrpc::RevokeMeasurementReportRequest {
             report_id: report.report_id.clone(),
             pcr_registers: String::from("0"),
         };
@@ -500,12 +493,12 @@ mod tests {
         assert_eq!(bundle.profile_id, profile.profile_id);
         assert_eq!(1, bundle.values.len());
         assert_eq!(
-            measured_boot::MeasurementBundleStatePb::Revoked as i32,
+            mbrpc::MeasurementBundleStatePb::Revoked as i32,
             bundle.state
         );
 
         // And make sure there are now 2 bundles!
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(2, resp.bundles.len());
 
@@ -544,7 +537,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
         };
@@ -555,13 +548,13 @@ mod tests {
         let report = resp.report.unwrap();
 
         // And get the profile that was auto-created.
-        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
         let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.system_profiles.len());
         let profile = &resp.system_profiles[0];
 
         // Show all journals.
-        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let req = mbrpc::ShowMeasurementJournalsRequest {};
         let resp = journal::handle_show_measurement_journals(&db_conn, &req).await?;
         assert_eq!(1, resp.journals.len());
         let journal = &resp.journals[0];
@@ -571,9 +564,9 @@ mod tests {
         assert_eq!(journal.bundle_id, None);
 
         // Show one of the journals.
-        let req = measured_boot::ShowMeasurementJournalRequest {
+        let req = mbrpc::ShowMeasurementJournalRequest {
             selector: Some(
-                measured_boot::show_measurement_journal_request::Selector::JournalId(
+                mbrpc::show_measurement_journal_request::Selector::JournalId(
                     journal.journal_id.clone().unwrap(),
                 ),
             ),
@@ -587,14 +580,14 @@ mod tests {
         assert_eq!(journal.bundle_id, same_journal.bundle_id);
 
         // List all journals.
-        let req = measured_boot::ListMeasurementJournalRequest { selector: None };
+        let req = mbrpc::ListMeasurementJournalRequest { selector: None };
         let resp = journal::handle_list_measurement_journal(&db_conn, &req).await?;
         assert_eq!(1, resp.journals.len());
 
         // List all journals for the machine.
-        let req = measured_boot::ListMeasurementJournalRequest {
+        let req = mbrpc::ListMeasurementJournalRequest {
             selector: Some(
-                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                mbrpc::list_measurement_journal_request::Selector::MachineId(
                     princess_network.machine_id.to_string(),
                 ),
             ),
@@ -615,11 +608,11 @@ mod tests {
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // A bundle needs a profile first, so make a profile.
-        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+        let req = mbrpc::CreateMeasurementSystemProfileRequest {
             name: Some(String::from("test-profile-2")),
             vendor: String::from("Lenovo"),
             product: String::from("ThinkSystem SR670 V2"),
-            extra_attrs: vec![measured_boot::KvPair {
+            extra_attrs: vec![mbrpc::KvPair {
                 key: String::from("bios_version"),
                 value: String::from("U8E122J-1.51"),
             }],
@@ -640,29 +633,24 @@ mod tests {
                 sha256: "bb".to_string(),
             },
         ];
-        let req = measured_boot::CreateMeasurementBundleRequest {
+        let req = mbrpc::CreateMeasurementBundleRequest {
             name: Some(String::from("test-bundle")),
             profile_id: profile.profile_id,
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
-            state: measured_boot::MeasurementBundleStatePb::Active.into(),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
         };
         let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
         let bundle = resp.bundle.unwrap();
         assert_eq!(bundle.name, String::from("test-bundle"));
         assert_eq!(bundle.values.len(), pcr_values.len());
-        assert_eq!(
-            bundle.state,
-            measured_boot::MeasurementBundleStatePb::Active as i32,
-        );
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
 
         // Rename it
-        let req = measured_boot::RenameMeasurementBundleRequest {
+        let req = mbrpc::RenameMeasurementBundleRequest {
             new_bundle_name: String::from("renamed-bundle"),
             selector: Some(
-                measured_boot::rename_measurement_bundle_request::Selector::BundleName(
-                    bundle.name.clone(),
-                ),
+                mbrpc::rename_measurement_bundle_request::Selector::BundleName(bundle.name.clone()),
             ),
         };
         let resp = bundle::handle_rename_measurement_bundle(&db_conn, &req).await?;
@@ -672,12 +660,10 @@ mod tests {
         assert_eq!(renamed_bundle.bundle_id, bundle.bundle_id);
 
         // Show the bundle. Check by bundle ID and bundle name.
-        let req = measured_boot::ShowMeasurementBundleRequest {
-            selector: Some(
-                measured_boot::show_measurement_bundle_request::Selector::BundleId(
-                    renamed_bundle.bundle_id.unwrap(),
-                ),
-            ),
+        let req = mbrpc::ShowMeasurementBundleRequest {
+            selector: Some(mbrpc::show_measurement_bundle_request::Selector::BundleId(
+                renamed_bundle.bundle_id.unwrap(),
+            )),
         };
         let resp = bundle::handle_show_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
@@ -685,9 +671,9 @@ mod tests {
         assert_eq!(bundle_by_id.name, String::from("renamed-bundle"));
         assert_eq!(bundle_by_id.bundle_id, bundle.bundle_id);
 
-        let req = measured_boot::ShowMeasurementBundleRequest {
+        let req = mbrpc::ShowMeasurementBundleRequest {
             selector: Some(
-                measured_boot::show_measurement_bundle_request::Selector::BundleName(
+                mbrpc::show_measurement_bundle_request::Selector::BundleName(
                     renamed_bundle.name.clone(),
                 ),
             ),
@@ -699,7 +685,7 @@ mod tests {
         assert_eq!(bundle_by_name.bundle_id, bundle.bundle_id);
 
         // Show all
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(1, resp.bundles.len());
         let bundle_by_all = &resp.bundles[0];
@@ -707,7 +693,7 @@ mod tests {
         assert_eq!(bundle_by_all.bundle_id, bundle.bundle_id);
 
         // List all
-        let req = measured_boot::ListMeasurementBundlesRequest {};
+        let req = mbrpc::ListMeasurementBundlesRequest {};
         let resp = bundle::handle_list_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(1, resp.bundles.len());
         let bundle_by_list = &resp.bundles[0];
@@ -715,9 +701,9 @@ mod tests {
         assert_eq!(bundle_by_list.bundle_id, bundle.bundle_id);
 
         // List machines (for which there are none).
-        let req = measured_boot::ListMeasurementBundleMachinesRequest {
+        let req = mbrpc::ListMeasurementBundleMachinesRequest {
             selector: Some(
-                measured_boot::list_measurement_bundle_machines_request::Selector::BundleId(
+                mbrpc::list_measurement_bundle_machines_request::Selector::BundleId(
                     bundle_by_list.bundle_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -726,9 +712,9 @@ mod tests {
         assert_eq!(0, resp.machine_ids.len());
 
         // Delete it and make sure it worked.
-        let req = measured_boot::DeleteMeasurementBundleRequest {
+        let req = mbrpc::DeleteMeasurementBundleRequest {
             selector: Some(
-                measured_boot::delete_measurement_bundle_request::Selector::BundleId(
+                mbrpc::delete_measurement_bundle_request::Selector::BundleId(
                     bundle_by_list.bundle_id.as_ref().unwrap().clone(),
                 ),
             ),
@@ -739,7 +725,7 @@ mod tests {
         assert_eq!(deleted_bundle.name, String::from("renamed-bundle"));
         assert_eq!(deleted_bundle.bundle_id, bundle.bundle_id);
 
-        let req = measured_boot::ListMeasurementBundlesRequest {};
+        let req = mbrpc::ListMeasurementBundlesRequest {};
         let resp = bundle::handle_list_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(0, resp.bundles.len());
 
@@ -756,11 +742,11 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // First make a couple of profiles to export.
         // A bundle needs a profile first, so make a profile.
-        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+        let req = mbrpc::CreateMeasurementSystemProfileRequest {
             name: Some(String::from("test-profile")),
             vendor: String::from("Dell, Inc."),
             product: String::from("PowerEdge R750"),
-            extra_attrs: vec![measured_boot::KvPair {
+            extra_attrs: vec![mbrpc::KvPair {
                 key: String::from("bios_version"),
                 value: String::from("1.8.2"),
             }],
@@ -770,11 +756,11 @@ mod tests {
         let profile1 = resp.system_profile.unwrap();
 
         // A bundle needs a profile first, so make a profile.
-        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+        let req = mbrpc::CreateMeasurementSystemProfileRequest {
             name: Some(String::from("test-profile-2")),
             vendor: String::from("Lenovo"),
             product: String::from("ThinkSystem SR670 V2"),
-            extra_attrs: vec![measured_boot::KvPair {
+            extra_attrs: vec![mbrpc::KvPair {
                 key: String::from("bios_version"),
                 value: String::from("U8E122J-1.51"),
             }],
@@ -811,27 +797,24 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementBundleRequest {
+        let req = mbrpc::CreateMeasurementBundleRequest {
             name: Some(String::from("test-bundle")),
             profile_id: profile1.profile_id,
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values1),
-            state: measured_boot::MeasurementBundleStatePb::Active.into(),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
         };
         let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
         let bundle = resp.bundle.unwrap();
         assert_eq!(bundle.name, String::from("test-bundle"));
         assert_eq!(bundle.values.len(), pcr_values1.len());
-        assert_eq!(
-            bundle.state,
-            measured_boot::MeasurementBundleStatePb::Active as i32,
-        );
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
 
-        let req = measured_boot::CreateMeasurementBundleRequest {
+        let req = mbrpc::CreateMeasurementBundleRequest {
             name: Some(String::from("test-bundle-2")),
             profile_id: profile2.profile_id,
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values2),
-            state: measured_boot::MeasurementBundleStatePb::Active.into(),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
         };
         let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
@@ -840,11 +823,11 @@ mod tests {
         assert_eq!(bundle2.values.len(), pcr_values2.len());
         assert_eq!(
             bundle2.state,
-            measured_boot::MeasurementBundleStatePb::Active as i32,
+            mbrpc::MeasurementBundleStatePb::Active as i32,
         );
 
         // And now do the export and make sure it looks good.
-        let req = measured_boot::ExportSiteMeasurementsRequest {};
+        let req = mbrpc::ExportSiteMeasurementsRequest {};
         let resp = site::handle_export_site_measurements(&db_conn, &req).await?;
         assert!(resp.model.is_some());
         let site_model = resp.model.unwrap();
@@ -865,9 +848,9 @@ mod tests {
         txn.commit().await?;
 
         // Now create a trusted machine approval.
-        let req = measured_boot::AddMeasurementTrustedMachineRequest {
+        let req = mbrpc::AddMeasurementTrustedMachineRequest {
             machine_id: princess_network.machine_id.to_string(),
-            approval_type: measured_boot::MeasurementApprovedTypePb::Oneshot.into(),
+            approval_type: mbrpc::MeasurementApprovedTypePb::Oneshot.into(),
             pcr_registers: String::from("0-1"),
             comments: String::from(""),
         };
@@ -880,7 +863,7 @@ mod tests {
         );
 
         // List trusted machine approvals.
-        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let req = mbrpc::ListMeasurementTrustedMachinesRequest {};
         let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
         assert_eq!(1, resp.approval_records.len());
 
@@ -908,7 +891,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
         };
@@ -921,16 +904,16 @@ mod tests {
 
         // And confirm the bundle was created (there are now three bundles, since
         // the two made previously for the site export are still there also).
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(3, resp.bundles.len());
 
         // And now get the latest journal record for the machine, so we can pluck out
         // the profile_id (to make a profile approval) and bundle_id (to make sure the
         // bundle looks good).
-        let req = measured_boot::ListMeasurementJournalRequest {
+        let req = mbrpc::ListMeasurementJournalRequest {
             selector: Some(
-                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                mbrpc::list_measurement_journal_request::Selector::MachineId(
                     princess_network.machine_id.to_string(),
                 ),
             ),
@@ -944,10 +927,10 @@ mod tests {
         assert!(latest_journal.profile_id.is_some());
         let bundle_id = latest_journal.bundle_id.as_ref().unwrap().clone();
 
-        let req = measured_boot::ShowMeasurementBundleRequest {
-            selector: Some(
-                measured_boot::show_measurement_bundle_request::Selector::BundleId(bundle_id),
-            ),
+        let req = mbrpc::ShowMeasurementBundleRequest {
+            selector: Some(mbrpc::show_measurement_bundle_request::Selector::BundleId(
+                bundle_id,
+            )),
         };
         let resp = bundle::handle_show_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
@@ -957,12 +940,10 @@ mod tests {
         assert_eq!("xx".to_string(), auto_bundle.values[1].sha256);
 
         // And that the machine is measured.
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    princess_network.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                princess_network.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -970,18 +951,18 @@ mod tests {
         assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
         assert_eq!(
             machine.state,
-            measured_boot::MeasurementMachineStatePb::Measured as i32
+            mbrpc::MeasurementMachineStatePb::Measured as i32
         );
 
         // List again, confirming the oneshot approval removed the approval.
-        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let req = mbrpc::ListMeasurementTrustedMachinesRequest {};
         let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
         assert_eq!(0, resp.approval_records.len());
 
         // Create a trusted profile approval.
-        let req = measured_boot::AddMeasurementTrustedProfileRequest {
+        let req = mbrpc::AddMeasurementTrustedProfileRequest {
             profile_id: latest_journal.profile_id.clone(),
-            approval_type: measured_boot::MeasurementApprovedTypePb::Oneshot.into(),
+            approval_type: mbrpc::MeasurementApprovedTypePb::Oneshot.into(),
             pcr_registers: Some(String::from("2,3")),
             comments: None,
         };
@@ -991,7 +972,7 @@ mod tests {
         assert_eq!(latest_journal.profile_id, profile_approval.profile_id);
 
         // List trusted profile approvals.
-        let req = measured_boot::ListMeasurementTrustedProfilesRequest {};
+        let req = mbrpc::ListMeasurementTrustedProfilesRequest {};
         let resp = site::handle_list_measurement_trusted_profiles(&db_conn, &req).await?;
         assert_eq!(1, resp.approval_records.len());
 
@@ -1019,7 +1000,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
         };
@@ -1032,16 +1013,16 @@ mod tests {
 
         // And confirm the bundle was created (there are now three bundles, since
         // the two made previously for the site export are still there also).
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(4, resp.bundles.len());
 
         // And now get the latest journal record for the machine, so we can pluck out
         // the profile_id (to make a profile approval) and bundle_id (to make sure the
         // bundle looks good).
-        let req = measured_boot::ListMeasurementJournalRequest {
+        let req = mbrpc::ListMeasurementJournalRequest {
             selector: Some(
-                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                mbrpc::list_measurement_journal_request::Selector::MachineId(
                     princess_network.machine_id.to_string(),
                 ),
             ),
@@ -1055,10 +1036,10 @@ mod tests {
         assert!(latest_journal.profile_id.is_some());
         let bundle_id = latest_journal.bundle_id.as_ref().unwrap().clone();
 
-        let req = measured_boot::ShowMeasurementBundleRequest {
-            selector: Some(
-                measured_boot::show_measurement_bundle_request::Selector::BundleId(bundle_id),
-            ),
+        let req = mbrpc::ShowMeasurementBundleRequest {
+            selector: Some(mbrpc::show_measurement_bundle_request::Selector::BundleId(
+                bundle_id,
+            )),
         };
         let resp = bundle::handle_show_measurement_bundle(&db_conn, &req).await?;
         assert!(resp.bundle.is_some());
@@ -1068,12 +1049,10 @@ mod tests {
         assert_eq!("oo".to_string(), auto_bundle.values[1].sha256);
 
         // And that the machine is measured.
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    princess_network.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                princess_network.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -1081,11 +1060,11 @@ mod tests {
         assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
         assert_eq!(
             machine.state,
-            measured_boot::MeasurementMachineStatePb::Measured as i32
+            mbrpc::MeasurementMachineStatePb::Measured as i32
         );
 
         // List again, confirming the oneshot approval removed the approval.
-        let req = measured_boot::ListMeasurementTrustedProfilesRequest {};
+        let req = mbrpc::ListMeasurementTrustedProfilesRequest {};
         let resp = site::handle_list_measurement_trusted_profiles(&db_conn, &req).await?;
         assert_eq!(0, resp.approval_records.len());
 
@@ -1117,9 +1096,9 @@ mod tests {
         // making sure the response is as expected, including converting
         // the MeasurementApprovedMachineRecordPb back into a
         // MeasurementApprovedMachineRecord.
-        let req = measured_boot::AddMeasurementTrustedMachineRequest {
+        let req = mbrpc::AddMeasurementTrustedMachineRequest {
             machine_id: "*".to_string(),
-            approval_type: measured_boot::MeasurementApprovedTypePb::Persist.into(),
+            approval_type: mbrpc::MeasurementApprovedTypePb::Persist.into(),
             pcr_registers: String::from("0-6,8"),
             comments: String::from(""),
         };
@@ -1132,7 +1111,7 @@ mod tests {
         // And then re-fetch the "*" approval just to make sure
         // all of the `TrustedMachineId` stuff is working, even though
         // the above result should have been based on RETURNING *.
-        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let req = mbrpc::ListMeasurementTrustedMachinesRequest {};
         let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
         assert_eq!(1, resp.approval_records.len());
         let permissive_approval =
@@ -1225,7 +1204,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&princess_values),
         };
@@ -1283,7 +1262,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: beer_louisiana.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&beer_values),
         };
@@ -1341,7 +1320,7 @@ mod tests {
             },
         ];
 
-        let req = measured_boot::CreateMeasurementReportRequest {
+        let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: lime_coconut.machine_id.to_string(),
             pcr_values: PcrRegisterValue::to_pb_vec(&lime_values),
         };
@@ -1355,7 +1334,7 @@ mod tests {
         // And confirm bundles were created for both. index[0] will contain the first
         // bundle, for princess-network. index[1] will contain the second bundle, for
         // beer-louisiana.
-        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let req = mbrpc::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(3, resp.bundles.len());
 
@@ -1378,12 +1357,10 @@ mod tests {
         assert_eq!("ss".to_string(), lime_bundle.values[7].sha256);
 
         // And make sure the machines are measured.
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    princess_network.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                princess_network.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -1391,15 +1368,13 @@ mod tests {
         assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
         assert_eq!(
             machine.state,
-            measured_boot::MeasurementMachineStatePb::Measured as i32
+            mbrpc::MeasurementMachineStatePb::Measured as i32
         );
 
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    beer_louisiana.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                beer_louisiana.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -1407,15 +1382,13 @@ mod tests {
         assert_eq!(machine.machine_id, beer_louisiana.machine_id.to_string());
         assert_eq!(
             machine.state,
-            measured_boot::MeasurementMachineStatePb::Measured as i32
+            mbrpc::MeasurementMachineStatePb::Measured as i32
         );
 
-        let req = measured_boot::ShowCandidateMachineRequest {
-            selector: Some(
-                measured_boot::show_candidate_machine_request::Selector::MachineId(
-                    lime_coconut.machine_id.to_string(),
-                ),
-            ),
+        let req = mbrpc::ShowCandidateMachineRequest {
+            selector: Some(mbrpc::show_candidate_machine_request::Selector::MachineId(
+                lime_coconut.machine_id.to_string(),
+            )),
         };
         let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
         assert!(resp.machine.is_some());
@@ -1423,7 +1396,7 @@ mod tests {
         assert_eq!(machine.machine_id, lime_coconut.machine_id.to_string());
         assert_eq!(
             machine.state,
-            measured_boot::MeasurementMachineStatePb::Measured as i32
+            mbrpc::MeasurementMachineStatePb::Measured as i32
         );
 
         // And then do a force-cleanup on all of them to make sure
@@ -1442,11 +1415,11 @@ mod tests {
             .is_ok());
         txn.commit().await?;
 
-        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let req = mbrpc::ShowMeasurementJournalsRequest {};
         let resp = journal::handle_show_measurement_journals(&db_conn, &req).await?;
         assert_eq!(0, resp.journals.len());
 
-        let req = measured_boot::ShowMeasurementReportsRequest {};
+        let req = mbrpc::ShowMeasurementReportsRequest {};
         let resp = report::handle_show_measurement_reports(&db_conn, &req).await?;
         assert_eq!(0, resp.reports.len());
 

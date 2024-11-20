@@ -1,0 +1,233 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+/*!
+ *  Code for working the measuremment_journal and measurement_journal_values
+ *  tables in the database, leveraging the journal-specific record types.
+*/
+
+use crate::db::DatabaseError;
+use crate::measured_boot::interface::common;
+use crate::measured_boot::interface::journal::{
+    delete_journal_where_id, get_measurement_journal_record_by_id,
+    insert_measurement_journal_record,
+};
+use crate::{CarbideError, CarbideResult};
+use forge_uuid::{
+    machine::MachineId,
+    measured_boot::{
+        MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
+    },
+};
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
+use sqlx::{Postgres, Transaction};
+use std::ops::DerefMut;
+
+pub async fn new_with_txn(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: MachineId,
+    report_id: MeasurementReportId,
+    profile_id: Option<MeasurementSystemProfileId>,
+    bundle_id: Option<MeasurementBundleId>,
+    state: MeasurementMachineState,
+) -> CarbideResult<MeasurementJournal> {
+    create_measurement_journal(txn, machine_id, report_id, profile_id, bundle_id, state).await
+}
+
+////////////////////////////////////////////////////////////
+/// from_id populates an existing MeasurementJournal
+/// instance from data in the database for the given
+/// journal ID.
+////////////////////////////////////////////////////////////
+
+pub async fn from_id(
+    txn: &mut Transaction<'_, Postgres>,
+    journal_id: MeasurementJournalId,
+) -> CarbideResult<MeasurementJournal> {
+    get_measurement_journal_by_id(txn, journal_id).await
+}
+
+pub async fn delete_where_id(
+    txn: &mut Transaction<'_, Postgres>,
+    journal_id: MeasurementJournalId,
+) -> CarbideResult<Option<MeasurementJournal>> {
+    let info = delete_journal_where_id(txn, journal_id).await?;
+    match info {
+        None => Ok(None),
+        Some(info) => Ok(Some(MeasurementJournal {
+            journal_id: info.journal_id,
+            machine_id: info.machine_id,
+            report_id: info.report_id,
+            profile_id: info.profile_id,
+            bundle_id: info.bundle_id,
+            state: info.state,
+            ts: info.ts,
+        })),
+    }
+}
+
+pub async fn get_all(
+    txn: &mut Transaction<'_, Postgres>,
+) -> CarbideResult<Vec<MeasurementJournal>> {
+    get_measurement_journals(txn).await
+}
+
+/// create_measurement_journal handles the work of creating a new
+/// measurement journal record as well as all associated value records.
+async fn create_measurement_journal(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: MachineId,
+    report_id: MeasurementReportId,
+    profile_id: Option<MeasurementSystemProfileId>,
+    bundle_id: Option<MeasurementBundleId>,
+    state: MeasurementMachineState,
+) -> CarbideResult<MeasurementJournal> {
+    let info =
+        insert_measurement_journal_record(txn, machine_id, report_id, profile_id, bundle_id, state)
+            .await?;
+
+    Ok(MeasurementJournal {
+        journal_id: info.journal_id,
+        machine_id: info.machine_id,
+        report_id: info.report_id,
+        profile_id: info.profile_id,
+        bundle_id: info.bundle_id,
+        state: info.state,
+        ts: info.ts,
+    })
+}
+
+/// get_measurement_journal_by_id does the work of populating a full
+/// MeasurementJournal instance, with values and all.
+async fn get_measurement_journal_by_id(
+    txn: &mut Transaction<'_, Postgres>,
+    journal_id: MeasurementJournalId,
+) -> CarbideResult<MeasurementJournal> {
+    match get_measurement_journal_record_by_id(txn, journal_id).await? {
+        Some(info) => Ok(MeasurementJournal {
+            journal_id: info.journal_id,
+            machine_id: info.machine_id,
+            report_id: info.report_id,
+            profile_id: info.profile_id,
+            bundle_id: info.bundle_id,
+            state: info.state,
+            ts: info.ts,
+        }),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementJournal",
+            id: journal_id.to_string(),
+        }),
+    }
+}
+
+/// get_measurement_journals returns all MeasurementJournal
+/// instances in the database. This leverages the generic get_all_objects
+/// function since its a simple/common pattern.
+async fn get_measurement_journals(
+    txn: &mut Transaction<'_, Postgres>,
+) -> CarbideResult<Vec<MeasurementJournal>> {
+    let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn)
+        .await
+        .map_err(CarbideError::from)?;
+    let res: Vec<MeasurementJournal> = journal_records
+        .iter()
+        .map(|record| MeasurementJournal {
+            journal_id: record.journal_id,
+            machine_id: record.machine_id.clone(),
+            report_id: record.report_id,
+            profile_id: record.profile_id,
+            bundle_id: record.bundle_id,
+            state: record.state,
+            ts: record.ts,
+        })
+        .collect();
+    Ok(res)
+}
+
+/// get_latest_journal_for_id returns the latest journal record for the
+/// provided machine ID.
+pub async fn get_latest_journal_for_id(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: MachineId,
+) -> CarbideResult<Option<MeasurementJournal>> {
+    let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
+    match sqlx::query_as::<_, MeasurementJournalRecord>(query)
+        .bind(machine_id)
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "get_latest_journal_for_id",
+                e,
+            ))
+        })? {
+        Some(info) => Ok(Some(MeasurementJournal {
+            journal_id: info.journal_id,
+            machine_id: info.machine_id,
+            report_id: info.report_id,
+            profile_id: info.profile_id,
+            bundle_id: info.bundle_id,
+            state: info.state,
+            ts: info.ts,
+        })),
+        None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    pub async fn get_all_for_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: MachineId,
+    ) -> CarbideResult<Vec<MeasurementJournal>> {
+        get_measurement_journals_for_machine_id(txn, machine_id).await
+    }
+
+    pub async fn get_latest_for_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: MachineId,
+    ) -> CarbideResult<Option<MeasurementJournal>> {
+        get_latest_journal_for_id(txn, machine_id).await
+    }
+
+    /// get_measurement_journals_for_machine_id returns all fully populated
+    /// journal instances for a given machine ID, which is used by the
+    /// `journal show` CLI option.
+    async fn get_measurement_journals_for_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: MachineId,
+    ) -> CarbideResult<Vec<MeasurementJournal>> {
+        let records =
+            crate::measured_boot::interface::journal::get_measurement_journal_records_for_machine_id(
+                txn, machine_id,
+            )
+                .await
+                .map_err(CarbideError::from)?;
+        Ok(records
+            .iter()
+            .map(|record| MeasurementJournal {
+                journal_id: record.journal_id,
+                machine_id: record.machine_id.clone(),
+                report_id: record.report_id,
+                profile_id: record.profile_id,
+                bundle_id: record.bundle_id,
+                state: record.state,
+                ts: record.ts,
+            })
+            .collect())
+    }
+}

@@ -47,7 +47,6 @@ use carbide::{
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
-    measured_boot::interface::common::PcrRegisterValue,
     model::machine::{
         machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
         ManagedHostState,
@@ -88,6 +87,7 @@ use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
+use measured_boot::pcr::PcrRegisterValue;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use regex::Regex;
 use rpc::forge::{

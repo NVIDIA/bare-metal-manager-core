@@ -163,7 +163,7 @@ pub async fn pool_create(
 ) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let cluster_id = str_to_rpc_uuid(&args.cluster_id)?;
-    let raid_level = args.raid_level as i32;
+    let raid_level = args.raid_level.0 as i32;
     let boot = args.boot.unwrap_or(false);
     let pool_attrs = forgerpc::StoragePoolAttributes {
         cluster_id: Some(cluster_id),

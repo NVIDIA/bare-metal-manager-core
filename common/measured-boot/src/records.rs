@@ -22,9 +22,7 @@
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
 */
 
-use crate::db::machine_topology::TopologyData;
-use crate::measured_boot::interface::common::PcrRegisterValue;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
@@ -41,15 +39,22 @@ use rpc::protos::measured_boot::{
     MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb, Uuid,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
-use sqlx::types::chrono::Utc;
-use sqlx::{FromRow, Row};
 use std::convert::Into;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+#[cfg(feature = "cli")]
 use utils::admin_cli::{serde_just_print_summary, ToTable};
+
+use crate::pcr::PcrRegisterValue;
+
+#[cfg(feature = "sqlx")]
+use sqlx::{
+    postgres::PgRow,
+    {FromRow, Row},
+};
 
 /// ProtoParseError is an error used for reporting back failures
 /// to parse a protobuf message back into its record or model.
@@ -95,8 +100,8 @@ impl Error for StringToEnumError {}
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementSystemProfileRecord {
     // profile_id is the auto-generated UUID assigned to the profile,
     // and internally typed as a MeasurementSystemProfileId.
@@ -113,17 +118,17 @@ pub struct MeasurementSystemProfileRecord {
 }
 
 impl MeasurementSystemProfileRecord {
-    pub fn from_grpc(msg: MeasurementSystemProfileRecordPb) -> Result<Self, Status> {
+    pub fn from_grpc(msg: MeasurementSystemProfileRecordPb) -> crate::Result<Self> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input system profile record: {}", e))
+            crate::Error::RpcConversion(format!("bad input system profile record: {}", e))
         })
     }
 
-    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileRecordPb]) -> Result<Vec<Self>, Status> {
+    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileRecordPb]) -> crate::Result<Vec<Self>> {
         pbs.iter()
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
-                    Status::invalid_argument(format!(
+                    crate::Error::RpcConversion(format!(
                         "failed system profile record conversion: {}",
                         e
                     ))
@@ -167,17 +172,23 @@ impl TryFrom<MeasurementSystemProfileRecordPb> for MeasurementSystemProfileRecor
 /// the measurement_system_profiles_attrs table in the database.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementSystemProfileAttrRecord {
     // attribute_id is the auto-generated UUID assigned to this
     // specific attribute record for its profile attributes.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub attribute_id: MeasurementSystemProfileAttrId,
 
     // profile_id is the system profile ID that this specific
     // attribute is a part of.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub profile_id: MeasurementSystemProfileId,
 
     // key is the attribute key (e.g. vendor, product, etc), and
@@ -190,22 +201,25 @@ pub struct MeasurementSystemProfileAttrRecord {
     pub value: String,
 
     // ts is the timestamp this record was created.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub ts: chrono::DateTime<Utc>,
 }
 
 impl MeasurementSystemProfileAttrRecord {
-    pub fn from_grpc(msg: MeasurementSystemProfileAttrRecordPb) -> Result<Self, Status> {
+    pub fn from_grpc(msg: MeasurementSystemProfileAttrRecordPb) -> crate::Result<Self> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input system profile attr record: {}", e))
+            crate::Error::RpcConversion(format!("bad input system profile attr record: {}", e))
         })
     }
 
-    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileAttrRecordPb]) -> Result<Vec<Self>, Status> {
+    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileAttrRecordPb]) -> crate::Result<Vec<Self>> {
         pbs.iter()
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
-                    Status::invalid_argument(format!(
+                    crate::Error::RpcConversion(format!(
                         "failed system profile record attr conversion: {}",
                         e
                     ))
@@ -257,10 +271,13 @@ impl TryFrom<MeasurementSystemProfileAttrRecordPb> for MeasurementSystemProfileA
 /// is used for tracking the state of a measurement bundle.
 ///
 /// Impls FromStr trait.
-#[derive(
-    Copy, Debug, Eq, Hash, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize,
+#[derive(Copy, Debug, Eq, Hash, PartialEq, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "measurement_bundle_state", rename_all = "lowercase")
 )]
-#[sqlx(type_name = "measurement_bundle_state", rename_all = "lowercase")]
 pub enum MeasurementBundleState {
     // Pending exists such that, when a bundle is created, it has the
     // option of needing approval to become Active before machines can
@@ -345,7 +362,8 @@ impl From<MeasurementBundleStatePb> for MeasurementBundleState {
 /// MeasurementBundleStateRecord exists so we can do an sqlx::query_as and
 /// *just* select the state (and bind it to a struct). It doesn't really need
 /// to be much other than this for now.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementBundleStateRecord {
     // Read the comment above, but state is the actual state.
     pub state: MeasurementBundleState,
@@ -356,8 +374,8 @@ pub struct MeasurementBundleStateRecord {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementBundleRecord {
     // bundle_id is the auto-generated UUID for a measurement bundle,
     // and is used as a reference ID for all measurement_bundle_value
@@ -384,16 +402,19 @@ pub struct MeasurementBundleRecord {
 }
 
 impl MeasurementBundleRecord {
-    pub fn from_grpc(msg: MeasurementBundleRecordPb) -> Result<Self, Status> {
+    pub fn from_grpc(msg: MeasurementBundleRecordPb) -> crate::Result<Self> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle record: {}", e)))
+            .map_err(|e| crate::Error::RpcConversion(format!("bad input bundle record: {}", e)))
     }
 
-    pub fn from_pb_vec(pbs: &[MeasurementBundleRecordPb]) -> Result<Vec<Self>, Status> {
+    pub fn from_pb_vec(pbs: &[MeasurementBundleRecordPb]) -> crate::Result<Vec<Self>> {
         pbs.iter()
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
-                    Status::invalid_argument(format!("failed bundle record attr conversion: {}", e))
+                    crate::Error::RpcConversion(format!(
+                        "failed bundle record attr conversion: {}",
+                        e
+                    ))
                 })
             })
             .collect()
@@ -443,16 +464,22 @@ impl TryFrom<MeasurementBundleRecordPb> for MeasurementBundleRecord {
 /// from the measurement_bundles_values table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementBundleValueRecord {
     // value_id is the auto-generated UUID for this record.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub value_id: MeasurementBundleValueId,
 
     // bundle_id is the ID of the measurement bundle this
     // value is associated with.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub bundle_id: MeasurementBundleId,
 
     // pcr_register is the specific PCR register index (starting
@@ -463,21 +490,25 @@ pub struct MeasurementBundleValueRecord {
     pub sha256: String,
 
     // ts is the timestamp the record was created.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub ts: chrono::DateTime<Utc>,
 }
 
 impl MeasurementBundleValueRecord {
-    pub fn from_grpc(msg: MeasurementBundleValueRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle value record: {}", e)))
+    pub fn from_grpc(msg: MeasurementBundleValueRecordPb) -> crate::Result<Self> {
+        Self::try_from(msg).map_err(|e| {
+            crate::Error::RpcConversion(format!("bad input bundle value record: {}", e))
+        })
     }
 
-    pub fn from_pb_vec(pbs: &[MeasurementBundleValueRecordPb]) -> Result<Vec<Self>, Status> {
+    pub fn from_pb_vec(pbs: &[MeasurementBundleValueRecordPb]) -> crate::Result<Vec<Self>> {
         pbs.iter()
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
-                    Status::invalid_argument(format!(
+                    crate::Error::RpcConversion(format!(
                         "failed bundle value record attr conversion: {}",
                         e
                     ))
@@ -537,8 +568,8 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementReportRecord {
     // report_id is the auto-generated UUID specific to this report.
     pub report_id: MeasurementReportId,
@@ -596,16 +627,22 @@ impl TryFrom<MeasurementReportRecordPb> for MeasurementReportRecord {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as a self-implementation for converting into a PcrRegisterValue.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementReportValueRecord {
     // value_id is the auto-generated UUID for this value record.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub value_id: MeasurementReportValueId,
 
     // report_id is the measurement report record this value is
     // associated with.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub report_id: MeasurementReportId,
 
     // pcr_register is the specific PCR register index (starting
@@ -617,7 +654,10 @@ pub struct MeasurementReportValueRecord {
     pub sha256: String,
 
     // ts is the timestamp this record was created.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub ts: chrono::DateTime<Utc>,
 }
 
@@ -678,8 +718,8 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementJournalRecord {
     // journal is the auto-generated UUID specific to this
     // journal entry.
@@ -696,13 +736,19 @@ pub struct MeasurementJournalRecord {
 
     // profile_id is the matched system profile for the machine
     // that generated the report referenced in this journal.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub profile_id: Option<MeasurementSystemProfileId>,
 
     // bundle_id is the matched measurement bundle for this
     // journal entry. If no matching bundle exists, this will
     // be None, and the machine will be "Pending".
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
+    #[cfg_attr(
+        feature = "cli",
+        serde(skip_serializing_if = "serde_just_print_summary")
+    )]
     pub bundle_id: Option<MeasurementBundleId>,
 
     // state is the resulting state of the machine based on
@@ -777,10 +823,13 @@ impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
 /// is used for tracking the state of a machine.
 ///
 /// Impls FromStr trait.
-#[derive(
-    Copy, Debug, Eq, Hash, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize,
+#[derive(Copy, Debug, Eq, Hash, PartialEq, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "measurement_machine_state", rename_all = "lowercase")
 )]
-#[sqlx(type_name = "measurement_machine_state", rename_all = "lowercase")]
 pub enum MeasurementMachineState {
     Discovered,
     PendingBundle,
@@ -830,44 +879,6 @@ impl From<MeasurementMachineStatePb> for MeasurementMachineState {
     }
 }
 
-/// CandidateMachineRecord defines a single row from
-/// the machine_topologies table. Sort of. Where other records
-/// implement the whole record, this is just a partial match
-/// for the purpose of more easily migrating from the PoC MockMachines
-/// code to the production CandidateMachines code. This *could* pull
-/// the whole row, but we don't really
-/// Impls DbTable trait for generic selects defined in db/interface/common.rs,
-/// as well as ToTable for printing out details via prettytable.
-#[derive(Debug, Clone, Serialize, FromRow)]
-pub struct CandidateMachineRecord {
-    // machine_id is the ID of the machine, e.g. fm100hxxxxx.
-    pub machine_id: MachineId,
-
-    // topology is the topology JSON blob.
-    pub topology: sqlx::types::Json<TopologyData>,
-
-    // created is the timestamp this record was created.
-    pub created: chrono::DateTime<Utc>,
-
-    // updated is the timestamp this record was updated.
-    pub updated: chrono::DateTime<Utc>,
-}
-
-impl From<CandidateMachineRecord> for CandidateMachineSummaryPb {
-    fn from(val: CandidateMachineRecord) -> Self {
-        Self {
-            machine_id: val.machine_id.to_string(),
-            ts: Some(val.created.into()),
-        }
-    }
-}
-
-impl DbTable for CandidateMachineRecord {
-    fn db_table_name() -> &'static str {
-        "machine_topologies"
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct CandidateMachineSummary {
     // machine_id is the ID of the machine, e.g. fm100hxxxxx.
@@ -909,6 +920,7 @@ impl TryFrom<CandidateMachineSummaryPb> for CandidateMachineSummary {
     }
 }
 
+#[cfg(feature = "cli")]
 impl ToTable for CandidateMachineSummary {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -923,8 +935,13 @@ impl ToTable for CandidateMachineSummary {
 /// measurements will be auto-approved as a bundle.
 ///
 /// Impls FromStr trait.
-#[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
-#[sqlx(type_name = "measurement_approved_type", rename_all = "lowercase")]
+#[derive(Copy, Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "measurement_approved_type", rename_all = "lowercase")
+)]
 pub enum MeasurementApprovedType {
     Oneshot,
     Persist,
@@ -971,7 +988,6 @@ impl From<MeasurementApprovedTypePb> for MeasurementApprovedType {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeasurementApprovedMachineRecord {
     // approval_id is the auto-generated UUID for this approval record.
@@ -998,6 +1014,7 @@ pub struct MeasurementApprovedMachineRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
+#[cfg(feature = "sqlx")]
 impl<'r> FromRow<'r, PgRow> for MeasurementApprovedMachineRecord {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let id_str: &str = row.try_get("machine_id")?;
@@ -1080,6 +1097,7 @@ impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineR
     }
 }
 
+#[cfg(feature = "cli")]
 impl ToTable for MeasurementApprovedMachineRecord {
     fn to_table(&self) -> eyre::Result<String> {
         let pcr_registers: String = match self.pcr_registers.clone() {
@@ -1105,8 +1123,8 @@ impl ToTable for MeasurementApprovedMachineRecord {
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementApprovedProfileRecord {
     // approval_id is the auto-generated UUID for this approval record.
     pub approval_id: MeasurementApprovedProfileId,
@@ -1195,6 +1213,7 @@ impl TryFrom<MeasurementApprovedProfileRecordPb> for MeasurementApprovedProfileR
     }
 }
 
+#[cfg(feature = "cli")]
 impl ToTable for MeasurementApprovedProfileRecord {
     fn to_table(&self) -> eyre::Result<String> {
         let pcr_registers: String = match self.pcr_registers.clone() {

@@ -14,10 +14,10 @@
  * gRPC handlers for measurement journal related API calls.
  */
 
+use crate::measured_boot::db;
 use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
-use crate::measured_boot::model::journal::MeasurementJournal;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementJournalId;
@@ -41,7 +41,7 @@ pub async fn handle_delete_measurement_journal(
     req: &DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let journal = MeasurementJournal::delete_where_id(
+    let journal = db::journal::delete_where_id(
         &mut txn,
         MeasurementJournalId::from_grpc(req.journal_id.clone())?,
     )
@@ -64,7 +64,7 @@ pub async fn handle_show_measurement_journal(
     let mut txn = begin_txn(db_conn).await?;
     let journal = match &req.selector {
         Some(show_measurement_journal_request::Selector::JournalId(journal_uuid)) => {
-            MeasurementJournal::from_id(
+            db::journal::from_id(
                 &mut txn,
                 MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
             )
@@ -88,7 +88,7 @@ pub async fn handle_show_measurement_journals(
     let mut txn = begin_txn(db_conn).await?;
 
     Ok(ShowMeasurementJournalsResponse {
-        journals: MeasurementJournal::get_all(&mut txn)
+        journals: db::journal::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("failed to fetch journals: {}", e)))?
             .drain(..)

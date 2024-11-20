@@ -27,10 +27,10 @@ use ::rpc::protos::measured_boot::{
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
     ShowMeasurementReportsRequest,
 };
-use carbide::measured_boot::dto::records::MeasurementReportRecord;
-use carbide::measured_boot::interface::common::PcrRegisterValue;
-use carbide::measured_boot::model::bundle::MeasurementBundle;
-use carbide::measured_boot::model::report::MeasurementReport;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementReportRecord;
+use measured_boot::report::MeasurementReport;
 use serde::Serialize;
 use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
 

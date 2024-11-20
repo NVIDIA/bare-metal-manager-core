@@ -16,20 +16,19 @@
 
 use tonic::Status;
 
-use crate::measured_boot::dto::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
-};
 use crate::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, remove_from_approved_machines_by_approval_id,
     remove_from_approved_machines_by_machine_id, remove_from_approved_profiles_by_approval_id,
     remove_from_approved_profiles_by_profile_id,
 };
-use crate::measured_boot::model::site::SiteModel;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
+};
+use measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 
 use rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
@@ -46,9 +45,11 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse,
 };
 
+use crate::measured_boot::db;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
+use measured_boot::site::SiteModel;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 
@@ -70,7 +71,7 @@ pub async fn handle_import_site_measurements(
     };
 
     // And now import it!
-    let result = SiteModel::import(&mut txn, &site_model)
+    let result = db::site::import(&mut txn, &site_model)
         .await
         .map_err(|e| Status::internal(format!("site import failed: {}", e)))
         .map(|_| ImportSiteMeasurementsResponse {
@@ -88,7 +89,7 @@ pub async fn handle_export_site_measurements(
     _req: &ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let site_model = SiteModel::export(&mut txn)
+    let site_model = db::site::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {}", e)))?;
 

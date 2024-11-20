@@ -14,9 +14,10 @@
 //! Carbide API module specific to measured boot/machine attestation.
 //!
 
-pub mod dto;
+pub mod db;
 pub mod interface;
 pub mod metrics_collector;
-pub mod model;
 pub mod rpc;
+
+#[cfg(test)]
 pub mod tests;
