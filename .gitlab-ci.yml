@@ -1315,7 +1315,6 @@ dev-env-test-with-carbide:
         - 'Makefile.toml'
         - 'rust-toolchain.toml'
         - 'skaffold.yml'
-      when: manual
       allow_failure: true  # To prevent blocking merge
   retry:
     max: 1
