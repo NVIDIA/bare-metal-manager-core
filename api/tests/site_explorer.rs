@@ -36,7 +36,9 @@ use carbide::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideError,
 };
-use common::api_fixtures::{endpoint_explorer::MockEndpointExplorer, TestEnv};
+use common::api_fixtures::{
+    endpoint_explorer::MockEndpointExplorer, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestEnv,
+};
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -2025,6 +2027,148 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             .iter()
             .any(|x| { x.bmc_info().ip.clone().unwrap_or_default() == bmc_ip }));
     }
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_site_explorer_health_report(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let dpu_machine = env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let bmc_ip: std::net::IpAddr = host_machine
+        .bmc_info
+        .as_ref()
+        .unwrap()
+        .ip()
+        .parse()
+        .unwrap();
+    let chassis_serial = host_machine
+        .discovery_info
+        .as_ref()
+        .unwrap()
+        .dmi_data
+        .as_ref()
+        .unwrap()
+        .chassis_serial
+        .clone();
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    // Start with one successful site explorer to update ExploredEndpoints with valid info
+    endpoint_explorer.insert_endpoint_results(vec![
+        (
+            bmc_ip,
+            Ok(ManagedHostConfig::with_serial(chassis_serial.clone()).into()),
+        ),
+        (
+            dpu_machine.bmc_info.as_ref().unwrap().ip().parse().unwrap(),
+            Ok(DpuConfig::with_serial(
+                dpu_machine
+                    .discovery_info
+                    .as_ref()
+                    .unwrap()
+                    .dmi_data
+                    .as_ref()
+                    .unwrap()
+                    .product_serial
+                    .clone(),
+            )
+            .into()),
+        ),
+    ]);
+
+    // This is a hack to Make Site Explorer work against the ingested BMC IPs
+    // There is currently no separate segment for tenant, admin and underlay networks,
+    // which prevents site explorer from running
+    let mut txn = env.pool.begin().await?;
+    let query = format!(
+        "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{}'",
+        *FIXTURE_NETWORK_SEGMENT_ID
+    );
+    sqlx::query::<_>(&query).execute(&mut *txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        ..Default::default()
+    };
+
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        env.test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    // Run site explorer and check the health state of the Machine
+    explorer.run_single_iteration().await.unwrap();
+
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+
+    let alerts = &host_machine.health.as_ref().unwrap().alerts;
+    assert!(alerts.is_empty());
+
+    // Now mark the Machine as unreachable. A health alert should be emitted
+    endpoint_explorer.insert_endpoint_result(
+        host_machine
+            .bmc_info
+            .as_ref()
+            .unwrap()
+            .ip()
+            .parse()
+            .unwrap(),
+        Err(EndpointExplorationError::Unreachable { details: None }),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+
+    let mut alerts = host_machine.health.as_ref().unwrap().alerts.clone();
+    assert_eq!(alerts.len(), 1);
+    for alert in alerts.iter_mut() {
+        assert!(alert.in_alert_since.is_some());
+        alert.in_alert_since = None;
+    }
+    alerts
+        .sort_by(|alert1, alert2| (&alert1.id, &alert1.target).cmp(&(&alert2.id, &alert2.target)));
+    assert_eq!(
+        alerts,
+        vec![rpc::health::HealthProbeAlert {
+            id: "BmcExplorationFailure".to_string(),
+            target: Some(bmc_ip.to_string()),
+            in_alert_since: None,
+            message: "Endpoint exploration failed: The endpoint was not reachable: None"
+                .to_string(),
+            tenant_message: None,
+            classifications: vec!["PreventAllocations".to_string()]
+        }]
+    );
+
     Ok(())
 }
 

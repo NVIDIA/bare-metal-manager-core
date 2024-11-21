@@ -2,6 +2,12 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...trunk)
 
 ### Added
+
+- The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Two types of alerts are emitted. Both of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant:
+  1. `BmcExplorationFailure`: This alert is emitted when the last exploration run failed for any reason
+  2. `SerialNumberMismatch`: This alert is emitted when the Host utilizes a different serial number than indicated by expected-machines
+
+
 ### Changed
 
 - When connections from carbide to Host BMCs are established, a timeout of 10s is now utilized for TCP connection establishment and the TLS handshake, and a timeout of 2min is utilized for performing the full request. Previous versions did only use the 2min timeout, which lead to often waiting for 2min for unresponsive BMCs.
