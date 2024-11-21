@@ -37,7 +37,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
-        DatabaseError,
+        DatabaseError, ObjectFilter,
     },
     model::{
         bmc_info::BmcInfo,
@@ -283,6 +283,7 @@ impl SiteExplorer {
     }
 
     /// Audits and collects metrics of _all_ explored results vs. _all_ expected machines, not a single exploration cycle.
+    /// Also updates the Site Explorer Health Report for all explored endpoints based on the last exploration data.
     ///
     /// * `metrics`                   - A metrics collector for accumulating and later emitting metrics.
     /// * `matched_expected_machines` - A map of expected machines that have been matched to interfaces, indexed by IP(s).
@@ -314,21 +315,69 @@ impl SiteExplorer {
             )
         })?;
 
-        // Go through all the explored endpoints and start collecting metrics
+        // Go through all the explored endpoints and collect metrics and submit
+        // health reports
         for ep in explored_endpoints.into_iter() {
+            if ep.report.endpoint_type != EndpointType::Bmc {
+                // Skip anything that isn't a BMC.
+                continue;
+            }
+
+            // We need to find the last health report for the endpoint in order to update it with latest health data
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "begin update SiteExplorer Health Report",
+                    e,
+                )
+            })?;
+            let machine_id = db::machine::Machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
+            let machine = match machine_id.as_ref() {
+                Some(id) => db::machine::Machine::find(
+                    &mut txn,
+                    ObjectFilter::One(id.clone()),
+                    MachineSearchConfig {
+                        include_dpus: true,
+                        include_history: false,
+                        include_predicted_host: true,
+                        only_maintenance: false,
+                        exclude_hosts: false,
+                    },
+                )
+                .await?
+                .into_iter()
+                .next(),
+                None => None,
+            };
+            let previous_health_report = machine
+                .as_ref()
+                .and_then(|machine| machine.site_explorer_health_report());
+            let mut new_health_report: health_report::HealthReport =
+                health_report::HealthReport::empty("site-explorer".to_string());
+
             if let Some(ref e) = ep.report.last_exploration_error {
                 metrics.increment_endpoint_explorations_failures_overall_count(
                     exploration_error_to_metric_label(e),
                 );
-                // We could skip everything else now,
-                // but there might have been explored machines that
-                // later fell into an error state.
-                // We should report on what we can.
-            }
+                // Despite the last exploration failing, there might still be additional
+                // endpoint information available. There might even be an ingested
+                // Machine that corresponds to that endpoint.
 
-            if ep.report.endpoint_type != EndpointType::Bmc {
-                // Skip anything that isn't a BMC.
-                continue;
+                // The target allows to distinguish multiple DPUs which might
+                // exhibit different alerts
+                new_health_report
+                    .alerts
+                    .push(health_report::HealthProbeAlert {
+                        id: "BmcExplorationFailure".parse().unwrap(),
+                        target: Some(ep.address.to_string()),
+                        in_alert_since: None,
+                        message: format!("Endpoint exploration failed: {e}"),
+                        tenant_message: None,
+                        classifications: vec![
+                            health_report::HealthAlertClassification::prevent_allocations(),
+                        ],
+                    });
             }
 
             let expected_machine = matched_expected_machines.get(&ep.address);
@@ -370,8 +419,37 @@ impl SiteExplorer {
                             .increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
                                 machine_type,
                             );
+
+                    new_health_report
+                        .alerts
+                        .push(health_report::HealthProbeAlert {
+                            id: "SerialNumberMismatch".parse().unwrap(),
+                            target: Some(ep.address.to_string()),
+                            in_alert_since: None,
+                            message: format!(
+                                "Expected serial number {expected_sn} can not be found"
+                            ),
+                            tenant_message: None,
+                            classifications: vec![
+                                health_report::HealthAlertClassification::prevent_allocations(),
+                            ],
+                        });
                 }
             }
+
+            new_health_report.update_in_alert_since(previous_health_report);
+            if let Some(id) = machine_id.as_ref() {
+                db::machine::Machine::update_site_explorer_health_report(
+                    &mut txn,
+                    id,
+                    &new_health_report,
+                )
+                .await?;
+            }
+
+            txn.commit().await.map_err(|e| {
+                DatabaseError::new(file!(), line!(), "end update SiteExplorer Health Report", e)
+            })?;
         }
 
         // Count the total number of explored managed hosts
