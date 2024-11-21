@@ -37,7 +37,7 @@ pub struct MachineMetrics {
     pub client_certificate_expiry: HashMap<String, Option<i64>>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
-    pub available_gpus: usize,
+    pub num_gpus: usize,
     pub assigned_to_tenant: Option<TenantOrganizationId>,
     /// Health probe alerts for the aggregate host by Probe ID and Target
     pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
@@ -46,13 +46,13 @@ pub struct MachineMetrics {
     pub num_merge_overrides: usize,
     /// Whether an override of type `replace` is configured
     pub replace_override_enabled: bool,
-    /// Whether the Machine is allocatable to a Tenant
+    /// Whether the Machine is usable as an instance for a tenant
     /// Doing so requires
     /// - the Machine to be in `Ready` state
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
-    pub is_allocatable: bool,
+    pub is_usable_as_instance: bool,
     /// is the host's bios password set
     pub is_host_bios_password_set: bool,
 }
@@ -70,11 +70,11 @@ pub struct MachineStateControllerIterationMetrics {
     pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
-    pub allocatable_gpus: usize,
-    pub available_gpus: usize,
-    pub assigned_gpus_by_tenant: HashMap<TenantOrganizationId, usize>,
-    pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
-    pub hosts_allocatable: usize,
+    pub gpus_usable: usize,
+    pub gpus_total: usize,
+    pub gpus_in_use_by_tenant: HashMap<TenantOrganizationId, usize>,
+    pub hosts_in_use_by_tenant: HashMap<TenantOrganizationId, usize>,
+    pub hosts_usable: usize,
     pub hosts_total: usize,
     /// The amount of hosts by Health status (healthy==true) and assignment status
     pub hosts_healthy: HashMap<(bool, IsAssignedToTenant), usize>,
@@ -94,12 +94,19 @@ pub struct IsAssignedToTenant(bool);
 pub struct MachineMetricsEmitter {
     dpus_up_gauge: ObservableGauge<u64>,
     dpus_healthy_gauge: ObservableGauge<u64>,
-    assigned_gpus_gauge: ObservableGauge<u64>,
-    assigned_gpus_by_tenant_gauge: ObservableGauge<u64>,
-    assigned_hosts_by_tenant_gauge: ObservableGauge<u64>,
-    allocatable_hosts_gauge: ObservableGauge<u64>,
-    allocatable_gpus_gauge: ObservableGauge<u64>,
-    available_gpus_gauge: ObservableGauge<u64>,
+    assigned_gpus_gauge: ObservableGauge<u64>, // Deprecated: Replaced by gpus_in_use_gauge
+    assigned_gpus_by_tenant_gauge: ObservableGauge<u64>, // Deprecated: Replaced by gpus_in_use_by_tenant_gauge
+    assigned_hosts_by_tenant_gauge: ObservableGauge<u64>, // Deprecated: Replaced by hosts_in_use_by_tenant_gauge
+    allocatable_hosts_gauge: ObservableGauge<u64>, // Deprecated: Replaced by hosts_usable_gauge
+    allocatable_gpus_gauge: ObservableGauge<u64>,  // Deprecated: Replaced by gpus_usable_gauge
+    available_gpus_gauge: ObservableGauge<u64>,    // Deprecated: Replaced by gpus_total_gauge
+    gpus_in_use_gauge: ObservableGauge<u64>,
+    gpus_in_use_by_tenant_gauge: ObservableGauge<u64>,
+    gpus_total_gauge: ObservableGauge<u64>,
+    hosts_in_use_by_tenant_gauge: ObservableGauge<u64>,
+    hosts_in_use_gauge: ObservableGauge<u64>,
+    hosts_usable_gauge: ObservableGauge<u64>,
+    gpus_usable_gauge: ObservableGauge<u64>,
     hosts_health_status_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     unhealthy_hosts_by_probe_id_gauge: ObservableGauge<u64>,
@@ -152,6 +159,39 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .u64_observable_gauge("forge_assigned_hosts_by_tenant_count")
             .with_description(
                 "The total number of Machines in an Assigned state in the Forge site by tenant",
+            )
+            .init();
+
+        let gpus_total_gauge = meter
+            .u64_observable_gauge("forge_gpus_total_count")
+            .with_description("The total number of GPUs available in the Forge site")
+            .init();
+        let hosts_usable_gauge = meter
+            .u64_observable_gauge("forge_hosts_usable_count")
+            .with_description("The remaining number of hosts in the Forge site which are available for immediate instance creation")
+            .init();
+        let gpus_usable_gauge = meter
+            .u64_observable_gauge("forge_gpus_usable_count")
+            .with_description("The remaining number of GPUs in the Forge site which are available for immediate instance creation")
+            .init();
+        let gpus_in_use_gauge = meter
+            .u64_observable_gauge("forge_gpus_in_use_count")
+            .with_description("The total number of GPUs that are actively used by tenants in instances in the Forge site")
+            .init();
+        let hosts_in_use_gauge = meter
+            .u64_observable_gauge("forge_hosts_in_use_count")
+            .with_description("The total number of hosts that are actively used by tenants as instances in the Forge site")
+            .init();
+        let gpus_in_use_by_tenant_gauge = meter
+            .u64_observable_gauge("forge_gpus_in_use_by_tenant_count")
+            .with_description(
+                "The number of GPUs that are actively used by tenants as instances - by tenant",
+            )
+            .init();
+        let hosts_in_use_by_tenant_gauge = meter
+            .u64_observable_gauge("forge_hosts_in_use_by_tenant_count")
+            .with_description(
+                "The number of hosts that are actively used by tenants as instances - by tenant",
             )
             .init();
 
@@ -241,6 +281,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             assigned_gpus_by_tenant_gauge,
             assigned_hosts_by_tenant_gauge,
             available_gpus_gauge,
+            gpus_in_use_gauge,
+            gpus_in_use_by_tenant_gauge,
+            hosts_in_use_gauge,
+            hosts_in_use_by_tenant_gauge,
+            hosts_usable_gauge,
+            gpus_total_gauge,
+            gpus_usable_gauge,
             dpus_up_gauge,
             dpus_healthy_gauge,
             dpu_agent_version_gauge,
@@ -266,6 +313,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.assigned_gpus_by_tenant_gauge.as_any(),
             self.assigned_hosts_by_tenant_gauge.as_any(),
             self.available_gpus_gauge.as_any(),
+            self.gpus_total_gauge.as_any(),
+            self.gpus_in_use_gauge.as_any(),
+            self.gpus_in_use_by_tenant_gauge.as_any(),
+            self.hosts_in_use_gauge.as_any(),
+            self.hosts_in_use_by_tenant_gauge.as_any(),
+            self.hosts_usable_gauge.as_any(),
+            self.gpus_usable_gauge.as_any(),
             self.dpus_up_gauge.as_any(),
             self.dpus_healthy_gauge.as_any(),
             self.dpu_agent_version_gauge.as_any(),
@@ -296,10 +350,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .entry((is_healthy, is_assigned))
             .or_default() += 1;
 
-        iteration_metrics.available_gpus += object_metrics.available_gpus;
-        if object_metrics.is_allocatable {
-            iteration_metrics.hosts_allocatable += 1;
-            iteration_metrics.allocatable_gpus += object_metrics.available_gpus;
+        iteration_metrics.gpus_total += object_metrics.num_gpus;
+        if object_metrics.is_usable_as_instance {
+            iteration_metrics.hosts_usable += 1;
+            iteration_metrics.gpus_usable += object_metrics.num_gpus;
         }
 
         // The object_metrics.is_host_bios_password_set bool cast as usize will translate to 0 or 1
@@ -308,11 +362,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         if let Some(tenant) = object_metrics.assigned_to_tenant.as_ref() {
             *iteration_metrics
-                .assigned_gpus_by_tenant
+                .gpus_in_use_by_tenant
                 .entry(tenant.clone())
-                .or_default() += object_metrics.available_gpus;
+                .or_default() += object_metrics.num_gpus;
             *iteration_metrics
-                .assigned_hosts_by_tenant
+                .hosts_in_use_by_tenant
                 .entry(tenant.clone())
                 .or_default() += 1;
         }
@@ -402,7 +456,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
     ) {
         observer.observe_u64(
             &self.allocatable_hosts_gauge,
-            iteration_metrics.hosts_allocatable as u64,
+            iteration_metrics.hosts_usable as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.hosts_usable_gauge,
+            iteration_metrics.hosts_usable as u64,
             attributes,
         );
         observer.observe_u64(
@@ -412,32 +471,54 @@ impl MetricsEmitter for MachineMetricsEmitter {
         );
         observer.observe_u64(
             &self.allocatable_gpus_gauge,
-            iteration_metrics.allocatable_gpus as u64,
+            iteration_metrics.gpus_usable as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.gpus_usable_gauge,
+            iteration_metrics.gpus_usable as u64,
             attributes,
         );
         observer.observe_u64(
             &self.available_gpus_gauge,
-            iteration_metrics.available_gpus as u64,
+            iteration_metrics.gpus_total as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.gpus_total_gauge,
+            iteration_metrics.gpus_total as u64,
             attributes,
         );
 
         let mut tenant_org_attr = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         tenant_org_attr.push(KeyValue::new("tenant_org_id", "".to_string()));
-        let mut total_assigned_gpus = 0;
-        for (org, count) in &iteration_metrics.assigned_gpus_by_tenant {
-            total_assigned_gpus += *count;
+        let mut total_in_use_gpus = 0;
+        for (org, count) in &iteration_metrics.gpus_in_use_by_tenant {
+            total_in_use_gpus += *count;
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
                 &self.assigned_gpus_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
             );
+            observer.observe_u64(
+                &self.gpus_in_use_by_tenant_gauge,
+                *count as u64,
+                &tenant_org_attr,
+            );
         }
-        for (org, count) in &iteration_metrics.assigned_hosts_by_tenant {
+        let mut total_in_use_hosts = 0;
+        for (org, count) in &iteration_metrics.hosts_in_use_by_tenant {
+            total_in_use_hosts += *count;
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
                 &self.assigned_hosts_by_tenant_gauge,
+                *count as u64,
+                &tenant_org_attr,
+            );
+            observer.observe_u64(
+                &self.hosts_in_use_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
             );
@@ -445,7 +526,17 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         observer.observe_u64(
             &self.assigned_gpus_gauge,
-            total_assigned_gpus as u64,
+            total_in_use_gpus as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.gpus_in_use_gauge,
+            total_in_use_gpus as u64,
+            attributes,
+        );
+        observer.observe_u64(
+            &self.hosts_in_use_gauge,
+            total_in_use_hosts as u64,
             attributes,
         );
 
@@ -648,7 +739,7 @@ mod tests {
         let object_metrics = vec![
             MachineMetrics {
                 agent_versions: HashMap::new(),
-                available_gpus: 0,
+                num_gpus: 0,
                 assigned_to_tenant: Some("a".parse().unwrap()),
                 dpus_up: 1,
                 dpus_healthy: 0,
@@ -668,11 +759,11 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
-                is_allocatable: true,
+                is_usable_as_instance: true,
                 is_host_bios_password_set: true,
             },
             MachineMetrics {
-                available_gpus: 2,
+                num_gpus: 2,
                 assigned_to_tenant: Some("a".parse().unwrap()),
                 agent_versions: HashMap::from_iter([("v1".to_string(), 1)]),
                 dpus_up: 1,
@@ -715,11 +806,11 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
-                is_allocatable: true,
+                is_usable_as_instance: true,
                 is_host_bios_password_set: true,
             },
             MachineMetrics {
-                available_gpus: 3,
+                num_gpus: 3,
                 assigned_to_tenant: None,
                 agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
                 dpus_up: 0,
@@ -741,11 +832,11 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 1,
                 replace_override_enabled: true,
-                is_allocatable: false,
+                is_usable_as_instance: false,
                 is_host_bios_password_set: true,
             },
             MachineMetrics {
-                available_gpus: 1,
+                num_gpus: 1,
                 assigned_to_tenant: Some("a".parse().unwrap()),
                 agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
                 dpus_up: 1,
@@ -777,11 +868,11 @@ mod tests {
                 health_alert_classifications: HashSet::new(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
-                is_allocatable: true,
+                is_usable_as_instance: true,
                 is_host_bios_password_set: true,
             },
             MachineMetrics {
-                available_gpus: 2,
+                num_gpus: 2,
                 assigned_to_tenant: None,
                 agent_versions: HashMap::new(),
                 dpus_up: 1,
@@ -837,11 +928,11 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 1,
                 replace_override_enabled: false,
-                is_allocatable: false,
+                is_usable_as_instance: false,
                 is_host_bios_password_set: true,
             },
             MachineMetrics {
-                available_gpus: 3,
+                num_gpus: 3,
                 assigned_to_tenant: None,
                 agent_versions: HashMap::new(),
                 dpus_up: 2,
@@ -884,7 +975,7 @@ mod tests {
                 .collect(),
                 num_merge_overrides: 0,
                 replace_override_enabled: true,
-                is_allocatable: false,
+                is_usable_as_instance: false,
                 is_host_bios_password_set: false,
             },
         ];
@@ -900,22 +991,22 @@ mod tests {
         );
         assert_eq!(
             *iteration_metrics
-                .assigned_gpus_by_tenant
+                .gpus_in_use_by_tenant
                 .get(&"a".parse().unwrap())
                 .unwrap(),
             3
         );
         assert_eq!(
             *iteration_metrics
-                .assigned_hosts_by_tenant
+                .hosts_in_use_by_tenant
                 .get(&"a".parse().unwrap())
                 .unwrap(),
             3
         );
-        assert_eq!(iteration_metrics.hosts_allocatable, 3);
+        assert_eq!(iteration_metrics.hosts_usable, 3);
         assert_eq!(iteration_metrics.hosts_with_bios_password_set, 5);
-        assert_eq!(iteration_metrics.allocatable_gpus, 3);
-        assert_eq!(iteration_metrics.available_gpus, 11);
+        assert_eq!(iteration_metrics.gpus_usable, 3);
+        assert_eq!(iteration_metrics.gpus_total, 11);
         assert_eq!(iteration_metrics.dpus_up, 6);
         assert_eq!(iteration_metrics.dpus_healthy, 2);
         assert_eq!(

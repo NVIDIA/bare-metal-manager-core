@@ -306,8 +306,8 @@ impl MachineStateHandler {
             }
         }
 
-        ctx.metrics.is_allocatable = state.check_allocatable().is_ok();
-        ctx.metrics.available_gpus = state
+        ctx.metrics.is_usable_as_instance = state.is_usable_as_instance().is_ok();
+        ctx.metrics.num_gpus = state
             .host_snapshot
             .hardware_info
             .as_ref()
