@@ -2953,7 +2953,7 @@ impl DpuMachineStateHandler {
                         tracing::info!("Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; DisableSecureBoot cycle: {count}", dpu_snapshot.machine_id)
                     }
 
-                    has_dpu_finished_booting
+                    !has_dpu_finished_booting
                 };
 
                 match disable_secure_boot_state {
