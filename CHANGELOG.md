@@ -3,7 +3,7 @@
 
 ### Added
 
-- The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Two types of alerts are emitted. Both of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant:
+- The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Two types of alerts are emitted. Both of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant. The `target` property of each alert indicates which BMC IP exhibited the issue. That allows to distinguish between problems contacting the DPU BMC, and problems contacting the Host BMC.
   1. `BmcExplorationFailure`: This alert is emitted when the last exploration run failed for any reason
   2. `SerialNumberMismatch`: This alert is emitted when the Host utilizes a different serial number than indicated by expected-machines
 
@@ -11,6 +11,14 @@
 ### Changed
 
 - When connections from carbide to Host BMCs are established, a timeout of 10s is now utilized for TCP connection establishment and the TLS handshake, and a timeout of 2min is utilized for performing the full request. Previous versions did only use the 2min timeout, which lead to often waiting for 2min for unresponsive BMCs.
+- Several metric names change in order to match the terminology  used by Forge Cloud. The metrics are still emitted under the old name for a transitionary period. Those will be removed later. The impacted metrics and new names are:
+  - `forge_gpus_total_count` (was: `forge_available_gpus_count`): The total number of GPUs available in the Forge site
+  - `forge_gpus_usable_count` (was: `forge_allocatable_gpus_count`): The remaining number of hosts in the Forge site which are available for immediate instance creation
+  - `forge_hosts_usable_count` (was: `forge_allocatable_hosts_count`): The remaining number of GPUs in the Forge site which are available for immediate instance creation
+  - `forge_gpus_in_use_count` (was: `forge_assigned_gpus_count`): The total number of GPUs that are actively used by tenants in instances in the Forge site
+  - `forge_hosts_in_use_count` (did not exist before): The total number of hosts that are actively used by tenants as instances in the Forge site
+  - `forge_gpus_in_use_by_tenant_count` (was: `forge_assigned_gpus_by_tenant_count`): The number of GPUs that are actively used by tenants as instances - by tenant
+  - `forge_hosts_in_use_by_tenant_count` (was: `forge_assigned_hosts_by_tenant_count`): The number of hosts that are actively used by tenants as instances - by tenant
 
 ### Fixed
 
