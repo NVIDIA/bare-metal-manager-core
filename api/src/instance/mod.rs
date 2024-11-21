@@ -157,8 +157,8 @@ pub async fn allocate_instance(
         id: machine_id.to_string(),
     })?;
 
-    if let Err(e) = mh_snapshot.check_allocatable() {
-        tracing::error!(%machine_id, "Host can not be allocated due to reason: {}", e);
+    if let Err(e) = mh_snapshot.is_usable_as_instance() {
+        tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
         return Err(match e {
             NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
             "Could not create instance on machine {} given machine state {:?}",

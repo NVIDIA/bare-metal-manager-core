@@ -98,14 +98,14 @@ pub enum ManagedHostStateSnapshotError {
 }
 
 impl ManagedHostStateSnapshot {
-    /// Returns `Ok` if the Host can be used for Tenant allocations
+    /// Returns `Ok` if the Host can be used as an instance
     ///
     /// This requires
     /// - the Machine to be in `Ready` state
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
-    pub fn check_allocatable(&self) -> Result<(), NotAllocatableReason> {
+    pub fn is_usable_as_instance(&self) -> Result<(), NotAllocatableReason> {
         if !matches!(self.managed_state, ManagedHostState::Ready) {
             return Err(NotAllocatableReason::InvalidState(Box::new(
                 self.managed_state.clone(),
