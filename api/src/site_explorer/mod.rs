@@ -380,6 +380,27 @@ impl SiteExplorer {
                     });
             }
 
+            for system in ep.report.systems.iter() {
+                if system.power_state != PowerState::On {
+                    new_health_report
+                        .alerts
+                        .push(health_report::HealthProbeAlert {
+                            id: "PoweredOff".parse().unwrap(),
+                            target: Some(ep.address.to_string()),
+                            in_alert_since: None,
+                            message: format!(
+                                "System \"{}\" power state is \"{:?}\"",
+                                system.id, system.power_state
+                            ),
+                            tenant_message: None,
+                            classifications: vec![
+                                health_report::HealthAlertClassification::prevent_allocations(),
+                            ],
+                        });
+                    break;
+                }
+            }
+
             let expected_machine = matched_expected_machines.get(&ep.address);
 
             let (machine_type, expected) = match ep.report.is_dpu() {
