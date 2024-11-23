@@ -3,9 +3,10 @@
 
 ### Added
 
-- The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Two types of alerts are emitted. Both of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant. The `target` property of each alert indicates which BMC IP exhibited the issue. That allows to distinguish between problems contacting the DPU BMC, and problems contacting the Host BMC.
+- The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Three types of alerts are emitted. All of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant. The `target` property of each alert indicates which BMC IP exhibited the issue. That allows to distinguish between problems contacting the DPU BMC, and problems contacting the Host BMC.
   1. `BmcExplorationFailure`: This alert is emitted when the last exploration run failed for any reason
-  2. `SerialNumberMismatch`: This alert is emitted when the Host utilizes a different serial number than indicated by expected-machines
+  2. `PoweredOff`: This alert is indicated if the Host or DPU reports that its power state is not equal to `On`. The same alert was already emitted by the hardware health service. Emitting the alert from site explorer will however minimize the latency for setting the alert
+  3. `SerialNumberMismatch`: This alert is emitted when the Host utilizes a different serial number than indicated by expected-machines
 
 
 ### Changed
