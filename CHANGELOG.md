@@ -1,13 +1,28 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...trunk)
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [v2024.11.22-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...v2024.11.22-rc2-0)
 
 ### Added
 
 - The BMC exploration mechanism of Site Explorer can now generate Health Alerts for already ingested Machines. Three types of alerts are emitted. All of them carry the `PreventAllocations` classification, which will prevent the Machine from being allocated by a tenant. The `target` property of each alert indicates which BMC IP exhibited the issue. That allows to distinguish between problems contacting the DPU BMC, and problems contacting the Host BMC.
-  1. `BmcExplorationFailure`: This alert is emitted when the last exploration run failed for any reason
+  1. `BmcExplorationFailure`: This alert is emitted when the last exploration run failed for any reason.
   2. `PoweredOff`: This alert is indicated if the Host or DPU reports that its power state is not equal to `On`. The same alert was already emitted by the hardware health service. Emitting the alert from site explorer will however minimize the latency for setting the alert
   3. `SerialNumberMismatch`: This alert is emitted when the Host utilizes a different serial number than indicated by expected-machines
-
+- Serve static pxe content from an nginx server.
+- Added `reset_rate_limit` and `machines_created_per_run` to SiteExplorerConfig.
+- Added a separate redfish connection establishment timeout.
+- Site explorer skips ingesting hosts that Forge cannot effectively provision DPUs on.
+- Added metrics to track BMC remediation taken by site explorer.
+- Added additional tests as part of Machine Validation development.
 
 ### Changed
 
@@ -20,10 +35,25 @@
   - `forge_hosts_in_use_count` (did not exist before): The total number of hosts that are actively used by tenants as instances in the Forge site
   - `forge_gpus_in_use_by_tenant_count` (was: `forge_assigned_gpus_by_tenant_count`): The number of GPUs that are actively used by tenants as instances - by tenant
   - `forge_hosts_in_use_by_tenant_count` (was: `forge_assigned_hosts_by_tenant_count`): The number of hosts that are actively used by tenants as instances - by tenant
+- Update timestamps when power action is skipped.
+- FNN vpc_prefix_id is included in instance allocation message.
+- admin-cli `measurement journal show` now shows report_id without including the `--extended` option.
+- admin-cli add option to `measurement journal promote` to reduce the number of commands required to promote a bundle.
+- Allow site explorer to reset the BMC more frequently (up to once an hour).
+- Ensured that the host is powered back on after turning it off as part of DPU provisioning
+- Improved power state emulation in machine-a-tron.
+- Eliminate dependency from admin to carbide-api reducing the size of the binary from 756MB to 460MB.
 
 ### Fixed
 
-- fixed an issue where a host would end up in a reboot loop when it entered the NVMECleanFailed state. The reboot retries are now limited to 15.
+- Fixed an issue where a host would end up in a reboot loop when it entered the NVMECleanFailed state. The reboot retries are now limited to 15.
+- Added a lock to avoid a race condition in measured boot.
+- Will no longer power down the host on the first cycle of reboot_if_needed.
+- Download root certificate for x86 from the PXE server.
+- Handle processing invalid infiniband configurations.
+- Fixed a crash ufmclient by setting a default CryptoProvider.
+- DPU is rebooted after patching its BIOS settings.
+- Extend the time we wait for the DPU to come up after rebooting it from an error state.
 
 ### Removed
 
