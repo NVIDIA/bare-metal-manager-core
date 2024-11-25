@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, net::Ipv4Addr, str::FromStr, time::Duration};
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
@@ -19,9 +19,11 @@ use carbide::{
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         machine::{Machine, MachineSearchConfig},
         network_prefix::NetworkPrefix,
+        network_segment::{IdColumn, NetworkSegment, NetworkSegmentSearchConfig},
+        ObjectColumnFilter,
     },
     dhcp::allocation::UsedIpResolver,
-    instance::{allocate_instance, InstanceAllocationRequest},
+    instance::{allocate_instance, allocate_network, InstanceAllocationRequest},
     model::{
         instance::{
             config::{
@@ -37,6 +39,7 @@ use carbide::{
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
         metadata::Metadata,
     },
+    network_segment::allocate::Ipv4PrefixAllocator,
 };
 use chrono::Utc;
 use common::api_fixtures::{
@@ -44,15 +47,16 @@ use common::api_fixtures::{
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
-        single_interface_network_config, FIXTURE_CIRCUIT_ID,
+        single_interface_network_config, single_interface_network_config_with_vpc_prefix,
+        FIXTURE_CIRCUIT_ID,
     },
     network_configured_with_health,
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 use forge_uuid::instance::InstanceId;
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use mac_address::MacAddress;
-use rpc::InstanceReleaseRequest;
+use rpc::{forge::OperatingSystem, InstanceReleaseRequest};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::ops::DerefMut;
 
@@ -1565,6 +1569,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         request,
         &env.pool,
         env.config.host_health.hardware_health_reports,
+        &env.api,
     )
     .await;
     let error = result.expect_err("expected allocation to fail").to_string();
@@ -2135,4 +2140,497 @@ async fn test_allocate_instance_with_old_network_segemnt(
         interface.network_details = None;
     }
     assert_eq!(network_config_no_addresses, expected_nw_config);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+
+    let x = rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: 0,
+            network_segment_id: None,
+            network_details: Some(
+                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                    rpc::common::Uuid {
+                        value: uuid::Uuid::new_v4().to_string(),
+                    },
+                ),
+            ),
+        }],
+    };
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            tenant_organization_id: "abc".to_string(),
+            user_data: None,
+            custom_ipxe: "exit".to_string(),
+            always_boot_with_custom_ipxe: false,
+            phone_home_enabled: false,
+            hostname: Some("xyz".to_string()),
+            tenant_keyset_ids: vec![],
+        }),
+        os: Some(OperatingSystem {
+            phone_home_enabled: false,
+            run_provisioning_instructions_on_every_boot: false,
+            user_data: Some("".to_string()),
+            variant: Some(rpc::forge::operating_system::Variant::OsImageId(
+                rpc::Uuid {
+                    value: uuid::Uuid::new_v4().to_string(),
+                },
+            )),
+        }),
+        network: Some(x),
+        infiniband: None,
+        storage: None,
+    };
+
+    let mut config: InstanceConfig = config.try_into().unwrap();
+
+    assert!(config.network.interfaces[0].network_segment_id.is_none());
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    allocate_network(&mut config.network, &mut txn, &env.api)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+    assert!(config.network.interfaces[0].network_segment_id.is_some());
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let network_segment = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(
+            IdColumn,
+            &config.network.interfaces[0].network_segment_id.unwrap(),
+        ),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let np = network_segment[0].prefixes[0].prefix;
+    match np {
+        IpNetwork::V4(ipv4_network) => assert_eq!(
+            Ipv4Addr::from_str("10.217.5.224").unwrap(),
+            ipv4_network.network()
+        ),
+        IpNetwork::V6(_) => panic!("Can not be ipv6."),
+    }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_and_release_instance_vpc_prefix_id(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    assert!(Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Ready
+    ));
+    txn.commit().await.unwrap();
+
+    let vpc_prefix_id = uuid::Uuid::new_v4();
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
+            value: vpc_prefix_id.to_string(),
+        })),
+        None,
+        None,
+        vec![],
+    )
+    .await;
+
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Ready
+    );
+
+    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let expected_os = default_os_config();
+    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    assert_eq!(os, &expected_os);
+
+    // For backward compatibilty reasons, the OS details are still signaled
+    // via `TenantConfig`
+    let mut expected_tenant_config = default_tenant_config();
+    match &expected_os.variant {
+        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
+            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
+            expected_tenant_config.user_data = expected_os.user_data.clone();
+        }
+        _ => panic!("Unexpected OS"),
+    }
+    expected_tenant_config.always_boot_with_custom_ipxe =
+        expected_os.run_provisioning_instructions_on_every_boot;
+    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    assert_eq!(tenant_config, &expected_tenant_config);
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
+        });
+    assert_eq!(fetched_instance.machine_id, host_machine_id);
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(
+            &mut txn,
+            fetched_instance.config.network.interfaces[0]
+                .network_segment_id
+                .unwrap()
+        )
+        .await
+        .unwrap(),
+        1
+    );
+
+    let network_config = fetched_instance.config.network.clone();
+    assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
+    let mut network_config_no_addresses = network_config.clone();
+    for iface in network_config_no_addresses.interfaces.iter_mut() {
+        assert_eq!(iface.ip_addrs.len(), 1);
+        assert_eq!(iface.interface_prefixes.len(), 1);
+        iface.ip_addrs.clear();
+        iface.interface_prefixes.clear();
+        iface.network_segment_gateways.clear();
+        iface.network_segment_id = None;
+    }
+    assert_eq!(
+        network_config_no_addresses,
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id)
+    );
+
+    assert!(fetched_instance.observations.network.is_some());
+    assert!(fetched_instance.use_custom_pxe_on_boot);
+
+    let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!fetched_instance.use_custom_pxe_on_boot);
+    txn.commit().await.unwrap();
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let ns = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(
+            IdColumn,
+            &fetched_instance.config.network.interfaces[0]
+                .network_segment_id
+                .unwrap(),
+        ),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    // TODO: The MAC here doesn't matter. It's not used for lookup
+    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
+    let record = InstanceDhcpRecord::find_for_instance(
+        &mut txn,
+        parsed_mac,
+        format!("vlan{}", ns[0].vlan_id.unwrap_or_default()),
+        fetched_instance.clone(),
+    )
+    .await
+    .unwrap();
+
+    // This should the first IP. Algo does not look into machine_interface_addresses
+    // table for used addresses for instance.
+    assert_eq!(record.address().to_string(), "10.217.5.225");
+    assert_eq!(
+        &record.address(),
+        network_config.interfaces[0]
+            .ip_addrs
+            .iter()
+            .next()
+            .unwrap()
+            .1
+    );
+
+    assert_eq!(
+        format!("{}/32", &record.address()),
+        network_config.interfaces[0]
+            .interface_prefixes
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .to_string()
+    );
+
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+
+    // TODO: (abhi) Validate that all generated network segments are in deleted state.
+    // Call network segment handler to delete segment.
+
+    // Address is freed during delete
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Ready
+    ));
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(
+            &mut txn,
+            fetched_instance.config.network.interfaces[0]
+                .network_segment_id
+                .unwrap()
+        )
+        .await
+        .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let vpc_prefix_id = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+
+    let allocator = Ipv4PrefixAllocator::new(
+        // 15 IPs
+        vpc_prefix_id,
+        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        None,
+        31,
+    );
+
+    let (ns_id, _prefix) = allocator
+        .allocate_network_segment(
+            &mut txn,
+            &env.api,
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+        )
+        .await
+        .unwrap();
+
+    let ns1 = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let address1 = match ns1[0].prefixes[0].prefix {
+        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
+        IpNetwork::V6(_) => panic!("cant be ipv6"),
+    };
+
+    txn.commit().await.unwrap();
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let allocator = Ipv4PrefixAllocator::new(
+        vpc_prefix_id,
+        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        None,
+        31,
+    );
+
+    let (ns_id, _prefix) = allocator
+        .allocate_network_segment(
+            &mut txn,
+            &env.api,
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+        )
+        .await
+        .unwrap();
+
+    let ns2 = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let address2 = match ns2[0].prefixes[0].prefix {
+        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
+        IpNetwork::V6(_) => panic!("cant be ipv6"),
+    };
+
+    txn.commit().await.unwrap();
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let allocator = Ipv4PrefixAllocator::new(
+        vpc_prefix_id,
+        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        None,
+        31,
+    );
+
+    let (ns_id, _prefix) = allocator
+        .allocate_network_segment(
+            &mut txn,
+            &env.api,
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+        )
+        .await
+        .unwrap();
+
+    let ns3 = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let address3 = match ns3[0].prefixes[0].prefix {
+        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
+        IpNetwork::V6(_) => panic!("cant be ipv6"),
+    };
+
+    txn.commit().await.unwrap();
+    // The allocation should take care of already assigned prefixes and should not allocate twice.
+    assert_eq!(Ipv4Addr::new(10, 1, 1, 96), address1);
+    assert_eq!(Ipv4Addr::new(10, 1, 1, 98), address2);
+    assert_eq!(Ipv4Addr::new(10, 1, 1, 100), address3);
+    assert_ne!(address1, address2);
+    assert_ne!(address1, address3);
+    assert_ne!(address2, address3);
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let allocator = Ipv4PrefixAllocator::new(
+        vpc_prefix_id,
+        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        Some(Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 106), 31).unwrap()),
+        31,
+    );
+
+    let (ns_id, _prefix) = allocator
+        .allocate_network_segment(
+            &mut txn,
+            &env.api,
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+        )
+        .await
+        .unwrap();
+
+    let ns4 = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let address4 = match ns4[0].prefixes[0].prefix {
+        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
+        IpNetwork::V6(_) => panic!("cant be ipv6"),
+    };
+
+    txn.commit().await.unwrap();
+
+    // last_used_prefix was 10.1.1.106/31, next should be 10.1.1.108/31.
+    assert_eq!(Ipv4Addr::new(10, 1, 1, 108), address4);
 }

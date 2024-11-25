@@ -130,6 +130,18 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
     }
 }
 
+pub fn single_interface_network_config_with_vpc_prefix(
+    prefix_id: rpc::Uuid,
+) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(NetworkDetails::VpcPrefixId(prefix_id)),
+        }],
+    }
+}
+
 pub fn default_os_config() -> rpc::forge::OperatingSystem {
     rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -209,6 +221,9 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: InstanceId,
 ) -> rpc::Instance {
+    // TODO: (abhi) if using vpc_prefix_id, call network state handler so that all segments come in
+    // Ready state.
+
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
     // - second run: state controller sets use_admin_network to false

@@ -361,7 +361,7 @@ async fn search(
         // Network segment that contains this IP address
         NetworkSegment => {
             let out = NetworkPrefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
-            out.map(|prefix| {
+            out.first().map(|prefix| {
                 let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}, on circuit {}",
                     prefix.prefix,
@@ -370,7 +370,10 @@ async fn search(
                         .gateway
                         .map(|g| g.to_string())
                         .unwrap_or("(no gateway)".to_string()),
-                    prefix.circuit_id.unwrap_or("(no circuit)".to_string())
+                    prefix
+                        .circuit_id
+                        .clone()
+                        .unwrap_or("(no circuit)".to_string())
                 );
                 rpc::IpAddressMatch {
                     ip_type: rpc::IpType::NetworkSegment as i32,
