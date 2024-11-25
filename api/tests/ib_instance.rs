@@ -11,6 +11,9 @@
  */
 
 use carbide::{
+    api::rpc::IbPartitionSearchConfig,
+    api::Api,
+    cfg::IBFabricConfig,
     db::{
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
@@ -22,10 +25,12 @@ use common::api_fixtures::{
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
     instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    TestEnv,
+    TestEnv, TestEnvOverrides,
 };
+use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
-use rpc::forge::forge_server::Forge;
+use rpc::forge::{forge_server::Forge, IbPartitionStatus, TenantState};
+use tonic::Request;
 
 pub mod common;
 
@@ -34,15 +39,67 @@ fn setup() {
     common::test_logging::init();
 }
 
+async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
+    let segment = api
+        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
+            id: Some(ib_partition_id.into()),
+            search_config: Some(IbPartitionSearchConfig {
+                include_history: false,
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions
+        .remove(0);
+
+    segment.status.unwrap()
+}
+
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let (ib_partition_id, _ib_partition) = create_ib_partition(
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: carbide::ib::IBMtu(2),
+        rate_limit: carbide::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let (ib_partition_id, ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
         DEFAULT_TENANT.to_string(),
     )
     .await;
+
+    env.run_ib_partition_controller_iteration().await;
+
+    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
+    assert_eq!(
+        TenantState::try_from(ib_partition_status.state).unwrap(),
+        TenantState::Ready
+    );
+    assert_eq!(
+        ib_partition.status.clone().unwrap().state,
+        ib_partition_status.state
+    );
+    assert_eq!(
+        ib_partition.status.clone().unwrap().pkey,
+        ib_partition_status.pkey
+    );
+    assert!(ib_partition_status.pkey.is_some());
+    assert!(ib_partition_status.mtu.is_none());
+    assert!(ib_partition_status.rate_limit.is_none());
+    assert!(ib_partition_status.service_level.is_none());
+
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
@@ -61,6 +118,18 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
+
+    env.run_ib_partition_controller_iteration().await;
+
+    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
+    assert_eq!(
+        TenantState::try_from(ib_partition_status.state).unwrap(),
+        TenantState::Ready
+    );
+    assert!(ib_partition_status.pkey.is_some());
+    assert!(ib_partition_status.mtu.is_none());
+    assert!(ib_partition_status.rate_limit.is_none());
+    assert!(ib_partition_status.service_level.is_none());
 
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
@@ -84,7 +153,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     };
 
     let (instance_id, _instance) =
-        create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
+        create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config.clone())
+            .await;
 
     let mut txn = env
         .pool
@@ -103,6 +173,21 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         }
     ));
     txn.commit().await.unwrap();
+
+    env.run_ib_partition_controller_iteration().await;
+
+    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
+    assert_eq!(
+        TenantState::try_from(ib_partition_status.state).unwrap(),
+        TenantState::Ready
+    );
+    assert!(ib_partition_status.pkey.is_some());
+    assert_eq!(ib_partition_status.mtu.unwrap(), 2);
+    assert_eq!(ib_partition_status.rate_limit.unwrap(), 10);
+    assert_eq!(
+        ib_partition_status.service_level.unwrap(),
+        carbide::ib::IBServiceLevel::default().0
+    );
 
     let instance = env
         .find_instances(Some(instance_id.into()))

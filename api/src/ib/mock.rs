@@ -86,37 +86,30 @@ impl IBFabric for MockIBFabric {
             let mut ibports = self.ibports.lock().map_err(|_| {
                 CarbideError::IBFabricError("create_ib_port mutex lock".to_string())
             })?;
-
             for port in ports {
-                if ibports.contains_key(&port) {
-                    return Err(CarbideError::IBFabricError(
-                        "duplicated ib port".to_string(),
-                    ));
+                if !ibports.contains_key(&port) {
+                    ibports.insert(
+                        port.clone(),
+                        IBPort {
+                            name: port.clone(),
+                            guid: port.clone(),
+                            lid: 1,
+                            state: Some(IBPortState::Active),
+                        },
+                    );
                 }
-
-                ibports.insert(
-                    port.clone(),
-                    IBPort {
-                        name: port.clone(),
-                        guid: port.clone(),
-                        lid: 1,
-                        state: Some(IBPortState::Active),
-                    },
-                );
             }
         }
         {
-            let mut ibsubnets = self.ibsubnets.lock().map_err(|_| {
-                CarbideError::IBFabricError("delete_ib_network mutex lock".to_string())
-            })?;
+            let mut ibsubnets = self
+                .ibsubnets
+                .lock()
+                .map_err(|_| CarbideError::IBFabricError("bind_ib_ports mutex lock".to_string()))?;
 
-            if ibsubnets.contains_key(&ib.name) {
-                return Err(CarbideError::IBFabricError(
-                    "duplicated ib subnet".to_string(),
-                ));
+            let pkey = ib.clone().pkey.clone().to_string();
+            if !ibsubnets.contains_key(&pkey) {
+                ibsubnets.insert(pkey.clone(), ib);
             }
-
-            ibsubnets.insert(ib.name.clone(), ib);
         }
 
         Ok(())

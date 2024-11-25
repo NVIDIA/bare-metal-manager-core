@@ -200,6 +200,17 @@ impl TryFrom<Partition> for IBNetwork {
 impl TryFrom<&Partition> for IBNetwork {
     type Error = CarbideError;
     fn try_from(p: &Partition) -> Result<Self, Self::Error> {
+        let rate_limit_value = if p.qos.rate_limit == (p.qos.rate_limit as i32) as f32 {
+            p.qos.rate_limit as i32
+        } else if p.qos.rate_limit == 2.5 {
+            // It is special case for SDR as 2.5
+            2
+        } else {
+            return Err(CarbideError::InvalidArgument(format!(
+                "{0} is an invalid rate limit",
+                p.qos.rate_limit
+            )));
+        };
         Ok(IBNetwork {
             name: p.name.clone(),
             pkey: p.pkey.clone().into(),
@@ -207,7 +218,7 @@ impl TryFrom<&Partition> for IBNetwork {
             mtu: IBMtu::try_from(p.qos.mtu_limit as i32)?,
             ipoib: p.ipoib,
             service_level: IBServiceLevel::try_from(p.qos.service_level as i32)?,
-            rate_limit: IBRateLimit::try_from(p.qos.rate_limit as i32)?,
+            rate_limit: IBRateLimit::try_from(rate_limit_value)?,
             membership: IBNETWORK_DEFAULT_MEMBERSHIP,
             index0: IBNETWORK_DEFAULT_INDEX0,
         })
@@ -237,6 +248,12 @@ impl TryFrom<IBNetwork> for Partition {
 impl TryFrom<&IBNetwork> for Partition {
     type Error = CarbideError;
     fn try_from(p: &IBNetwork) -> Result<Self, Self::Error> {
+        let rate_limit_value = if p.rate_limit == IBRateLimit(2) {
+            // It is special case for SDR as 2.5
+            2.5_f32
+        } else {
+            Into::<i32>::into(p.rate_limit.clone()) as f32
+        };
         Ok(Partition {
             name: p.name.clone(),
             pkey: PartitionKey::try_from(p.pkey)
@@ -245,7 +262,7 @@ impl TryFrom<&IBNetwork> for Partition {
             qos: PartitionQoS {
                 mtu_limit: Into::<i32>::into(p.mtu.clone()) as u16,
                 service_level: Into::<i32>::into(p.service_level.clone()) as u8,
-                rate_limit: Into::<i32>::into(p.rate_limit.clone()) as f64,
+                rate_limit: rate_limit_value,
             },
         })
     }
@@ -297,5 +314,115 @@ impl From<&String> for PortConfig {
 impl From<String> for PortConfig {
     fn from(guid: String) -> Self {
         PortConfig::from(&guid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ib_rest_type_conversion() {
+        let value = 0x7;
+        let result = PartitionKey::try_from(value);
+        assert!(result.is_ok());
+        let pkey = result.unwrap();
+
+        // Valid Partition
+        let value = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 2,
+                service_level: 0,
+                rate_limit: 10.0,
+            },
+        };
+        let result = IBNetwork::try_from(value);
+        assert!(result.is_ok());
+
+        // Invalid Partition (mtu)
+        let value = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 8,
+                service_level: 0,
+                rate_limit: 10.0,
+            },
+        };
+        let result = IBNetwork::try_from(value);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+
+        // Invalid Partition (service level)
+        let value = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 2,
+                service_level: 20,
+                rate_limit: 10.0,
+            },
+        };
+        let result = IBNetwork::try_from(value);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+
+        // Invalid Partition (rate limit)
+        let value = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 2,
+                service_level: 0,
+                rate_limit: 15.0,
+            },
+        };
+        let result = IBNetwork::try_from(value);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+
+        // Check special (rate limit as 2(2.5))
+        let expected_partition = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 2,
+                service_level: 0,
+                rate_limit: 2.5,
+            },
+        };
+        let value = IBNetwork::try_from(expected_partition.clone());
+        assert!(value.is_ok(), "IBNetwork::try_from() failure");
+        let v = value.unwrap();
+        assert_eq!(v.rate_limit, IBRateLimit(2));
+        let result = Partition::try_from(v);
+        assert!(result.is_ok(), "Partition::try_from() failure");
+        let v = result.unwrap();
+        assert_eq!(v.qos.rate_limit, 2.5_f32);
+        assert_eq!(expected_partition.clone(), v);
+
+        // Partition <-> IBNetwork
+        let expected_partition = Partition {
+            name: "PartitionTest".to_string(),
+            pkey: pkey.clone(),
+            ipoib: true,
+            qos: PartitionQoS {
+                mtu_limit: 2,
+                service_level: 5,
+                rate_limit: 10.0,
+            },
+        };
+        let value = IBNetwork::try_from(expected_partition.clone());
+        assert!(value.is_ok(), "IBNetwork::try_from() failure");
+        let result = Partition::try_from(value.unwrap());
+        assert!(result.is_ok(), "Partition::try_from() failure");
+        assert_eq!(expected_partition.clone(), result.unwrap());
     }
 }

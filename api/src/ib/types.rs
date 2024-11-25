@@ -35,8 +35,10 @@ pub struct IBNetwork {
     pub membership: IBPortMembership,
     /// The default index0 of IB network.
     pub index0: bool,
-    /// Default is None, can be one of the following: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
-    /// NOTE: 2.5 is also a valid value in UFM for lagecy hardware which is not the case of Carbide.
+    /// Supported values: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
+    /// 2 is also valid but is used internally to represent rate limit 2.5 that is possible in UFM for lagecy hardware.
+    /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
+    /// 2 to 2.5 and back conversion is done just on REST API operations.
     pub rate_limit: IBRateLimit,
 }
 
@@ -109,6 +111,8 @@ impl TryFrom<i32> for IBRateLimit {
             10 | 30 | 5 | 20 | 40 | 60 | 80 | 120 | 14 | 56 | 112 | 168 | 25 | 100 | 200 | 300 => {
                 Ok(Self(rate_limit))
             }
+            // It is special case for SDR as 2.5
+            2 => Ok(Self(rate_limit)),
             _ => Err(CarbideError::InvalidArgument(format!(
                 "{0} is an invalid rate limit",
                 rate_limit
