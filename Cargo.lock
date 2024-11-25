@@ -150,7 +150,7 @@ dependencies = [
  "prost",
  "rand 0.8.5",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "resolv-conf",
  "rpc",
  "rtnetlink",
@@ -3526,7 +3526,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3557,9 +3557,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.26.3"
+version = "0.26.5"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "5203859840709e52d681f1805ed48b9c0cc687cc6c6d69704b5c58e2da8c7ee2"
+checksum = "fb930edccb571a3bd5cf707a4358a6a889aed2980c56810e31d3d17923398b41"
 dependencies = [
  "async-trait",
  "clap",
@@ -3765,7 +3765,7 @@ dependencies = [
  "prost-types",
  "rayon",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "rpc",
  "serde",
  "serde_json",
@@ -4989,7 +4989,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c1318b19085f08681016926435853bbf7858f9c082d0999b80550ff5d9abe15"
 dependencies = [
  "bytes",
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.13.0",
  "log",
  "multimap",
@@ -5431,10 +5431,12 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-rustls 0.24.1",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots 0.25.4",
  "winreg",
@@ -6008,7 +6010,7 @@ dependencies = [
  "pwhash",
  "rand 0.8.5",
  "regex",
- "reqwest 0.12.9",
+ "reqwest 0.11.27",
  "rpc",
  "serde",
  "serde_json",
@@ -8053,7 +8055,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

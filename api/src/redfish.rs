@@ -31,6 +31,7 @@ use libredfish::{
         secure_boot::SecureBootMode,
         sensor::GPUSensors,
         service_root::ServiceRoot,
+        storage::Drives,
         task::Task,
         update_service::{ComponentType, TransferProtocolType, UpdateService},
         BootProgress, ODataId, ODataLinks,
@@ -1100,6 +1101,10 @@ impl Redfish for RedfishSimClient {
 
     async fn clear_nvram(&self) -> Result<(), RedfishError> {
         Ok(())
+    }
+
+    async fn get_drives_metrics(&self) -> Result<Vec<Drives>, RedfishError> {
+        Ok(vec![])
     }
 }
 
