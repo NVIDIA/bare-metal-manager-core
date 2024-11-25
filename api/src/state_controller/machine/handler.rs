@@ -16,6 +16,8 @@ use std::mem::discriminant as enum_discr;
 use std::{net::IpAddr, sync::Arc};
 
 use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
+use crate::db::network_segment::NetworkSegment;
+use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::DisableSecureBootState;
 use crate::redfish;
 use chrono::{DateTime, Duration, Utc};
@@ -616,7 +618,7 @@ impl MachineStateHandler {
                     }
 
                     let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::WaitingForNetworkConfig,
+                        instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
                     };
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
@@ -4406,6 +4408,38 @@ impl StateHandler for InstanceStateHandler {
                         Box::new(state.managed_state.clone()),
                     ))
                 }
+                InstanceState::WaitingForNetworkSegmentToBeReady => {
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForNetworkConfig,
+                    };
+                    let network_segment_ids_with_vpc = instance
+                        .config
+                        .network
+                        .interfaces
+                        .iter()
+                        .filter_map(|x| match x.network_details {
+                            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                            _ => None,
+                        })
+                        .collect_vec();
+
+                    // No network segment is configured with vpc_prefix_id.
+                    if network_segment_ids_with_vpc.is_empty() {
+                        return Ok(StateHandlerOutcome::Transition(next_state));
+                    }
+
+                    let network_segments_are_ready = NetworkSegment::are_network_segments_ready(
+                        txn,
+                        &network_segment_ids_with_vpc,
+                    )
+                    .await?;
+                    if !network_segments_are_ready {
+                        return Ok(StateHandlerOutcome::Wait(
+                            "Waiting for all segments to come in ready state.".to_string(),
+                        ));
+                    }
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
                 InstanceState::WaitingForNetworkConfig => {
                     // It should be first state to process here.
                     // Wait for instance network config to be applied
@@ -4725,6 +4759,12 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
+                    // Deleting an instance and marking vpc segments deleted must be done together.
+                    // If segments are marked deleted and instance is not deleted (may be due to redfish failure),
+                    // network segment handler will delete those segments forcefully.
+                    // if instance is deleted before, we won't get network segment details as these
+                    // details are stored in instance's network config which is deleted.
+
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {
                         instance_id: instance.id,
@@ -4732,6 +4772,27 @@ impl StateHandler for InstanceStateHandler {
                     .delete(txn)
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
+                    let network_segment_ids_with_vpc = instance
+                        .config
+                        .network
+                        .interfaces
+                        .iter()
+                        .filter_map(|x| match x.network_details {
+                            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                            _ => None,
+                        })
+                        .collect_vec();
+
+                    // Mark all network ready for delete which were created for vpc_prefixes.
+                    if !network_segment_ids_with_vpc.is_empty() {
+                        NetworkSegment::mark_as_deleted_no_validation(
+                            txn,
+                            &network_segment_ids_with_vpc,
+                        )
+                        .await
+                        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                    }
 
                     let next_state = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,

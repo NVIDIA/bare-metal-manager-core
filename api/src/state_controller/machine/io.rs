@@ -164,6 +164,9 @@ impl StateControllerIO for MachineStateControllerIO {
         fn instance_state_name(instance_state: &InstanceState) -> &'static str {
             match instance_state {
                 InstanceState::Init => "init",
+                InstanceState::WaitingForNetworkSegmentToBeReady => {
+                    "waitingfornetworksegmenttobeready"
+                }
                 InstanceState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 InstanceState::WaitingForStorageConfig => "waitingforstorageconfig",
                 InstanceState::WaitingForRebootToReady => "waitingforreboottoready",

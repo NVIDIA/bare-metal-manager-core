@@ -87,6 +87,7 @@ impl InstanceStatus {
             ManagedHostState::Ready => tenant::TenantState::Provisioning,
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Init
+                | InstanceState::WaitingForNetworkSegmentToBeReady
                 | InstanceState::WaitingForNetworkConfig
                 | InstanceState::WaitingForStorageConfig
                 | InstanceState::WaitingForRebootToReady => tenant::TenantState::Provisioning,

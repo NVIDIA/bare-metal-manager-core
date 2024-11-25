@@ -221,9 +221,11 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: InstanceId,
 ) -> rpc::Instance {
-    // TODO: (abhi) if using vpc_prefix_id, call network state handler so that all segments come in
-    // Ready state.
+    // Run network state machine handler here.
+    env.run_network_segment_controller_iteration().await;
 
+    // - zero run: state controller moves state to WaitingForNetworkSegmentToBeReady
+    env.run_machine_state_controller_iteration().await;
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
     // - second run: state controller sets use_admin_network to false
@@ -316,6 +318,12 @@ pub async fn delete_instance(
         .await
         .instances
         .is_empty());
+
+    // Run network state machine handler here.
+    env.run_network_segment_controller_iteration().await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
 }
 
 pub async fn handle_delete_post_bootingwithdiscoveryimage(

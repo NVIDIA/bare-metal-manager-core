@@ -28,7 +28,7 @@ use carbide::{
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig,
-                network::{InstanceNetworkConfig, InterfaceFunctionId},
+                network::{InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails},
                 storage::InstanceStorageConfig,
                 InstanceConfig,
             },
@@ -55,6 +55,7 @@ use common::api_fixtures::{
 };
 use forge_uuid::instance::InstanceId;
 use ipnetwork::{IpNetwork, Ipv4Network};
+use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{forge::OperatingSystem, InstanceReleaseRequest};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -2436,8 +2437,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 
-    // TODO: (abhi) Validate that all generated network segments are in deleted state.
-    // Call network segment handler to delete segment.
+    let segment_ids = fetched_instance
+        .config
+        .network
+        .interfaces
+        .iter()
+        .filter_map(|x| match x.network_details {
+            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+            _ => None,
+        })
+        .collect_vec();
 
     // Address is freed during delete
     let mut txn = env
@@ -2445,6 +2454,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
+
+    let network_segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(IdColumn, &segment_ids),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    assert!(network_segments.is_empty());
 
     assert!(matches!(
         Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())

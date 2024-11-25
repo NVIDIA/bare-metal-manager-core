@@ -1296,6 +1296,9 @@ pub struct RetryInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum InstanceState {
     Init, // Instance is created but not picked by state machine yet.
+    // In case of vpc_prefix based interface config, state machine should wait until network
+    // segment reaches to Ready state.
+    WaitingForNetworkSegmentToBeReady,
     WaitingForNetworkConfig,
     WaitingForStorageConfig,
     WaitingForRebootToReady,

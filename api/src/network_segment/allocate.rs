@@ -160,7 +160,6 @@ impl Ipv4PrefixAllocator {
             };
 
             if !used_prefixes.iter().any(|x| x.overlaps(next_address)) {
-                // TODO: (abhi) Update last used address in vpc_prefix table.
                 return Ok(next_address);
             }
 
