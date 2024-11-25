@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
 
+use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IsBmcInManagedHostResponse,
     MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
@@ -23,7 +24,9 @@ use ::rpc::forge::{
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
 
-use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery};
+use crate::cfg::carbide_options::{
+    self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery,
+};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn with_forge_client<'a, T, F>(
@@ -2094,45 +2097,72 @@ pub async fn machine_set_auto_update(
 pub async fn allocate_instance(
     api_config: &ApiConfig<'_>,
     host_machine_id: &str,
-    network_segment_name: &String, // This is the same string passed as Subnet argument in the CLI.
+    allocate_instance: &AllocateInstance,
     instance_name: &String,
-    label_key: &Option<String>,
-    label_value: &Option<String>,
 ) -> CarbideCliResult<rpc::Instance> {
     with_forge_client(api_config, |mut client| async move {
-        let segment_request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
-            name: Some(network_segment_name.clone()),
-            tenant_org_id: None,
-        });
+        let (interface_config, tenant_org) = if let Some(network_segment_name) =
+            &allocate_instance.subnet
+        {
+            let segment_request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+                name: Some(network_segment_name.clone()),
+                tenant_org_id: None,
+            });
 
-        let network_segment_ids = match client.find_network_segment_ids(segment_request).await {
-            Ok(response) => response.into_inner(),
+            let network_segment_ids = match client.find_network_segment_ids(segment_request).await {
+                Ok(response) => response.into_inner(),
 
-            Err(e) => {
+                Err(e) => {
+                    return Err(CarbideCliError::GenericError(format!(
+                        "network segment: {} retrieval error {}",
+                        network_segment_name, e
+                    )));
+                }
+            };
+
+            if network_segment_ids.network_segments_ids.is_empty() {
                 return Err(CarbideCliError::GenericError(format!(
-                    "network segment: {} retrieval error {}",
-                    network_segment_name, e
+                    "network segment: {} not found.",
+                    network_segment_name
                 )));
+            } else if network_segment_ids.network_segments_ids.len() >= 2 {
+                tracing::warn!(
+                    "More than one {} network segments exist.",
+                    network_segment_name
+                );
             }
-        };
+            let network_segment_id = network_segment_ids.network_segments_ids.first();
 
-        if network_segment_ids.network_segments_ids.is_empty() {
-            return Err(CarbideCliError::GenericError(format!(
-                "network segment: {} not found.",
-                network_segment_name
-            )));
-        } else if network_segment_ids.network_segments_ids.len() >= 2 {
-            tracing::warn!(
-                "More than one {} network segments exist.",
-                network_segment_name
-            );
-        }
-        let network_segment_id = network_segment_ids.network_segments_ids.first();
-
-        let interface_config = rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: network_segment_id.cloned(),
-            network_details: None,
+            (
+                rpc::InstanceInterfaceConfig {
+                    function_type: rpc::InterfaceFunctionType::Physical as i32,
+                    network_segment_id: network_segment_id.cloned(), // to support legacy.
+                    network_details: network_segment_id.cloned().map(NetworkDetails::SegmentId),
+                },
+                allocate_instance
+                    .tenant_org
+                    .clone()
+                    .unwrap_or("Forge-simulation-tenant".to_string()),
+            )
+        } else if let Some(vpc_prefix_id) = &allocate_instance.vpc_prefix_id {
+            (
+                rpc::InstanceInterfaceConfig {
+                    function_type: rpc::InterfaceFunctionType::Physical as i32,
+                    network_segment_id: None,
+                    network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
+                        value: vpc_prefix_id.clone(),
+                    })),
+                },
+                allocate_instance.tenant_org.clone().ok_or_else(|| {
+                    CarbideCliError::GenericError(
+                        "Tenant org is mandatory in case of vpc_prefix.".to_string(),
+                    )
+                })?,
+            )
+        } else {
+            return Err(CarbideCliError::GenericError(
+                "Either network segment id or vpc_prefix id is needed.".to_string(),
+            ));
         };
 
         let tenant_config = rpc::TenantConfig {
@@ -2140,7 +2170,7 @@ pub async fn allocate_instance(
             custom_ipxe: "Non-existing-ipxe".to_string(),
             phone_home_enabled: false,
             always_boot_with_custom_ipxe: false,
-            tenant_organization_id: "Forge-simulation-tenant".to_string(),
+            tenant_organization_id: tenant_org,
             tenant_keyset_ids: vec![],
             hostname: None,
         };
@@ -2160,13 +2190,13 @@ pub async fn allocate_instance(
             value: Some("true".to_string()),
         }];
 
-        match (label_key, label_value) {
+        match (&allocate_instance.label_key, &allocate_instance.label_value) {
             (None, Some(_)) => {
                 tracing::error!("label key cannot be empty while value is not empty.");
             }
-            (Some(key), _) => labels.push(rpc::Label {
+            (Some(key), value) => labels.push(rpc::Label {
                 key: key.to_string(),
-                value: label_value.clone(),
+                value: value.clone(),
             }),
             (None, None) => {}
         }

@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
-
 use config_version::ConfigVersion;
 use ipnetwork::Ipv4Network;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::api::Api;
+use crate::db::vpc::Vpc;
 use crate::db::ObjectColumnFilter;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
@@ -122,9 +121,18 @@ pub async fn allocate_network(
                 NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
                     // TODO: abhi Replace this with Drew's implementation.
                     let (vpc_id, vpc_prefix, last_used_prefix) = (
-                        uuid::Uuid::from_str("60cef902-9779-4666-8362-c9bb4b37184f")
-                            .unwrap()
-                            .into(),
+                        *(Vpc::find_ids(
+                            txn,
+                            rpc::forge::VpcSearchFilter {
+                                name: None,
+                                tenant_org_id: None,
+                                label: None,
+                            },
+                        )
+                        .await
+                        .unwrap()
+                        .first()
+                        .unwrap()),
                         Ipv4Network::new("10.217.5.224".parse().unwrap(), 27).unwrap(),
                         None,
                     );
