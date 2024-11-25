@@ -36,14 +36,17 @@ pub struct SmConfig {
     pub m_key_per_port: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PartitionQoS {
     // Default 2k; one of 2k or 4k; the MTU of the services.
     pub mtu_limit: u16,
     // Default is None, value can be range from 0-15
     pub service_level: u8,
-    // Default is None, can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
-    pub rate_limit: f64,
+    /// Supported values: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
+    /// 2 is also valid but is used internally to represent rate limit 2.5 that is possible in UFM for lagecy hardware.
+    /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
+    /// 2 to 2.5 and back conversion is done just on REST API operations.
+    pub rate_limit: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -66,10 +69,10 @@ pub struct PortConfig {
     pub membership: PortMembership,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PartitionKey(u16);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Partition {
     /// The name of Partition.
     pub name: String,
@@ -276,12 +279,9 @@ impl Ufm {
         #[derive(Serialize, Deserialize, Debug)]
         struct PkeyQoS {
             pkey: String,
-            // Default 2k; one of 2k or 4k; the MTU of the services.
             mtu_limit: u16,
-            // Default is None, value can be range from 0-15
             service_level: u8,
-            // Default is None, can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
-            rate_limit: f64,
+            rate_limit: f32,
         }
 
         let data = serde_json::to_string(&PkeyQoS {
@@ -317,12 +317,6 @@ impl Ufm {
             membership: PortMembership,
             index0: bool,
             guids: Vec<String>,
-            // Default 2k; one of 2k or 4k; the MTU of the services.
-            mtu_limit: u16,
-            // Default is None, value can be range from 0-15
-            service_level: u8,
-            // Default is None, can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
-            rate_limit: f64,
         }
 
         let pkey = Pkey {
@@ -331,9 +325,6 @@ impl Ufm {
             membership,
             index0,
             guids,
-            mtu_limit: p.qos.mtu_limit,
-            service_level: p.qos.service_level,
-            rate_limit: p.qos.rate_limit,
         };
 
         let data = serde_json::to_string(&pkey)

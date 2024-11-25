@@ -350,6 +350,7 @@ impl RestClient {
 
         match status {
             StatusCode::OK => Ok(body),
+            StatusCode::CREATED => Ok(body),
             _ => Err(RestError::Internal(body)),
         }
     }

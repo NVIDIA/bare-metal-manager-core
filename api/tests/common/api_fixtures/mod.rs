@@ -37,14 +37,14 @@ use carbide::{
     api::Api,
     cfg::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
-        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IbFabricMonitorConfig,
+        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig, IbFabricMonitorConfig,
         IbPartitionStateControllerConfig, MachineStateControllerConfig,
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
-    ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
+    ib::{self, IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
     model::machine::{
@@ -607,12 +607,17 @@ pub async fn create_test_env_with_overrides(
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let nvmesh_sim: Arc<dyn NvmeshClientPool> = Arc::new(NvmeshSimClient::default());
+    let config = Arc::new(overrides.config.unwrap_or(get_config()));
 
+    let ib_config = config.ib_config.clone().unwrap_or_default();
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_provider.clone(),
-        IBFabricManagerConfig {
+        ib::IBFabricManagerConfig {
             manager_type: IBFabricManagerType::Mock,
-            ..IBFabricManagerConfig::default()
+            max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
+            mtu: ib_config.mtu,
+            rate_limit: ib_config.rate_limit,
+            service_level: ib_config.service_level,
         },
     );
 
@@ -647,7 +652,6 @@ pub async fn create_test_env_with_overrides(
         .await
         .expect("Creating pools should work");
 
-    let config = Arc::new(overrides.config.unwrap_or(get_config()));
     let dyn_settings = carbide::dynamic_settings::DynamicSettings {
         log_filter: Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
             EnvFilter::builder()
