@@ -170,6 +170,18 @@ fn convert_instance_to_nice_format(
                         .unwrap_or_else(default_uuid)
                         .to_string(),
                 ),
+                (
+                    "VPC PREFIX ID",
+                    match &interface.network_details {
+                        Some(forgerpc::instance_interface_config::NetworkDetails::SegmentId(_)) => {
+                            "Segment Based Allocation".to_string()
+                        }
+                        Some(forgerpc::instance_interface_config::NetworkDetails::VpcPrefixId(
+                            x,
+                        )) => x.value.clone(),
+                        None => "NA".to_string(),
+                    },
+                ),
                 ("MAC ADDR", status.mac_address.clone().unwrap_or_default()),
                 ("ADDRESSES", status.addresses.clone().join(", ")),
             ];

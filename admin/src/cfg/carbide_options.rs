@@ -1274,12 +1274,21 @@ pub struct ReleaseInstance {
 }
 
 #[derive(Parser, Debug)]
+#[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
 pub struct AllocateInstance {
     #[clap(short, long)]
     pub number: Option<u16>,
 
-    #[clap(short, long, required = true)]
-    pub subnet: String,
+    #[clap(short, long)]
+    pub subnet: Option<String>,
+
+    #[clap(short, long)]
+    pub vpc_prefix_id: Option<String>,
+
+    #[clap(short, long)]
+    // This will not be needed after vpc_prefix implementation.
+    // Code can query to carbide and fetch it from db using vpc_prefix_id.
+    pub tenant_org: Option<String>,
 
     #[clap(short, long, required = true)]
     pub prefix_name: String,

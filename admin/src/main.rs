@@ -384,10 +384,8 @@ async fn main() -> color_eyre::Result<()> {
                     match rpc::allocate_instance(
                         &api_config.clone(),
                         &hid_for_instance,
-                        &allocate_request.subnet.clone(),
+                        &allocate_request,
                         &format!("{}_{}", allocate_request.prefix_name.clone(), i),
-                        &allocate_request.label_key,
-                        &allocate_request.label_value,
                     )
                     .await
                     {
