@@ -8,7 +8,7 @@
 
 ### Installation
 
-UFM 6.18.0-2 and up is recomended for configuring UFM in more secury mode.
+UFM 6.19.0 and up is recomended for configuring UFM in more secury mode.
 
 For the Forge product environment, the HA mode is required.
 
@@ -56,6 +56,78 @@ sa_etm_max_num_srvcs 32
 sa_etm_max_num_event_subs 32
 …
 ```
+
+##### Static Topology configuration
+
+Static network configuration can be applied to enhance security of Infiniband cluster.
+It should be described in specific config file, named `topoconfig.conf`. The file is located at
+```
+$UFM_HOME/ufm/files/conf/opensm/topoconfig.conf
+```
+The file format is
+```
+0x98039b0300867bba,1,0xb83fd2030080302e,1,Any,Active
+0x98039b0300867bba,3,0xb83fd2030080302e,3,Any,Active
+0xb83fd2030080302e,1,0x98039b0300867bba,1,Any,Active
+0xb83fd2030080302e,3,0x98039b0300867bba,3,Any,Active
+0xb83fd2030080302e,26,0xf452140300280040,1,Any,Active
+0xb83fd2030080302e,29,0xf452140300280080,1,Any,Active
+0xb83fd2030080302e,30,0xf452140300280081,1,Any,Active
+```
+with fields description as
+```
+Source GUID, Source Port, Destination GUID, Destination Port, Device type, Link State
+```
+Starting UFM v6.19.0 to enable ability of UFM to work with static topology configuration `$UFM_HOME/ufm/files/conf/gv.cfg` file should include following parameter
+```
+…
+[SubnetManager]
+…
+# This parameter defines if topoconfig file could be used for opensm discovery.
+topoconfig_enabled = true
+…
+```
+while on previous UFM versions this ability is enabled in file `$UFM_HOME/ufm/files/conf/opensm/opensm.conf` as
+```
+…
+# The file holding the topo configuration.
+topo_config_file $UFM_HOME/ufm/files/conf/opensm/topoconfig.conf
+
+# If set to true, the SM will adjust its operational
+# mode to consider the topo_config file.
+topo_config_enabled TRUE
+…
+```
+
+File `topoconfig.conf` can be created and modified manually or using UFM REST API starting v6.19.0.
+
+For example initial `topoconfig.conf` file can be created as
+```
+curl -k -u admin:123456 -X POST https://<ufm host name>/ufmRest/static_topology/sm_topology_file | jq
+{
+"SM topoconfig action": "Create topoconfig file",
+"job_id": "1"
+}
+```
+Request job by its ID to check job completion.
+```
+curl -k -u admin:123456 -X GET https://<ufm host name>/ufmRest/jobs/1 | jq
+{
+    "ID": "1",
+    "Status": "Completed",
+    "Progress": 100,
+    "Description": "Create opensm topoconfig file",
+    "Created": "2024-10-27 08:09:16",
+    "LastUpdated": "2024-10-27 08:09:17",
+    "Summary": "/tmp/ibdiagnet_out/generated_topoconfig.conf",
+    "RelatedObjects": "",
+    "CreatedBy": "admin",
+    "Operation": "opensm topoconfig file management",
+    "Foreground": true,
+    "SiteName": null
+}
+```
+Once Job will be completed, path on UFM server to generated topoconfig file will be part of job completion message (Summary). Default generated topoconfig file location location: `/tmp/ibdiagnet_out/generated_topoconfig.conf`
 
 #### Configurations per UFM
 
@@ -183,7 +255,7 @@ Zero Trust means that no user, device, or network traffic is trusted by default,
 UFM Server Certificates should include UFM Host Name `<ufm host name>` into The Subject Alternative Name (SAN) extension to the X.509 specification.
 
 Note:
-- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>.frg.nvidia.com`. Where <site domain name> is taken from `initial_domain_name` carbide configuration parameter.
+- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>`. Where <site domain name> is taken from `initial_domain_name` carbide configuration parameter.
 ```
 openssl x509 -in server.crt -text -noout | grep DNS
                 DNS:default.ufm.forge, DNS:default.ufm.az22.frg.nvidia.com
