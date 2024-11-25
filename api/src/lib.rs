@@ -69,6 +69,7 @@ pub mod logging;
 pub mod machine_update_manager;
 pub mod measured_boot;
 pub mod model;
+pub mod network_segment;
 pub mod preingestion_manager;
 pub mod redfish;
 pub mod resource_pool;

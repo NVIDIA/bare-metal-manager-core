@@ -10,11 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use config_version::ConfigVersion;
+use ipnetwork::Ipv4Network;
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::api::Api;
 use crate::db::ObjectColumnFilter;
+use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
+use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
     cfg::HardwareHealthReportsConfig,
     db::{
@@ -93,23 +99,71 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     }
 }
 
+/// Allocate network segment and update network segment id with it.
+pub async fn allocate_network(
+    network_config: &mut InstanceNetworkConfig,
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+    api: &Api,
+) -> CarbideResult<()> {
+    // TODO: abhi Take ROW LEVEL lock on all the vpc_prefix taken.
+    // This is needed so that last_used_prefix is not modified by multiple clients at same time.
+    // e.g. SELECT * FROM vpc_prefixes WHERE id IN ANY($1) FOR NO KEY UPDATE
+    // Keep values in mut Hashmap and update last_used_prefix in the end of this function.
+    // Also Validate:
+    // 1. All vpc_prefix_ids should point to same vpc.
+    // 2. Pointed vpc'organization id must be same as instance's tenant_org.
+    // 3. If no vpc_prefix_id is mentioned, return.
+
+    // get all used prefixes under this vpc_prefix.
+    for interface in &mut network_config.interfaces {
+        if let Some(network_details) = &mut interface.network_details {
+            match network_details {
+                NetworkDetails::NetworkSegment(_) => {}
+                NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
+                    // TODO: abhi Replace this with Drew's implementation.
+                    let (vpc_id, vpc_prefix, last_used_prefix) = (
+                        uuid::Uuid::from_str("60cef902-9779-4666-8362-c9bb4b37184f")
+                            .unwrap()
+                            .into(),
+                        Ipv4Network::new("10.217.5.224".parse().unwrap(), 27).unwrap(),
+                        None,
+                    );
+
+                    let (ns_id, _prefix) =
+                        Ipv4PrefixAllocator::new(*vpc_prefix_id, vpc_prefix, last_used_prefix, 31)
+                            .allocate_network_segment(txn, api, vpc_id)
+                            .await?;
+                    interface.network_segment_id = Some(ns_id);
+                    // TODO: abhi update prefix as last_used_prefix in Hashmap.
+                }
+            }
+        }
+    }
+
+    // TODO: abhi Update latest last_used_prefix in db
+
+    Ok(())
+}
+
 /// Allocates an instance for a tenant
 pub async fn allocate_instance(
-    request: InstanceAllocationRequest,
+    mut request: InstanceAllocationRequest,
     database: &PgPool,
     hardware_health_reports: HardwareHealthReportsConfig,
+    api: &Api,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
-    // TODO: Allocate network segment here before validate if vpc_prefix_id is mentioned.
+    let mut txn = database
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
+
+    // Allocate network segment here before validate if vpc_prefix_id is mentioned.
+    allocate_network(&mut request.config.network, &mut txn, api).await?;
 
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
     request.config.validate()?;
-
-    let mut txn = database
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
     let network_config_version = ConfigVersion::initial();
     let ib_config_version = ConfigVersion::initial();

@@ -27,7 +27,9 @@ use super::{network_segment, DatabaseError, ObjectColumnFilter};
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::instance::config::network::{InstanceInterfaceConfig, InstanceNetworkConfig};
+use crate::model::instance::config::network::{
+    InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
+};
 use crate::model::machine::MachineSnapshot;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
@@ -118,6 +120,7 @@ impl InstanceAddress {
     fn validate(
         segments: &Vec<NetworkSegment>,
         instance_network: &InstanceNetworkConfig,
+        segment_ids_using_vpc_prefix: &[NetworkSegmentId],
     ) -> CarbideResult<()> {
         if segments.len() != instance_network.interfaces.len() {
             // Missing at least one segment in db.
@@ -132,14 +135,17 @@ impl InstanceAddress {
                 return Err(ConfigValidationError::NetworkSegmentToBeDeleted(segment.id).into());
             }
 
-            match &segment.controller_state.value {
-                NetworkSegmentControllerState::Ready => {}
-                _ => {
-                    return Err(ConfigValidationError::NetworkSegmentNotReady(
-                        segment.id,
-                        format!("{:?}", segment.controller_state.value),
-                    )
-                    .into());
+            // If segment is created using vpc_prefix id, it will not be in Ready state by now.
+            if !segment_ids_using_vpc_prefix.contains(&segment.id) {
+                match &segment.controller_state.value {
+                    NetworkSegmentControllerState::Ready => {}
+                    _ => {
+                        return Err(ConfigValidationError::NetworkSegmentNotReady(
+                            segment.id,
+                            format!("{:?}", segment.controller_state.value),
+                        )
+                        .into());
+                    }
                 }
             }
 
@@ -202,6 +208,18 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .filter_map(|x| x.network_segment_id)
             .collect_vec();
 
+        let segment_ids_using_vpc_prefix = updated_config
+            .interfaces
+            .iter()
+            .filter_map(|x| {
+                if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
+                    x.network_segment_id
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
+
         if segment_ids.len() != updated_config.interfaces.len() {
             return Err(CarbideError::NetworkSegmentNotAllocated);
         }
@@ -213,7 +231,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         )
         .await?;
 
-        InstanceAddress::validate(&segments, &updated_config)?;
+        InstanceAddress::validate(&segments, &updated_config, &segment_ids_using_vpc_prefix)?;
 
         let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
         sqlx::query(query)
@@ -606,7 +624,7 @@ mod tests {
     fn instance_address_segment_validation() {
         let data = create_valid_validation_data();
         let config = create_valid_network_config();
-        let x = InstanceAddress::validate(&data, &config);
+        let x = InstanceAddress::validate(&data, &config, &[]);
         assert!(x.is_ok());
     }
 
@@ -615,7 +633,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data.swap_remove(10);
-        assert!(InstanceAddress::validate(&data, &config).is_err());
+        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -623,7 +641,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
-        assert!(InstanceAddress::validate(&data, &config).is_err());
+        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -631,7 +649,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[2].vpc_id = None;
-        assert!(InstanceAddress::validate(&data, &config).is_err());
+        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -639,7 +657,7 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[12].deleted = Some(Utc::now());
-        assert!(InstanceAddress::validate(&data, &config).is_err());
+        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
     }
 
     #[test]
@@ -647,6 +665,6 @@ mod tests {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
         data[9].controller_state.value = NetworkSegmentControllerState::Provisioning;
-        assert!(InstanceAddress::validate(&data, &config).is_err());
+        assert!(InstanceAddress::validate(&data, &config, &[]).is_err());
     }
 }

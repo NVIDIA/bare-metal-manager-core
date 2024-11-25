@@ -108,11 +108,11 @@ impl NetworkPrefix {
     pub async fn containing_prefix(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         prefix: &str,
-    ) -> Result<Option<NetworkPrefix>, DatabaseError> {
+    ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "select * from network_prefixes where prefix && $1::inet";
         let container = sqlx::query_as(query)
             .bind(prefix)
-            .fetch_optional(txn.deref_mut())
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(container)

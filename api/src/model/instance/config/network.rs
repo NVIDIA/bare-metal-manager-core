@@ -135,6 +135,21 @@ impl InstanceNetworkConfig {
         }
     }
 
+    /// Returns a network configuration for a single physical interface
+    pub fn for_vpc_prefix_id(vpc_prefix_id: uuid::Uuid) -> Self {
+        Self {
+            interfaces: vec![InstanceInterfaceConfig {
+                function_id: InterfaceFunctionId::Physical {},
+                network_segment_id: None,
+                network_details: Some(NetworkDetails::VpcPrefixId(vpc_prefix_id)),
+                ip_addrs: HashMap::default(),
+                interface_prefixes: HashMap::default(),
+                network_segment_gateways: HashMap::default(),
+                host_inband_mac_address: None,
+            }],
+        }
+    }
+
     /// Validates the network configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
@@ -297,21 +312,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             // Update network segment id based on network details.
             let network_details: Option<rpc::forge::instance_interface_config::NetworkDetails> =
                 iface.network_details.map(|x| x.into());
-            let network_segment_id: Option<rpc::Uuid> =
-                if let Some(network_details) = &network_details {
-                    if let rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        segment_id,
-                    ) = network_details
-                    {
-                        Some(segment_id.clone())
-                    } else {
-                        // In case of VPC prefix id, later network segment will be created and that segment id
-                        // will be assigned here.
-                        None
-                    }
-                } else {
-                    iface.network_segment_id.map(|x| x.into())
-                };
+            let network_segment_id: Option<rpc::Uuid> = iface.network_segment_id.map(|x| x.into());
 
             interfaces.push(rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
