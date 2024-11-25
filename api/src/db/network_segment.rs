@@ -836,4 +836,40 @@ WHERE network_prefixes.circuit_id=$1";
     pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
         self.controller_state_outcome.clone()
     }
+
+    /// Are queried segment in ready state?
+    /// Returns true if all segments are in Ready state, else false
+    pub async fn are_network_segments_ready(
+        txn: &mut Transaction<'_, Postgres>,
+        segment_ids: &[NetworkSegmentId],
+    ) -> Result<bool, DatabaseError> {
+        let segments = NetworkSegment::find_by(
+            txn,
+            ObjectColumnFilter::List(IdColumn, segment_ids),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
+
+        Ok(!segments
+            .iter()
+            .any(|x| x.controller_state.value != NetworkSegmentControllerState::Ready))
+    }
+
+    /// This function is different from `mark_as_deleted` as no validation is checked here and it
+    /// takes a list of ids to reduce db handling time.
+    /// Instance is already deleted immediately before this.
+    pub async fn mark_as_deleted_no_validation(
+        txn: &mut Transaction<'_, Postgres>,
+        network_segment_ids: &[NetworkSegmentId],
+    ) -> CarbideResult<NetworkSegment> {
+        let query =
+            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=ANY($1) RETURNING *";
+        let segment: NetworkSegment = sqlx::query_as(query)
+            .bind(network_segment_ids)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        Ok(segment)
+    }
 }
