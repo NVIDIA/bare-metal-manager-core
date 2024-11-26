@@ -283,14 +283,11 @@ where
                         } else {
                             "<Unable to determine client address>".to_string()
                         };
-                        tracing::warn!(
-                            "Request would have been denied: {client_address} {method_name} {principals:?}",
+                        tracing::info!(
+                            "Request denied: {client_address} {method_name} {principals:?}",
                         );
                     }
-
-                    // For now, we only log that we would have denied the request.  Actual enforcement will come later.
-                    // allowed
-                    true
+                    allowed
                 }
 
                 _ => {

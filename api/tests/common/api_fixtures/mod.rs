@@ -559,6 +559,7 @@ pub fn get_config() -> CarbideConfig {
             run_interval: std::time::Duration::from_secs(10),
         },
         machine_validation_config: MachineValidationConfig { enabled: true },
+        bypass_rbac: false,
     }
 }
 

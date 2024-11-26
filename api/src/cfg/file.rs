@@ -215,6 +215,9 @@ pub struct CarbideConfig {
     /// Machine Validation config to api server
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
+
+    #[serde(default)]
+    pub bypass_rbac: bool,
 }
 
 impl CarbideConfig {
