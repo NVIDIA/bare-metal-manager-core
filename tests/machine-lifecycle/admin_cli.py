@@ -80,6 +80,12 @@ def get_machine_state(machine_id: str, allow_missing_machine: bool = False) -> s
     return machine["state"]
 
 
+def get_machine_vendor(machine_id: str) -> str:
+    """Get the vendor name of the specified machine."""
+    result = run_forge_admin_cli(["machine", "show", machine_id])
+    return result['discovery_info']['dmi_data']['sys_vendor']
+
+
 def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
     """Given JSON managed-host show output, return just the machine we want.
 
@@ -128,7 +134,7 @@ def put_machine_into_maintenance_mode(machine_id: str) -> None:
         job_url = os.environ.get("CI_JOB_URL", "Unknown Job URL")
         reason = f"CI job '{job_name}' requested maintenance mode ({job_url})"
     else:
-        reason = f"Maintenance requested via tests/machine-lifecycle/admin_cli.py"
+        reason = "Maintenance requested via tests/machine-lifecycle/admin_cli.py"
     run_forge_admin_cli(
         ["managed-host", "maintenance", "on", "--host", machine_id, "--reference", reason], no_json=True
     )
@@ -144,16 +150,21 @@ def get_machine(machine_id: str, allow_missing: bool = False) -> dict | None:
     return machine
 
 
-def force_delete_machine(machine_id: str) -> None:
+def force_delete_machine(machine_id: str, delete_creds: bool = False) -> None:
     """Force-delete the specified machine.
 
+    Enable `delete_creds` if the machine has been factory-reset, to delete the creds from Vault.
     Always print out the machine information first.
     """
     print("Machine information before force-delete:")
     run_forge_admin_cli(["managed-host", "show", machine_id], no_json=True)
 
     print("Performing force-delete...")
-    run_forge_admin_cli(["machine", "force-delete", "--machine", machine_id], no_json=True)
+    args = ["machine", "force-delete"]
+    if delete_creds:
+        args.extend(["--delete-bmc-credentials"])
+    args.extend(["--machine", machine_id])
+    run_forge_admin_cli(args, no_json=True)
 
 
 def power_off_host(host_bmc_ip: str, host_bmc_username: str, host_bmc_password: str) -> None:
@@ -175,7 +186,7 @@ def power_off_host(host_bmc_ip: str, host_bmc_username: str, host_bmc_password: 
 
 
 def power_on_host(host_bmc_ip: str, host_bmc_username: str, host_bmc_password: str) -> None:
-    """Power pn a machine using redfish."""
+    """Power on a machine using redfish."""
     print("Performing host redfish on")
     run_forge_admin_cli(
         [
@@ -187,6 +198,54 @@ def power_on_host(host_bmc_ip: str, host_bmc_username: str, host_bmc_password: s
             "--password",
             host_bmc_password,
             "on",
+        ],
+        no_json=True,
+    )
+
+
+def restart_machine(machine_id: str) -> None:
+    """Restart a machine (host or DPU) via redfish ForceRestart"""
+    run_forge_admin_cli(
+        [
+            "machine",
+            "reboot",
+            "--machine",
+            machine_id,
+        ],
+        no_json=True,
+    )
+
+
+def clear_host_bios_password(machine_id: str) -> None:
+    """Remove the BIOS password from a host"""
+    run_forge_admin_cli(["host", "clear-uefi-password", "--query", machine_id], no_json=True)
+
+
+def restart_bmc(machine_id: str) -> None:
+    """Restart a BMC (DPU or host)."""
+    run_forge_admin_cli(
+        [
+            "bmc-machine",
+            "bmc-reset",
+            "--machine",
+            machine_id,
+        ],
+        no_json=True,
+    )
+
+
+def factory_reset_bmc(bmc_ip: str, bmc_username: str, bmc_password: str) -> None:
+    """Factory-reset a BMC (DPU or host) to defaults via redfish."""
+    run_forge_admin_cli(
+        [
+            "redfish",
+            "bmc-reset-to-defaults",
+            "--address",
+            bmc_ip,
+            "--username",
+            bmc_username,
+            "--password",
+            bmc_password,
         ],
         no_json=True,
     )
