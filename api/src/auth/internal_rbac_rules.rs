@@ -100,7 +100,7 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Agent, Machineatron],
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
-        x.perm("RecordHardwareHealthReport", vec![Health]);
+        x.perm("RecordHardwareHealthReport", vec![Health, Ssh]);
         x.perm("GetHardwareHealthReport", vec![]);
         x.perm("ListHealthReportOverrides", vec![ForgeAdminCLI]);
         x.perm("InsertHealthReportOverride", vec![ForgeAdminCLI]);
@@ -311,6 +311,34 @@ impl InternalRBACRules {
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmDeleteCaCert", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindTenantOrganizationIds", vec![SiteAgent]);
+        x.perm("FindTenantsByOrganizationIds", vec![SiteAgent]);
+        x.perm("FindMacAddressByBmcIp", vec![SiteAgent]);
+        x.perm("BmcCredentialStatus", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "GetMachineValidationExternalConfigs",
+            vec![ForgeAdminCLI, Scout, SiteAgent],
+        );
+        x.perm(
+            "RemoveMachineValidationExternalConfig",
+            vec![ForgeAdminCLI, Scout, SiteAgent],
+        );
+        x.perm(
+            "GetMachineValidationTests",
+            vec![ForgeAdminCLI, SiteAgent, Agent, Scout],
+        );
+        x.perm("AddMachineValidationTest", vec![Scout, SiteAgent]);
+        x.perm("UpdateMachineValidationTest", vec![Scout, SiteAgent]);
+        x.perm(
+            "MachineValidationTestVerfied",
+            vec![ForgeAdminCLI, Scout, SiteAgent],
+        );
+        x.perm("MachineValidationTestNextVersion", vec![Scout, SiteAgent]);
+        x.perm(
+            "MachineValidationTestEnableDisableTest",
+            vec![ForgeAdminCLI, SiteAgent, Scout],
+        );
+        x.perm("UpdateMachineValidationRun", vec![Scout, SiteAgent]);
 
         x
     }
@@ -395,6 +423,11 @@ impl RuleInfo {
 
 #[cfg(test)]
 mod rbac_rule_tests {
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader},
+    };
+
     use super::*;
     use crate::auth::Principal;
 
@@ -480,6 +513,36 @@ mod rbac_rule_tests {
             &[]
         ));
 
+        Ok(())
+    }
+    #[test]
+    fn all_requests_listed() -> Result<(), eyre::Report> {
+        let mut messages = vec![];
+        let proto = File::open("../rpc/proto/forge.proto")?;
+        let reader = BufReader::new(proto);
+        for line in reader.lines() {
+            let line = line?;
+            let line = line.trim();
+            if line.starts_with("rpc") {
+                let mut name = line.strip_prefix("rpc").unwrap_or("why").trim().to_string();
+                let offset = name.find("(").unwrap_or(name.len());
+                name.replace_range(offset.., "");
+                messages.push(name.trim().to_string());
+            }
+        }
+        if messages.is_empty() {
+            panic!("Parsing failed, no messages found")
+        }
+        let rules = InternalRBACRules::new();
+        let mut missing = vec![];
+        for msg in messages {
+            if !rules.perms.contains_key(&msg) {
+                missing.push(msg);
+            }
+        }
+        if !missing.is_empty() {
+            panic!("GRPC messages missing RBAC permissions: {:?}", missing);
+        }
         Ok(())
     }
 }

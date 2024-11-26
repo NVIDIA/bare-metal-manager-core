@@ -298,6 +298,7 @@ pub async fn start_api(
         identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
         root_cafile_path: tls_ref.root_cafile_path.clone(),
         admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
+        bypass_rbac: carbide_config.bypass_rbac,
     };
 
     let bmc_explorer = Arc::new(BmcEndpointExplorer::new(

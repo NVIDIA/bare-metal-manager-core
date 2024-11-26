@@ -240,6 +240,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             run_interval: std::time::Duration::from_secs(10),
         },
         machine_validation_config: MachineValidationConfig { enabled: true },
+        bypass_rbac: true,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

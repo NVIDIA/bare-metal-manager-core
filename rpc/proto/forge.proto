@@ -275,8 +275,8 @@ service Forge {
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
 
   // Perform Attestation Procedure for Measured Boot
-  rpc BindAttestKey	(BindRequest) returns (BindResponse);
-  rpc VerifyQuote	(VerifyQuoteRequest) returns (VerifyQuoteResponse);
+  rpc BindAttestKey(BindRequest) returns (BindResponse);
+  rpc VerifyQuote(VerifyQuoteRequest) returns (VerifyQuoteResponse);
 
     ////////////////////////////////////////////////////////////////////////////////
   // Begin Measured Boot API Endpoints

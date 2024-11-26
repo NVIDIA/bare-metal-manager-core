@@ -34,6 +34,7 @@ pub struct ApiTlsConfig {
     pub identity_keyfile_path: String,
     pub root_cafile_path: String,
     pub admin_root_cafile_path: String,
+    pub bypass_rbac: bool,
 }
 
 /// this function blocks, don't use it in a raw async context
@@ -194,8 +195,13 @@ pub async fn listen_and_serve(
     } else {
         None
     };
-    let internal_rbac_layer =
-        AsyncRequireAuthorizationLayer::new(auth::middleware::InternalRBACHandler::new());
+    let internal_rbac_layer = if tls_config.bypass_rbac {
+        None
+    } else {
+        Some(AsyncRequireAuthorizationLayer::new(
+            auth::middleware::InternalRBACHandler::new(),
+        ))
+    };
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
@@ -212,7 +218,7 @@ pub async fn listen_and_serve(
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))
         .layer(cert_description_layer)
-        .layer(internal_rbac_layer)
+        .option_layer(internal_rbac_layer)
         .option_layer(casbin_layer)
         .service(router.clone());
 
