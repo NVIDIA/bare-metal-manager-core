@@ -57,6 +57,8 @@ mod network_segment;
 mod network_status;
 mod resource_pool;
 mod search;
+mod tenant;
+mod tenant_keyset;
 mod vpc;
 
 const WEB_AUTH: &str = "admin:Welcome123";
@@ -279,6 +281,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/vpc.json", get(vpc::show_json))
             .route("/vpc/:vpc_id", get(vpc::detail))
             .route("/search", get(search::find))
+            .route("/tenant", get(tenant::show_html))
+            .route("/tenant.json", get(tenant::show_json))
+            .route("/tenant/:organization_id", get(tenant::detail))
+            .route("/tenant_keyset", get(tenant_keyset::show_html))
+            .route("/tenant_keyset.json", get(tenant_keyset::show_json))
+            .route(
+                "/tenant_keyset/:organization_id/:keyset_id",
+                get(tenant_keyset::detail),
+            )
             .route(&format!("/{AUTH_CALLBACK_ROOT}"), get(auth::callback))
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))

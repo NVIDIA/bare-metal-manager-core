@@ -6,7 +6,7 @@
 <h1>Instance {{ id }}</h1>
 <table class="detailsview">
 	<tr><th>Machine ID</th><td>{{ machine_id|managed_host_id_link|safe}}</td></tr>
-	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
+	<tr><th>Tenant Org</th><td><a href="/admin/tenant/{{ tenant_org }}">{{ tenant_org }}</a></td></tr>
 	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
 	<tr><th>Tenant State Details</th><td>{{ tenant_state_details }}</td></tr>
 	<tr><th>Config Version</th><td>{{ config_version|config_version|safe }}</td></tr>
@@ -60,7 +60,7 @@
 <h2>Keysets</h2>
 {% for keyset in keysets %}
 <table class="detailsview">
-	<tr><th>ID</th><td>{{ keyset }}</td></tr>
+	<tr><th>ID</th><td><a href="/admin/tenant_keyset/{{ tenant_org }}/{{ keyset }}">{{ keyset }}</a></td></tr>
 </table>
 {% endfor %}
 
