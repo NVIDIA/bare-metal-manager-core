@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Redfish Console{% endblock %}
+
+{% block content %}
+<h1>Redfish Console</h1>
+
+This page allows to send queries to BMCs managed by Forge.
+Enter a valid redfish URL below to send a query and display the response.
+The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>.
+
+<b>
+	Note that due to implementation limitations, the page can currently only endpoints
+	for ingested machines - which means a Machine entry needs to exist for the endpoint.
+</b>
+
+<form id="redfish_console" method="GET" action="/admin/redfish-console">
+	<label for="ref">URL to query:</label><input type=text id="ref" name="url" value="{{ url }}" />
+	<button type="submit">Start query</button>	
+</form>
+
+{% if !url.is_empty() %}
+
+<h3>Metadata</h3>
+<table class="detailsview">
+	<tr><th>BMC IP</th><td>{{ bmc_ip }}</td></tr>
+	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe }}</td></tr>
+	<tr><th>HTTP status</th><td>{{ status_code }} {{ status_string }}</td></tr>
+</table>
+
+{% if !error.is_empty() %}
+<h3>Error</h3>
+<textarea disabled style="width: 100%">{{ error }}</textarea>
+{% endif %}
+
+{% if !response.is_empty() %}
+<h3>Response</h3>
+<textarea disabled style="width: 100%">{{ response }}</textarea>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}
+
+{% block script %}
+
+{% endblock %}
