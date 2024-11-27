@@ -720,5 +720,6 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         gpus,
         memory_devices,
         tpm_description: None,
+        attest_key_info: None,
     })
 }

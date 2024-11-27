@@ -39,7 +39,7 @@ pub enum CarbideClientError {
         #[from] forge_host_support::hardware_enumeration::HardwareEnumerationError,
     ),
 
-    #[error("Hardware enumeration error: {0}")]
+    #[error("Registration error: {0}")]
     RegistrationError(#[from] forge_host_support::registration::RegistrationError),
 
     #[error("Error decoding gRPC enum value: {0}")]

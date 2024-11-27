@@ -24,7 +24,9 @@ use rpc::{
 
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
-use super::{forge_agent_control, persist_machine_validation_result, TestEnv};
+use super::{
+    forge_agent_control, inject_machine_measurements, persist_machine_validation_result, TestEnv,
+};
 
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
 pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
@@ -364,10 +366,14 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     // Apply switching back to admin network
     super::network_configured(env, dpu_machine_id).await;
 
+    if env.attestation_enabled {
+        inject_machine_measurements(env, host_machine_id.clone().into()).await;
+    }
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        1,
+        3,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup,

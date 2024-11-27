@@ -12,6 +12,9 @@
 
 //! Contains host related fixtures
 
+use super::dpu::create_dpu_machine;
+use super::managed_host::ManagedHostSim;
+use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use super::{get_machine_validation_runs, FIXTURE_DHCP_RELAY_ADDRESS};
 use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
@@ -24,7 +27,8 @@ use crate::common::api_fixtures::{
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
 use carbide::db::{network_prefix, ObjectColumnFilter};
-use carbide::model::machine::{FailureCause, FailureDetails, FailureSource};
+use carbide::model::hardware_info::TpmEkCertificate;
+use carbide::model::machine::{FailureCause, FailureDetails, FailureSource, MeasuringState};
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
     db,
@@ -36,6 +40,7 @@ use carbide::{
 use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use rpc::forge::HardwareHealthReport;
+use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
@@ -121,13 +126,19 @@ pub async fn host_discover_machine(
     host_config: &ManagedHostConfig,
     machine_interface_id: rpc::Uuid,
 ) -> ::rpc::common::MachineId {
+    let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap();
+
+    discovery_info.attest_key_info = Some(AttestKeyInfo {
+        ek_pub: EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: AK_PUB_SERIALIZED.to_vec(),
+        ak_name: AK_NAME_SERIALIZED.to_vec(),
+    });
+
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
-            discovery_data: Some(DiscoveryData::Info(
-                DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap(),
-            )),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: true,
         }))
         .await
@@ -173,6 +184,24 @@ pub async fn create_host_machine(
         FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
     )
     .await;
+
+    if env.attestation_enabled {
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &host_machine_id,
+            3,
+            &mut txn,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                },
+            },
+        )
+        .await;
+        txn.commit().await.unwrap();
+
+        inject_machine_measurements(env, host_rpc_machine_id.clone()).await;
+    }
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -260,26 +289,6 @@ pub async fn create_host_machine(
     // This is what simulates a reboot being completed.
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Noop as i32);
-
-    // TODO(chet): At some point this flag can go, and
-    // attestation will just be enabled, but for now, leverage
-    // the fact the flag exists (it also makes me feel better
-    // knowing I've got some control here for the time being).
-    if env.attestation_enabled {
-        let mut txn = env.pool.begin().await.unwrap();
-        env.run_machine_state_controller_iteration_until_state_matches(
-            &host_machine_id,
-            3,
-            &mut txn,
-            ManagedHostState::Measuring {
-                measuring_state: carbide::model::machine::MeasuringState::WaitingForMeasurements,
-            },
-        )
-        .await;
-        txn.commit().await.unwrap();
-
-        inject_machine_measurements(env, host_rpc_machine_id.clone()).await;
-    }
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -567,4 +576,22 @@ pub async fn create_host_with_machine_validation(
         txn.commit().await.unwrap();
     }
     host_rpc_machine_id
+}
+
+pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> (MachineId, MachineId) {
+    let host_sim = ManagedHostSim {
+        config: ManagedHostConfig {
+            tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
+            ..Default::default()
+        },
+    };
+
+    let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;
+
+    (
+        try_parse_machine_id(&host_machine_id).unwrap(),
+        dpu_machine_id,
+    )
 }

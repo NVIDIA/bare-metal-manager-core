@@ -90,10 +90,7 @@ use crate::{
         DatabaseError, ObjectFilter,
     },
     ethernet_virtualization,
-    model::{
-        hardware_info::HardwareInfo,
-        machine::{MachineState, MeasuringState},
-    },
+    model::{hardware_info::HardwareInfo, machine::MachineState},
     redfish::RedfishClientPool,
     CarbideError, CarbideResult,
 };
@@ -594,7 +591,17 @@ impl Forge for Api {
                 rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
             })
             .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
+        let attest_key_info_opt = discovery_data.attest_key_info.clone();
         let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
+
+        // this is an early check for certificate creation that happens later on in this method.
+        // let's save us the hassle and return immediately if the below condition is not satisfied
+        if self.runtime_config.attestation_enabled
+            && !hardware_info.is_dpu()
+            && attest_key_info_opt.is_none()
+        {
+            return Err(Status::invalid_argument("AttestKeyInfo is not populated"));
+        }
 
         // Generate a stable Machine ID based on the hardware information
         let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
@@ -772,18 +779,53 @@ impl Forge for Api {
         }
 
         let id_str = stable_machine_id.to_string();
-        let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-            forge_secrets::certificates::Certificate::default()
+
+        // if attestation is enabled and it is not a DPU, then we create a random nonce (auth token)
+        // and create a decrypting challenge (make credential) out of it.
+        // Whoever was able to decrypt it (activate credential), possesses
+        // the TPM that the endorsement key (EK) and the attestation key (AK) that they came from.
+        // if attestation is not enabled, or it is a DPU, then issue machine certificates immediately
+        let mut attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
+        let mut machine_certificate_opt: Option<rpc::MachineCertificate> = None;
+
+        if self.runtime_config.attestation_enabled && !hardware_info.is_dpu() {
+            if let Some(attest_key_info) = attest_key_info_opt {
+                tracing::info!("It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ...");
+
+                attest_key_bind_challenge_opt = Some(
+                    crate::handlers::measured_boot::create_attest_key_bind_challenge(
+                        &mut txn,
+                        &attest_key_info,
+                        &stable_machine_id,
+                    )
+                    .await?,
+                );
+            } else {
+                return Err(Status::invalid_argument("Internal Error: This should have been handled above! AttestKeyInfo is not populated."));
+            }
         } else {
-            self.certificate_provider
-                .get_certificate(id_str.as_str())
-                .await
-                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
-        };
+            tracing::info!(
+                "Attestation enabled is {}. Is_DPU is {}. Vending certs to machine with id {}",
+                self.runtime_config.attestation_enabled,
+                hardware_info.is_dpu(),
+                id_str
+            );
+
+            let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
+                forge_secrets::certificates::Certificate::default()
+            } else {
+                self.certificate_provider
+                    .get_certificate(id_str.as_str())
+                    .await
+                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+            };
+            machine_certificate_opt = Some(certificate.into())
+        }
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
             machine_id: Some(id_str.into()),
-            machine_certificate: Some(certificate.into()),
+            machine_certificate: machine_certificate_opt,
+            attest_key_challenge: attest_key_bind_challenge_opt,
         }));
 
         txn.commit().await.map_err(|e| {
@@ -1671,14 +1713,6 @@ impl Forge for Api {
                         },
                     ..
                 } => (Action::Discovery, None),
-                // If the API is configured with attestation_enabled, and
-                // the machine has been Discovered (and progressed on to the
-                // point where it is WaitingForMeasurements), then let Scout (or
-                // whoever the caller is) know that it's time for measurements
-                // to be sent.
-                ManagedHostState::Measuring {
-                    measuring_state: MeasuringState::WaitingForMeasurements,
-                } => (Action::Measure, None),
                 ManagedHostState::WaitingForCleanup { .. }
                 | ManagedHostState::Failed {
                     details:
@@ -3051,104 +3085,18 @@ impl Forge for Api {
     }
 
     #[cfg(not(feature = "tss-esapi"))]
-    async fn bind_attest_key(
+    async fn attest_quote(
         &self,
-        _request: tonic::Request<rpc::BindRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::BindResponse>, tonic::Status> {
-        Err(CarbideError::AttestationBindKeyError(
-            "bind_attest_key is feature-disabled".to_string(),
-        )
-        .into())
+        _request: tonic::Request<rpc::AttestQuoteRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
+        Err(CarbideError::AttestQuoteError("attest_quote is feature-disabled".to_string()).into())
     }
 
     #[cfg(feature = "tss-esapi")]
-    async fn bind_attest_key(
+    async fn attest_quote(
         &self,
-        request: tonic::Request<rpc::BindRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::BindResponse>, tonic::Status> {
-        log_request_data(&request);
-
-        let machine_id: MachineId;
-
-        if let Some(machine_id_field) = &request.get_ref().machine_id {
-            let id = try_parse_machine_id(machine_id_field).map_err(|e| {
-                CarbideError::AttestationBindKeyError(format!("Could not parse machine id: {0}", e))
-            })?;
-            log_machine_id(&id);
-            machine_id = id;
-        } else {
-            return Err(Status::from(CarbideError::AttestationBindKeyError(
-                "MachineId could not be found in bind_attest_key message".into(),
-            )));
-        }
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin insert secret -> AK Pub",
-                e,
-            ))
-        })?;
-
-        let (matched, ek_pub_rsa) = attest::compare_pub_key_against_cert(
-            &mut txn,
-            &machine_id,
-            request.get_ref().ek_pub.as_ref(),
-        )
-        .await?;
-        if !matched {
-            return Err(Status::from(CarbideError::AttestationBindKeyError(
-                "Certificate's public key did not match EK Pub Key".to_string(),
-            )));
-        }
-
-        // generate a secret/credential
-        let secret_bytes: [u8; 32] = rand::random();
-
-        tracing::debug!("Generated session key {:?}", secret_bytes);
-
-        let (cli_cred_blob, cli_secret) =
-            attest::cli_make_cred(ek_pub_rsa, &request.get_ref().ak_name, &secret_bytes)?;
-
-        db_attest::SecretAkPub::insert(
-            &mut txn,
-            &Vec::from(secret_bytes),
-            &request.get_ref().ak_pub,
-        )
-        .await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit insert secret -> AK Pub",
-                e,
-            ))
-        })?;
-
-        Ok(tonic::Response::new(rpc::BindResponse {
-            cred_blob: cli_cred_blob,
-            encrypted_secret: cli_secret,
-        }))
-    }
-
-    #[cfg(not(feature = "tss-esapi"))]
-    async fn verify_quote(
-        &self,
-        _request: tonic::Request<rpc::VerifyQuoteRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
-        Err(CarbideError::AttestationVerifyQuoteError(
-            "verify_quote is feature-disabled".to_string(),
-        )
-        .into())
-    }
-
-    #[cfg(feature = "tss-esapi")]
-    async fn verify_quote(
-        &self,
-        request: tonic::Request<rpc::VerifyQuoteRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
+        request: tonic::Request<rpc::AttestQuoteRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
         log_request_data(&request);
 
         // TODO: consider if this code can be turned into a templated function and reused
@@ -3176,28 +3124,22 @@ impl Forge for Api {
             {
                 Some(entry) => entry.ak_pub,
                 None => {
-                    return Err(Status::from(CarbideError::AttestationVerifyQuoteError(
+                    return Err(Status::from(CarbideError::AttestQuoteError(
                         "Could not form SQL query to fetch AK Pub".into(),
                     )));
                 }
             };
 
         let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice()).map_err(|e| {
-            CarbideError::AttestationVerifyQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
+            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
         })?;
 
         let attest = Attest::unmarshall(&(request.get_ref()).attestation).map_err(|e| {
-            CarbideError::AttestationVerifyQuoteError(format!(
-                "Could not unmarshall Attest struct: {0}",
-                e
-            ))
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {0}", e))
         })?;
 
         let signature = Signature::unmarshall(&(request.get_ref()).signature).map_err(|e| {
-            CarbideError::AttestationVerifyQuoteError(format!(
-                "Could not unmarshall Signature struct: {0}",
-                e
-            ))
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {0}", e))
         })?;
 
         // Make sure sure the signature can at least be verified
@@ -3249,7 +3191,7 @@ impl Forge for Api {
         // In this case, we're not doing anything with
         // the resulting report (at least not yet), so just
         // throw it away.
-        let _report = crate::measured_boot::db::report::new_with_txn(
+        let report = crate::measured_boot::db::report::new_with_txn(
             &mut txn,
             machine_id.clone(),
             pcr_values.into_inner().as_slice(),
@@ -3271,8 +3213,50 @@ impl Forge for Api {
             ))
         })?;
 
-        Ok(tonic::Response::new(rpc::VerifyQuoteResponse {
+        // if the attestation was successful and enabled, we can now vend the certs
+        // - get attestation result
+        // - if enabled and not successful, send response without certs
+        // - else send response with certs
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin machine attestation verify quote",
+                e,
+            ))
+        })?;
+
+        if self.runtime_config.attestation_enabled
+            && !attest::has_passed_attestation(&mut txn, &machine_id, &report.report_id).await?
+        {
+            tracing::info!(
+                "Attestation failed for machine with id {} - not vending any certs",
+                machine_id
+            );
+            return Ok(tonic::Response::new(rpc::AttestQuoteResponse {
+                success: false,
+                machine_certificate: None,
+            }));
+        }
+
+        let id_str = machine_id.to_string();
+        let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
+            forge_secrets::certificates::Certificate::default()
+        } else {
+            self.certificate_provider
+                .get_certificate(id_str.as_str())
+                .await
+                .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+        };
+
+        tracing::info!(
+            "Attestation succeeded for machine with id {} - sending a cert back. Attestion_enabled is {}",
+            machine_id,
+            self.runtime_config.attestation_enabled
+        );
+        Ok(tonic::Response::new(rpc::AttestQuoteResponse {
             success: true,
+            machine_certificate: Some(certificate.into()),
         }))
     }
 

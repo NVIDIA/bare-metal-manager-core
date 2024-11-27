@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::measured_boot::MeasurementReportId;
 use sqlx::Postgres;
 use sqlx::Transaction;
 use std::fs;
@@ -21,6 +22,9 @@ use tempdir::TempDir;
 
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::model::hardware_info::TpmEkCertificate;
+use crate::model::machine::MeasuringState;
+use crate::state_controller::machine::handle_measuring_state;
+use crate::state_controller::machine::MeasuringOutcome;
 use forge_uuid::machine::MachineId;
 
 use x509_parser::certificate::X509Certificate;
@@ -87,7 +91,7 @@ pub fn verify_quote_state(
                 "PCR signature invalid (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestationVerifyQuoteError(
+            Err(CarbideError::AttestQuoteError(
                 "PCR signature invalid (see logs for full event log)".to_string(),
             ))
         }
@@ -96,7 +100,7 @@ pub fn verify_quote_state(
                 "PCR hash mismatch (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestationVerifyQuoteError(
+            Err(CarbideError::AttestQuoteError(
                 "PCR hash does not match (see logs for full event log)".to_string(),
             ))
         }
@@ -105,7 +109,7 @@ pub fn verify_quote_state(
                 "PCR signature invalid and PCR hash mismatch (event log: {}",
                 event_log_to_string(event_log)
             );
-            Err(CarbideError::AttestationVerifyQuoteError(
+            Err(CarbideError::AttestQuoteError(
                 "PCR signature invalid and PCR hash mismatch (see logs for full event log)"
                     .to_string(),
             ))
@@ -120,26 +124,26 @@ pub fn cli_make_cred(
 ) -> Result<(Vec<u8>, Vec<u8>), CarbideError> {
     // now construct the temp directory
     let tmp_dir = TempDir::new("make_cred").map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not create TempDir: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not create TempDir: {0}", e))
     })?;
     let tmp_dir_path = tmp_dir.path();
 
     // create a file to write the EK key to
     let ek_file_path = tmp_dir_path.join("ek.dat");
     let mut ek_file = File::create(ek_file_path.clone()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not create EK file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not create EK file: {0}", e))
     })?;
 
     // serialize the public key to a PEM format and write it to the file
     let pem_pub_key = pub_key.to_pkcs1_pem(LineEnding::default()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!(
+        CarbideError::AttestBindKeyError(format!(
             "Could not convert EK RsaPublicKey to PEM format: {0}",
             e
         ))
     })?;
 
     ek_file.write_all(pem_pub_key.as_bytes()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not write EK Pub to PEM file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {0}", e))
     })?;
 
     // now write AK name to the file in hexadecimal format
@@ -149,34 +153,28 @@ pub fn cli_make_cred(
     let session_key_path_str =
         session_key_path
             .to_str()
-            .ok_or(CarbideError::AttestationBindKeyError(
+            .ok_or(CarbideError::AttestBindKeyError(
                 "Could not join seession_key_path".to_string(),
             ))?;
 
     let mut session_key_file = File::create(session_key_path.clone()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!(
-            "Could not create file for session key: {0}",
-            e
-        ))
+        CarbideError::AttestBindKeyError(format!("Could not create file for session key: {0}", e))
     })?;
     session_key_file.write_all(session_key).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!(
-            "Could not write session key to file: {0}",
-            e
-        ))
+        CarbideError::AttestBindKeyError(format!("Could not write session key to file: {0}", e))
     })?;
 
     // construct the command to execute make_credential
     let ek_file_path_str = ek_file_path
         .to_str()
-        .ok_or(CarbideError::AttestationBindKeyError(
+        .ok_or(CarbideError::AttestBindKeyError(
             "Could not convert ek_file_path to str".to_string(),
         ))?;
 
     let cred_out_path = tmp_dir_path.join("mkcred.out");
     let cred_out_path_str = cred_out_path
         .to_str()
-        .ok_or(CarbideError::AttestationBindKeyError(
+        .ok_or(CarbideError::AttestBindKeyError(
             "Could not join cred_out_path".to_string(),
         ))?;
 
@@ -190,23 +188,21 @@ pub fn cli_make_cred(
         .arg(cmd_str)
         .output()
         .map_err(|e| {
-            CarbideError::AttestationBindKeyError(format!(
+            CarbideError::AttestBindKeyError(format!(
                 "Could not execute makecredential command: {0}",
                 e
             ))
         })?;
 
-    tracing::debug!(
-        "make cred stdout output is {}",
-        str::from_utf8(output.stdout.as_slice()).unwrap_or("<error: undisplayable output>")
-    );
-    tracing::debug!(
-        "make cred stderr output is {}",
-        str::from_utf8(output.stderr.as_slice()).unwrap_or("<error: undisplayable output>")
-    );
+    if !output.stderr.is_empty() {
+        tracing::error!(
+            "tpm2 makecredential returned error: {}",
+            str::from_utf8(output.stderr.as_slice()).unwrap_or("<error: undisplayable output>")
+        );
+    }
 
     let creds = fs::read(cred_out_path).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not create creds file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not create creds file: {0}", e))
     })?;
 
     let (cred_blob, encr_secret) = extract_cred_secret(&creds)?;
@@ -227,7 +223,7 @@ pub fn verify_signature(
     let unique = match ak_pub {
         tss_esapi::structures::Public::Rsa { unique, .. } => unique,
         _ => {
-            return Err(CarbideError::AttestationVerifyQuoteError(
+            return Err(CarbideError::AttestQuoteError(
                 "AK Pub is not an RSA key".to_string(),
             ))
         }
@@ -238,13 +234,13 @@ pub fn verify_signature(
     let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
     let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestationVerifyQuoteError(format!("Could not create RsaPublicKey: {0}", e))
+        CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {0}", e))
     })?;
 
     let rsa_signature = match signature {
         RsaPss(rsa_signature) => rsa_signature,
         _ => {
-            return Err(CarbideError::AttestationVerifyQuoteError(
+            return Err(CarbideError::AttestQuoteError(
                 "unknown signature type".to_string(),
             ))
         }
@@ -264,7 +260,7 @@ pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult
     let attest_digest = match attest.attested() {
         AttestInfo::Quote { info } => info.pcr_digest(),
         _other => {
-            return Err(CarbideError::AttestationVerifyQuoteError(
+            return Err(CarbideError::AttestQuoteError(
                 "Incorrect Attestation Type".into(),
             ))
         }
@@ -294,7 +290,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
     let secret_offset: usize = 2;
 
     if creds.len() < magic_header_offset + cred_blob_offset {
-        return Err(CarbideError::AttestationBindKeyError(format!(
+        return Err(CarbideError::AttestBindKeyError(format!(
             "Creds file is too short: {0} bytes",
             creds.len()
         )));
@@ -308,7 +304,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
         magic_header_offset + cred_blob_offset + usize::from(cred_blob_size);
 
     if creds.len() < cred_blob_end_idx + secret_offset - 1 {
-        return Err(CarbideError::AttestationBindKeyError(format!(
+        return Err(CarbideError::AttestBindKeyError(format!(
             "Creds file is too short: {0} bytes",
             creds.len()
         )));
@@ -352,20 +348,21 @@ pub fn do_compare_pub_key_against_cert(
     ek_pub: &Vec<u8>,
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     // compare the pub key and the cert
+
     let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
         .map_err(|e| {
-            CarbideError::AttestationBindKeyError(format!("Could not unmarshall EK Cert: {0}", e))
+            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {0}", e))
         })?
         .1;
 
     let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not get EK Cert Data: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {0}", e))
     })?;
 
     let ek_cert_modulus = match pub_key_cert_data {
         x509_parser_pub_key::RSA(rsa_pub_key) => rsa_pub_key.modulus,
         _rest => {
-            return Err(CarbideError::AttestationBindKeyError(
+            return Err(CarbideError::AttestBindKeyError(
                 "TPM EK is not in RSA format".to_string(),
             ))
         }
@@ -378,20 +375,20 @@ pub fn do_compare_pub_key_against_cert(
     // pub_key_cert has a different type from pub_key_cert_data, even though their type names
     // actually do coincide!
     let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!(
+        CarbideError::AttestBindKeyError(format!(
             "Could not create RsaPublicKey from EK Cert: {0}",
             e
         ))
     })?;
     // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
     let ek_pub = Public::unmarshall(ek_pub.as_slice()).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!("Could not unmarshall EK: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {0}", e))
     })?;
 
     let unique = match ek_pub {
         Public::Rsa { unique, .. } => unique,
         _ => {
-            return Err(CarbideError::AttestationBindKeyError(
+            return Err(CarbideError::AttestBindKeyError(
                 "EK Pub is not in RSA format".to_string(),
             ));
         }
@@ -402,13 +399,77 @@ pub fn do_compare_pub_key_against_cert(
     let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
     let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestationBindKeyError(format!(
+        CarbideError::AttestBindKeyError(format!(
             "Could not create RsaPublicKey from TPM's EK Pub: {0}",
             e
         ))
     })?;
 
     Ok((pub_key_ek == pub_key_cert, pub_key_ek))
+}
+
+pub async fn has_passed_attestation(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    _report_id: &MeasurementReportId,
+) -> CarbideResult<bool> {
+    let measuring_outcome =
+        handle_measuring_state(&MeasuringState::WaitingForMeasurements, machine_id, txn)
+            .await
+            .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;
+
+    Ok(measuring_outcome == MeasuringOutcome::PassedOk)
+    // TODO: this will be removed before the MERGE, keeping here in case
+    // the code review will suggest to use this approach instead
+
+    /*// first, get the latest entry for a given machine id
+    let measurement_journal_entry =
+        measurement_journal::get_latest_journal_for_id(txn, machine_id.clone())
+            .await?
+            .ok_or(CarbideError::AttestQuoteError(format!(
+                "Could not find latest entry in the journal for machine with id {}",
+                machine_id
+            )))?;
+
+    if &measurement_journal_entry.report_id != report_id {
+        return Err(CarbideError::AttestQuoteError(format!(
+            "Could not find latest entry in the journal for machine with id {} for report id {}",
+            machine_id, report_id
+        )));
+    }
+    // now, get to the bundle to see if it's present and active
+    let measurement_bundle_id = match measurement_journal_entry.bundle_id {
+        Some(bundle_id) => bundle_id,
+        None => return Ok(false),
+    };
+
+    let measurement_bundle =
+        MeasurementBundle::from_id_with_txn(txn, measurement_bundle_id).await?;
+
+    let mut measurement_bundle_ok = true;
+    if (measurement_bundle.state != MeasurementBundleState::Active)
+        && (measurement_bundle.state != MeasurementBundleState::Obsolete)
+    {
+        measurement_bundle_ok = false;
+    }
+
+    let ek_cert_verification_status =
+        EkCertVerificationStatus::get_by_machine_id(txn, machine_id.clone())
+            .await
+            .map_err(|e| {
+                CarbideError::AttestQuoteError(format!(
+                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                    machine_id, e
+                ))
+            })?
+            .ok_or_else(|| {
+                CarbideError::AttestQuoteError(format!(
+                    "No EkCertVerificationStatus found for MachineId {}",
+                    machine_id
+                ))
+            })?;
+
+    Ok(measurement_bundle_ok && ek_cert_verification_status.signing_ca_found)*/
 }
 
 #[cfg(test)]
@@ -424,7 +485,7 @@ mod tests {
             Ok(..) => panic!("Failed: Should have received an error"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "Attestation Bind Key Error: Creds file is too short: 3 bytes"
+                "Attest Bind Key Error: Creds file is too short: 3 bytes"
             ),
         }
     }

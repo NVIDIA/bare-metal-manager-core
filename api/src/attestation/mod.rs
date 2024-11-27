@@ -15,7 +15,8 @@ pub mod measured_boot;
 #[cfg(feature = "tss-esapi")]
 pub use measured_boot::{
     cli_make_cred, compare_pub_key_against_cert, do_compare_pub_key_against_cert,
-    event_log_to_string, verify_pcr_hash, verify_quote_state, verify_signature,
+    event_log_to_string, has_passed_attestation, verify_pcr_hash, verify_quote_state,
+    verify_signature,
 };
 
 pub mod tpm_ca_cert;

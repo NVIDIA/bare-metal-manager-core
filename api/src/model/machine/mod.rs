@@ -688,19 +688,29 @@ pub struct DpuReprovisionStates {
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
     /// Dpu was discovered by a site-explorer and is being configuring via redfish.
-    DpuDiscoveringState { dpu_states: DpuDiscoveringStates },
+    DpuDiscoveringState {
+        dpu_states: DpuDiscoveringStates,
+    },
     /// DPU is not yet ready.
-    DPUInit { dpu_states: DpuInitStates },
+    DPUInit {
+        dpu_states: DpuInitStates,
+    },
     /// DPU is ready, Host is not yet Ready.
     // We don't need dpu_states as DPU's machine state is always Ready here.
-    HostInit { machine_state: MachineState },
+    HostInit {
+        machine_state: MachineState,
+    },
     /// Host is Ready for instance creation.
     Ready,
     /// Host is assigned to an Instance.
-    Assigned { instance_state: InstanceState },
+    Assigned {
+        instance_state: InstanceState,
+    },
     /// Some cleanup is going on.
     // This is host specific state. We expect DPU to be in Ready state.
-    WaitingForCleanup { cleanup_state: CleanupState },
+    WaitingForCleanup {
+        cleanup_state: CleanupState,
+    },
 
     /// A forced deletion process has been triggered by the admin CLI
     /// State controller will no longer manage the Machine
@@ -719,7 +729,9 @@ pub enum ManagedHostState {
     },
 
     /// State used to indicate that DPU reprovisioning is going on.
-    DPUReprovision { dpu_states: DpuReprovisionStates },
+    DPUReprovision {
+        dpu_states: DpuReprovisionStates,
+    },
 
     /// State used to indicate that host reprovisioning is going on
     HostReprovision {
@@ -731,7 +743,13 @@ pub enum ManagedHostState {
     /// measurements to match a valid/approved measurement bundle,
     /// before continuing on towards a Ready state.
     // This is host specific state. We expect DPU to be in Ready state.
-    Measuring { measuring_state: MeasuringState },
+    Measuring {
+        measuring_state: MeasuringState,
+    },
+
+    PostAssignedMeasuring {
+        measuring_state: MeasuringState,
+    },
 }
 
 impl ManagedHostState {
@@ -1028,10 +1046,20 @@ pub enum FailureCause {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
+pub enum StateMachineArea {
+    Default,
+    HostInit,
+    MainFlow,
+    AssignedInstance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum FailureSource {
     NoError,
     Scout,
     StateMachine,
+    StateMachineArea(StateMachineArea),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1156,6 +1184,9 @@ pub enum MachineState {
     WaitingForPlatformConfiguration,
     UefiSetup {
         uefi_setup_info: UefiSetupInfo,
+    },
+    Measuring {
+        measuring_state: MeasuringState,
     },
     WaitingForDiscovery,
     Discovered {
@@ -1509,6 +1540,9 @@ impl Display for ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{}", measuring_state)
             }
+            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
+                write!(f, "PostAssignedMeasuring/{}", measuring_state)
+            }
             ManagedHostState::Created => write!(f, "Created"),
         }
     }
@@ -1569,6 +1603,9 @@ impl ManagedHostState {
             }
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{}", measuring_state)
+            }
+            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
+                format!("PostAssignedMeasuring/{}", measuring_state)
             }
             ManagedHostState::Created => "Created".to_string(),
         }
@@ -1963,6 +2000,21 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             )
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
+            // The API shouldn't be waiting for measurements for long. As soon
+            // as it transitions into this state, Scout should get an Action::Measure
+            // action, and it should pretty quickly send measurements in (~seconds).
+            MeasuringState::WaitingForMeasurements => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT),
+                time_in_state,
+            ),
+            // If the machine is waiting for a matching bundle, this could
+            // take a bit, since it means either auto-bundle generation OR
+            // manual bundle generation needs to happen. In the case of new
+            // turn ups, this could take hours or even days (e.g. if new gear
+            // is sitting there).
+            MeasuringState::PendingBundle => StateSla::no_sla(),
+        },
+        ManagedHostState::PostAssignedMeasuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
             // as it transitions into this state, Scout should get an Action::Measure
             // action, and it should pretty quickly send measurements in (~seconds).

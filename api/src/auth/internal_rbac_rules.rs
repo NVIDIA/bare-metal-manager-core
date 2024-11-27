@@ -198,8 +198,7 @@ impl InternalRBACRules {
         x.perm("ReplaceAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm("DeleteAllExpectedMachines", vec![ForgeAdminCLI]);
         x.perm("GetAllExpectedMachinesLinked", vec![ForgeAdminCLI]);
-        x.perm("BindAttestKey", vec![Scout]);
-        x.perm("VerifyQuote", vec![Scout]);
+        x.perm("AttestQuote", vec![Scout]);
         x.perm("CreateMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RenameMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);

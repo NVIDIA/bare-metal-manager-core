@@ -275,8 +275,7 @@ service Forge {
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
 
   // Perform Attestation Procedure for Measured Boot
-  rpc BindAttestKey(BindRequest) returns (BindResponse);
-  rpc VerifyQuote(VerifyQuoteRequest) returns (VerifyQuoteResponse);
+  rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
 
     ////////////////////////////////////////////////////////////////////////////////
   // Begin Measured Boot API Endpoints
@@ -465,24 +464,14 @@ message TpmCaCertDetailCollection{
   repeated TpmCaCertDetail tpm_ca_cert_details = 1;
 }
 
-message BindRequest{
-  common.MachineId machine_id = 1;
-  // Endorsement Public Key
-  bytes EKPub = 2;
-  // Attestation Public Key
-  bytes AKPub = 3;
-  // Attestation Key Name
-  bytes AKName = 4;
-}
-
-message BindResponse{
+message AttestKeyBindChallenge{
   // Encrypted Credential (kind of AuthToken)
   bytes CredBlob = 1;
   // Encrypted Seed (used to generate key to decrypt CredBlob)
   bytes EncryptedSecret = 2;
 }
 
-message VerifyQuoteRequest{
+message AttestQuoteRequest{
   common.MachineId machine_id = 1;
   // Kind of AuthToken
   bytes Credential = 2;
@@ -496,8 +485,9 @@ message VerifyQuoteRequest{
   optional bytes EventLog = 6;
 }
 
-message VerifyQuoteResponse{
+message AttestQuoteResponse{
   bool Success = 1;
+  MachineCertificate machine_certificate = 2;
 }
 
 enum CredentialType {
@@ -2325,6 +2315,8 @@ message MachineDiscoveryResult {
   common.MachineId machine_id = 1;
   // This is returned to the discovery client so that it can use the embedded certificate to authenticate to the api for further communications.
   MachineCertificate machine_certificate = 2;
+  // if attestation is enabled, this challenge will allow to bind attestation key to a particular TPM via its EK
+  AttestKeyBindChallenge attest_key_challenge = 3;
 }
 
 message MachineDiscoveryCompletedResponse { }

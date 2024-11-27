@@ -11,6 +11,7 @@
  */
 use cfg::{AutoDetect, Command, Mode, Options};
 use clap::CommandFactory;
+use forge_host_support::registration;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge::ForgeAgentControlResponse;
@@ -23,7 +24,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tryhard::RetryFutureConfig;
+use tryhard::{RetryFutureConfig, RetryPolicy};
 
 mod attestation;
 mod cfg;
@@ -79,15 +80,38 @@ async fn main() -> Result<(), eyre::Report> {
     Ok(())
 }
 
+#[allow(clippy::blocks_in_conditions)]
 async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
-    let machine_id = match register::run(
-        &config.api,
-        config.root_ca.clone(),
-        config.machine_interface_id,
-        config.discovery_retry_secs,
-        config.discovery_retries_max,
-        &config.tpm_path,
-    )
+    // we use the same retry params for both: retrying the discover_machine
+    // call, as well as retrying the whole attestation sequence: discover_machine + attest_quote
+    let retry = registration::DiscoveryRetry {
+        secs: config.discovery_retry_secs,
+        max: config.discovery_retries_max,
+    };
+
+    let machine_id = match tryhard::retry_fn(|| {
+        tracing::info!("Trying to register the machine");
+        register::run(
+            &config.api,
+            config.root_ca.clone(),
+            config.machine_interface_id,
+            &retry,
+            &config.tpm_path,
+        )
+    })
+    .retries(retry.max)
+    .custom_backoff(|_attempt, error: &CarbideClientError| {
+        // we only want to retry if attestation has failed. In all other cases
+        // just preserve the old behaviour by breaking from the retry loop
+        tracing::info!("Failed to register machine with error {}", error);
+        if !error.to_string().contains("Attestation failed") {
+            tracing::info!("Not retrying registration as it is not an attestation error");
+            RetryPolicy::Break
+        } else {
+            tracing::info!("Retrying registration again in {} seconds", retry.secs);
+            RetryPolicy::Delay(Duration::from_secs(retry.secs))
+        }
+    })
     .await
     {
         Ok(machine_id) => machine_id,
@@ -230,7 +254,7 @@ async fn handle_action(
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
         Action::Measure => {
-            attestation::run(config, machine_id).await?;
+            eprintln!("Action::Measure is no longer supported");
         }
         Action::MachineValidation => {
             tracing::info!("Machine validation");

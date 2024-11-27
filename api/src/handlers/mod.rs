@@ -23,6 +23,7 @@ pub mod health;
 pub mod ib_partition;
 pub mod instance;
 pub mod machine_validation;
+pub mod measured_boot;
 pub mod network_segment;
 pub mod pxe;
 pub mod resource_pool;

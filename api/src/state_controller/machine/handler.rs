@@ -12,7 +12,6 @@
 
 //! State Handler implementation for Machines
 
-use std::mem::discriminant as enum_discr;
 use std::{net::IpAddr, sync::Arc};
 
 use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
@@ -20,6 +19,9 @@ use crate::db::network_segment::NetworkSegment;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::DisableSecureBootState;
 use crate::redfish;
+use crate::state_controller::machine::{
+    get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
+};
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -31,6 +33,7 @@ use libredfish::{
     model::task::{Task, TaskState},
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
+use std::mem::discriminant as enum_discr;
 use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
@@ -39,12 +42,10 @@ use crate::{
         MachineValidationConfig,
     },
     db::{
-        attestation::EkCertVerificationStatus, explored_endpoints::DbExploredEndpoint,
-        instance::DeleteInstance, machine::Machine, machine_topology::MachineTopology,
-        machine_validation::MachineValidation,
+        explored_endpoints::DbExploredEndpoint, instance::DeleteInstance, machine::Machine,
+        machine_topology::MachineTopology, machine_validation::MachineValidation,
     },
     firmware_downloader::FirmwareDownloader,
-    measured_boot::db::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     model::{
         machine::{
             all_equal, get_display_ids, BmcFirmwareUpgradeSubstate, CleanupState,
@@ -54,7 +55,7 @@ use crate::{
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, MachineValidationFilter, ManagedHostState,
             ManagedHostStateSnapshot, MeasuringState, NextReprovisionState, PerformPowerOperation,
-            ReprovisionState, RetryInfo, UefiSetupInfo, UefiSetupState,
+            ReprovisionState, RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState,
         },
         site_explorer::ExploredEndpoint,
     },
@@ -70,7 +71,7 @@ use crate::{
         },
     },
 };
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use measured_boot::records::MeasurementMachineState;
 
 mod ib;
 mod storage;
@@ -228,6 +229,7 @@ impl MachineStateHandler {
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.dpu_nic_firmware_reprovision_update_enabled,
+                builder.attestation_enabled,
                 builder.reachability_params,
                 builder.hardware_models.clone().unwrap_or_default(),
             ),
@@ -589,15 +591,18 @@ impl MachineStateHandler {
                     return Ok(StateHandlerOutcome::Transition(next_state));
                 }
 
-                // Check to see if measurement bundle states changed while
-                // the host has been sitting in Ready state -- it may need
-                // to be transitioned away from Ready.
-                if self.host_handler.host_handler_params.attestation_enabled {
-                    if let Some(next_state) =
-                        handle_outside_of_measuring_state(&mh_state, mh_snapshot, txn).await?
-                    {
-                        return Ok(StateHandlerOutcome::Transition(next_state));
-                    }
+                // Check to see if measurement machine (i.e. attestation) state has changed
+                // if so, just place it into the measuring state and let it be handled inside
+                // the measurement state
+                if self.host_handler.host_handler_params.attestation_enabled
+                    && check_if_should_redo_measurements(&mh_snapshot.host_snapshot.machine_id, txn)
+                        .await?
+                {
+                    return Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::Measuring {
+                            measuring_state: MeasuringState::WaitingForMeasurements, // let's just start from the beginning
+                        },
+                    ));
                 }
 
                 // Check if instance to be created.
@@ -840,47 +845,48 @@ impl MachineStateHandler {
                             Ok(StateHandlerOutcome::DoNothing)
                         }
                     }
-                    // FailureCause::MeasurementsRetired happens when a machine matches
-                    // a retired bundle. Since retired bundles can have their state changed,
-                    // and since there's always the potential for bundle management to
-                    // happen behind the scenes otherwise, lets re-check for changes here.
                     FailureCause::MeasurementsRetired { .. }
-                        if machine_id.machine_type().is_host() =>
-                    {
-                        if let Some(next_state) =
-                            handle_outside_of_measuring_state(&mh_state, mh_snapshot, txn).await?
+                    | FailureCause::MeasurementsRevoked { .. }
+                    | FailureCause::MeasurementsCAValidationFailed { .. } => {
+                        if check_if_not_in_original_failure_cause_anymore(
+                            &mh_snapshot.host_snapshot.machine_id,
+                            txn,
+                            &details.cause,
+                        )
+                        .await?
                         {
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        } else {
-                            Ok(StateHandlerOutcome::DoNothing)
-                        }
-                    }
-                    // FailureCause::MeasurementsRevoked happens when a machine matches
-                    // a revoked bundle. Now, revoked bundles cannot be reactivated, however,
-                    // still check to see if there is a potential avenue for recovery
-                    // here (e.g. a new, active bundle that has a more specific match than
-                    // the revoked bundle, or potentially the revoked bundle being deleted
-                    // and a new bundle being created, etc).
-                    FailureCause::MeasurementsRevoked { .. }
-                        if machine_id.machine_type().is_host() =>
-                    {
-                        if let Some(next_state) =
-                            handle_outside_of_measuring_state(&mh_state, mh_snapshot, txn).await?
-                        {
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        } else {
-                            Ok(StateHandlerOutcome::DoNothing)
-                        }
-                    }
-                    // this failure cause indicates that the this machine's EK signature
-                    // has not been been validated against a CA
-                    FailureCause::MeasurementsCAValidationFailed { .. }
-                        if machine_id.machine_type().is_host() =>
-                    {
-                        if let Some(next_state) =
-                            handle_outside_of_measuring_state(&mh_state, mh_snapshot, txn).await?
-                        {
-                            Ok(StateHandlerOutcome::Transition(next_state))
+                            // depending on the source of the failure, move it to the correct measuring state
+                            match &details.source {
+                                    FailureSource::StateMachineArea(area) => {
+                                        match area{
+                                            StateMachineArea::MainFlow => Ok(StateHandlerOutcome::Transition(
+                                                ManagedHostState::Measuring {
+                                                    measuring_state: MeasuringState::WaitingForMeasurements
+                                                }
+                                            )),
+                                            StateMachineArea::HostInit => Ok(StateHandlerOutcome::Transition(
+                                                ManagedHostState::HostInit {
+                                                    machine_state: MachineState::Measuring{
+                                                        measuring_state: MeasuringState::WaitingForMeasurements
+                                                    }
+                                                }
+                                            )),
+                                            StateMachineArea::AssignedInstance => Ok(StateHandlerOutcome::Transition(
+                                                ManagedHostState::PostAssignedMeasuring {
+                                                        measuring_state: MeasuringState::WaitingForMeasurements
+                                                }
+                                            )),
+                                            _ => Err(StateHandlerError::InvalidState(
+                                                "Unimplemented StateMachineArea for FailureSource of  MeasurementsRetired, MeasurementsRevoked, MeasurementsCAValidationFailed"
+                                                    .to_string(),
+                                            ))
+                                        }
+                                    },
+                                    _ => Err(StateHandlerError::InvalidState(
+                                        "The source of MeasurementsRetired, MeasurementsRevoked, MeasurementsCAValidationFailed can only be StateMachine"
+                                            .to_string(),
+                                    ))
+                                }
                         } else {
                             Ok(StateHandlerOutcome::DoNothing)
                         }
@@ -989,26 +995,22 @@ impl MachineStateHandler {
 
             // ManagedHostState::Measuring is introduced into the flow when
             // attestation_enabled is set to true (defaults to false), and
-            // is injected right after post-discovery reboot, and right before
-            // the machine goes to Ready.
+            // is triggered when a machine being in Ready state suddently
+            // ceases being attested
             ManagedHostState::Measuring { measuring_state } => {
-                if let Some(next_state) =
-                    handle_inside_measuring_state(measuring_state, mh_snapshot, txn).await?
-                {
-                    Ok(StateHandlerOutcome::Transition(next_state))
-                } else {
-                    Ok(StateHandlerOutcome::Wait(
-                        match measuring_state {
-                            MeasuringState::WaitingForMeasurements => {
-                                "Waiting for machine to send measurement report"
-                            }
-                            MeasuringState::PendingBundle => {
-                                "Waiting for matching measurement bundle for machine profile"
-                            }
-                        }
-                        .to_string(),
-                    ))
-                }
+                handle_measuring_state(measuring_state, &mh_snapshot.host_snapshot.machine_id, txn)
+                    .await
+                    .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?
+            }
+            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
+                handle_measuring_state(measuring_state, &mh_snapshot.host_snapshot.machine_id, txn)
+                    .await
+                    .map(|v| {
+                        map_post_assigned_measuring_outcome_to_state_handler_outcome(
+                            &v,
+                            measuring_state,
+                        )
+                    })?
             }
         }
     }
@@ -1775,302 +1777,219 @@ impl StateHandler for MachineStateHandler {
     }
 }
 
-async fn get_measuring_prerequisites(
-    machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
-    let machine_state = get_measurement_machine_state(txn, machine_id.clone())
-        .await
-        .map_err(StateHandlerError::DBError)?;
-
-    let ek_cert_verification_status =
-        EkCertVerificationStatus::get_by_machine_id(txn, machine_id.clone())
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
-                    machine_id,
-                    e
-                ))
-            })?
-            .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {}",
-                    machine_id
-                ))
-            })?;
-
-    Ok((machine_state, ek_cert_verification_status))
-}
-
-fn generate_ca_validation_failed_status(machine_id: &MachineId) -> ManagedHostState {
-    ManagedHostState::Failed {
-        details: FailureDetails {
-            cause: FailureCause::MeasurementsCAValidationFailed {
-                err: format!(
-                    "The EK for MachineId {} has not been CA verified",
-                    machine_id
-                ),
-            },
-            failed_at: chrono::Utc::now(),
-            source: FailureSource::StateMachine,
-        },
-        machine_id: machine_id.clone(),
-        retry_count: 0,
-    }
-}
-
-/// this handles situations when we are in measuring state and need to make decisions
-async fn handle_inside_measuring_state(
+fn map_measuring_outcome_to_state_handler_outcome(
+    measuring_outcome: &MeasuringOutcome,
     measuring_state: &MeasuringState,
-    mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Option<ManagedHostState>, StateHandlerError> {
-    let machine_id = &mh_snapshot.host_snapshot.machine_id;
-
-    let (machine_state, ek_cert_verification_status) =
-        get_measuring_prerequisites(machine_id, txn).await?;
-
-    if !ek_cert_verification_status.signing_ca_found {
-        return Ok(Some(generate_ca_validation_failed_status(machine_id)));
-    }
-
-    match measuring_state {
-        // In this state, the machine has been discovered, and the
-        // API is now waiting for a measurement report, which is up
-        // to Scout to send (as part of reacting to an Action::Measure
-        // response from the API).
-        //
-        // Once a measurement report is received, it will be verified
-        // (where if that fails, will move to ManagedHostState::Failed
-        // with a MeasurementsFailedSignatureCheck reason), and matched
-        // against a bundle.
-        //
-        // If no match is found, then the machine will hang out in
-        // MeasuringState::PendingBundle.
-        MeasuringState::WaitingForMeasurements => {
-            Ok(match machine_state {
-                // "Discovered" is the MeasurementMachineState equivalent of
-                // "no measurements have been sent yet". If that's the case,
-                // then continue waiting for measurements.
-                MeasurementMachineState::Discovered => None,
-                MeasurementMachineState::PendingBundle => Some(ManagedHostState::Measuring {
-                    measuring_state: MeasuringState::PendingBundle,
-                }),
-                MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
-                MeasurementMachineState::MeasuringFailed => Some(ManagedHostState::Failed {
-                    details: FailureDetails {
-                        cause: get_measurement_failure_cause(txn, machine_id).await?,
-                        failed_at: chrono::Utc::now(),
-                        source: FailureSource::StateMachine,
-                    },
-                    machine_id: machine_id.clone(),
-                    retry_count: 0,
-                }),
-            })
-        }
-        // In this state, a measurement report of PCR values has been
-        // received (and verified), but the values don't match a bundle
-        // yet. Check to see if they match one now (which happens via
-        // bundle promotion). If not, keep on waiting.
-        MeasuringState::PendingBundle => {
-            Ok(match machine_state {
-                // "PendingBundle" is the current state, so if this is returned,
-                // just keep on waiting for a matching bundle.
-                MeasurementMachineState::PendingBundle => None,
-                // "Discovered" is the MeasurementMachineState equivalent of
-                // "no measurements have been sent yet". If this is happens,
-                // it means measurements must have been wiped, so lets transition
-                // *back* to WaitingForMeasurements (which will tell the API to
-                // ask Scout for measurements again).
-                MeasurementMachineState::Discovered => Some(ManagedHostState::Measuring {
-                    measuring_state: MeasuringState::WaitingForMeasurements,
-                }),
-                MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
-                MeasurementMachineState::MeasuringFailed => Some(ManagedHostState::Failed {
-                    details: FailureDetails {
-                        cause: get_measurement_failure_cause(txn, machine_id).await?,
-                        failed_at: chrono::Utc::now(),
-                        source: FailureSource::StateMachine,
-                    },
-                    machine_id: machine_id.clone(),
-                    retry_count: 0,
-                }),
-            })
-        }
-    }
-}
-
-/// this handles situations when we are not presently in measuring state
-async fn handle_outside_of_measuring_state(
-    managed_host_state: &ManagedHostState,
-    mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Option<ManagedHostState>, StateHandlerError> {
-    let machine_id = &mh_snapshot.host_snapshot.machine_id;
-
-    let (machine_state, ek_cert_verification_status) =
-        get_measuring_prerequisites(machine_id, txn).await?;
-
-    match managed_host_state {
-        ManagedHostState::Ready => Ok(match machine_state {
-            // If there are no longer measurements reported
-            // for the machine, then send it back to WaitingForMeasurements.
-            MeasurementMachineState::Discovered => Some(ManagedHostState::Measuring {
-                measuring_state: MeasuringState::WaitingForMeasurements,
-            }),
-            // If the machine is now pending a bundle, then send it
-            // over to PendingBundle.
-            MeasurementMachineState::PendingBundle => Some(ManagedHostState::Measuring {
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match measuring_outcome {
+        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+            match measuring_state {
+                MeasuringState::WaitingForMeasurements => {
+                    "Waiting for machine to send measurement report"
+                }
+                MeasuringState::PendingBundle => {
+                    "Waiting for matching measurement bundle for machine profile"
+                }
+            }
+            .to_string(),
+        )),
+        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::Measuring {
                 measuring_state: MeasuringState::PendingBundle,
-            }),
-            // If the machine now has an active/happy bundle match,
-            // then lets move it on to Ready!
-            MeasurementMachineState::Measured => None,
-            // If the machine is in MeasuringFailed, lets see which one.
-            MeasurementMachineState::MeasuringFailed => Some(ManagedHostState::Failed {
+            },
+        )),
+        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::Measuring {
+                measuring_state: MeasuringState::WaitingForMeasurements,
+            },
+        )),
+        MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
+            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
                 details: FailureDetails {
-                    cause: get_measurement_failure_cause(txn, machine_id).await?,
-                    failed_at: chrono::Utc::now(),
-                    source: FailureSource::StateMachine,
+                    cause: failure_details.cause.clone(),
+                    failed_at: failure_details.failed_at,
+                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
                 },
                 machine_id: machine_id.clone(),
                 retry_count: 0,
-            }),
-        }),
-        ManagedHostState::Failed { details, .. } => {
-            let original_failure_cause = &details.cause;
+            }))
+        }
+        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(ManagedHostState::Ready)),
+    }
+}
 
-            // return an error if the failure cause is incorrect, i.e. unhandled
-            match original_failure_cause {
-                FailureCause::MeasurementsRevoked { .. }
-                | FailureCause::MeasurementsRetired { .. }
-                | FailureCause::MeasurementsCAValidationFailed { .. } => (),
-                _ => {
-                    return Err(StateHandlerError::InvalidState(
-                    "measurement handling of FailureCause expecting MeasurementsRetired or MeasurementsRevoked or MeasurementsCAValidationFailed"
-                        .to_string(),
-                ));
+fn map_host_init_measuring_outcome_to_state_handler_outcome(
+    measuring_outcome: &MeasuringOutcome,
+    measuring_state: &MeasuringState,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match measuring_outcome {
+        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+            match measuring_state {
+                MeasuringState::WaitingForMeasurements => {
+                    "Waiting for machine to send measurement report"
+                }
+                MeasuringState::PendingBundle => {
+                    "Waiting for matching measurement bundle for machine profile"
                 }
             }
-            // now look at machine's (i.e. attestation's) state and decide
-            // where to transition next to
-            Ok(match machine_state {
-                // If there are no longer measurements reported
-                // for the machine, then send it back to WaitingForMeasurements.
-                MeasurementMachineState::Discovered => Some(ManagedHostState::Measuring {
-                    measuring_state: MeasuringState::WaitingForMeasurements,
-                }),
-                // If the machine is now pending a bundle, then send it
-                // over to PendingBundle.
-                MeasurementMachineState::PendingBundle => Some(ManagedHostState::Measuring {
+            .to_string(),
+        )),
+        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring {
                     measuring_state: MeasuringState::PendingBundle,
-                }),
-                // If the machine now has an active/happy bundle match,
-                // then lets move it on to Ready!
-                MeasurementMachineState::Measured => {
-                    if !ek_cert_verification_status.signing_ca_found {
-                        return Ok(Some(generate_ca_validation_failed_status(machine_id)));
-                    } else {
-                        return Ok(Some(ManagedHostState::Ready));
-                    }
-                }
-                // If the machine is still in MeasuringFailed, lets
-                // see if the failure cause is the same, in which case no action
-                // will be needed, otherwise switch the cause
-                MeasurementMachineState::MeasuringFailed => {
-                    // this "generates" a failure cause on the fly from machine's
-                    // measurement bundle state
-                    let refreshed_attestation_failure_reason =
-                        get_measurement_failure_cause(txn, machine_id).await?;
-
-                    // let's make sure we only got one of those two causes back
-                    // ... although it's redundant since get_measurement_failure_cause
-                    // only returns one of those two values anyways
-                    match refreshed_attestation_failure_reason {
-                        FailureCause::MeasurementsRetired { .. }
-                        | FailureCause::MeasurementsRevoked { .. } => (),
-                        _ => {
-                            return Err(StateHandlerError::InvalidState(
-                                "unexpected measurement failure cause returned".to_string(),
-                            ));
-                        }
-                    }
-
-                    // at this point refetched_failure_cause will definitely be either revoked or retired
-                    // however original_failure_cause can be any of those two + MeasurementsCAValidationFailed
-                    // meaning that if original_failure_cause is MeasurementsCAValidationFailed it will
-                    // definitely be changed to the refetched one
-                    if enum_discr(&refreshed_attestation_failure_reason)
-                        == enum_discr(original_failure_cause)
-                    {
-                        None
-                    } else {
-                        Some(ManagedHostState::Failed {
-                            details: FailureDetails {
-                                cause: refreshed_attestation_failure_reason,
-                                failed_at: chrono::Utc::now(),
-                                source: FailureSource::StateMachine,
-                            },
-                            machine_id: machine_id.clone(),
-                            retry_count: 0,
-                        })
-                    }
-                }
-            })
+                },
+            },
+        )),
+        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                },
+            },
+        )),
+        MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
+            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: failure_details.cause.clone(),
+                    failed_at: failure_details.failed_at,
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: machine_id.clone(),
+                retry_count: 0,
+            }))
         }
-        // If an unexpected ManagedHostState is provided here, yell.
-        _ => Err(StateHandlerError::InvalidState(
-            "measurement handling of ManagedHostState expecting Ready or Failed".to_string(),
+        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForDiscovery,
+            },
         )),
     }
 }
 
-/// get_measurement_failure_cause gets the currently associated
-/// measurement bundle for a given machine ID (if one exists), and
-/// maps the state of the bundle to a FailureCause.
-///
-/// This is intended to be used when a machine is in MeasuringFailed,
-/// and we want to dig into the corresponding bundle state to see why
-/// it failed (e.g. retired or revoked).
-///
-/// If a bundle is not associated, or the associated bundle is not
-/// in a retired or revoked state, then this will return an error.
-///
-/// TODO(chet): There's probably a world where the bundle state
-/// could be stored in the journal entry itself (so there's no need
-/// for a subsequent query), or a world where I introduce some
-/// ComposedState type of thing where I can join across the journal
-/// and bundle to do a single query + return a single ComposedState
-/// that has everything I want.
-async fn get_measurement_failure_cause(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
-) -> Result<FailureCause, StateHandlerError> {
-    let state = get_measurement_bundle_state(txn, machine_id)
-        .await
-        .map_err(StateHandlerError::GenericError)?
-        .ok_or(StateHandlerError::MissingData {
-            object_id: machine_id.to_string(),
-            missing: "expected bundle reference from journal for failed measurements",
-        })?;
-
-    let failure_cause = match state {
-        MeasurementBundleState::Retired => FailureCause::MeasurementsRetired {
-            err: "measurements matched retired bundle".to_string(),
-        },
-        MeasurementBundleState::Revoked => FailureCause::MeasurementsRevoked {
-            err: "measurements matched revoked bundle".to_string(),
-        },
-        _ => {
-            return Err(StateHandlerError::MissingData {
-                object_id: machine_id.to_string(),
-                missing: "expected retired or revoked bundle for failure cause",
-            });
+fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
+    measuring_outcome: &MeasuringOutcome,
+    measuring_state: &MeasuringState,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match measuring_outcome {
+        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+            match measuring_state {
+                MeasuringState::WaitingForMeasurements => {
+                    "Waiting for machine to send measurement report"
+                }
+                MeasuringState::PendingBundle => {
+                    "Waiting for matching measurement bundle for machine profile"
+                }
+            }
+            .to_string(),
+        )),
+        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::PostAssignedMeasuring {
+                measuring_state: MeasuringState::PendingBundle,
+            },
+        )),
+        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::PostAssignedMeasuring {
+                measuring_state: MeasuringState::WaitingForMeasurements,
+            },
+        )),
+        MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
+            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: failure_details.cause.clone(),
+                    failed_at: failure_details.failed_at,
+                    source: FailureSource::StateMachineArea(StateMachineArea::AssignedInstance),
+                },
+                machine_id: machine_id.clone(),
+                retry_count: 0,
+            }))
         }
-    };
+        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::WaitingForCleanup {
+                cleanup_state: CleanupState::HostCleanup,
+            },
+        )),
+    }
+}
 
-    Ok(failure_cause)
+// this is called when we are in the Ready state and checking
+// if everything is ok in general
+async fn check_if_should_redo_measurements(
+    machine_id: &MachineId,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<bool, StateHandlerError> {
+    let (machine_state, ek_cert_verification_status) =
+        get_measuring_prerequisites(machine_id, txn).await?;
+
+    if !ek_cert_verification_status.signing_ca_found {
+        return Ok(true);
+    }
+    match machine_state {
+        MeasurementMachineState::Measured => Ok(false),
+        _ => Ok(true),
+    }
+}
+
+async fn check_if_not_in_original_failure_cause_anymore(
+    machine_id: &MachineId,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    original_failure_cause: &FailureCause,
+) -> Result<bool, StateHandlerError> {
+    let (_, ek_cert_verification_status) = get_measuring_prerequisites(machine_id, txn).await?;
+
+    // if the failure cause was ca validation and it no longer is, then we can try
+    // transitioning to the Measuring state to see where that takes us further
+    if enum_discr(original_failure_cause)
+        == enum_discr(&FailureCause::MeasurementsCAValidationFailed {
+            err: "Dummy error".to_string(),
+        })
+        && ek_cert_verification_status.signing_ca_found
+    {
+        return Ok(true);
+    }
+
+    let current_failure_cause = super::get_measurement_failure_cause(txn, machine_id).await;
+
+    if let Ok(current_failure_cause) = current_failure_cause {
+        match original_failure_cause {
+            FailureCause::MeasurementsRetired { .. } => {
+                // if current/latest failure cause is the same
+                // do nothing
+                if enum_discr(&current_failure_cause)
+                    == enum_discr(&FailureCause::MeasurementsRetired {
+                        err: "Dummy error".to_string(),
+                    })
+                {
+                    Ok(false) // nothing has changed
+                } else {
+                    Ok(true) // the state has changed
+                }
+            }
+            FailureCause::MeasurementsRevoked { .. } => {
+                // if current/latest failure cause is the same
+                // do nothing
+                if enum_discr(&current_failure_cause)
+                    == enum_discr(&FailureCause::MeasurementsRevoked {
+                        err: "Dummy error".to_string(),
+                    })
+                {
+                    Ok(false) // nothing has changed
+                } else {
+                    Ok(true) // the state has changed
+                }
+            }
+            FailureCause::MeasurementsCAValidationFailed { .. } => {
+                if ek_cert_verification_status.signing_ca_found {
+                    Ok(true) // it has changed
+                } else {
+                    Ok(false) // nothing has changed
+                }
+            }
+            _ => Ok(true), // it has definitely changed (although we shouldn't be here)
+        }
+    } else {
+        Ok(true) // something has definitely changed
+    }
 }
 
 /// Return `DpuModel` if the explored endpoint is a DPU
@@ -3978,20 +3897,20 @@ impl StateHandler for HostMachineStateHandler {
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
-        state: &mut ManagedHostStateSnapshot,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        if let ManagedHostState::HostInit { machine_state } = &state.managed_state {
+        if let ManagedHostState::HostInit { machine_state } = &mh_snapshot.managed_state {
             match machine_state {
                 MachineState::Init => Err(StateHandlerError::InvalidHostState(
                     host_machine_id.clone(),
-                    Box::new(state.managed_state.clone()),
+                    Box::new(mh_snapshot.managed_state.clone()),
                 )),
                 MachineState::EnableIpmiOverLan => {
                     let host_redfish_client = build_redfish_client_from_bmc_ip(
-                        state.host_snapshot.bmc_addr(),
+                        mh_snapshot.host_snapshot.bmc_addr(),
                         &ctx.services.redfish_client_pool,
                         txn,
                     )
@@ -4025,8 +3944,16 @@ impl StateHandler for HostMachineStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 MachineState::WaitingForPlatformConfiguration => {
-                    let next_state = ManagedHostState::HostInit {
-                        machine_state: MachineState::WaitingForDiscovery,
+                    let next_state = if self.host_handler_params.attestation_enabled {
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::Measuring {
+                                measuring_state: MeasuringState::WaitingForMeasurements,
+                            },
+                        }
+                    } else {
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::WaitingForDiscovery,
+                        }
                     };
 
                     tracing::info!(
@@ -4034,17 +3961,17 @@ impl StateHandler for HostMachineStateHandler {
                         "Starting UEFI / BMC setup");
 
                     let redfish_client = build_redfish_client_from_bmc_ip(
-                        state.host_snapshot.bmc_addr(),
+                        mh_snapshot.host_snapshot.bmc_addr(),
                         &ctx.services.redfish_client_pool,
                         txn,
                     )
                     .await?;
 
-                    let boot_interface_mac = if state.dpu_snapshots.len() > 1 {
+                    let boot_interface_mac = if mh_snapshot.dpu_snapshots.len() > 1 {
                         // Multi DPU case. Reason it is kept separate is that forge_setup/setting
                         // booting device based on MAC is not tested yet. Soon when it is tested,
                         // and confirmed to work with all hardware, this `if` condition can be removed.
-                        let primary_interface = state
+                        let primary_interface = mh_snapshot
                             .host_snapshot
                             .interfaces
                             .iter()
@@ -4052,7 +3979,7 @@ impl StateHandler for HostMachineStateHandler {
                             .ok_or_else(|| {
                                 StateHandlerError::GenericError(eyre::eyre!(
                                     "Missing primary interface from host: {}",
-                                    state.host_snapshot.machine_id
+                                    mh_snapshot.host_snapshot.machine_id
                                 ))
                             })?;
                         Some(primary_interface.mac_address.to_string())
@@ -4064,7 +3991,7 @@ impl StateHandler for HostMachineStateHandler {
                     match call_forge_setup_and_handle_no_dpu_error(
                         redfish_client.as_ref(),
                         boot_interface_mac.as_deref(),
-                        state.host_snapshot.associated_dpu_machine_ids().len(),
+                        mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
                         ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
                     )
                     .await
@@ -4072,7 +3999,7 @@ impl StateHandler for HostMachineStateHandler {
                         Ok(_) => {
                             // Host needs to be rebooted to pick up the changes after calling forge_setup
                             handler_host_power_control(
-                                state,
+                                mh_snapshot,
                                 ctx.services,
                                 SystemPowerControl::ForceRestart,
                                 txn,
@@ -4093,8 +4020,8 @@ impl StateHandler for HostMachineStateHandler {
                             // As of July 2024, Josh Price said there's an NBU FR to fix
                             // this, but it wasn't target to a release yet.
                             let status = trigger_reboot_if_needed(
-                                &state.host_snapshot,
-                                state,
+                                &mh_snapshot.host_snapshot,
+                                mh_snapshot,
                                 None,
                                 &self.host_handler_params.reachability_params,
                                 ctx.services,
@@ -4108,21 +4035,30 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
                 }
+                MachineState::Measuring { measuring_state } => handle_measuring_state(
+                    measuring_state,
+                    &mh_snapshot.host_snapshot.machine_id,
+                    txn,
+                )
+                .await
+                .map(|v| {
+                    map_host_init_measuring_outcome_to_state_handler_outcome(&v, measuring_state)
+                })?,
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(
-                        state.host_snapshot.current.version,
-                        state.host_snapshot.last_discovery_time,
+                        mh_snapshot.host_snapshot.current.version,
+                        mh_snapshot.host_snapshot.last_discovery_time,
                     ) {
                         tracing::trace!(
                             machine_id = %host_machine_id,
                             "Waiting for forge-scout to report host online. \
                                          Host last seen {:?}, must come after DPU's {}",
-                            state.host_snapshot.last_discovery_time,
-                            state.host_snapshot.current.version.timestamp()
+                            mh_snapshot.host_snapshot.last_discovery_time,
+                            mh_snapshot.host_snapshot.current.version.timestamp()
                         );
                         let status = trigger_reboot_if_needed(
-                            &state.host_snapshot,
-                            state,
+                            &mh_snapshot.host_snapshot,
+                            mh_snapshot,
                             None,
                             &self.host_handler_params.reachability_params,
                             ctx.services,
@@ -4144,7 +4080,10 @@ impl StateHandler for HostMachineStateHandler {
                     ))
                 }
                 MachineState::UefiSetup { uefi_setup_info } => {
-                    Ok(handle_host_uefi_setup(txn, ctx, state, uefi_setup_info.clone()).await?)
+                    Ok(
+                        handle_host_uefi_setup(txn, ctx, mh_snapshot, uefi_setup_info.clone())
+                            .await?,
+                    )
                 }
                 MachineState::WaitingForLockdown { lockdown_info } => {
                     match lockdown_info.state {
@@ -4153,7 +4092,7 @@ impl StateHandler for HostMachineStateHandler {
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
                             // reachability before it goes down, it will give us wrong result.
                             if wait(
-                                &state.host_snapshot.current.version.timestamp(),
+                                &mh_snapshot.host_snapshot.current.version.timestamp(),
                                 self.host_handler_params.reachability_params.dpu_wait_time,
                             ) {
                                 Ok(StateHandlerOutcome::Wait(format!(
@@ -4175,7 +4114,7 @@ impl StateHandler for HostMachineStateHandler {
                         LockdownState::WaitForDPUUp => {
                             // Has forge-dpu-agent reported state? That means DPU is up.
                             if are_dpus_up_trigger_reboot_if_needed(
-                                state,
+                                mh_snapshot,
                                 &self.host_handler_params.reachability_params,
                                 ctx.services,
                                 txn,
@@ -4189,7 +4128,7 @@ impl StateHandler for HostMachineStateHandler {
                                 // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
 
                                 handler_host_power_control(
-                                    state,
+                                    mh_snapshot,
                                     ctx.services,
                                     SystemPowerControl::ForceRestart,
                                     txn,
@@ -4198,7 +4137,7 @@ impl StateHandler for HostMachineStateHandler {
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     let validation_id = MachineValidation::create_new_run(
                                         txn,
-                                        &state.host_snapshot.machine_id,
+                                        &mh_snapshot.host_snapshot.machine_id,
                                         "Discovery".to_string(),
                                         MachineValidationFilter::default(),
                                     )
@@ -4232,19 +4171,12 @@ impl StateHandler for HostMachineStateHandler {
                     // Check if machine is rebooted. If yes, move to Ready state
                     // or Measuring state, depending on if machine attestation
                     // is enabled or not.
-                    if rebooted(&state.host_snapshot) || *skip_reboot {
-                        let next_state = if self.host_handler_params.attestation_enabled {
-                            ManagedHostState::Measuring {
-                                measuring_state: MeasuringState::WaitingForMeasurements,
-                            }
-                        } else {
-                            ManagedHostState::Ready
-                        };
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                    if rebooted(&mh_snapshot.host_snapshot) || *skip_reboot {
+                        Ok(StateHandlerOutcome::Transition(ManagedHostState::Ready))
                     } else {
                         let status = trigger_reboot_if_needed(
-                            &state.host_snapshot,
-                            state,
+                            &mh_snapshot.host_snapshot,
+                            mh_snapshot,
                             None,
                             &self.host_handler_params.reachability_params,
                             ctx.services,
@@ -4272,10 +4204,10 @@ impl StateHandler for HostMachineStateHandler {
                         total,
                         is_enabled,
                     );
-                    if !rebooted(&state.host_snapshot) {
+                    if !rebooted(&mh_snapshot.host_snapshot) {
                         let status = trigger_reboot_if_needed(
-                            &state.host_snapshot,
-                            state,
+                            &mh_snapshot.host_snapshot,
+                            mh_snapshot,
                             None,
                             &self.host_handler_params.reachability_params,
                             ctx.services,
@@ -4309,15 +4241,16 @@ impl StateHandler for HostMachineStateHandler {
                         ));
                     }
                     // Host validation completed
-                    if machine_validation_completed(&state.host_snapshot) {
-                        if state.host_snapshot.failure_details.cause == FailureCause::NoError {
+                    if machine_validation_completed(&mh_snapshot.host_snapshot) {
+                        if mh_snapshot.host_snapshot.failure_details.cause == FailureCause::NoError
+                        {
                             tracing::info!(
                                 "{} machine validation completed",
-                                state.host_snapshot.machine_id
+                                mh_snapshot.host_snapshot.machine_id
                             );
 
                             handler_host_power_control(
-                                state,
+                                mh_snapshot,
                                 ctx.services,
                                 SystemPowerControl::ForceRestart,
                                 txn,
@@ -4333,11 +4266,11 @@ impl StateHandler for HostMachineStateHandler {
                         } else {
                             tracing::info!(
                                 "{} machine validation failed",
-                                state.host_snapshot.machine_id
+                                mh_snapshot.host_snapshot.machine_id
                             );
                             return Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
-                                details: state.host_snapshot.failure_details.clone(),
-                                machine_id: state.host_snapshot.machine_id.clone(),
+                                details: mh_snapshot.host_snapshot.failure_details.clone(),
+                                machine_id: mh_snapshot.host_snapshot.machine_id.clone(),
                                 retry_count: 0,
                             }));
                         }
@@ -4348,7 +4281,7 @@ impl StateHandler for HostMachineStateHandler {
         } else {
             Err(StateHandlerError::InvalidHostState(
                 host_machine_id.clone(),
-                Box::new(state.managed_state.clone()),
+                Box::new(mh_snapshot.managed_state.clone()),
             ))
         }
     }
@@ -4358,6 +4291,7 @@ impl StateHandler for HostMachineStateHandler {
 #[derive(Debug, Clone)]
 pub struct InstanceStateHandler {
     dpu_nic_firmware_reprovision_update_enabled: bool,
+    attestation_enabled: bool,
     reachability_params: ReachabilityParams,
     hardware_models: FirmwareConfig,
 }
@@ -4365,11 +4299,13 @@ pub struct InstanceStateHandler {
 impl InstanceStateHandler {
     pub fn new(
         dpu_nic_firmware_reprovision_update_enabled: bool,
+        attestation_enabled: bool,
         reachability_params: ReachabilityParams,
         hardware_models: FirmwareConfig,
     ) -> Self {
         InstanceStateHandler {
             dpu_nic_firmware_reprovision_update_enabled,
+            attestation_enabled,
             reachability_params,
             hardware_models,
         }
@@ -4386,26 +4322,26 @@ impl StateHandler for InstanceStateHandler {
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
-        state: &mut ManagedHostStateSnapshot,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let Some(ref instance) = state.instance else {
+        let Some(ref instance) = mh_snapshot.instance else {
             return Err(StateHandlerError::GenericError(eyre!(
                 "Instance is empty at this point. Cleanup is needed for host: {}.",
                 host_machine_id
             )));
         };
 
-        if let ManagedHostState::Assigned { instance_state } = &state.managed_state {
+        if let ManagedHostState::Assigned { instance_state } = &mh_snapshot.managed_state {
             match instance_state {
                 InstanceState::Init => {
                     // we should not be here. This state to be used if state machine has not
                     // picked instance creation and user asked for status.
                     Err(StateHandlerError::InvalidHostState(
                         host_machine_id.clone(),
-                        Box::new(state.managed_state.clone()),
+                        Box::new(mh_snapshot.managed_state.clone()),
                     ))
                 }
                 InstanceState::WaitingForNetworkSegmentToBeReady => {
@@ -4449,7 +4385,7 @@ impl StateHandler for InstanceStateHandler {
                     // reboot and jump to BootingWithDiscoveryImage
 
                     // Check DPU network config has been applied
-                    if !state.managed_host_network_config_version_synced() {
+                    if !mh_snapshot.managed_host_network_config_version_synced() {
                         return Ok(StateHandlerOutcome::Wait(
                             "Waiting for DPU agent(s) to apply network config and report healthy network"
                                 .to_string(),
@@ -4465,7 +4401,11 @@ impl StateHandler for InstanceStateHandler {
                     let expected = &instance.network_config_version;
                     let actual = match &instance.observations.network {
                         None => {
-                            if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
+                            if mh_snapshot
+                                .host_snapshot
+                                .associated_dpu_machine_ids()
+                                .is_empty()
+                            {
                                 tracing::info!(
                                     machine_id = %host_machine_id,
                                     "Skipping network config because machine has no DPUs"
@@ -4484,7 +4424,7 @@ impl StateHandler for InstanceStateHandler {
                         ));
                     }
 
-                    check_host_health_for_alerts(state)?;
+                    check_host_health_for_alerts(mh_snapshot)?;
 
                     ib::bind_ib_ports(
                         ctx.services,
@@ -4505,7 +4445,7 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
-                    if let Some(dpu_snapshot) = &state.dpu_snapshots.first() {
+                    if let Some(dpu_snapshot) = &mh_snapshot.dpu_snapshots.first() {
                         let dpu_machine_id = &dpu_snapshot.machine_id;
                         // attach volumes to instance
                         storage::attach_storage_volumes(
@@ -4534,7 +4474,7 @@ impl StateHandler for InstanceStateHandler {
                 InstanceState::WaitingForRebootToReady => {
                     // Reboot host
                     handler_host_power_control(
-                        state,
+                        mh_snapshot,
                         ctx.services,
                         SystemPowerControl::ForceRestart,
                         txn,
@@ -4554,27 +4494,28 @@ impl StateHandler for InstanceStateHandler {
 
                     // Wait for user's approval. Once user approves for dpu
                     // reprovision/update firmware, trigger it.
-                    let reprov_can_be_started = if dpu_reprovisioning_needed(&state.dpu_snapshots) {
-                        // Usually all DPUs are updated with user_approval_received field as true
-                        // if `invoke_instance_power` is called.
-                        // TODO: multidpu: Move this field to `instances` table and unset on
-                        // reprovision is completed.
-                        state
-                            .dpu_snapshots
-                            .iter()
-                            .filter(|x| x.reprovision_requested.is_some())
-                            .all(|x| {
-                                x.reprovision_requested
-                                    .as_ref()
-                                    .map(|x| x.user_approval_received)
-                                    .unwrap_or_default()
-                            })
-                    } else {
-                        false
-                    };
+                    let reprov_can_be_started =
+                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
+                            // Usually all DPUs are updated with user_approval_received field as true
+                            // if `invoke_instance_power` is called.
+                            // TODO: multidpu: Move this field to `instances` table and unset on
+                            // reprovision is completed.
+                            mh_snapshot
+                                .dpu_snapshots
+                                .iter()
+                                .filter(|x| x.reprovision_requested.is_some())
+                                .all(|x| {
+                                    x.reprovision_requested
+                                        .as_ref()
+                                        .map(|x| x.user_approval_received)
+                                        .unwrap_or_default()
+                                })
+                        } else {
+                            false
+                        };
 
                     if instance.deleted.is_some() || reprov_can_be_started {
-                        for dpu_snapshot in &state.dpu_snapshots {
+                        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
                                 // User won't be allowed to clear reprovisioning flag after this.
                                 Machine::update_dpu_reprovision_start_time(
@@ -4589,7 +4530,7 @@ impl StateHandler for InstanceStateHandler {
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
                         if let Err(err) = handler_host_power_control(
-                            state,
+                            mh_snapshot,
                             ctx.services,
                             SystemPowerControl::ForceRestart,
                             txn,
@@ -4621,10 +4562,10 @@ impl StateHandler for InstanceStateHandler {
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
-                    if !rebooted(&state.host_snapshot) {
+                    if !rebooted(&mh_snapshot.host_snapshot) {
                         let status = trigger_reboot_if_needed(
-                            &state.host_snapshot,
-                            state,
+                            &mh_snapshot.host_snapshot,
+                            mh_snapshot,
                             // can't send 0. 0 will force power-off as cycle calculator.
                             Some(retry.count as i64 + 1),
                             &self.reachability_params,
@@ -4664,12 +4605,12 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     // If we are here, DPU reprov MUST have been be requested.
-                    if dpu_reprovisioning_needed(&state.dpu_snapshots) {
+                    if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
                         // All DPUs must have same value for this parameter. All DPUs are updated
                         // together grpc API or automatic updater.
                         // TODO: multidpu: Keep it at some common place to avoid duplicates.
                         let mut dpus_for_reprov = vec![];
-                        for dpu_snapshot in &state.dpu_snapshots {
+                        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
                                 handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
                                 dpus_for_reprov.push(dpu_snapshot);
@@ -4692,15 +4633,15 @@ impl StateHandler for InstanceStateHandler {
                         } else {
                             set_managed_host_topology_update_needed(
                                 txn,
-                                &state.host_snapshot,
+                                &mh_snapshot.host_snapshot,
                                 &dpus_for_reprov,
                             )
                             .await?;
                             ReprovisionState::WaitingForNetworkInstall
                         };
                         let next_state = reprovision_state.next_state_with_all_dpus_updated(
-                            &state.managed_state,
-                            &state.dpu_snapshots,
+                            &mh_snapshot.managed_state,
+                            &mh_snapshot.dpu_snapshots,
                             dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
                         )?;
                         Ok(StateHandlerOutcome::Transition(next_state))
@@ -4713,7 +4654,7 @@ impl StateHandler for InstanceStateHandler {
 
                 InstanceState::SwitchToAdminNetwork => {
                     // Tenant is gone and so is their network, switch back to admin network
-                    for dpu_snapshot in &state.dpu_snapshots {
+                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
                         netconf.use_admin_network = Some(true);
                         Machine::try_update_network_config(
@@ -4733,13 +4674,13 @@ impl StateHandler for InstanceStateHandler {
                 InstanceState::WaitingForNetworkReconfig => {
                     // Has forge-dpu-agent applied the new network config so that
                     // we are back on the admin network?
-                    if !state.managed_host_network_config_version_synced() {
+                    if !mh_snapshot.managed_host_network_config_version_synced() {
                         return Ok(StateHandlerOutcome::Wait(
                             "Waiting for DPU agent(s) to apply network config and report healthy network"
                                 .to_string(),
                         ));
                     }
-                    check_host_health_for_alerts(state)?;
+                    check_host_health_for_alerts(mh_snapshot)?;
 
                     ib::unbind_ib_ports(
                         ctx.services,
@@ -4752,7 +4693,7 @@ impl StateHandler for InstanceStateHandler {
                     // TODO: TPM cleanup
                     // Reboot host
                     handler_host_power_control(
-                        state,
+                        mh_snapshot,
                         ctx.services,
                         SystemPowerControl::ForceRestart,
                         txn,
@@ -4794,15 +4735,21 @@ impl StateHandler for InstanceStateHandler {
                         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                     }
 
-                    let next_state = ManagedHostState::WaitingForCleanup {
-                        cleanup_state: CleanupState::HostCleanup,
+                    let next_state = if self.attestation_enabled {
+                        ManagedHostState::PostAssignedMeasuring {
+                            measuring_state: MeasuringState::WaitingForMeasurements,
+                        }
+                    } else {
+                        ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::HostCleanup,
+                        }
                     };
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::DPUReprovision { .. } => {
-                    for dpu_snapshot in &state.dpu_snapshots {
+                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
-                            state,
+                            mh_snapshot,
                             &self.reachability_params,
                             ctx.services,
                             txn,

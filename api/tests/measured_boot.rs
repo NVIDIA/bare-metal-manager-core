@@ -22,21 +22,28 @@ pub mod tests {
     use carbide::attestation::cli_make_cred;
     use carbide::attestation::do_compare_pub_key_against_cert;
 
+    use carbide::model::hardware_info::HardwareInfo;
     use carbide::model::hardware_info::TpmEkCertificate;
     use carbide::model::machine::machine_id::try_parse_machine_id;
     use common::api_fixtures::create_test_env;
+    use common::api_fixtures::create_test_env_with_overrides;
     use common::api_fixtures::dpu::create_dpu_machine;
-    use common::api_fixtures::host::create_host_machine;
+    use common::api_fixtures::get_config;
+    use common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::tpm_attestation::{
         AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
         ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
+    use common::api_fixtures::TestEnvOverrides;
     use forge_uuid::machine::MachineId;
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::BindRequest;
-    use rpc::forge::VerifyQuoteRequest;
+    use rpc::forge::AttestQuoteRequest;
+    use rpc::machine_discovery::AttestKeyInfo;
+    use rpc::DiscoveryData;
+    use rpc::DiscoveryInfo;
+    use rpc::MachineDiscoveryInfo;
     use tonic::Code;
 
     #[ctor::ctor]
@@ -44,45 +51,18 @@ pub mod tests {
         common::test_logging::init();
     }
 
-    // apparently GitLab pipelines don't allow writing to disk or the default location for TempDir is not writable
-    #[ignore]
-    #[sqlx::test]
-    async fn test_bind_attest_key_success_returns_bind_response(pool: sqlx::PgPool) {
-        let env = create_test_env(pool).await;
-        let host_id =
-            MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
-                .unwrap();
-
-        let bind_request = tonic::Request::new(BindRequest {
-            machine_id: Some(host_id.to_string().into()),
-            ak_pub: AK_PUB_SERIALIZED.to_vec(),
-            ak_name: AK_NAME_SERIALIZED.to_vec(),
-            ek_pub: EK_PUB_SERIALIZED.to_vec(),
-        });
-
-        let res = env.api.bind_attest_key(bind_request).await;
-
-        match res {
-            Ok(bind_response) => {
-                assert_eq!(bind_response.get_ref().cred_blob.len(), 68);
-                assert_eq!(bind_response.get_ref().encrypted_secret.len(), 256);
-            }
-            Err(e) => panic!("Unexpected error: {:?}", e),
-        }
-    }
-
     #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-    async fn test_bind_attest_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
-        // add machine with a cert
-        let env = create_test_env(pool).await;
-        let mut host_sim = env.start_managed_host_sim();
+    async fn test_discover_machine_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
+        let mut config = get_config();
+        config.attestation_enabled = true;
+        let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+        let host_sim = env.start_managed_host_sim();
         let dpu_machine_id =
             try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
-
-        let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
-        let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+        let host_machine_interface_id =
+            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
         // ek_pub is corrupted on purpose
         let ek_pub_corrupted = [
@@ -104,39 +84,50 @@ pub mod tests {
             226, 206, 145,
         ];
 
-        let bind_request = tonic::Request::new(BindRequest {
-            machine_id: Some(host_machine_id.to_string().into()),
+        let mut discovery_info =
+            DiscoveryInfo::try_from(HardwareInfo::from(&host_sim.config)).unwrap();
+
+        discovery_info.attest_key_info = Some(AttestKeyInfo {
+            ek_pub: ek_pub_corrupted.to_vec(),
             ak_pub: AK_PUB_SERIALIZED.to_vec(),
             ak_name: AK_NAME_SERIALIZED.to_vec(),
-            ek_pub: ek_pub_corrupted.to_vec(),
         });
 
-        let res = env.api.bind_attest_key(bind_request).await;
+        let response = env
+            .api
+            .discover_machine(Request::new(MachineDiscoveryInfo {
+                machine_interface_id: Some(host_machine_interface_id),
+                discovery_data: Some(DiscoveryData::Info(discovery_info)),
+                create_machine: true,
+            }))
+            .await;
 
-        match res {
+        match response {
             Ok(_) => panic!("Unexpected OK value returned"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
-                e.message(),
-                "Attestation Bind Key Error: Could not unmarshall EK: response code not recognized"
-            );
+                    e.message(),
+                    "Attest Bind Key Error: TPM EK is not in RSA format"
+                );
             }
         }
     }
 
     #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-    async fn test_bind_attest_key_pub_key_does_not_match_cert_returns_error(pool: sqlx::PgPool) {
-        // add machine with a cert
-        let env = create_test_env(pool).await;
-        let mut host_sim = env.start_managed_host_sim();
+    async fn test_discover_machine_key_pub_key_does_not_match_cert_returns_error(
+        pool: sqlx::PgPool,
+    ) {
+        let mut config = get_config();
+        config.attestation_enabled = true;
+        let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+        let host_sim = env.start_managed_host_sim();
         let dpu_machine_id =
             try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
-
-        let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
-        let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+        let host_machine_interface_id =
+            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
 
         // ek_pub is corrupted on purpose
         let ek_pub_different = [
@@ -159,22 +150,31 @@ pub mod tests {
             231, 204, 186, 242, 24, 202, 209, 210, 121, 23,
         ];
 
-        let bind_request = tonic::Request::new(BindRequest {
-            machine_id: Some(host_machine_id.to_string().into()),
+        let mut discovery_info =
+            DiscoveryInfo::try_from(HardwareInfo::from(&host_sim.config)).unwrap();
+
+        discovery_info.attest_key_info = Some(AttestKeyInfo {
+            ek_pub: ek_pub_different.to_vec(),
             ak_pub: AK_PUB_SERIALIZED.to_vec(),
             ak_name: AK_NAME_SERIALIZED.to_vec(),
-            ek_pub: ek_pub_different.to_vec(),
         });
 
-        let res = env.api.bind_attest_key(bind_request).await;
+        let response = env
+            .api
+            .discover_machine(Request::new(MachineDiscoveryInfo {
+                machine_interface_id: Some(host_machine_interface_id),
+                discovery_data: Some(DiscoveryData::Info(discovery_info)),
+                create_machine: true,
+            }))
+            .await;
 
-        match res {
+        match response {
             Ok(_) => panic!("Unexpected OK value returned"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attestation Bind Key Error: Certificate's public key did not match EK Pub Key"
+                    "Attest Bind Key Error: TPM EK is not in RSA format"
                 );
             }
         }
@@ -192,7 +192,7 @@ pub mod tests {
         let mut cred_serialized_invalid = CRED_SERIALIZED;
         cred_serialized_invalid[3] = 8; // corrupt the db key
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(cred_serialized_invalid),
@@ -201,7 +201,7 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
@@ -209,7 +209,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attestation Verify Quote Error: Could not form SQL query to fetch AK Pub"
+                    "Attest Quote Error: Could not form SQL query to fetch AK Pub"
                 );
             }
         }
@@ -222,7 +222,7 @@ pub mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
                 .unwrap();
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
@@ -231,13 +231,16 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: Could not unmarshal AK Pub: response code not recognized");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: Could not unmarshal AK Pub: response code not recognized"
+                );
             }
         }
     }
@@ -252,7 +255,7 @@ pub mod tests {
         let mut attest_invalid = ATTEST_SERIALIZED;
         attest_invalid[5] = 54;
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: attest_invalid.to_vec(),
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
@@ -261,13 +264,16 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: Could not unmarshall Attest struct: not currently used");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: Could not unmarshall Attest struct: not currently used"
+                );
             }
         }
     }
@@ -282,7 +288,7 @@ pub mod tests {
         let mut signature_invalid = SIGNATURE_SERIALIZED;
         signature_invalid[5] = 15;
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: signature_invalid.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
@@ -291,13 +297,13 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: Could not unmarshall Signature struct: response code not recognized");
+                assert_eq!(e.message(), "Attest Quote Error: Could not unmarshall Signature struct: response code not recognized");
             }
         }
     }
@@ -325,7 +331,7 @@ pub mod tests {
 
         let signature_invalid = RsaSsa(rsa_signature);
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: Signature::marshall(&signature_invalid).unwrap(),
             credential: Vec::from(CRED_SERIALIZED),
@@ -334,16 +340,13 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(
-                    e.message(),
-                    "Attestation Verify Quote Error: unknown signature type"
-                );
+                assert_eq!(e.message(), "Attest Quote Error: unknown signature type");
             }
         }
     }
@@ -357,7 +360,7 @@ pub mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
                 .unwrap();
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: SIGNATURE_SERIALIZED_INVALID.to_vec(), // invalid signature
             credential: Vec::from(CRED_SERIALIZED),
@@ -366,13 +369,16 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: PCR signature invalid (see logs for full event log)");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: PCR signature invalid (see logs for full event log)"
+                );
             }
         }
     }
@@ -388,7 +394,7 @@ pub mod tests {
 
         pcr_values_invalid[0][3] = 88; // corrupt the pcr values
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
@@ -397,13 +403,16 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: PCR hash does not match (see logs for full event log)");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: PCR hash does not match (see logs for full event log)"
+                );
             }
         }
     }
@@ -419,7 +428,7 @@ pub mod tests {
 
         pcr_values_invalid[0][3] = 88; // corrupt the pcr values
 
-        let request = tonic::Request::new(VerifyQuoteRequest {
+        let request = tonic::Request::new(AttestQuoteRequest {
             attestation: ATTEST_SERIALIZED.to_vec(),
             signature: SIGNATURE_SERIALIZED_INVALID.to_vec(), // invalid signature
             credential: Vec::from(CRED_SERIALIZED),
@@ -428,13 +437,13 @@ pub mod tests {
             event_log: None,
         });
 
-        let res = env.api.verify_quote(request).await;
+        let res = env.api.attest_quote(request).await;
 
         match res {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attestation Verify Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)");
+                assert_eq!(e.message(), "Attest Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)");
             }
         }
     }
@@ -443,9 +452,10 @@ pub mod tests {
 
     use carbide::attestation::verify_pcr_hash;
     use carbide::attestation::verify_signature;
-    use carbide::CarbideError::AttestationBindKeyError;
+    use carbide::CarbideError::AttestBindKeyError;
     use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
+    use tonic::Request;
     use tss_esapi::structures::Attest;
     use tss_esapi::structures::EccPoint;
     use tss_esapi::structures::Public;
@@ -485,7 +495,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationBindKeyError(d) => {
+                AttestBindKeyError(d) => {
                     assert_eq!(d, "Could not unmarshall EK: response code not recognized")
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
@@ -509,7 +519,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationBindKeyError(d) => {
+                AttestBindKeyError(d) => {
                     assert_eq!(d, "EK Pub is not in RSA format")
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
@@ -560,7 +570,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationBindKeyError(d) => {
+                AttestBindKeyError(d) => {
                     assert_eq!(
                         d,
                         "Could not create RsaPublicKey from TPM's EK Pub: invalid modulus"
@@ -589,7 +599,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationBindKeyError(d) => {
+                AttestBindKeyError(d) => {
                     assert_eq!(
                         d,
                         "Could not unmarshall EK Cert: Parsing Error: NomError(Eof)"
@@ -626,8 +636,6 @@ pub mod tests {
         }
     }
 
-    // apparently either GitLab pipelines don't have permissions to write to disk, or default location is not writable
-    #[ignore]
     #[test]
     fn test_cli_make_cred_success_returns_cred_and_secret() {
         let ek_pub = get_ext_rsa_pub();
@@ -657,7 +665,7 @@ pub mod tests {
         }
     }
 
-    use carbide::CarbideError::AttestationVerifyQuoteError;
+    use carbide::CarbideError::AttestQuoteError;
 
     /*const ATTEST_SERIALIZED: [u8; 129] = [
         255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 131, 45, 55, 82, 140, 235, 232, 215, 180, 133, 115,
@@ -714,7 +722,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationVerifyQuoteError(d) => {
+                AttestQuoteError(d) => {
                     assert_eq!(d, "AK Pub is not an RSA key")
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
@@ -762,7 +770,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationVerifyQuoteError(d) => {
+                AttestQuoteError(d) => {
                     assert_eq!(d, "Could not create RsaPublicKey: invalid modulus")
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
@@ -793,7 +801,7 @@ pub mod tests {
                 panic!("Failed: should have returned error");
             }
             Err(e) => match e {
-                AttestationVerifyQuoteError(d) => {
+                AttestQuoteError(d) => {
                     assert_eq!(d, "unknown signature type")
                 }
                 _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),

@@ -9,7 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, net::Ipv4Addr, str::FromStr, time::Duration};
+use std::{
+    collections::HashMap,
+    net::Ipv4Addr,
+    str::FromStr,
+    time::{Duration, SystemTime},
+};
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
@@ -36,28 +41,42 @@ use carbide::{
                 InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
             },
         },
-        machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
+        machine::{
+            machine_id::try_parse_machine_id, CleanupState, FailureDetails, InstanceState,
+            MachineState, ManagedHostState, MeasuringState,
+        },
         metadata::Metadata,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
 };
 use chrono::Utc;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu,
+    create_managed_host, create_test_env, create_test_env_with_overrides, dpu, forge_agent_control,
+    get_config,
+    host::create_managed_host_with_ek,
+    inject_machine_measurements,
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
         single_interface_network_config, single_interface_network_config_with_vpc_prefix,
         FIXTURE_CIRCUIT_ID,
     },
-    network_configured_with_health,
+    network_configured, network_configured_with_health,
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
+    persist_machine_validation_result,
+    tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
+    TestEnvOverrides,
 };
 use forge_uuid::instance::InstanceId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::{forge::OperatingSystem, InstanceReleaseRequest};
+
+use rpc::{
+    forge::{OperatingSystem, TpmCaCert, TpmCaCertId},
+    InstanceReleaseRequest, Timestamp,
+};
+
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::ops::DerefMut;
 
@@ -251,6 +270,490 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     txn.commit().await.unwrap();
 
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+
+    // Address is freed during delete
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Ready
+    ));
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_failed_to_ready(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+
+    let mut config = get_config();
+    config.attestation_enabled = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    // add CA cert to pass attestation process
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    let inserted_cert = env
+        .api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert")
+        .into_inner();
+
+    let (host_machine_id, dpu_machine_id) =
+        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    assert!(Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Ready
+    ));
+    txn.commit().await.unwrap();
+
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        None,
+        vec![],
+    )
+    .await;
+
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Ready
+    );
+
+    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let expected_os = default_os_config();
+    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    assert_eq!(os, &expected_os);
+
+    // For backward compatibilty reasons, the OS details are still signaled
+    // via `TenantConfig`
+    let mut expected_tenant_config = default_tenant_config();
+    match &expected_os.variant {
+        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
+            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
+            expected_tenant_config.user_data = expected_os.user_data.clone();
+        }
+        _ => panic!("Unexpected OS"),
+    }
+    expected_tenant_config.always_boot_with_custom_ipxe =
+        expected_os.run_provisioning_instructions_on_every_boot;
+    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    assert_eq!(tenant_config, &expected_tenant_config);
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
+        });
+    assert_eq!(fetched_instance.machine_id, host_machine_id);
+    assert_eq!(
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+            .await
+            .unwrap(),
+        1
+    );
+
+    let network_config = fetched_instance.config.network.clone();
+    assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
+    let mut network_config_no_addresses = network_config.clone();
+    for iface in network_config_no_addresses.interfaces.iter_mut() {
+        assert_eq!(iface.ip_addrs.len(), 1);
+        assert_eq!(iface.interface_prefixes.len(), 1);
+        iface.ip_addrs.clear();
+        iface.interface_prefixes.clear();
+        iface.network_segment_gateways.clear();
+    }
+    assert_eq!(
+        network_config_no_addresses,
+        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
+    );
+
+    assert!(fetched_instance.observations.network.is_some());
+    assert!(fetched_instance.use_custom_pxe_on_boot);
+
+    let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!fetched_instance.use_custom_pxe_on_boot);
+    txn.commit().await.unwrap();
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    // TODO: The MAC here doesn't matter. It's not used for lookup
+    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
+    let record = InstanceDhcpRecord::find_for_instance(
+        &mut txn,
+        parsed_mac,
+        FIXTURE_CIRCUIT_ID.to_string(),
+        fetched_instance,
+    )
+    .await
+    .unwrap();
+
+    // This should the first IP. Algo does not look into machine_interface_addresses
+    // table for used addresses for instance.
+    assert_eq!(record.address().to_string(), "192.0.2.3");
+    assert_eq!(
+        &record.address(),
+        network_config.interfaces[0]
+            .ip_addrs
+            .iter()
+            .next()
+            .unwrap()
+            .1
+    );
+
+    assert_eq!(
+        format!("{}/32", &record.address()),
+        network_config.interfaces[0]
+            .interface_prefixes
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .to_string()
+    );
+
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    // from delete_instance()
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .expect("Delete instance failed.");
+
+    // The instance should show up immediatly as terminating - even if the state handler didn't yet run
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Terminating
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        1,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: carbide::model::machine::RetryInfo { count: 0 },
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // handle_delete_post_bootingwithdiscoveryimage()
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        &host_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    machine.update_reboot_time(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    // Run state machine twice.
+    // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
+    // Second to discover we are now in WaitingForNetworkReconfig
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        2,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::WaitingForNetworkReconfig,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // Apply switching back to admin network
+    network_configured(&env, &dpu_machine_id).await;
+
+    // now we should be in waiting for measurument state
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        2,
+        &mut txn,
+        ManagedHostState::PostAssignedMeasuring {
+            measuring_state: MeasuringState::WaitingForMeasurements,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // remove ca cert and inject measurements, now we should go to failed ca
+    // validation state
+    let delete_ca_certs_request = tonic::Request::new(TpmCaCertId {
+        ca_cert_id: inserted_cert.id.unwrap().ca_cert_id,
+    });
+    env.api
+        .tpm_delete_ca_cert(delete_ca_certs_request)
+        .await
+        .unwrap();
+
+    inject_machine_measurements(&env, host_machine_id.clone().into()).await;
+
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    // check that it has failed as intended due to the lack of ca cert
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                ..
+            },
+            ..
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    // now re-add the ca cert
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    env.api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert");
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::HostCleanup,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        &host_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    machine.update_reboot_time(&mut txn).await.unwrap();
+    machine.update_cleanup_time(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "Cleanup".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: true,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "instance".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Cleanup".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
+    };
+
+    let response = forge_agent_control(
+        &env,
+        rpc::MachineId {
+            id: host_machine_id.to_string(),
+        },
+    )
+    .await;
+    let uuid = &response.data.unwrap().pair[1].value;
+
+    machine_validation_result.validation_id = Some(rpc::Uuid {
+        value: uuid.to_owned(),
+    });
+    persist_machine_validation_result(&env, machine_validation_result.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    Machine::update_machine_validation_time(&host_machine_id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        &host_machine_id,
+        carbide::db::machine::MachineSearchConfig {
+            include_history: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    machine.update_reboot_time(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::Ready,
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // end of handle_delete_post_bootingwithdiscoveryimage()
+
+    assert!(env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .is_empty());
+
+    // end of delete_instance()
 
     // Address is freed during delete
     let mut txn = env
