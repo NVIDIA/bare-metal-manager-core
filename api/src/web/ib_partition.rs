@@ -110,38 +110,53 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::IbPartitionQuery {
-        id: None,
-        search_config: Some(forgerpc::IbPartitionSearchConfig {
+    let request = tonic::Request::new(forgerpc::IbPartitionSearchFilter::default());
+
+    let ib_partition_ids = api
+        .find_ib_partition_ids(request)
+        .await?
+        .into_inner()
+        .ib_partition_ids;
+
+    let mut partitions = Vec::new();
+    let mut offset = 0;
+    while offset != ib_partition_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(ib_partition_ids.len() - offset);
+        let next_ids = &ib_partition_ids[offset..offset + page_size];
+        let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+            ib_partition_ids: next_ids.to_vec(),
             include_history: false,
-        }),
-    });
-    let mut partitions = api
-        .find_ib_partitions(request)
-        .await
-        .map(|response| response.into_inner())?;
-    partitions
-        .ib_partitions
-        .sort_unstable_by(|p1, p2: &rpc::IbPartition| {
-            // Sort by tenant_org and name
-            // Otherwise fall back to ID
-            if let (Some(p1), Some(p2)) = (p1.config.as_ref(), p2.config.as_ref()) {
-                let ord = p1.tenant_organization_id.cmp(&p2.tenant_organization_id);
-                if ord.is_ne() {
-                    return ord;
-                }
-                let ord = p1.name.cmp(&p2.name);
-                if ord.is_ne() {
-                    return ord;
-                }
-            }
-            if let (Some(id1), Some(id2)) = (p1.id.as_ref(), p2.id.as_ref()) {
-                return id1.value.cmp(&id2.value);
-            }
-            // This path should never be taken, since ID is always set
-            (p1 as *const rpc::IbPartition).cmp(&(p2 as *const rpc::IbPartition))
         });
-    Ok(partitions.ib_partitions)
+        let next_partitions = api
+            .find_ib_partitions_by_ids(request)
+            .await
+            .map(|response| response.into_inner())?;
+
+        partitions.extend(next_partitions.ib_partitions.into_iter());
+        offset += page_size;
+    }
+
+    partitions.sort_unstable_by(|p1, p2: &rpc::IbPartition| {
+        // Sort by tenant_org and name
+        // Otherwise fall back to ID
+        if let (Some(p1), Some(p2)) = (p1.config.as_ref(), p2.config.as_ref()) {
+            let ord = p1.tenant_organization_id.cmp(&p2.tenant_organization_id);
+            if ord.is_ne() {
+                return ord;
+            }
+            let ord = p1.name.cmp(&p2.name);
+            if ord.is_ne() {
+                return ord;
+            }
+        }
+        if let (Some(id1), Some(id2)) = (p1.id.as_ref(), p2.id.as_ref()) {
+            return id1.value.cmp(&id2.value);
+        }
+        // This path should never be taken, since ID is always set
+        (p1 as *const rpc::IbPartition).cmp(&(p2 as *const rpc::IbPartition))
+    });
+    Ok(partitions)
 }
 
 #[derive(Template)]
@@ -244,20 +259,31 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::IbPartitionQuery {
-        id: Some(::rpc::common::Uuid {
+    let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+        ib_partition_ids: vec![rpc::Uuid {
             value: partition_id.clone(),
-        }),
-        search_config: Some(forgerpc::IbPartitionSearchConfig {
-            include_history: true,
-        }),
+        }],
+        include_history: true,
     });
-    let mut partitions = match state
-        .find_ib_partitions(request)
+    let partition = match state
+        .find_ib_partitions_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(n) => n,
+        Ok(p) if p.ib_partitions.is_empty() => {
+            return super::not_found_response(partition_id);
+        }
+        Ok(p) if p.ib_partitions.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Partition list for {partition_id} returned {} partitions",
+                    p.ib_partitions.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut p) => p.ib_partitions.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
             return super::not_found_response(partition_id);
         }
@@ -270,15 +296,6 @@ pub async fn detail(
                 .into_response();
         }
     };
-    if partitions.ib_partitions.len() != 1 {
-        tracing::error!(%partition_id, "Expected exactly 1 match, found {}", partitions.ib_partitions.len());
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Expected exactly one IB partition to match",
-        )
-            .into_response();
-    }
-    let partition = partitions.ib_partitions.pop().unwrap(); // safe, we check above
 
     let tmpl: IbPartitionDetail = partition.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

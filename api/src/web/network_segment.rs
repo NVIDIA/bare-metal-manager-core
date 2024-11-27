@@ -143,21 +143,37 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 async fn fetch_network_segments(
     api: Arc<Api>,
 ) -> Result<Vec<forgerpc::NetworkSegment>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::NetworkSegmentQuery {
-        id: None,
-        search_config: Some(forgerpc::NetworkSegmentSearchConfig {
-            include_history: false,
-            include_num_free_ips: false,
-        }),
-    });
-    let mut networks = api
-        .find_network_segments(request)
-        .await
-        .map(|response| response.into_inner())?;
-    networks
-        .network_segments
-        .sort_unstable_by(|ns1, ns2| ns1.name.cmp(&ns2.name));
-    Ok(networks.network_segments)
+    let request = tonic::Request::new(forgerpc::NetworkSegmentSearchFilter::default());
+
+    let network_segments_ids = api
+        .find_network_segment_ids(request)
+        .await?
+        .into_inner()
+        .network_segments_ids;
+
+    let mut segments = Vec::new();
+    let mut offset = 0;
+    while offset != network_segments_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(network_segments_ids.len() - offset);
+        let next_ids = &network_segments_ids[offset..offset + page_size];
+        let next_vpcs = api
+            .find_network_segments_by_ids(tonic::Request::new(
+                forgerpc::NetworkSegmentsByIdsRequest {
+                    network_segments_ids: next_ids.to_vec(),
+                    include_history: false,
+                    include_num_free_ips: false,
+                },
+            ))
+            .await?
+            .into_inner();
+
+        segments.extend(next_vpcs.network_segments.into_iter());
+        offset += page_size;
+    }
+
+    segments.sort_unstable_by(|ns1, ns2| ns1.name.cmp(&ns2.name));
+    Ok(segments)
 }
 
 async fn get_domain_name(state: Arc<Api>, domain_id: &::rpc::common::Uuid) -> eyre::Result<String> {
@@ -293,21 +309,32 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::NetworkSegmentQuery {
-        id: Some(::rpc::common::Uuid {
+    let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
+        network_segments_ids: vec![rpc::Uuid {
             value: segment_id.clone(),
-        }),
-        search_config: Some(forgerpc::NetworkSegmentSearchConfig {
-            include_history: true,
-            include_num_free_ips: true,
-        }),
+        }],
+        include_history: true,
+        include_num_free_ips: true,
     });
-    let mut networks = match state
-        .find_network_segments(request)
+    let segment = match state
+        .find_network_segments_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(n) => n,
+        Ok(n) if n.network_segments.is_empty() => {
+            return super::not_found_response(segment_id);
+        }
+        Ok(n) if n.network_segments.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Network Segment list for {segment_id} returned {} segments",
+                    n.network_segments.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut n) => n.network_segments.remove(0),
         Err(err) => {
             tracing::error!(%err, "find_network_segments");
             return (
@@ -317,15 +344,6 @@ pub async fn detail(
                 .into_response();
         }
     };
-    if networks.network_segments.len() != 1 {
-        tracing::error!(%segment_id, "Expected exactly 1 match, found {}", networks.network_segments.len());
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Expected exactly one network segment to match",
-        )
-            .into_response();
-    }
-    let segment = networks.network_segments.pop().unwrap(); // safe, we check above
 
     let mut domain_name = String::new();
     if let Some(domain_id) = segment.subdomain_id.as_ref() {
