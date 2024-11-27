@@ -22,8 +22,8 @@
 	<tbody>
 	{% for key in keyset.keys %}
 		<tr>
-			<td style="overflow: auto;"><td style="max-width: 30vw;">{{ key.public_key }}</td></td>
-			<td style="overflow: auto;"><td style="max-width: 30vw;">{{ key.comment|option_fmt }}</td></td>
+			<td style="overflow: auto;"><div style="max-width: 30vw;">{{ key.public_key }}</div></td>
+			<td style="overflow: auto;"><div style="max-width: 30vw;">{{ key.comment|option_fmt }}</div></td>
 		</tr>
 	{% endfor %}
 	</tbody>
