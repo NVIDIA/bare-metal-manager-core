@@ -25,6 +25,7 @@ use serde::Deserialize;
 #[template(path = "redfish_console.html")]
 struct RefishConsole {
     url: String,
+    base_url: String,
     bmc_ip: String,
     error: String,
     machine_id: String,
@@ -47,6 +48,7 @@ pub async fn query(
 ) -> Response {
     let mut console = RefishConsole {
         url: query.url.clone().unwrap_or_default(),
+        base_url: "".to_string(),
         bmc_ip: "".to_string(),
         machine_id: "".to_string(),
         response: "".to_string(),
@@ -84,6 +86,20 @@ pub async fn query(
         }
     };
 
+    // This variable is used in order to allow building absolute path easier from
+    // Javascript
+    console.base_url = {
+        let scheme = match uri.scheme_str() {
+            Some(scheme) => scheme.to_string(),
+            None => "https".to_string(),
+        };
+        if let Some(port) = uri.port_u16() {
+            format!("{scheme}://{bmc_ip}:{port}")
+        } else {
+            format!("{scheme}://{bmc_ip}")
+        }
+    };
+
     let machine_id = match find_machine_id(state.clone(), bmc_ip).await {
         Ok(Some(machine_id)) => machine_id,
         Ok(None) => {
@@ -96,6 +112,7 @@ pub async fn query(
             return (StatusCode::OK, Html(console.render().unwrap())).into_response();
         }
     };
+    console.machine_id = machine_id.id.clone();
 
     let metadata = match state
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
@@ -116,6 +133,7 @@ pub async fn query(
     let http_client = {
         let builder = reqwest::Client::builder();
         let builder = builder
+            .danger_accept_invalid_certs(true)
             .redirect(reqwest::redirect::Policy::limited(5))
             .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
             .timeout(std::time::Duration::from_secs(60)); // Limit the overall request to 60 seconds
@@ -144,7 +162,11 @@ pub async fn query(
     {
         Ok(response) => response,
         Err(e) => {
-            console.error = e.to_string();
+            console.error = format!("Error sending request:\n{:?}", e);
+            if let Some(status) = e.status() {
+                console.status_code = status.as_u16();
+                console.status_string = status.as_str().to_string();
+            }
             return (StatusCode::OK, Html(console.render().unwrap())).into_response();
         }
     };
@@ -156,7 +178,7 @@ pub async fn query(
             console.response = response;
         }
         Err(e) => {
-            console.error = e.to_string();
+            console.error = format!("Error reading response body:\n{:?}", e);
         }
     };
 

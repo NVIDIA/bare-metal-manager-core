@@ -5,18 +5,22 @@
 {% block content %}
 <h1>Redfish Console</h1>
 
+<p>
 This page allows to send queries to BMCs managed by Forge.
 Enter a valid redfish URL below to send a query and display the response.
 The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>.
+</p>
 
+<p>
 <b>
 	Note that due to implementation limitations, the page can currently only endpoints
 	for ingested machines - which means a Machine entry needs to exist for the endpoint.
 </b>
+</p>
 
 <form id="redfish_console" method="GET" action="/admin/redfish-console">
 	<label for="ref">URL to query:</label><input type=text id="ref" name="url" value="{{ url }}" />
-	<button type="submit">Start query</button>	
+	<input type="submit" value="Start query">
 </form>
 
 {% if !url.is_empty() %}
@@ -43,5 +47,7 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 {% endblock %}
 
 {% block script %}
+
+const baseUrl = "{{ base_url }}";
 
 {% endblock %}
