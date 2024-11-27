@@ -47,6 +47,7 @@
   - [Kubernetes (no longer works)](kubernetes/development.md)
   - [Docker (works but deprecated)](docker/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
+  - [Re-creating issuer/CA in local dev](development/issuer_ca_recreate.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Database]()
   - [Data Model / DB Schema](development/schema.md)
