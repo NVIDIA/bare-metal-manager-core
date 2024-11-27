@@ -134,8 +134,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.Tenant", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantContent", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantKeyset", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantKeysetContent", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantKeysetList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.TenantKeysetIdentifier",
             "#[derive(serde::Serialize)]",
