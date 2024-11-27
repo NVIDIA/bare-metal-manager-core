@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- Fixes the formatting on the network segment details page of the admin web UI
+
 ### Removed
 
 ## [v2024.11.22-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...v2024.11.22-rc2-0)
