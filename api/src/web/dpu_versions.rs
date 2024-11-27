@@ -33,6 +33,7 @@ struct Row {
     id: String,
     state: String,
     dpu_type: String,
+    dpu_agent_version: String,
     firmware_version: String,
     bmc_version: String,
     bios_version: String,
@@ -55,6 +56,17 @@ impl From<forgerpc::Machine> for Row {
                 .map(|dmi_data| dmi_data.product_name.clone())
                 .unwrap_or_default(),
             state: state.to_owned(),
+            dpu_agent_version: machine
+                .inventory
+                .as_ref()
+                .and_then(|inventory| {
+                    inventory
+                        .components
+                        .iter()
+                        .find(|c| c.name == "forge-dpu-agent")
+                        .map(|c| c.version.clone())
+                })
+                .unwrap_or_default(),
             firmware_version: machine
                 .discovery_info
                 .as_ref()
