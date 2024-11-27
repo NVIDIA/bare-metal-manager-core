@@ -12,6 +12,7 @@
 		<th>ID</th>
 		<th>State</th>
 		<th>DPU Type</th>
+		<th>DPU Agent</th>
 		<th>NIC FW</th>
 		<th>BMC</th>
 		<th>BIOS</th>
@@ -24,6 +25,7 @@
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }}</td>
 			<td>{{ m.dpu_type }}</td>
+			<td>{{ m.dpu_agent_version }}</td>
 			<td>{{ m.firmware_version }}</td>
 			<td>{{ m.bmc_version}}</td>
 			<td>{{ m.bios_version }}</td>
