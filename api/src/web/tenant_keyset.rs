@@ -157,8 +157,7 @@ impl From<forgerpc::TenantKeyset> for TenantKeysetDetail {
 /// View keyset
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
-    AxumPath(organization_id): AxumPath<String>,
-    AxumPath(keyset_id): AxumPath<String>,
+    AxumPath((organization_id, keyset_id)): AxumPath<(String, String)>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::TenantKeysetsByIdsRequest {
         keyset_ids: vec![forgerpc::TenantKeysetIdentifier {

@@ -3,6 +3,10 @@
 
 ### Added
 
+- The admin web UI now shows a list of all tenants which have been registered to the site under
+  `/admin/tenant`. So far Forge Cloud does not submit tenant information. Therefore the list will be empty.
+- The admin web UI now shows a list of all tenant keysets under `/admin/tenant_keyset`.
+
 ### Changed
 
 ### Fixed
