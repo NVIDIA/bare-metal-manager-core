@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use ::rpc::forge::MachineCertificate;
+use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
 use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
 use ::rpc::{forge as rpc, MachineDiscoveryInfo};
@@ -28,6 +28,8 @@ pub enum RegistrationError {
     TonicStatusError(#[from] tonic::Status),
     #[error("Missing machine id in API server response. Should be impossible")]
     MissingMachineId,
+    #[error("Attestation failed")]
+    AttestationFailed,
     #[error("Failed to retrieve or write client certificate: {0}")]
     ClientCertificateError(eyre::Report),
 }
@@ -39,6 +41,7 @@ pub struct RegistrationData {
     pub machine_id: String,
 }
 
+#[derive(Clone)]
 pub struct DiscoveryRetry {
     pub secs: u64,
     pub max: u32,
@@ -143,6 +146,33 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         .with_config(config)
         .await
     }
+
+    async fn attest_quote(
+        &self,
+        quote: &AttestQuoteRequest,
+    ) -> Result<rpc::AttestQuoteResponse, RegistrationError> {
+        let client = forge_tls_client::ForgeTlsClient::new(self.config.clone());
+
+        // Create a new connection off of the ForgeTlsClient.
+        let mut connection = client
+            .build(self.api_url.to_string())
+            .await
+            .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
+        tracing::debug!("attest_quote client connection {:?}", connection);
+
+        // Create a new request with the provided MachineDiscoveryInfo.
+        let request = tonic::Request::new(quote.clone());
+        tracing::debug!("attest_quote request {:?}", request);
+
+        // And now attempt to send the discover_machine request.
+        Ok(connection
+            .attest_quote(request)
+            .await
+            .inspect_err(|err| {
+                tracing::error!("Error attempting to attest_quote: {}", err.to_string())
+            })?
+            .into_inner())
+    }
 }
 
 /// Registers a machine at the Forge API server for further interactions
@@ -158,7 +188,7 @@ pub async fn register_machine(
     retry: DiscoveryRetry,
     create_machine: bool,
     require_client_certificates: bool,
-) -> Result<RegistrationData, RegistrationError> {
+) -> Result<(RegistrationData, Option<rpc::AttestKeyBindChallenge>), RegistrationError> {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
@@ -191,7 +221,45 @@ pub async fn register_machine(
         .id;
     tracing::info!(machine_id, "Registered");
 
-    Ok(RegistrationData { machine_id })
+    Ok((
+        RegistrationData { machine_id },
+        response.attest_key_challenge,
+    ))
+}
+
+pub async fn attest_quote(
+    forge_api: &str,
+    root_ca: String,
+    use_mgmt_vrf: bool,
+    retry: DiscoveryRetry,
+    quote: &AttestQuoteRequest,
+) -> Result<bool, RegistrationError> {
+    tracing::info!("registration client sending attest_quote");
+
+    let forge_client_config = match use_mgmt_vrf {
+        true => ForgeClientConfig::new(root_ca, None)
+            .use_mgmt_vrf()
+            .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
+        false => ForgeClientConfig::new(root_ca, None),
+    };
+    tracing::debug!("attest_quote client_config {:?}", forge_client_config);
+
+    let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
+        .attest_quote(quote)
+        .await?;
+
+    let _ = write_certs(response.machine_certificate).await;
+
+    tracing::info!(
+        "Attestation result is {}",
+        if response.success {
+            "SUCCESS"
+        } else {
+            "FAILURE"
+        }
+    );
+
+    Ok(response.success)
 }
 
 pub async fn write_certs(

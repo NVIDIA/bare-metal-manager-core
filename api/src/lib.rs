@@ -260,11 +260,11 @@ pub enum CarbideError {
     #[error("DPU {0} is missing from host snapshot")]
     MissingDpu(MachineId),
 
-    #[error("Attestation Verify Quote Error: {0}")]
-    AttestationVerifyQuoteError(String),
+    #[error("Attest Quote Error: {0}")]
+    AttestQuoteError(String),
 
-    #[error("Attestation Bind Key Error: {0}")]
-    AttestationBindKeyError(String),
+    #[error("Attest Bind Key Error: {0}")]
+    AttestBindKeyError(String),
 
     #[error("Explored machine at {0} has no DPUs")]
     NoDpusInMachine(IpAddr),

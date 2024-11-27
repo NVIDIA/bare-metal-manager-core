@@ -223,6 +223,7 @@ impl TestEnv {
                     carbide::model::machine::MachineState::WaitingForLockdown { .. } => {
                         machine_state
                     }
+                    carbide::model::machine::MachineState::Measuring { .. } => machine_state,
                     carbide::model::machine::MachineState::MachineValidating {
                         context,
                         id: _,
@@ -272,6 +273,7 @@ impl TestEnv {
             },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
+            ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
         }
     }

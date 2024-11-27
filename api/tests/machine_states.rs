@@ -17,19 +17,37 @@ use carbide::measured_boot::db as mbdb;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::hardware_info::TpmEkCertificate;
 use carbide::model::machine::machine_id::try_parse_machine_id;
-use carbide::model::machine::{DpuInitState, FailureDetails, MachineState, ManagedHostState};
+use carbide::model::machine::{
+    DpuInitState, FailureDetails, LockdownInfo, LockdownMode, LockdownState, MachineState,
+    ManagedHostState, MeasuringState,
+};
 use carbide::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandlerBuilder,
 };
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
-use common::api_fixtures::host::create_host_machine;
+use common::api_fixtures::host::{
+    create_managed_host_with_ek, host_bmc_discover_dhcp, host_discover_dhcp, host_discover_machine,
+    host_uefi_setup, FIXTURE_HOST_BMC_ADMIN_USER_NAME, FIXTURE_HOST_BMC_FIRMWARE_VERSION,
+    FIXTURE_HOST_BMC_VERSION,
+};
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
-    create_managed_host, create_test_env, machine_validation_completed, TestEnv,
+    create_managed_host, create_test_env, machine_validation_completed, update_bmc_metadata,
 };
-use forge_uuid::machine::MachineId;
+use measured_boot::pcr::PcrRegisterValue;
+
+use carbide::model::machine::{FailureCause, FailureSource};
+use chrono::Duration;
+use common::api_fixtures::{create_test_env_with_overrides, get_config};
+use health_report::HealthReport;
+use measured_boot::report::MeasurementReport;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
+use rpc::forge_agent_control_response::Action;
+use std::collections::HashMap;
+use tonic::Request;
 
 use crate::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
 use crate::common::api_fixtures::{
@@ -40,16 +58,9 @@ use crate::common::api_fixtures::{
     },
     forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
 };
-use carbide::model::machine::{FailureCause, FailureSource};
-use chrono::Duration;
-use common::api_fixtures::{create_test_env_with_overrides, get_config};
+
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
-use std::collections::HashMap;
-use tonic::Request;
 
 #[ctor::ctor]
 fn setup() {
@@ -906,7 +917,9 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // .. and now flip it to retired.
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -938,7 +951,9 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // ..and now flip it back.
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -951,7 +966,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
 // this is mostly copied from the one above
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
-async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool) {
+async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
     // introduce the measurement states into the state machine (which
     // also includes additional steps that happen during `create_managed_host`.
@@ -990,17 +1005,6 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     // so get its bundle, retire it, run another iteration, and make sure
     // it's retired.
 
-    // But before retiring the bundle, remove the ca cert, this will unmatch the ek
-    // cert - this should have no effect on moving away from the ready state
-    let delete_ca_certs_request = tonic::Request::new(TpmCaCertId {
-        ca_cert_id: inserted_cert.id.unwrap().ca_cert_id,
-    });
-    env.api
-        .tpm_delete_ca_cert(delete_ca_certs_request)
-        .await
-        .unwrap();
-
-    // ... and now retire the bundle
     let bundles_response = env
         .api
         .show_measurement_bundles(Request::new(
@@ -1022,8 +1026,11 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     txn.commit().await.unwrap();
 
     // now trigger the state transition
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
+    // make sure the machine is in retired state
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
@@ -1042,9 +1049,18 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     ));
     txn.commit().await.unwrap();
 
-    // now, try to move into a ready state by reactivating the bundle - this will fail
-    // due to the lack of ca cert
-    let mut txn = env.pool.begin().await.unwrap();
+    // now remove the ca cert and resurrect the bundle
+    // and try to move forward - this will now fail due to the lack
+    // of ca cert
+    let delete_ca_certs_request = tonic::Request::new(TpmCaCertId {
+        ca_cert_id: inserted_cert.id.unwrap().ca_cert_id,
+    });
+    env.api
+        .tpm_delete_ca_cert(delete_ca_certs_request)
+        .await
+        .unwrap();
+    // "resurrect" the bundle
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
     let reactivated_bundle = mbdb::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
@@ -1055,7 +1071,9 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
     assert_eq!(retired_bundle.bundle_id, reactivated_bundle.bundle_id);
     txn.commit().await.unwrap();
 
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     // check that it has failed as intended due to the lack of ca cert
     let mut txn = env.pool.begin().await.unwrap();
@@ -1085,15 +1103,330 @@ async fn test_measurement_no_ca_cert_failed_state_transition(pool: sqlx::PgPool)
         .await
         .expect("Failed to add CA cert");
 
-    // ... and trigger the state transition
-    env.run_machine_state_controller_iteration().await;
+    // before advancing the state, change the bundle state to revoked
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let _revoked_bundle =
+        mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Revoked)
+            .await
+            .unwrap();
+    txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
+    // ... and trigger the state transition
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    // check we are in revoked state
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsRevoked { .. },
+                ..
+            },
+            ..
+        }
+    ));
+
+    // and now reactivate the state so that it would get to ready
+    let _reactivated_bundle = mbdb::bundle::set_state_for_id(
+        &mut txn,
+        retired_bundle.bundle_id,
+        MeasurementBundleState::Active,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // ... and trigger the state transition
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pending_bundle_to_ready(
+    pool: sqlx::PgPool,
+) {
+    let mut config = get_config();
+    config.attestation_enabled = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    // 1. create_dpu as usual
+    // 2. start creating host until ca validation failure is encountered
+    // 3. add ca certificate - we should be recoved from failure and in Ready state
+
+    let host_sim = ManagedHostSim {
+        config: ManagedHostConfig {
+            tpm_ek_cert: TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            ..Default::default()
+        },
+    };
+
+    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let dpu_machine_id = &try_parse_machine_id(&dpu_machine_id).unwrap();
+
+    //--------
+    let host_config = &host_sim.config;
+    let env = &env;
+
+    let bmc_machine_interface_id =
+        host_bmc_discover_dhcp(env, &host_config.bmc_mac_address.to_string()).await;
+    // Let's find the IP that we assign to the BMC
+    let mut txn = env.pool.begin().await.unwrap();
+    let bmc_interface =
+        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+            .await
+            .unwrap();
+    let host_bmc_ip = bmc_interface.addresses[0];
+    txn.rollback().await.unwrap();
+
+    let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
+
+    let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
+    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+    let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
+
+    update_bmc_metadata(
+        env,
+        host_rpc_machine_id.clone(),
+        &host_bmc_ip.to_string(),
+        FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
+        host_config.bmc_mac_address,
+        FIXTURE_HOST_BMC_VERSION.to_owned(),
+        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
+    )
+    .await;
+
+    // ---------------
+    // now, since the CA has not been added, we should be stuck in the failed state
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                ..
+            },
+            ..
+        }
+    ));
+    // ----------
+    // now add the CA cert, we should transition to waiting for measurements
+    let add_ca_request = tonic::Request::new(TpmCaCert {
+        ca_cert: CA_CERT_SERIALIZED.to_vec(),
+    });
+
+    let _inserted_cert = env
+        .api
+        .tpm_add_ca_cert(add_ca_request)
+        .await
+        .expect("Failed to add CA cert")
+        .into_inner();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Measuring {
+                measuring_state: MeasuringState::WaitingForMeasurements
+            }
+        }
+    ));
+    //----------
+    // now inject some measurement values
+
+    let pcr_values: Vec<PcrRegisterValue> = vec![
+        PcrRegisterValue {
+            pcr_register: 0,
+            sha256: "aa".to_string(),
+        },
+        PcrRegisterValue {
+            pcr_register: 1,
+            sha256: "bb".to_string(),
+        },
+    ];
+
+    let _response = env
+        .api
+        .attest_candidate_machine(Request::new(
+            rpc::protos::measured_boot::AttestCandidateMachineRequest {
+                machine_id: host_machine_id.to_string(),
+                pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
+
+    // now we should be in pending bundle state
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Measuring {
+                measuring_state: MeasuringState::PendingBundle
+            }
+        }
+    ));
+
+    // now promote report to bundle
+    let reports_response = env
+        .api
+        .show_measurement_reports(Request::new(
+            rpc::protos::measured_boot::ShowMeasurementReportsRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(1, reports_response.reports.len());
+    let report = MeasurementReport::from_grpc(Some(&reports_response.reports[0])).unwrap();
+
+    let _promotion_response = env
+        .api
+        .promote_measurement_report(Request::new(
+            rpc::protos::measured_boot::PromoteMeasurementReportRequest {
+                report_id: Some(report.report_id.into()),
+                pcr_registers: "0,1".to_string(),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // ---------
+    // after the measurements are in, we should proceed to ready state
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        4,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForDiscovery,
+        },
+    )
+    .await;
+
+    env.api
+        .record_hardware_health_report(Request::new(HardwareHealthReport {
+            machine_id: Some(host_machine_id.to_string().into()),
+            report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+        }))
+        .await
+        .expect("Failed to add hardware health report to newly created machine");
+
+    txn.commit().await.unwrap();
+
+    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    assert_eq!(response.action, Action::Discovery as i32);
+
+    discovery_completed(env, host_rpc_machine_id.clone()).await;
+
+    host_uefi_setup(env, &host_machine_id, host_rpc_machine_id.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        2,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: LockdownInfo {
+                    state: LockdownState::WaitForDPUUp,
+                    mode: LockdownMode::Enable,
+                },
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // We use forge_dpu_agent's health reporting as a signal that
+    // DPU has rebooted.
+    network_configured(env, dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::MachineValidating {
+                context: "Discovery".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+                is_enabled: env.config.machine_validation_config.enabled,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    machine_validation_completed(env, host_rpc_machine_id.clone(), None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        3,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: false,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // This is what simulates a reboot being completed.
+    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    assert_eq!(response.action, Action::Noop as i32);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        1,
+        &mut txn,
+        ManagedHostState::Ready,
+    )
+    .await;
     txn.commit().await.unwrap();
 }
 
@@ -1217,22 +1550,4 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
                 .time
         );
     }
-}
-
-async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> (MachineId, MachineId) {
-    let host_sim = ManagedHostSim {
-        config: ManagedHostConfig {
-            tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
-            ..Default::default()
-        },
-    };
-
-    let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;
-
-    (
-        try_parse_machine_id(&host_machine_id).unwrap(),
-        dpu_machine_id,
-    )
 }

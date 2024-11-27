@@ -420,7 +420,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         None => eyre::bail!("Missing DPU info, should be impossible"),
     };
 
-    let registration_data = register_machine(
+    let (registration_data, _) = register_machine(
         &agent.forge_system.api_server,
         agent.forge_system.root_ca.clone(),
         agent.machine.interface_id,

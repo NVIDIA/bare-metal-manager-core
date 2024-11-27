@@ -147,6 +147,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
                 MachineState::MachineValidating { .. } => "machinevalidating",
                 MachineState::EnableIpmiOverLan => "enableipmioverlan",
+                MachineState::Measuring { .. } => "machinestatemeasuring",
             }
         }
 
@@ -230,6 +231,10 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }
+            ManagedHostState::PostAssignedMeasuring { measuring_state } => (
+                "postassignedmeasuring",
+                measuring_state_name(measuring_state),
+            ),
         }
     }
 

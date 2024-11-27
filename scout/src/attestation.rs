@@ -35,79 +35,20 @@ use tss_esapi::TctiNameConf;
 use std::process::Command;
 use std::vec::Vec;
 
-use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
+use crate::CarbideClientError;
 use ::rpc::forge as rpc;
+use ::rpc::machine_discovery as rpc_md;
 
-pub async fn run(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
-    // create gRPC client
-    let mut client = create_forge_client(config).await?;
-
-    // create context
-    let mut ctx = create_context_from_config(config)
-        .map_err(|e| CarbideClientError::TpmError(format!("Could not create context: {0}", e)))?;
-
-    let result = create_bind_request(&mut ctx, machine_id).map_err(|e| {
-        CarbideClientError::TpmError(format!("Could not create Bind Request: {0}", e))
-    })?;
-
-    let ek_handle = result.1;
-    let ak_handle = result.2;
-
-    let bind_response = client.bind_attest_key(result.0).await?;
-
-    tracing::info!("Sent bind attest request and received reply");
-    tracing::info!(
-        "cred_blob - {} bytes long, secret - {} bytes long",
-        bind_response.get_ref().cred_blob.len(),
-        bind_response.get_ref().encrypted_secret.len()
-    );
-
-    // retrieve credential (kind of AuthToken) from the bind_response
-    let cred =
-        activate_credential(&bind_response, &mut ctx, &ek_handle, &ak_handle).map_err(|e| {
-            CarbideClientError::TpmError(format!("Could not activate credential: {0}", e))
-        })?;
-
-    // obtain signed attestation (a hash of pcr values) and actual pcr values
-    let (attest, signature, pcr_values) = get_pcr_quote(&mut ctx, &ak_handle)
-        .map_err(|e| CarbideClientError::TpmError(format!("Could not get PCR Quote: {0}", e)))?;
-
-    tracing::info!("Obtained PCR quote");
-
-    let tpm_eventlog = get_tpm_eventlog();
-
-    // create Quote Request message
-    let quote_request = create_quote_request(
-        attest,
-        signature,
-        pcr_values,
-        &cred,
-        machine_id,
-        &tpm_eventlog,
-    )
-    .map_err(|e| CarbideClientError::TpmError(format!("Could not create quote request: {0}", e)))?;
-    // send to server
-    let _quote_response = client.verify_quote(quote_request).await?;
-
-    Ok(())
-}
-
-fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
+pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;
     // create context
     let ctx = Context::new(tcti)?;
     Ok(ctx)
 }
 
-fn create_context_from_config(config: &Options) -> Result<Context, Box<dyn std::error::Error>> {
-    // create tcti - an interface to talk to TPM
-    create_context_from_path(&config.tpm_path)
-}
-
-fn create_bind_request(
+pub(crate) fn create_attest_key_info(
     ctx: &mut Context,
-    machine_id: &str,
-) -> Result<(tonic::Request<rpc::BindRequest>, KeyHandle, KeyHandle), Box<dyn std::error::Error>> {
+) -> Result<(rpc_md::AttestKeyInfo, KeyHandle, KeyHandle), Box<dyn std::error::Error>> {
     // obtain EK
     let ek_handle = ek::create_ek_object(ctx, AsymmetricAlgorithm::Rsa, None)?;
     tracing::debug!("Obtained EK handle");
@@ -136,25 +77,25 @@ fn create_bind_request(
     let (ek_public, _, _) = ctx.read_public(ek_handle)?;
 
     // create rpc message now
-    let bind_request = tonic::Request::new(rpc::BindRequest {
-        machine_id: Some(machine_id.to_string().into()),
+    let attest_key_info = rpc_md::AttestKeyInfo {
         ak_pub: ak.out_public.marshall()?,
         ak_name: Vec::from(ak_key_name.value()),
         ek_pub: ek_public.marshall()?,
-    });
+    };
 
-    Ok((bind_request, ek_handle, ak_handle))
+    Ok((attest_key_info, ek_handle, ak_handle))
 }
 
-fn activate_credential(
-    response: &tonic::Response<rpc::BindResponse>,
+pub(crate) fn activate_credential(
+    cred_blob_serialized: &[u8],
+    encr_secret_serialized: &[u8],
     ctx: &mut Context,
     ek_handle: &KeyHandle,
     ak_handle: &KeyHandle,
 ) -> Result<Digest, Box<dyn std::error::Error>> {
     // use activate credential to obtain the credential (nonce)
-    let cred_blob = IdObject::try_from(response.get_ref().cred_blob.clone())?;
-    let encr_secret = EncryptedSecret::try_from(response.get_ref().encrypted_secret.clone())?;
+    let cred_blob = IdObject::try_from(cred_blob_serialized)?;
+    let encr_secret = EncryptedSecret::try_from(encr_secret_serialized)?;
 
     // in order to call activate_credential, we need a policy auth session. this session acts as a vehicle for enforcing that
     // PolicySecret is applied, i.e. that we have access to the endorsement key
@@ -228,7 +169,7 @@ fn activate_credential(
     Ok(digest)
 }
 
-fn get_pcr_quote(
+pub(crate) fn get_pcr_quote(
     ctx: &mut Context,
     ak_handle: &KeyHandle,
 ) -> Result<(Attest, Signature, Vec<Digest>), Box<dyn std::error::Error>> {
@@ -317,15 +258,15 @@ fn get_pcr_quote(
     Ok((attest, signature, digest_vec))
 }
 
-fn create_quote_request(
+pub(crate) fn create_quote_request(
     attestation: Attest,
     signature: Signature,
     pcr_values: Vec<Digest>,
     credential: &Digest,
     machine_id: &str,
     tpm_eventlog: &Option<Vec<u8>>,
-) -> Result<tonic::Request<rpc::VerifyQuoteRequest>, Box<dyn std::error::Error>> {
-    let request = tonic::Request::new(rpc::VerifyQuoteRequest {
+) -> Result<rpc::AttestQuoteRequest, Box<dyn std::error::Error>> {
+    let request = rpc::AttestQuoteRequest {
         attestation: attestation.marshall()?,
         signature: signature.marshall()?,
         credential: Vec::from(credential.value()),
@@ -335,12 +276,12 @@ fn create_quote_request(
             .collect(),
         machine_id: Some(machine_id.to_string().into()),
         event_log: tpm_eventlog.clone(),
-    });
+    };
 
     Ok(request)
 }
 
-fn get_tpm_eventlog() -> Option<Vec<u8>> {
+pub(crate) fn get_tpm_eventlog() -> Option<Vec<u8>> {
     let output_res = Command::new("sh")
         .arg("-c")
         .arg("tpm2_eventlog /sys/kernel/security/tpm0/binary_bios_measurements")
@@ -365,21 +306,11 @@ fn get_tpm_eventlog() -> Option<Vec<u8>> {
     }
 }
 
-pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
-    let mut ctx = match create_context_from_path(path) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::error!("GetTpmDescription: Could not create TPM context (path={path}): {e}");
-            return None;
-        }
-    };
-
+pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
     let (capabilities, _more) = match ctx.get_capability(CapabilityType::TpmProperties, 0, 80) {
         Ok(tuple) => tuple,
         Err(e) => {
-            tracing::error!(
-                "GetTpmDescription: Could not get TPM capability data (path={path}): {e}"
-            );
+            tracing::error!("GetTpmDescription: Could not get TPM capability data: {e}");
             return None;
         }
     };
@@ -387,7 +318,7 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
     let tpm_properties = match capabilities.clone() {
         TpmProperties(property_list) => property_list,
         _ => {
-            tracing::error!("Failed to call get TpmProperties (path: {path})");
+            tracing::error!("Failed to call get TpmProperties");
             return None;
         }
     };
@@ -434,7 +365,7 @@ pub fn get_tpm_description(path: &str) -> Option<TpmDescription> {
         && vendor_2 == String::default()
         && spec_version == String::default()
     {
-        tracing::error!("GetTpmDescription: Could not extract tpm description (path={path})");
+        tracing::error!("GetTpmDescription: Could not extract tpm description");
         return None;
     }
 

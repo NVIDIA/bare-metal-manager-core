@@ -62,6 +62,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	postgresql-15 \
 	protobuf-compiler \
 	sudo \
+	tpm2-tools \
 	unzip \
 	wget \
 	git && \

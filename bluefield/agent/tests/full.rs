@@ -265,6 +265,7 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
                 .into(),
         ),
         machine_certificate: None,
+        attest_key_challenge: None,
     })
 }
 
