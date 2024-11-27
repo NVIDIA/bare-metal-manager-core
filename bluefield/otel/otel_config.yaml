@@ -312,15 +312,7 @@ processors:
           # facilitate grouping in grafana.
           - set(attributes["systemd.unit"], "kernel")
           - set(attributes["PRIORITY"], body["PRIORITY"])
-          - set(attributes["BOOT_ID"], body["_BOOT_ID"])
-          - set(attributes["CURSOR"], body["__CURSOR"])
-          - set(attributes["KERNEL_DEVICE"], body["_KERNEL_DEVICE"])
           - set(attributes["KERNEL_SUBSYSTEM"], body["_KERNEL_SUBSYSTEM"])
-          - set(attributes["MONOTONIC_TIMESTAMP"], body["__MONOTONIC_TIMESTAMP"])
-          - set(attributes["SOURCE_MONOTONIC_TIMESTAMP"], body["_SOURCE_MONOTONIC_TIMESTAMP"])
-          - set(attributes["SYSLOG_FACILITY"], body["SYSLOG_FACILITY"])
-          - set(attributes["SYSLOG_IDENTIFIER"], body["SYSLOG_IDENTIFIER"])
-          - set(attributes["UDEV_SYSNAME"], body["_UDEV_SYSNAME"])
           - set(body, body["MESSAGE"])
   transform/metrics-dts:
     error_mode: ignore
