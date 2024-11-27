@@ -55,6 +55,7 @@ mod managed_host;
 mod network_device;
 mod network_segment;
 mod network_status;
+mod redfish_console;
 mod resource_pool;
 mod search;
 mod tenant;
@@ -280,6 +281,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/vpc", get(vpc::show_html))
             .route("/vpc.json", get(vpc::show_json))
             .route("/vpc/:vpc_id", get(vpc::detail))
+            .route("/redfish-console", get(redfish_console::query))
             .route("/search", get(search::find))
             .route("/tenant", get(tenant::show_html))
             .route("/tenant.json", get(tenant::show_json))
