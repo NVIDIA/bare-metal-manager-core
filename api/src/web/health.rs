@@ -114,19 +114,35 @@ pub async fn health(
         })
         .collect::<Vec<_>>();
 
-    let request = tonic::Request::new(rpc_machine_id.clone());
+    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        machine_ids: vec![rpc_machine_id.clone()],
+        include_history: false,
+    });
 
     let machine = match state
-        .get_machine(request)
+        .find_machines_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(m) => m,
+        Ok(m) if m.machines.is_empty() => {
+            return super::not_found_response(machine_id);
+        }
+        Ok(m) if m.machines.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Machine list for {machine_id} returned {} machines",
+                    m.machines.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut m) => m.machines.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
             return super::not_found_response(machine_id);
         }
         Err(err) => {
-            tracing::error!(%err, %machine_id, "get_machine");
+            tracing::error!(%err, %machine_id, "find_machines_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
         }
     };

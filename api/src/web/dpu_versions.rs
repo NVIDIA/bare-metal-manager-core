@@ -86,7 +86,7 @@ impl From<forgerpc::Machine> for Row {
 }
 
 pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
-    let mut machines = match machine::fetch_machines(state, true).await {
+    let mut machines = match machine::fetch_machines(state, true, false).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "find_machines");

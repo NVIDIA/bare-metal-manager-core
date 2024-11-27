@@ -144,13 +144,53 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::InstanceSearchQuery {
-        id: None,
-        label: None,
+    let request = tonic::Request::new(forgerpc::InstanceSearchFilter::default());
+
+    let instance_ids = api
+        .find_instance_ids(request)
+        .await?
+        .into_inner()
+        .instance_ids;
+
+    let mut instances = Vec::new();
+    let mut offset = 0;
+    while offset != instance_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(instance_ids.len() - offset);
+        let next_ids = &instance_ids[offset..offset + page_size];
+        let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
+            instance_ids: next_ids.to_vec(),
+        });
+        let next_instances = api.find_instances_by_ids(request).await?.into_inner();
+
+        instances.extend(next_instances.instances.into_iter());
+        offset += page_size;
+    }
+
+    instances.sort_unstable_by(|i1, i2| {
+        // Order by name first, and ID second
+        let ord = i1
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default()
+            .cmp(
+                i2.metadata
+                    .as_ref()
+                    .map(|m| m.name.as_str())
+                    .unwrap_or_default(),
+            );
+        if !ord.is_eq() {
+            return ord;
+        }
+
+        i1.id
+            .as_ref()
+            .map(|id| id.to_string())
+            .cmp(&i2.id.as_ref().map(|id| id.to_string()))
     });
-    api.find_instances(request)
-        .await
-        .map(|response| response.into_inner())
+
+    Ok(forgerpc::InstanceList { instances })
 }
 
 #[derive(Template)]
@@ -373,18 +413,30 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(instance_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::InstanceSearchQuery {
-        id: Some(rpc::Uuid {
+    let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
+        instance_ids: vec![rpc::Uuid {
             value: instance_id.clone(),
-        }),
-        label: None,
+        }],
     });
-    let mut instances = match state
-        .find_instances(request)
+    let instance = match state
+        .find_instances_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(x) => x,
+        Ok(x) if x.instances.is_empty() => {
+            return super::not_found_response(instance_id);
+        }
+        Ok(x) if x.instances.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Instance list for {instance_id} returned {} instances",
+                    x.instances.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut x) => x.instances.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
             return super::not_found_response(instance_id);
         }
@@ -393,16 +445,7 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
         }
     };
-    if instances.instances.len() != 1 {
-        tracing::error!(%instance_id, "Expected exactly 1 match, found {}", instances.instances.len());
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not find exactly one matching instance",
-        )
-            .into_response();
-    }
 
-    let instance = instances.instances.pop().unwrap(); // safe, we checked above
     let instance_detail: InstanceDetail = instance.into();
     (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
 }

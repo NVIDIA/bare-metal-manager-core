@@ -81,15 +81,28 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::VpcSearchQuery {
-        id: None,
-        name: None,
-    });
-    let mut vpcs = api
-        .find_vpcs(request)
-        .await
-        .map(|response| response.into_inner())?;
-    vpcs.vpcs.sort_unstable_by(|vpc1, vpc2| {
+    let request = tonic::Request::new(forgerpc::VpcSearchFilter::default());
+
+    let vpc_ids = api.find_vpc_ids(request).await?.into_inner().vpc_ids;
+
+    let mut vpcs = Vec::new();
+    let mut offset = 0;
+    while offset != vpc_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(vpc_ids.len() - offset);
+        let next_ids = &vpc_ids[offset..offset + page_size];
+        let next_vpcs = api
+            .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
+                vpc_ids: next_ids.to_vec(),
+            }))
+            .await?
+            .into_inner();
+
+        vpcs.extend(next_vpcs.vpcs.into_iter());
+        offset += page_size;
+    }
+
+    vpcs.sort_unstable_by(|vpc1, vpc2| {
         // Order by name first, and ID second
         let ord = vpc1.name.cmp(&vpc2.name);
         if !ord.is_eq() {
@@ -101,7 +114,7 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
             .map(|id| id.to_string())
             .cmp(&vpc2.id.as_ref().map(|id| id.to_string()))
     });
-    Ok(vpcs.vpcs)
+    Ok(vpcs)
 }
 
 #[derive(Template)]
@@ -135,35 +148,32 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(vpc_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::VpcSearchQuery {
-        id: Some(::rpc::common::Uuid {
+    let request = tonic::Request::new(forgerpc::VpcsByIdsRequest {
+        vpc_ids: vec![rpc::Uuid {
             value: vpc_id.clone(),
-        }),
-        name: None,
+        }],
     });
-    let mut vpcs: forgerpc::VpcList = match state
-        .find_vpcs(request)
+    let vpc = match state
+        .find_vpcs_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(n) => n,
+        Ok(x) if x.vpcs.is_empty() => {
+            return super::not_found_response(vpc_id);
+        }
+        Ok(x) if x.vpcs.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("VPC list for {vpc_id} returned {} VPCs", x.vpcs.len()),
+            )
+                .into_response();
+        }
+        Ok(mut x) => x.vpcs.remove(0),
         Err(err) => {
             tracing::error!(%err, "find_vpcs");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
-    if vpcs.vpcs.is_empty() {
-        return super::not_found_response(vpc_id);
-    }
-    if vpcs.vpcs.len() != 1 {
-        tracing::error!(%vpc_id, "Expected exactly 1 match, found {}", vpcs.vpcs.len());
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Expected exactly one VPC to match",
-        )
-            .into_response();
-    }
-    let vpc = vpcs.vpcs.pop().unwrap(); // safe, we check above
 
     let tmpl: VpcDetail = vpc.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
