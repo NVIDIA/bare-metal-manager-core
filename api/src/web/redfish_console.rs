@@ -25,7 +25,7 @@ use serde::Deserialize;
 #[template(path = "redfish_console.html")]
 struct RefishConsole {
     url: String,
-    base_url: String,
+    base_bmc_url: String,
     bmc_ip: String,
     error: String,
     machine_id: String,
@@ -48,7 +48,7 @@ pub async fn query(
 ) -> Response {
     let mut console = RefishConsole {
         url: query.url.clone().unwrap_or_default(),
-        base_url: "".to_string(),
+        base_bmc_url: "".to_string(),
         bmc_ip: "".to_string(),
         machine_id: "".to_string(),
         response: "".to_string(),
@@ -88,7 +88,7 @@ pub async fn query(
 
     // This variable is used in order to allow building absolute path easier from
     // Javascript
-    console.base_url = {
+    console.base_bmc_url = {
         let scheme = match uri.scheme_str() {
             Some(scheme) => scheme.to_string(),
             None => "https".to_string(),
