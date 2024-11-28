@@ -3,6 +3,15 @@
 
 ### Added
 
+- The admin web UI now features a "Redfish Browser" under `/admin/redfish-browser`.
+  The redfish browser allows to explore the redfish tree of any BMC connected to Forge.
+  It allows site admins to query specific path of BMCs for which Forge does not provide
+  any additional UI support.
+  The redfish browser will automatically look up the required credentials for the BMCs,
+  and send them without the user having to be aware of credentials.
+  In the past Forge site admins had to use command line commands like `curl` to query
+  specific redfish path. That required them to have access to Machine credentials,
+  which was cumbersome and problematic from a security point of view.
 - The admin web UI now shows a list of all tenants which have been registered to the site under
   `/admin/tenant`. So far Forge Cloud does not submit tenant information. Therefore the list will be empty.
 - The admin web UI now shows a list of all tenant keysets under `/admin/tenant_keyset`.

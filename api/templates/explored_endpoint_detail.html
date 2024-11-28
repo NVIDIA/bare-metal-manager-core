@@ -5,7 +5,19 @@
 {% block content %}
 <h1>Endpoint</h1>
 <table class="detailsview">
-	<tr><th>Address</th><td>{{ endpoint.address }}</td></tr>
+	<tr>
+		<th>Address</th>
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">
+				{{ endpoint.address }}
+			</div>
+			<div style="flex-shrink: 0;">
+				<form method="GET" action="/admin/redfish-browser?url=https%3A%2F%2F{{ endpoint.address }}%2Fredfish%2Fv1">
+					<input style="margin-left: 0; width: 100%;" type="submit" value="Redfish Browser">
+				</form>
+			</div>
+		</td>
+	</tr>
 	{% match endpoint.report %}
 	{% when Some with (report) %}
 	<tr><th>Endpoint Type</th><td>{{ report.endpoint_type }}</td></tr>

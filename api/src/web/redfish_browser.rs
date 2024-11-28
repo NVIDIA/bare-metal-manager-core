@@ -22,8 +22,8 @@ use crate::api::Api;
 use serde::Deserialize;
 
 #[derive(Template)]
-#[template(path = "redfish_console.html")]
-struct RefishConsole {
+#[template(path = "redfish_browser.html")]
+struct RefishBrowser {
     url: String,
     base_bmc_url: String,
     bmc_ip: String,
@@ -46,7 +46,7 @@ pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
 ) -> Response {
-    let mut console = RefishConsole {
+    let mut browser = RefishBrowser {
         url: query.url.clone().unwrap_or_default(),
         base_bmc_url: "".to_string(),
         bmc_ip: "".to_string(),
@@ -57,38 +57,38 @@ pub async fn query(
         status_string: "".to_string(),
     };
 
-    if console.url.is_empty() {
+    if browser.url.is_empty() {
         // No query provided - Just show the form
-        return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+        return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
     };
 
-    let uri: http::Uri = match console.url.parse() {
+    let uri: http::Uri = match browser.url.parse() {
         Ok(uri) => uri,
         Err(_) => {
-            console.error = format!("Invalid URL {}", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            browser.error = format!("Invalid URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
 
-    console.bmc_ip = match uri.host() {
+    browser.bmc_ip = match uri.host() {
         Some(host) => host.to_string(),
         None => {
-            console.error = format!("Missing host in URL {}", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            browser.error = format!("Missing host in URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
 
-    let bmc_ip: std::net::IpAddr = match console.bmc_ip.parse() {
+    let bmc_ip: std::net::IpAddr = match browser.bmc_ip.parse() {
         Ok(ip) => ip,
         Err(_) => {
-            console.error = format!("host in URL {} is not a valid IP", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            browser.error = format!("host in URL {} is not a valid IP", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
 
     // This variable is used in order to allow building absolute path easier from
     // Javascript
-    console.base_bmc_url = {
+    browser.base_bmc_url = {
         let scheme = match uri.scheme_str() {
             Some(scheme) => scheme.to_string(),
             None => "https".to_string(),
@@ -103,16 +103,16 @@ pub async fn query(
     let machine_id = match find_machine_id(state.clone(), bmc_ip).await {
         Ok(Some(machine_id)) => machine_id,
         Ok(None) => {
-            console.error = format!("No Machine maps to URL {}", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            browser.error = format!("No Machine maps to URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
         Err(err) => {
-            tracing::error!(%err, url = console.url, "find_machine_id");
-            console.error = format!("Failed to look up Machine for URL {}", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            tracing::error!(%err, url = browser.url, "find_machine_id");
+            browser.error = format!("Failed to look up Machine for URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
-    console.machine_id = machine_id.id.clone();
+    browser.machine_id = machine_id.id.clone();
 
     let metadata = match state
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
@@ -125,8 +125,8 @@ pub async fn query(
         Ok(meta) => meta.into_inner(),
         Err(err) => {
             tracing::error!(%err, %machine_id, "get_bmc_meta_data");
-            console.error = format!("Failed to retrieve BMC Metadata for URL {}", console.url);
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            browser.error = format!("Failed to retrieve BMC Metadata for URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
 
@@ -146,7 +146,7 @@ pub async fn query(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Html(format!(
                         "Failed to build HTTP client for requesting {}",
-                        console.url
+                        browser.url
                     )),
                 )
                     .into_response();
@@ -155,23 +155,23 @@ pub async fn query(
     };
 
     let response = match http_client
-        .request(http::Method::GET, console.url.clone())
+        .request(http::Method::GET, browser.url.clone())
         .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
         .send()
         .await
     {
         Ok(response) => response,
         Err(e) => {
-            console.error = format!("Error sending request:\n{:?}", e);
+            browser.error = format!("Error sending request:\n{:?}", e);
             if let Some(status) = e.status() {
-                console.status_code = status.as_u16();
-                console.status_string = status.canonical_reason().unwrap_or_default().to_string();
+                browser.status_code = status.as_u16();
+                browser.status_string = status.canonical_reason().unwrap_or_default().to_string();
             }
-            return (StatusCode::OK, Html(console.render().unwrap())).into_response();
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
-    console.status_code = response.status().as_u16();
-    console.status_string = response
+    browser.status_code = response.status().as_u16();
+    browser.status_string = response
         .status()
         .canonical_reason()
         .unwrap_or_default()
@@ -179,14 +179,14 @@ pub async fn query(
 
     match response.text().await {
         Ok(response) => {
-            console.response = response;
+            browser.response = response;
         }
         Err(e) => {
-            console.error = format!("Error reading response body:\n{:?}", e);
+            browser.error = format!("Error reading response body:\n{:?}", e);
         }
     };
 
-    (StatusCode::OK, Html(console.render().unwrap())).into_response()
+    (StatusCode::OK, Html(browser.render().unwrap())).into_response()
 }
 
 async fn find_machine_id(
