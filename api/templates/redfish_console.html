@@ -12,8 +12,7 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 </p>
 
 <p>
-<b>
-	Note that due to implementation limitations, the page can currently only endpoints
+<b>🚧 Note that due to implementation limitations, the page can currently only endpoints
 	for ingested machines - which means a Machine entry needs to exist for the endpoint.
 </b>
 </p>
@@ -39,7 +38,9 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 
 {% if !response.is_empty() %}
 <h3>Response</h3>
-<textarea disabled style="width: 100%">{{ response }}</textarea>
+<div style="overflow: auto;">
+	<pre style="width: 100%;"><code class="bmcresponse">{{ response }}</code></pre>
+</div>
 {% endif %}
 
 {% endif %}
@@ -48,6 +49,38 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 
 {% block script %}
 
-const baseUrl = "{{ base_url }}";
+const baseBmcUrl = "{{ base_bmc_url }}";
+
+function formatBmcResponse() {
+	let elems = document.getElementsByClassName("bmcresponse");
+	const re = /(?<="@odata.id":\s*")[^"]*(?=")/g;
+
+	for (elem of elems) {
+		// Pretty print response in case its JSON. This also helps
+		// with the follow-up step
+		if (elem.parentElement.nodeName === "PRE") {
+			elem.parentElement.style.whiteSpace = "pre-wrap";
+		}
+		try {
+			let jsObj = JSON.parse(elem.innerText);
+			elem.innerText = JSON.stringify(jsObj, null,4);
+		} catch (e) {
+		}
+
+		// For each @odata.id element that is found, generate a link
+		try {
+			let html = elem.innerHTML.replaceAll(re, path => {
+				let encodedQueryPath = encodeURIComponent(baseBmcUrl + path);
+				return `<a href="/admin/redfish-console?url=${encodedQueryPath}">${path}</a>`;
+			});
+			elem.innerHTML = html;
+		} catch (e) {
+		}
+	}
+}
+
+document.addEventListener("DOMContentLoaded", function(event){
+	formatBmcResponse();
+});
 
 {% endblock %}
