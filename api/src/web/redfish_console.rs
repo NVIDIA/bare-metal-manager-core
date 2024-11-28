@@ -165,13 +165,17 @@ pub async fn query(
             console.error = format!("Error sending request:\n{:?}", e);
             if let Some(status) = e.status() {
                 console.status_code = status.as_u16();
-                console.status_string = status.as_str().to_string();
+                console.status_string = status.canonical_reason().unwrap_or_default().to_string();
             }
             return (StatusCode::OK, Html(console.render().unwrap())).into_response();
         }
     };
     console.status_code = response.status().as_u16();
-    console.status_string = response.status().as_str().to_string();
+    console.status_string = response
+        .status()
+        .canonical_reason()
+        .unwrap_or_default()
+        .to_string();
 
     match response.text().await {
         Ok(response) => {
