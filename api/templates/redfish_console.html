@@ -38,9 +38,15 @@ The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>
 
 {% if !response.is_empty() %}
 <h3>Response</h3>
-<div style="overflow: auto;">
-	<pre style="width: 100%;"><code class="bmcresponse">{{ response }}</code></pre>
-</div>
+<table class="detailsview">
+<tbody>
+	<tr>
+		<td style="overflow: auto; max-width: 50vw;">
+			<pre style="white-space: pre-wrap;"><code class="bmcresponse">{{ response }}</code></pre>
+		</td>
+	</tr>
+</tbody>
+</table>
 {% endif %}
 
 {% endif %}
@@ -58,9 +64,6 @@ function formatBmcResponse() {
 	for (elem of elems) {
 		// Pretty print response in case its JSON. This also helps
 		// with the follow-up step
-		if (elem.parentElement.nodeName === "PRE") {
-			elem.parentElement.style.whiteSpace = "pre-wrap";
-		}
 		try {
 			let jsObj = JSON.parse(elem.innerText);
 			elem.innerText = JSON.stringify(jsObj, null,4);
