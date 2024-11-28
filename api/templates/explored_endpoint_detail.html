@@ -12,7 +12,8 @@
 				{{ endpoint.address }}
 			</div>
 			<div style="flex-shrink: 0;">
-				<form method="GET" action="/admin/redfish-browser?url=https%3A%2F%2F{{ endpoint.address }}%2Fredfish%2Fv1">
+				<form method="GET" action="/admin/redfish-browser">
+					<input type="hidden" name="url" value="https://{{ endpoint.address }}/redfish/v1">
 					<input style="margin-left: 0; width: 100%;" type="submit" value="Redfish Browser">
 				</form>
 			</div>
