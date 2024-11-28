@@ -32,6 +32,12 @@ struct RefishBrowser {
     response: String,
     status_code: u16,
     status_string: String,
+    response_headers: Vec<Header>,
+}
+
+struct Header {
+    name: String,
+    value: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +58,7 @@ pub async fn query(
         bmc_ip: "".to_string(),
         machine_id: "".to_string(),
         response: "".to_string(),
+        response_headers: Vec::new(),
         error: "".to_string(),
         status_code: 0,
         status_string: "".to_string(),
@@ -176,6 +183,12 @@ pub async fn query(
         .canonical_reason()
         .unwrap_or_default()
         .to_string();
+    for (name, value) in response.headers() {
+        browser.response_headers.push(Header {
+            name: name.to_string(),
+            value: String::from_utf8_lossy(value.as_bytes()).to_string(),
+        })
+    }
 
     match response.text().await {
         Ok(response) => {
