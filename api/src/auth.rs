@@ -148,16 +148,40 @@ fn try_external_cert(der_certificate: &[u8]) -> Option<Principal> {
         // Looks through the issuer releative distinguished names for a CN matching what we expect for nvinit certs.
         // Other options may be available in the future, but just this for now.
         for rdn in x509_cert.issuer().iter() {
-            if rdn
+            if let Some(value) = rdn
                 .iter()
                 .filter(|attribute| attribute.attr_type() == &oid_registry::OID_X509_COMMON_NAME) // CN=  see https://www.rfc-editor.org/rfc/rfc4519.html
                 .filter_map(|attribute| attribute.attr_value().as_printablestring().ok())
-                .any(|value| value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com")
+                .find(|value| {
+                    value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com"
+                        || value.string().as_str() == "NVIDIA Forge Root Certificate Authority 2022"
+                })
             {
-                // This CN is what we expect from nvinit certs
-                return Some(Principal::ExternalUser(nvinit_cert_values(
-                    x509_cert.subject(),
-                )));
+                return match value.string().as_str() {
+                    "pki-k8s-usercert-ca.ngc.nvidia.com" => {
+                        // This CN is what we expect from nvinit certs
+                        Some(Principal::ExternalUser(nvinit_cert_values(
+                            x509_cert.subject(),
+                        )))
+                    }
+                    "NVIDIA Forge Root Certificate Authority 2022" => {
+                        if let Some(subject_cn) = x509_cn(x509_cert.subject()) {
+                            if subject_cn == "carbide-ci/cd" {
+                                // This is for the CI/CD pipeline.  For now, we're treating them as the same as nvinit certs.
+                                Some(Principal::ExternalUser(ExternalUserInfo::new(
+                                    None,
+                                    "CI/CD Pipeline".to_string(),
+                                    None,
+                                )))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
             }
         }
     }
@@ -194,6 +218,24 @@ fn nvinit_cert_values(subject: &X509Name) -> ExternalUserInfo {
     }
 
     ExternalUserInfo::new(org, group, user)
+}
+
+// x509_cn returns the CN from a X509Name
+fn x509_cn(subject: &X509Name) -> Option<String> {
+    for rdn in subject.iter() {
+        for attribute in rdn.iter() {
+            match attribute.attr_type() {
+                x if x == &oid_registry::OID_X509_COMMON_NAME => {
+                    if let Ok(value) = attribute.attr_value().as_printablestring() {
+                        return Some(value.string());
+                    }
+                }
+                _ => {}
+            };
+        }
+    }
+
+    None
 }
 
 // This is added to the extensions of a request. The authentication (authn)
