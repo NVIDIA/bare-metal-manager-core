@@ -28,6 +28,24 @@ endpoints of ingested machines. That means a Machine entry needs to exist for th
 	<tr><th>BMC IP</th><td>{{ bmc_ip }}</td></tr>
 	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>HTTP status</th><td>{{ status_code }} {{ status_string }}</td></tr>
+	{% if !response_headers.is_empty() %}
+	<tr>
+		<th>Response Headers</th>
+		<td>
+			<details>
+				<summary>Expand Headers</summary>
+				<table class="detailsview">
+					{% for header in response_headers %}
+					<tr>
+						<td>{{ header.name }}</td>
+						<td>{{ header.value }}</td>
+					</tr>
+					{% endfor %}
+				</table>
+			</details>
+		</td>
+	</tr>
+	{% endif %}
 </table>
 
 {% if !error.is_empty() %}
