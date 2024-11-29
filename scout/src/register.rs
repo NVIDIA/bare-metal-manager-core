@@ -64,7 +64,7 @@ pub async fn run(
         false,
         retry.clone(),
         true,
-        true,
+        is_dpu,
     )
     .await?;
     let machine_id = registration_data.machine_id;
