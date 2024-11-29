@@ -32,6 +32,8 @@ pub enum RegistrationError {
     AttestationFailed,
     #[error("Failed to retrieve or write client certificate: {0}")]
     ClientCertificateError(eyre::Report),
+    #[error("Missing certificate in DiscoverMachine reply")]
+    MissingCertificate,
 }
 
 /// Data that is retrieved from the Forge API server during registration
@@ -209,10 +211,16 @@ pub async fn register_machine(
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .discover_machine(info)
         .await?;
-    match write_certs(response.machine_certificate).await {
-        Ok(()) => {}
-        Err(_) if !require_client_certificates => {}
-        Err(e) => return Err(RegistrationError::ClientCertificateError(e)),
+
+    if response.machine_certificate.is_none() && require_client_certificates {
+        return Err(RegistrationError::MissingCertificate);
+    }
+
+    if response.machine_certificate.is_some() {
+        match write_certs(response.machine_certificate).await {
+            Ok(()) => {}
+            Err(e) => return Err(RegistrationError::ClientCertificateError(e)),
+        }
     }
 
     let machine_id: String = response
