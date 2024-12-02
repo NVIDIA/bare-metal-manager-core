@@ -52,7 +52,7 @@ function update_forged() {
 #
 function sync_argocd() {
   argocd app get --refresh "argocd/site-controller"
-  argocd app sync "argocd/site-controller"
+  argocd app sync "argocd/site-controller" --prune
   argocd app wait "argocd/site-controller" --sync --timeout 600
   argocd app wait "argocd/site-controller" --health --timeout 600
 }
