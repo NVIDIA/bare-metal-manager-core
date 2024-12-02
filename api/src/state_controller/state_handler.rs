@@ -33,9 +33,6 @@ pub struct StateHandlerServices {
     /// A database connection pool that can be used for additional queries
     pub pool: sqlx::PgPool,
 
-    /// API for interaction with Forge
-    pub forge_api: Arc<dyn rpc::forge::forge_server::Forge>,
-
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
 

@@ -151,41 +151,6 @@ pub async fn get_auth_for_storage_cluster(
     Ok((user, pass))
 }
 
-pub async fn set_auth_for_storage_cluster(
-    cluster_id: Uuid,
-    username: String,
-    password: String,
-    credential_provider: &dyn CredentialProvider,
-) -> Result<(), StorageError> {
-    let credentials = Credentials::UsernamePassword { username, password };
-    credential_provider
-        .set_credentials(
-            CredentialKey::NvmeshCluster {
-                cluster_id: cluster_id.to_string(),
-            },
-            credentials,
-        )
-        .await
-        .map_err(StorageError::StoringCredentials)
-}
-
-/// get the wrapper key for the volume to provide to the dpu agent
-pub async fn get_volume_wrapper_key(
-    _volume: &StorageVolume,
-    _credential_provider: &dyn CredentialProvider,
-) -> Result<String, DatabaseError> {
-    todo!()
-}
-
-/// create the wrapper key / key-encryption-key in vault for the volume
-/// this can be enhanced to use tenant provided kms with oasis-kmip instead of local vault
-pub async fn set_volume_wrapper_key(
-    _volume: &StorageVolume,
-    _credential_provider: &dyn CredentialProvider,
-) -> Result<(), DatabaseError> {
-    todo!()
-}
-
 pub async fn create_volume(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &StorageVolumeAttributes,

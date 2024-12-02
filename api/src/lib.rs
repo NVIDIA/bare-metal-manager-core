@@ -14,496 +14,69 @@
 //! The Carbide API server library.
 //!
 
-use std::sync::Arc;
-use std::{
-    backtrace::{Backtrace, BacktraceStatus},
-    net::IpAddr,
-};
+// NOTE on pub vs non-pub mods:
+//
+// carbide-api is a CLI crate, not a lib. The only reason we have lib.rs is to export things so that
+// the `api-test` crate can do integration tests against carbide-api. And even that is a compromise:
+// `api-test` should be as "black box" as possible, and we should only be exporting things like the
+// main `run()` function and some [`cfg`] types, so that api-test can run a full carbide server.
+// Otherwise, lib.rs should be mostly private ("mod", not "pub mod" in these lines), so that we get
+// working dead-code detection: If modules here are public, rust will not find dead code for
+// anything marked `pub` within the module.
 
-use crate::db::network_segment::NetworkSegmentType;
-use crate::logging::setup::Logging;
-use crate::logging::{
-    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
-    setup::create_metrics,
-    setup::setup_logging,
-};
-use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
-use ::measured_boot::Error;
-use ::rpc::errors::RpcDataConversionError;
-use config_version::{ConfigVersion, ConfigVersionParseError};
-use dhcp::allocation::DhcpError;
-use eyre::WrapErr;
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
-use mac_address::MacAddress;
-use model::{
-    hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
-    ConfigValidationError,
-};
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::{Receiver, Sender};
-use tonic::Status;
-use tracing::subscriber::NoSubscriber;
-use utils::HostPortPair;
-
-pub mod api;
-pub mod attestation;
-pub mod auth;
-pub mod cfg;
-pub mod credentials;
-pub mod db;
-pub mod db_init;
-pub mod dhcp;
-pub mod dynamic_settings;
-pub mod ethernet_virtualization;
+mod api;
+mod attestation;
+mod auth;
+mod credentials;
+mod db;
+mod db_init;
+mod dhcp;
+mod errors;
+mod ethernet_virtualization;
 mod firmware_downloader;
 mod handlers;
-pub mod ib;
-pub mod ib_fabric_monitor;
-pub mod instance;
-pub mod ipmitool;
+mod ib;
+mod ib_fabric_monitor;
+mod instance;
+mod ipmitool;
 mod ipxe;
-pub mod legacy;
+mod legacy;
 mod listener;
-pub mod logging;
-pub mod machine_update_manager;
-pub mod measured_boot;
-pub mod model;
-pub mod network_segment;
-pub mod preingestion_manager;
-pub mod redfish;
-pub mod resource_pool;
-pub mod setup;
-pub mod site_explorer;
-pub mod state_controller;
-pub mod storage;
-pub mod web;
-
-/// Represents various Errors that can occur throughout the system.
-///
-/// CarbideError is a way to represent and enrich lower-level errors with specific business logic
-/// that can be handled.
-///
-/// It uses `thiserror` to adapt lower-level errors to this type.
-///
-/// # Examples
-/// ```
-/// let error = carbide::CarbideError::GenericError(String::from("unable to yeet foo into the sun"));
-///
-/// assert_eq!(error.to_string(), "Generic error: unable to yeet foo into the sun");
-/// ```
-///
-#[derive(thiserror::Error, Debug)]
-pub enum CarbideError {
-    #[error("Generic error from report: {0}")]
-    GenericErrorFromReport(#[from] eyre::ErrReport),
-
-    #[error("Unable to parse string into IP Network: {0}")]
-    NetworkParseError(#[from] ipnetwork::IpNetworkError),
-
-    #[error("Unable to parse string into IP Address: {0}")]
-    AddressParseError(#[from] std::net::AddrParseError),
-
-    #[error("Unable to parse string into Mac Address: {0}")]
-    MacAddressParseError(#[from] mac_address::MacParseError),
-
-    #[error("Uuid type conversion error: {0}")]
-    UuidConversionError(#[from] uuid::Error),
-
-    #[error("{kind} already exists: {id}")]
-    AlreadyFoundError {
-        /// The type of the resource that already exists (e.g. Machine)
-        kind: &'static str,
-        /// The ID of the resource that already exists.
-        id: String,
-    },
-
-    #[error("{kind} not found: {id}")]
-    NotFoundError {
-        /// The type of the resource that was not found (e.g. Machine)
-        kind: &'static str,
-        /// The ID of the resource that was not found
-        id: String,
-    },
-
-    #[error("Argument is missing in input: {0}")]
-    MissingArgument(&'static str),
-
-    #[error("Argument is invalid: {0}")]
-    InvalidArgument(String),
-
-    #[error("{0}")]
-    DBError(#[from] db::DatabaseError),
-
-    #[error("Database type conversion error")]
-    DatabaseTypeConversionError(String),
-
-    #[error("Database migration error: {0}")]
-    DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
-
-    #[error("Multiple network segments defined for relay address: {0}")]
-    MultipleNetworkSegmentsForRelay(IpAddr),
-
-    #[error("No network segment defined for relay address: {0}")]
-    NoNetworkSegmentsForRelay(IpAddr),
-
-    #[error("Duplicate MAC address for network: {0}")]
-    NetworkSegmentDuplicateMacAddress(MacAddress),
-
-    #[error("Duplicate MAC address for expected host BMC interface: {0}")]
-    ExpectedHostDuplicateMacAddress(MacAddress),
-
-    #[error("Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}"
-    )]
-    PredictedHostWrongNetworkSegment(MacAddress, NetworkSegmentId, NetworkSegmentType),
-
-    #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
-    NetworkSegmentsExhausted(String),
-
-    #[error("Prefix overlaps with an existing one")]
-    NetworkSegmentPrefixOverlap,
-
-    #[error("Admin network is not configured.")]
-    AdminNetworkNotConfigured,
-
-    #[error("All Network Segments are not allocated yet.")]
-    NetworkSegmentNotAllocated,
-
-    #[error("Network has attached VPC or Subdomain : {0}")]
-    NetworkSegmentDelete(String),
-
-    #[error("A machine that was just created, failed to return any rows: {0}")]
-    DatabaseInconsistencyOnMachineCreate(MachineId),
-
-    #[error("Generic error: {0}")]
-    GenericError(String),
-
-    #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
-    )]
-    IdentifierSpecifiedForNewObject(String),
-
-    #[error("Only one interface per machine can be marked as primary")]
-    OnePrimaryInterface,
-
-    #[error("Find one returned no results but should return one for uuid - {0}")]
-    FindOneReturnedNoResultsError(uuid::Uuid),
-
-    #[error("Find one returned many results but should return one for uuid - {0}")]
-    FindOneReturnedManyResultsError(uuid::Uuid),
-
-    #[error("JSON Parse failure - {0}")]
-    JSONParseError(#[from] serde_json::Error),
-
-    #[error("Tokio Task Join Error {0}")]
-    TokioJoinError(#[from] tokio::task::JoinError),
-
-    #[error("Can not convert between RPC data model and internal data model - {0}")]
-    RpcDataConversionError(#[from] RpcDataConversionError),
-
-    #[error("Invalid configuration version - {0}")]
-    InvalidConfigurationVersion(#[from] ConfigVersionParseError),
-
-    // TODO: Or VersionMismatchError? Or ObjectNotFoundOrModifiedError?
-    #[error(
-        "An object of type {0} was intended to be modified did not have the expected version {1}"
-    )]
-    ConcurrentModificationError(&'static str, ConfigVersion),
-
-    #[error("The function is not implemented")]
-    NotImplemented,
-
-    #[error("Invalid configuration: {0}")]
-    InvalidConfiguration(#[from] ConfigValidationError),
-
-    #[error("Error in DHCP allocation/handling: {0}")]
-    DhcpError(#[from] DhcpError),
-
-    #[error("Error in libredfish: {0}")]
-    RedfishError(#[from] libredfish::RedfishError),
-
-    #[error("Error in libnvmesh: {0}")]
-    NvmeshApiError(#[from] libnvmesh::NvmeshApiError),
-
-    #[error("Resource pool error: {0}")]
-    ResourcePoolError(#[from] resource_pool::ResourcePoolError),
-
-    #[error("Hardware info error: {0}")]
-    HardwareInfoError(#[from] HardwareInfoError),
-
-    #[error("Failed to call IBFabricManager: {0}")]
-    IBFabricError(String),
-
-    #[error("Failed to generate client certificate: {0}")]
-    ClientCertificateError(String),
-
-    #[error("DPU reprovisioning is already started: {0}")]
-    DpuReprovisioningInProgress(String),
-
-    #[error("Tenant handling error: {0}")]
-    TenantError(#[from] TenantError),
-
-    #[error("Machine is in maintenance mode. Cannot allocate instance on it.")]
-    MaintenanceMode,
-
-    #[error("Resource {0} is empty")]
-    ResourceExhausted(String),
-
-    #[error("Host is not available for allocation due to health probe alert")]
-    UnhealthyHost,
-
-    #[error("Lldp handling error: {0}")]
-    LldpError(#[from] LldpError),
-
-    #[error("Unsupported firmware version: {0}")]
-    UnsupportedFirmwareVersion(String),
-
-    #[error("DPU {0} is missing from host snapshot")]
-    MissingDpu(MachineId),
-
-    #[error("Attest Quote Error: {0}")]
-    AttestQuoteError(String),
-
-    #[error("Attest Bind Key Error: {0}")]
-    AttestBindKeyError(String),
-
-    #[error("Explored machine at {0} has no DPUs")]
-    NoDpusInMachine(IpAddr),
-
-    #[error("{requested_ip} resolves to {found_mac} not {requested_mac}")]
-    BmcMacIpMismatch {
-        /// The BMC endpoint IP requested by the caller
-        requested_ip: String,
-        /// The BMC MAC address requested by the caller
-        requested_mac: String,
-        /// The actual BMC MAC address found associated with the endpoint IP
-        found_mac: String,
-    },
-}
-
-impl From<::measured_boot::Error> for CarbideError {
-    fn from(value: Error) -> Self {
-        CarbideError::GenericError(value.to_string())
-    }
-}
-
-impl From<CarbideError> for tonic::Status {
-    fn from(from: CarbideError) -> Self {
-        // If env RUST_BACKTRACE is set extract handler and err location
-        // If it's not set `Backtrace::capture()` is very cheap to call
-        let mut printed = false;
-        let b = Backtrace::capture();
-        if b.status() == BacktraceStatus::Captured {
-            let b_str = b.to_string();
-            let f = b_str
-                .lines()
-                .skip(1)
-                .skip_while(|l| !l.contains("carbide"))
-                .take(2)
-                .collect::<Vec<&str>>();
-            if f.len() == 2 {
-                let handler = f[0].trim();
-                let location = f[1].trim().replace("at ", "");
-                tracing::error!("{from} location={location} handler='{handler}'");
-                printed = true;
-            }
-        }
-        if !printed {
-            match from {
-                CarbideError::NotImplemented => {}
-                _ => tracing::error!("{from}"),
-            }
-        }
-
-        // TODO: There's many more mapped to `Status::internal` which are likely
-        // user errors instead
-        match &from {
-            CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
-            CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
-            CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
-            CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
-            CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
-            CarbideError::NotFoundError { kind, id } => {
-                Status::not_found(format!("{kind} not found: {id}"))
-            }
-            CarbideError::MaintenanceMode => {
-                Status::failed_precondition("MaintenanceMode".to_string())
-            }
-            e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
-            CarbideError::UnhealthyHost => Status::unavailable(from.to_string()),
-            CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-            CarbideError::NetworkSegmentPrefixOverlap => Status::invalid_argument(from.to_string()),
-            error @ CarbideError::ConcurrentModificationError(_, _) => {
-                Status::failed_precondition(error.to_string())
-            }
-            other => Status::internal(other.to_string()),
-        }
-    }
-}
-
-/// Result type for the return type of Carbide functions
-///
-/// Wraps `CarbideError` into `CarbideResult<T>`
-///
-/// # Examples
-/// ```
-/// use carbide::{CarbideError, CarbideResult};
-///
-/// pub fn do_something() -> CarbideResult<u8> {
-///   Err(CarbideError::GenericError(String::from("can't make u8")))
-/// }
-/// assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
-/// ```
-pub type CarbideResult<T> = Result<T, CarbideError>;
-
-pub async fn run(
-    debug: u8,
-    config_str: String,
-    site_config_str: Option<String>,
-    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
-    override_logging_setup: Option<Logging>,
-    stop_channel: Receiver<()>,
-    ready_channel: Sender<()>,
-) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let tconf = match override_logging_setup {
-        Some(t) => t,
-        None => setup_logging(debug, None::<NoSubscriber>)
-            .await
-            .wrap_err("setup_telemetry")?,
-    };
-
-    // Redact credentials before printing the config
-    let print_config = {
-        let mut config = carbide_config.as_ref().clone();
-        if let Some(host_index) = config.database_url.find('@') {
-            let host = config.database_url.split_at(host_index).1;
-            config.database_url = format!("postgres://redacted{}", host);
-        }
-        config
-    };
-
-    tracing::info!("Using configuration: {:#?}", print_config);
-    tracing::info!(
-        "Tokio worker thread count: {} (num_cpus::get()={}, TOKIO_WORKER_THREADS={})",
-        tokio::runtime::Handle::current().metrics().num_workers(),
-        num_cpus::get(),
-        std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
-    );
-
-    let metrics = create_metrics()?;
-
-    // Spin up the webserver which servers `/metrics` requests
-    let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
-    if let Some(metrics_address) = carbide_config.metrics_endpoint {
-        tokio::task::Builder::new()
-            .name("metrics_endpoint")
-            .spawn(async move {
-                if let Err(e) = run_metrics_endpoint(
-                    &MetricsEndpointConfig {
-                        address: metrics_address,
-                        registry: metrics.registry,
-                    },
-                    metrics_stop_rx,
-                )
-                .await
-                {
-                    tracing::error!("Metrics endpoint failed with error: {}", e);
-                }
-            })?;
-    }
-
-    let dynamic_settings = crate::dynamic_settings::DynamicSettings {
-        log_filter: tconf.filter.clone(),
-        create_machines: carbide_config.site_explorer.create_machines.clone(),
-        bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
-    };
-    dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
-
-    tracing::info!(
-        address = carbide_config.listen.to_string(),
-        build_version = forge_version::v!(build_version),
-        build_date = forge_version::v!(build_date),
-        rust_version = forge_version::v!(rust_version),
-        "Start carbide-api",
-    );
-
-    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
-    let redfish_pool = match override_redfish_pool {
-        Some(pool) => {
-            tracing::info!("Using override redfish client pool");
-            pool
-        }
-        None => {
-            let rf_pool = libredfish::RedfishClientPool::builder()
-                .build()
-                .map_err(CarbideError::from)?;
-
-            // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
-            match (
-                &carbide_config.site_explorer.override_target_ip,
-                carbide_config.site_explorer.override_target_port,
-                carbide_config.site_explorer.bmc_proxy.load().as_ref(),
-            ) {
-                (Some(_), _, Some(_)) => {
-                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config.");
-                }
-                (Some(ip), maybe_target_port, None) => {
-                    tracing::warn!("Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
-                    if let Some(port) = maybe_target_port {
-                        carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
-                            HostPortPair::HostAndPort(ip.to_string(), port),
-                        )));
-                    } else {
-                        carbide_config
-                            .site_explorer
-                            .bmc_proxy
-                            .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
-                    }
-                }
-                (None, Some(port), None) => {
-                    tracing::warn!("Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
-                    carbide_config
-                        .site_explorer
-                        .bmc_proxy
-                        .store(Arc::new(Some(HostPortPair::PortOnly(port))));
-                }
-                (None, Some(_), Some(_)) => {
-                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config.");
-                }
-                (None, None, _) => {} // leave bmc_proxy untouched
-            }
-            let redfish_pool = RedfishClientPoolImpl::new(
-                vault_client.clone(),
-                rf_pool,
-                carbide_config.site_explorer.bmc_proxy.clone(),
-            );
-            Arc::new(redfish_pool)
-        }
-    };
-
-    // Split stop_channel into a task which will stop both the API server and metrics server
-    let (api_stop_tx, api_stop_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        stop_channel.await.inspect_err(|error| {
-            tracing::error!(%error, "error waiting on stop channel");
-        })?;
-        _ = metrics_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to metrics server. already stopped?");
-        });
-        _ = api_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to api server. already stopped?");
-        });
-        Ok::<(), eyre::Report>(())
-    });
-
-    setup::start_api(
-        carbide_config,
-        metrics.meter,
-        dynamic_settings,
-        redfish_pool,
-        vault_client,
-        api_stop_rx,
-        ready_channel,
-    )
-    .await
-}
+mod logging;
+mod machine_update_manager;
+mod measured_boot;
+mod model;
+mod network_segment;
+mod preingestion_manager;
+mod redfish;
+mod resource_pool;
+mod run;
+mod setup;
+mod site_explorer;
+mod state_controller;
+mod storage;
+#[cfg(test)]
+mod tests;
+mod web;
+
+// Save typing
+pub(crate) use errors::{CarbideError, CarbideResult};
+
+// MARK: - Public exports
+
+// Needed by api-test
+pub mod cfg;
+pub mod dynamic_settings;
+pub mod test_logging;
+
+// Stuff needed by main.rs and api-test
+pub use crate::{db::migrations::migrate, run::run};
+
+// Stuff needed by api-test, mostly for declaring a CarbideConfig object
+pub use {
+    ib::{IBMtu, IBRateLimit, IBServiceLevel},
+    logging::setup::{create_metrics, Metrics},
+    model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType},
+    resource_pool::{Range as ResourcePoolRange, ResourcePoolDef, ResourcePoolType},
+    setup::create_vault_client,
+};

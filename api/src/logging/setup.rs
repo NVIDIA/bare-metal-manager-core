@@ -25,7 +25,7 @@ use tracing_subscriber::{
 use super::level_filter::ActiveLevel;
 use crate::logging::sqlx_query_tracing;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Logging {
     pub filter: Arc<ArcSwap<ActiveLevel>>,
 }
@@ -35,7 +35,7 @@ pub struct Metrics {
     pub registry: prometheus::Registry,
     pub meter: Meter,
     // Need to retain this, if it's dropped, metrics are not held
-    pub meter_provider: SdkMeterProvider,
+    pub _meter_provider: SdkMeterProvider,
 }
 
 pub async fn setup_logging(
@@ -138,7 +138,7 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError>
     Ok(Metrics {
         registry: prometheus_registry,
         meter,
-        meter_provider,
+        _meter_provider: meter_provider,
     })
 }
 

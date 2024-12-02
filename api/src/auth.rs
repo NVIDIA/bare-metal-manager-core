@@ -34,15 +34,6 @@ impl ExternalUserInfo {
     fn new(org: Option<String>, group: String, user: Option<String>) -> Self {
         Self { org, group, user }
     }
-    pub fn org(&self) -> Option<&str> {
-        self.org.as_deref()
-    }
-    pub fn group(&self) -> &str {
-        self.group.as_str()
-    }
-    pub fn user(&self) -> Option<&str> {
-        self.user.as_deref()
-    }
 }
 
 // Principal: something like an account, service, address, or other
@@ -69,9 +60,6 @@ pub enum Principal {
     // Anonymous is more like the absence of any principal, but it's convenient
     // to be able to represent it explicitly.
     Anonymous,
-
-    // Invalid should match nothing
-    Invalid,
 }
 
 impl Principal {
@@ -90,7 +78,6 @@ impl Principal {
             }
             Principal::TrustedCertificate => "trusted-certificate".into(),
             Principal::Anonymous => "anonymous".into(),
-            Principal::Invalid => "invalid".into(),
         }
     }
 
@@ -137,7 +124,6 @@ impl Principal {
                 matches!(self, Principal::TrustedCertificate)
             }
             Principal::Anonymous => true,
-            Principal::Invalid => false,
         }
     }
 }
@@ -248,13 +234,6 @@ pub struct AuthContext {
 }
 
 impl AuthContext {
-    pub fn get_spiffe_service_id(&self) -> Option<&str> {
-        self.principals.iter().find_map(|p| match p {
-            Principal::SpiffeServiceIdentifier(identifier) => Some(identifier.as_str()),
-            _ => None,
-        })
-    }
-
     pub fn get_spiffe_machine_id(&self) -> Option<&str> {
         self.principals.iter().find_map(|p| match p {
             Principal::SpiffeMachineIdentifier(identifier) => Some(identifier.as_str()),

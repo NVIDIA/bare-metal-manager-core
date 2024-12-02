@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-pub use crate::db::resource_pool::{
+pub(crate) mod common;
+pub(crate) mod define;
+pub(crate) use crate::db::resource_pool::{
     all, find_value, stats, DbResourcePool, OwnerType, ResourcePoolError, ResourcePoolStats,
     ValueType,
 };
-pub mod common;
-mod define;
-pub use define::{
-    define_all_from, DefineResourcePoolError, Range, ResourcePoolDef, ResourcePoolType,
-};
+pub(crate) use define::{define_all_from, DefineResourcePoolError};
+
+// These are currently only used by api-test
+pub use define::{Range, ResourcePoolDef, ResourcePoolType};

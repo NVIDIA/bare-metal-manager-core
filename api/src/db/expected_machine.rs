@@ -133,6 +133,7 @@ FROM expected_machines em
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
 
+    #[cfg(test)] // currently only used by tests
     pub async fn update_bmc_credentials(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,

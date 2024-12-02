@@ -22,6 +22,8 @@ tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 futures = "0.3"
 itertools = "0.13"
+ctor = "0.2"
+opentelemetry = { workspace = true }
 
 # [local-dependencies]
 agent = { path = "../bluefield/agent" }

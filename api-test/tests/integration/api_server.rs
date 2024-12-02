@@ -19,10 +19,9 @@ use carbide::cfg::{
     MultiDpuConfig, NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig,
     TlsConfig,
 };
-use carbide::ib::{IBMtu, IBRateLimit, IBServiceLevel};
-use carbide::logging::setup::Logging;
-use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
-use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
+use carbide::{IBMtu, IBRateLimit, IBServiceLevel};
+use carbide::{NetworkDefinition, NetworkDefinitionSegmentType};
+use carbide::{ResourcePoolDef, ResourcePoolRange, ResourcePoolType};
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
@@ -35,7 +34,6 @@ pub struct StartArgs {
     pub db_url: String,
     pub vault_token: String,
     pub bmc_proxy: Option<HostPortPair>,
-    pub logging_setup: Logging,
     pub site_explorer_create_machines: bool,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
@@ -48,7 +46,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         db_url,
         vault_token,
         bmc_proxy,
-        logging_setup,
         site_explorer_create_machines,
         stop_channel,
         ready_channel,
@@ -101,7 +98,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
                 ResourcePoolDef {
                     pool_type: ResourcePoolType::Integer,
                     prefix: None,
-                    ranges: vec![Range {
+                    ranges: vec![ResourcePoolRange {
                         start: "100".to_string(),
                         end: "501".to_string(),
                     }],
@@ -112,7 +109,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
                 ResourcePoolDef {
                     pool_type: ResourcePoolType::Integer,
                     prefix: None,
-                    ranges: vec![Range {
+                    ranges: vec![ResourcePoolRange {
                         start: "1024500".to_string(),
                         end: "1024550".to_string(),
                     }],
@@ -123,7 +120,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
                 ResourcePoolDef {
                     pool_type: ResourcePoolType::Integer,
                     prefix: None,
-                    ranges: vec![Range {
+                    ranges: vec![ResourcePoolRange {
                         start: "2024500".to_string(),
                         end: "2024550".to_string(),
                     }],
@@ -134,7 +131,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
                 ResourcePoolDef {
                     pool_type: ResourcePoolType::Integer,
                     prefix: None,
-                    ranges: vec![Range {
+                    ranges: vec![ResourcePoolRange {
                         start: "1".to_string(),
                         end: "10".to_string(),
                     }],
@@ -255,7 +252,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         carbide_config_str,
         None,
         None,
-        Some(logging_setup),
+        true,
         stop_channel,
         ready_channel,
     )

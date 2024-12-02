@@ -61,11 +61,6 @@ impl ColumnInfo<'_> for IdColumn {
 #[derive(Debug, Clone)]
 pub struct Instance {}
 
-#[derive(Debug, Clone)]
-pub struct InstanceList {
-    pub instances: Vec<Instance>,
-}
-
 pub struct NewInstance<'a> {
     pub instance_id: InstanceId,
     pub machine_id: MachineId,

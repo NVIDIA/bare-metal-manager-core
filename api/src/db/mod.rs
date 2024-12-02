@@ -97,24 +97,6 @@ impl<'q> FilterableQueryBuilder<'q> {
 
     /// Push a WHERE clause to this query builder that matches the given filter, optionally using
     /// the given relation to qualify the column names
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// use carbide::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-    ///
-    /// #[derive(Copy, Clone)]
-    /// struct IdColumn;
-    /// impl ColumnInfo<'_> for IdColumn {
-    ///     type TableType = ();
-    ///     type ColumnType = i32;
-    ///     fn column_name(&self) -> &'static str { "id" }
-    /// }
-    ///
-    /// let query = FilterableQueryBuilder::new("SELECT * from table1 t")
-    ///     .filter_relation(&ObjectColumnFilter::One(IdColumn, &1), Some("t"));
-    /// assert_eq!(query.sql(), "SELECT * from table1 t WHERE t.id=$1");
-    /// ```
     pub fn filter_relation<'a, C: ColumnInfo<'q>>(
         mut self,
         filter: &ObjectColumnFilter<'q, C>,
@@ -152,30 +134,50 @@ impl<'q> FilterableQueryBuilder<'q> {
     }
 
     /// Push a WHERE clause to this query builder that matches the given filter.
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// use carbide::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-    ///
-    /// #[derive(Copy, Clone)]
-    /// struct IdColumn;
-    /// impl ColumnInfo<'_> for IdColumn {
-    ///     type TableType = ();
-    ///     type ColumnType = i32;
-    ///     fn column_name(&self) -> &'static str { "id" }
-    /// }
-    ///
-    /// let query = FilterableQueryBuilder::new("SELECT * from table1")
-    ///     .filter(&ObjectColumnFilter::One(IdColumn, &1));
-    /// assert_eq!(query.sql(), "SELECT * from table1 WHERE id=$1");
-    /// ```
     pub fn filter<'a, C: ColumnInfo<'q>>(
         self,
         filter: &ObjectColumnFilter<'q, C>,
     ) -> sqlx::QueryBuilder<'q, Postgres> {
         self.filter_relation(filter, None)
     }
+}
+
+#[test]
+fn test_filter_relation() {
+    use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+
+    #[derive(Copy, Clone)]
+    struct IdColumn;
+    impl ColumnInfo<'_> for IdColumn {
+        type TableType = ();
+        type ColumnType = i32;
+        fn column_name(&self) -> &'static str {
+            "id"
+        }
+    }
+
+    let query = FilterableQueryBuilder::new("SELECT * from table1 t")
+        .filter_relation(&ObjectColumnFilter::One(IdColumn, &1), Some("t"));
+    assert_eq!(query.sql(), "SELECT * from table1 t WHERE t.id=$1");
+}
+
+#[test]
+fn test_filter() {
+    use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+
+    #[derive(Copy, Clone)]
+    struct IdColumn;
+    impl ColumnInfo<'_> for IdColumn {
+        type TableType = ();
+        type ColumnType = i32;
+        fn column_name(&self) -> &'static str {
+            "id"
+        }
+    }
+
+    let query = FilterableQueryBuilder::new("SELECT * from table1")
+        .filter(&ObjectColumnFilter::One(IdColumn, &1));
+    assert_eq!(query.sql(), "SELECT * from table1 WHERE id=$1");
 }
 
 /// Metadata about a particular column that can be filtered by in a typical `find_by` function
@@ -187,8 +189,8 @@ pub trait ColumnInfo<'a>: Clone + Copy {
     /// TableType has no requirements, it is here to allow `find_by` functions to constrain what
     /// columns can be searched by, via type bounds. For example, this will fail to compile:
     ///
-    /// ```compile_fail,E0271
-    /// use carbide::db::{ColumnInfo, ObjectColumnFilter};
+    /// ```ignore
+    /// use crate::db::{ColumnInfo, ObjectColumnFilter};
     ///
     /// struct GoodTable; // Marker type, can be otherwise unused
     /// struct BadTable; // Marker type, can be otherwise unused

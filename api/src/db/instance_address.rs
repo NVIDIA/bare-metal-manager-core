@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
-    ColumnInfo, FilterableQueryBuilder,
+    ColumnInfo,
 };
 use super::{network_segment, DatabaseError, ObjectColumnFilter};
 
@@ -39,10 +39,13 @@ use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
+    #[allow(dead_code)]
     pub id: Uuid,
     pub instance_id: InstanceId,
     pub circuit_id: String,
+    #[allow(dead_code)]
     pub address: IpAddr,
+    #[allow(dead_code)]
     pub prefix: IpNetwork,
 }
 
@@ -69,14 +72,6 @@ impl ColumnInfo<'_> for PrefixColumn {
 }
 
 impl InstanceAddress {
-    pub fn is_ipv4(&self) -> bool {
-        self.address.is_ipv4()
-    }
-
-    pub fn is_ipv6(&self) -> bool {
-        self.address.is_ipv6()
-    }
-
     pub async fn find_by_address(
         txn: &mut Transaction<'_, Postgres>,
         address: IpAddr,
@@ -89,11 +84,12 @@ impl InstanceAddress {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
+    #[cfg(test)] // currently only used by tests
     pub async fn find_by_prefix(
         txn: &mut Transaction<'_, Postgres>,
         prefix: IpNetwork,
     ) -> Result<Option<Self>, DatabaseError> {
-        let mut query = FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
+        let mut query = crate::db::FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
             .filter(&ObjectColumnFilter::One(PrefixColumn, &prefix));
 
         query

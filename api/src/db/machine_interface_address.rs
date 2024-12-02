@@ -41,14 +41,6 @@ impl ColumnInfo<'_> for MachineInterfaceIdColumn {
 }
 
 impl MachineInterfaceAddress {
-    pub fn is_ipv4(&self) -> bool {
-        self.address.is_ipv4()
-    }
-
-    pub fn is_ipv6(&self) -> bool {
-        self.address.is_ipv6()
-    }
-
     pub async fn find_ipv4_for_interface(
         txn: &mut Transaction<'_, Postgres>,
         interface_id: MachineInterfaceId,

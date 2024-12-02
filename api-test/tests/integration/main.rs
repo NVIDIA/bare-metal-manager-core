@@ -21,6 +21,7 @@ use std::{
     time::{self, Duration},
 };
 
+use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use bmc_mock::ListenerOrAddress;
@@ -33,8 +34,6 @@ use sqlx::types::mac_address::MacAddress;
 use sqlx::{Postgres, Row};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
-
-use crate::utils::IntegrationTestEnvironment;
 
 mod api_server;
 mod domain;
@@ -50,6 +49,21 @@ mod upgrade;
 mod utils;
 mod vault;
 mod vpc;
+
+/// Setup logging for tests.
+#[ctor::ctor]
+fn setup_test_logging() {
+    use tracing_subscriber::util::SubscriberInitExt;
+    let logging = carbide::test_logging::test_logging_subscriber();
+    if let Err(e) = logging.try_init() {
+        // Note: Resist the temptation to ignore this error. We really should only have one place in
+        // the test binary that initializes logging.
+        panic!(
+            "Failed to initialize trace logging for tests. It's possible some earlier code path \
+        has already set a global default log subscriber: {e}"
+        );
+    }
+}
 
 /// that `bootstrap-forge-docker` would do.
 /// It requires `grpcurl` and `vault` on the PATH,
@@ -68,7 +82,6 @@ async fn test_integration() -> eyre::Result<()> {
         db_pool,
         metrics: _,
         db_url: _,
-        logging_setup: _,
     } = test_env.clone();
 
     // Run bmc-mock

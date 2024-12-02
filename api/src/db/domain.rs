@@ -44,8 +44,8 @@ const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 ///
 /// # Example
 ///
-/// ```rust
-/// use carbide::db::domain::Soa;
+/// ```ignore
+/// use crate::db::domain::Soa;
 /// let soa = Soa {
 ///     primary_ns: "ns1.example.com".to_string(),
 ///     contact: "hostmaster.example.com".to_string(),
@@ -142,18 +142,6 @@ impl Soa {
 /// * `allow_axfr_from` - A list of IP addresses or CIDR ranges as strings that are permitted to perform AXFR (zone transfer) requests.
 ///   This can be used to restrict zone transfers to trusted servers.
 ///
-/// # Example
-///
-/// ```rust
-/// use carbide::db::domain::DomainMetadata;
-/// let mut domain_metadata = DomainMetadata::default();
-/// domain_metadata.update_allow_axfr_from(
-///      vec![
-///         "192.168.1.1".to_string(),
-///         "10.0.0.0/24".to_string(),
-///     ]);
-///
-/// ```
 /// A list of IP addresses or CIDR ranges allowed to perform AXFR (zone transfer) requests.
 ///
 /// This provides control over which external servers are permitted to retrieve
@@ -161,6 +149,14 @@ impl Soa {
 #[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub struct DomainMetadata {
     allow_axfr_from: Vec<String>,
+}
+
+#[test]
+fn test_domain_metadata() {
+    use crate::db::domain::DomainMetadata;
+    let mut domain_metadata = DomainMetadata::default();
+    domain_metadata
+        .update_allow_axfr_from(vec!["192.168.1.1".to_string(), "10.0.0.0/24".to_string()]);
 }
 
 impl DomainMetadata {
@@ -241,6 +237,7 @@ impl<'r> FromRow<'r, PgRow> for Domain {
 pub struct NewDomain {
     pub name: String,
     pub soa: Soa,
+    #[allow(dead_code)]
     pub metadata: DomainMetadata,
 }
 

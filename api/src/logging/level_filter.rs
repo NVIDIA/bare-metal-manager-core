@@ -30,6 +30,16 @@ pub struct ActiveLevel {
     expiry: Option<DateTime<Utc>>,
 }
 
+impl Default for ActiveLevel {
+    fn default() -> Self {
+        Self {
+            current: EnvFilter::from_default_env(),
+            base: "".to_string(),
+            expiry: None,
+        }
+    }
+}
+
 impl ActiveLevel {
     pub fn new(f: EnvFilter) -> Self {
         Self {

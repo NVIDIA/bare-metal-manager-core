@@ -13,13 +13,15 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use tracing::{field, metadata::LevelFilter, span, Event, Id, Subscriber};
+use tracing::{field, span, Event, Id, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
 
 // Returns `Filter` that prevents logs with a level below `WARN` for sqlx
 // We use this solely for stdout and OpenTelemetry logging.
 // We can't make it a global filter, because our postgres tracing layer requires those logs
+#[cfg(test)] // currently only used in tests
 pub fn block_sqlx_filter() -> tracing_subscriber::filter::Targets {
+    use tracing::metadata::LevelFilter;
     tracing_subscriber::filter::Targets::new()
         .with_default(LevelFilter::TRACE)
         .with_target("sqlx::query", LevelFilter::WARN)
@@ -365,8 +367,7 @@ mod tests {
     #[test]
     fn test_sqlx_subscriber() {
         use std::time::Duration;
-
-        use tracing::metadata::Level;
+        use tracing::metadata::{Level, LevelFilter};
 
         let writer = Arc::new(MutexWriter {
             writer: Mutex::new(Vec::new()),

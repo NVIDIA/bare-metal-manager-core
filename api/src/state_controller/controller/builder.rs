@@ -102,6 +102,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
 impl<IO: StateControllerIO> Builder<IO> {
     /// Builds a [`StateController`] with all configured options with the intention
     /// of calling the `run_single_iteration` whenever required
+    #[cfg(test)]
     pub fn build_for_manual_iterations(
         self,
     ) -> Result<StateController<IO>, StateControllerBuildError> {
@@ -152,11 +153,6 @@ impl<IO: StateControllerIO> Builder<IO> {
                     "nvmesh_client_pool",
                 ))?;
 
-        let forge_api = self
-            .forge_api
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("forge_api"))?;
-
         let ib_fabric_manager =
             self.ib_fabric_manager
                 .take()
@@ -188,7 +184,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             ib_fabric_manager,
             redfish_client_pool,
             nvmesh_client_pool,
-            forge_api,
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
             ipmi_tool,

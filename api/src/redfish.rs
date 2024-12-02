@@ -37,7 +37,7 @@ use libredfish::{
         BootProgress, ODataId, ODataLinks,
     },
     Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
-    RedfishError, Resource, RoleId, SystemPowerControl,
+    RedfishError, Resource, SystemPowerControl,
 };
 use mac_address::MacAddress;
 use tokio::time;
@@ -49,8 +49,6 @@ use crate::{
     model::machine::MachineSnapshot,
     CarbideError, CarbideResult,
 };
-
-const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
@@ -145,44 +143,6 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             true,
         )
         .await
-    }
-
-    async fn create_forge_admin_user(
-        &self,
-        client: &dyn Redfish,
-        machine_id: String,
-    ) -> Result<(), RedfishClientCreationError> {
-        let username = FORGE_DPU_BMC_USERNAME;
-        let password = Credentials::generate_password();
-        let credential_key = CredentialKey::DpuRedfish {
-            credential_type: CredentialType::Machine { machine_id },
-        };
-        self.credential_provider()
-            .set_credentials(
-                credential_key.clone(),
-                Credentials::UsernamePassword {
-                    username: username.to_string(),
-                    password: password.clone(),
-                },
-            )
-            .await
-            .map_err(|cause| RedfishClientCreationError::SetCredentials {
-                key: credential_key.to_key_str(),
-                cause,
-            })?;
-        if let Err(e) = client
-            .create_user(username, password.as_str(), RoleId::Administrator)
-            .await
-        {
-            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
-                return client
-                    .change_password(username, password.as_str())
-                    .await
-                    .map_err(RedfishClientCreationError::RedfishError);
-            }
-            return Err(RedfishClientCreationError::RedfishError(e));
-        }
-        Ok(())
     }
 
     // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string

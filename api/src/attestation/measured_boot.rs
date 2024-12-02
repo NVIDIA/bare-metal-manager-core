@@ -17,7 +17,6 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
-use std::str;
 use tempdir::TempDir;
 
 use crate::attestation::get_ek_cert_by_machine_id;
@@ -197,7 +196,7 @@ pub fn cli_make_cred(
     if !output.stderr.is_empty() {
         tracing::error!(
             "tpm2 makecredential returned error: {}",
-            str::from_utf8(output.stderr.as_slice()).unwrap_or("<error: undisplayable output>")
+            String::from_utf8_lossy(output.stderr.as_slice())
         );
     }
 

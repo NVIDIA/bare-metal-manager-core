@@ -16,42 +16,17 @@ use std::{
     time::Duration,
 };
 
-use carbide::logging::setup::{create_metrics, setup_logging, Logging, Metrics};
-use carbide::logging::sqlx_query_tracing;
-use carbide::setup;
-use eyre::{Report, WrapErr};
+use carbide::{create_metrics, Metrics};
+use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use lazy_static::lazy_static;
 use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
 use tokio::sync::oneshot::Sender;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::fmt::TestWriter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Layer};
 use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
-
-lazy_static! {
-    // Note: We can only initialize logging once in a process, or else we get an error:
-    // "a global default trace dispatcher has already been set".
-    //
-    // This is because try_init sets a global logger and can only be called once.
-    // forge_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
-    // - Even if we could get around that (forge_host_support::subscriber().set_default() should
-    // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
-    // which can also only be initialized once. What a mess.
-    // Error is: "attempted to set a logger after the logging system was already initialized"
-    //
-    // So we pass a LoggingSetup object to carbide-api so it can avoid initializing it itself, and
-    // we re-use this object for multiple tests.
-    static ref LOGGING_SETUP: Mutex<Option<Logging>> = Mutex::new(None);
-}
 
 #[derive(Debug, Clone)]
 pub struct IntegrationTestEnvironment {
@@ -60,7 +35,6 @@ pub struct IntegrationTestEnvironment {
     pub carbide_metrics_addr: SocketAddr,
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
-    pub logging_setup: Logging,
     pub metrics: Metrics,
 }
 
@@ -84,20 +58,6 @@ impl IntegrationTestEnvironment {
         // TODO: Also pick a free port for metrics
         let carbide_metrics_addr: SocketAddr = "127.0.0.1:1080".parse().unwrap();
 
-        let logging_setup = {
-            let mut locked = LOGGING_SETUP.lock().await;
-            match locked.as_ref() {
-                Some(t) => t.clone(),
-                None => {
-                    let logging_setup = setup_logging(0, Some(test_logging_subscriber()))
-                        .await
-                        .wrap_err("try_from_environment().setup_telemetry()")?;
-                    _ = locked.insert(logging_setup.clone());
-                    logging_setup
-                }
-            }
-        };
-
         // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
         let db_url = env::var("DATABASE_URL")? + "/test_integration";
         drop_pg_database_with_retry_if_exists(&db_url).await?;
@@ -109,7 +69,6 @@ impl IntegrationTestEnvironment {
             carbide_metrics_addr,
             db_url,
             db_pool,
-            logging_setup,              // singleton
             metrics: create_metrics()?, // unique to each test
         }))
     }
@@ -168,7 +127,6 @@ pub async fn start_api_server(
         db_url,
         root_dir,
         carbide_metrics_addr: _,
-        logging_setup,
         metrics,
     } = test_env;
 
@@ -201,7 +159,6 @@ pub async fn start_api_server(
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let logging_setup_clone = logging_setup.clone();
     let join_handle = tokio::spawn(async move {
         api_server::start(StartArgs {
             addr: carbide_api_addr,
@@ -209,7 +166,6 @@ pub async fn start_api_server(
             db_url,
             vault_token,
             bmc_proxy,
-            logging_setup: logging_setup_clone,
             site_explorer_create_machines,
             stop_channel: stop_rx,
             ready_channel: ready_tx,
@@ -247,37 +203,8 @@ impl ApiServerHandle {
     }
 }
 
-pub fn test_logging_subscriber() -> impl SubscriberInitExt {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower=warn".parse().unwrap())
-        .add_directive("rustify=off".parse().unwrap())
-        .add_directive("rustls=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap())
-        // Silence permissive mode related messages
-        .add_directive("carbide::auth=error".parse().unwrap());
-
-    // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
-    // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
-    // - Failing tests will have their output printed
-    Box::new(
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::Layer::default()
-                    .compact()
-                    .with_ansi(false)
-                    .with_writer(TestWriter::new)
-                    .with_filter(sqlx_query_tracing::block_sqlx_filter()),
-            )
-            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
-            .with(env_filter),
-    )
-}
-
 pub async fn populate_initial_vault_secrets(metrics: &Metrics) -> Result<(), Report> {
-    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
+    let vault_client = carbide::create_vault_client(metrics.meter.clone()).await?;
     vault_client
         .set_credentials(
             CredentialKey::BmcCredentials {

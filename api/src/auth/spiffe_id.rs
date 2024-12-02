@@ -78,16 +78,6 @@ impl SpiffeId {
     /// # Errors
     ///
     /// If the function cannot parse the input as a SPIFFE ID, a [`SpiffeIdError`] variant will be returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use carbide::auth::spiffe_id::SpiffeId;
-    ///
-    /// let spiffe_id = SpiffeId::new("spiffe://trustdomain/path").unwrap();
-    /// assert_eq!("trustdomain", spiffe_id.trust_domain().to_string());
-    /// assert_eq!("/path", spiffe_id.path());
-    /// ```
     pub fn new(id: &str) -> Result<Self, SpiffeIdError> {
         if id.is_empty() {
             return Err(SpiffeIdError::Empty);
@@ -146,19 +136,7 @@ impl SpiffeId {
     /// # Errors
     ///
     /// If the segments contain not allowed characters, a [`SpiffeIdError`] variant will be returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use carbide::auth::spiffe_id::{SpiffeId, TrustDomain};
-    ///
-    /// let trust_domain = TrustDomain::new("trustdomain").unwrap();
-    /// let spiffe_id = SpiffeId::from_segments(trust_domain, &["path1", "path2", "path3"]).unwrap();
-    /// assert_eq!(
-    ///     "spiffe://trustdomain/path1/path2/path3",
-    ///     spiffe_id.to_string()
-    /// );
-    /// ```
+    #[cfg(test)] // currently only used by tests
     pub fn from_segments(
         trust_domain: TrustDomain,
         segments: &[&str],
@@ -186,6 +164,27 @@ impl SpiffeId {
     pub fn is_member_of(&self, trust_domain: &TrustDomain) -> bool {
         &self.trust_domain == trust_domain
     }
+}
+
+#[test]
+fn test_new() {
+    use crate::auth::spiffe_id::SpiffeId;
+
+    let spiffe_id = SpiffeId::new("spiffe://trustdomain/path").unwrap();
+    assert_eq!("trustdomain", spiffe_id.trust_domain().to_string());
+    assert_eq!("/path", spiffe_id.path());
+}
+
+#[test]
+fn test_from_segments() {
+    use crate::auth::spiffe_id::{SpiffeId, TrustDomain};
+
+    let trust_domain = TrustDomain::new("trustdomain").unwrap();
+    let spiffe_id = SpiffeId::from_segments(trust_domain, &["path1", "path2", "path3"]).unwrap();
+    assert_eq!(
+        "spiffe://trustdomain/path1/path2/path3",
+        spiffe_id.to_string()
+    );
 }
 
 impl Display for SpiffeId {
@@ -272,20 +271,6 @@ impl TrustDomain {
     /// # Errors
     ///
     /// If the function cannot parse the input as a Trust domain, a [`SpiffeIdError`] variant will be returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use carbide::auth::spiffe_id::TrustDomain;
-    ///
-    /// let trust_domain = TrustDomain::new("domain.test").unwrap();
-    /// assert_eq!("domain.test", trust_domain.to_string());
-    /// assert_eq!("spiffe://domain.test", trust_domain.id_string());
-    ///
-    /// let trust_domain = TrustDomain::new("spiffe://example.org/path").unwrap();
-    /// assert_eq!("example.org", trust_domain.to_string());
-    /// assert_eq!("spiffe://example.org", trust_domain.id_string());
-    /// ```
     pub fn new(id_or_name: &str) -> Result<Self, SpiffeIdError> {
         if id_or_name.is_empty() {
             return Err(SpiffeIdError::MissingTrustDomain);
@@ -310,6 +295,19 @@ impl TrustDomain {
     pub fn id_string(&self) -> String {
         format!("{}://{}", SPIFFE_SCHEME, self.name)
     }
+}
+
+#[test]
+fn test_new_trust_domain() {
+    use crate::auth::spiffe_id::TrustDomain;
+
+    let trust_domain = TrustDomain::new("domain.test").unwrap();
+    assert_eq!("domain.test", trust_domain.to_string());
+    assert_eq!("spiffe://domain.test", trust_domain.id_string());
+
+    let trust_domain = TrustDomain::new("spiffe://example.org/path").unwrap();
+    assert_eq!("example.org", trust_domain.to_string());
+    assert_eq!("spiffe://example.org", trust_domain.id_string());
 }
 
 impl Display for TrustDomain {
