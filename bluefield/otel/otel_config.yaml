@@ -311,9 +311,10 @@ processors:
           # kernel is not actually a systemd unit, but treat it like one to
           # facilitate grouping in grafana.
           - set(attributes["systemd.unit"], "kernel")
-          - set(attributes["PRIORITY"], body["PRIORITY"])
-          - set(attributes["KERNEL_SUBSYSTEM"], body["_KERNEL_SUBSYSTEM"])
-          - set(body, body["MESSAGE"])
+          # Even though this strips the log body down to just the message, it
+          # retains the structured format so we can restore fields such as
+          # PRIORITY or _KERNEL_DEVICE without changing the exported format.
+          - keep_keys(body, ["MESSAGE"])
   transform/metrics-dts:
     error_mode: ignore
     metric_statements:
