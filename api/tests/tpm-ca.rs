@@ -1,6 +1,5 @@
 pub mod common;
 
-#[cfg(feature = "tss-esapi")]
 pub mod tests {
 
     use super::*;

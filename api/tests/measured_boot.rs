@@ -12,7 +12,6 @@
 
 pub mod common;
 
-#[cfg(feature = "tss-esapi")]
 pub mod tests {
 
     use super::*;
@@ -308,7 +307,6 @@ pub mod tests {
         }
     }
 
-    #[cfg(feature = "tss-esapi")]
     #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
     async fn test_verify_quote_cannot_verify_signature_fails_returns_error(pool: sqlx::PgPool) {
         use tss_esapi::structures::Signature;

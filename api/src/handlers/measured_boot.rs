@@ -14,26 +14,12 @@ pub use ::rpc::forge as rpc_forge;
 pub use ::rpc::machine_discovery as rpc_md;
 
 use crate::CarbideError;
-#[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use forge_uuid::machine::MachineId;
 use sqlx::Postgres;
 use sqlx::Transaction;
 use tonic::Status;
 
-#[cfg(not(feature = "tss-esapi"))]
-pub(crate) async fn create_attest_key_bind_challenge(
-    _txn: &mut Transaction<'_, Postgres>,
-    _attest_key_info: &rpc_md::AttestKeyInfo,
-    _machine_id: &MachineId,
-) -> Result<rpc_forge::AttestKeyBindChallenge, Status> {
-    Err(CarbideError::AttestBindKeyError(
-        "create_attest_key_bind_challenge is feature-disabled".to_string(),
-    )
-    .into())
-}
-
-#[cfg(feature = "tss-esapi")]
 pub(crate) async fn create_attest_key_bind_challenge(
     txn: &mut Transaction<'_, Postgres>,
     attest_key_info: &rpc_md::AttestKeyInfo,
