@@ -91,6 +91,7 @@ pub struct EkCertVerificationStatus {
     pub ek_sha256: Vec<u8>,
     pub serial_num: String,
     pub signing_ca_found: bool,
+    #[allow(dead_code)]
     pub ca_id: Option<i32>,
     pub issuer: Vec<u8>,
     pub issuer_access_info: Option<String>,

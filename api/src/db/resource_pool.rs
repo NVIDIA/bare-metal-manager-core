@@ -289,6 +289,7 @@ impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
 pub struct ResourcePoolEntry {
     pub pool_name: String,
     pub pool_type: ValueType,
+    #[allow(dead_code)]
     pub value: String,
     pub state: sqlx::types::Json<ResourcePoolEntryState>,
     pub allocated: Option<DateTime<Utc>>,

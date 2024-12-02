@@ -121,15 +121,6 @@ pub struct MachineMetricsEmitter {
     hosts_with_bios_password_set: ObservableGauge<u64>,
 }
 
-impl MachineStateControllerIterationMetrics {
-    pub fn machine_reboot_attempts_in_booting_with_discovery_image(&self) -> &Vec<u64> {
-        &self.machine_reboot_attempts_in_booting_with_discovery_image
-    }
-    pub fn machine_reboot_attempts_in_failed_during_discovery(&self) -> &Vec<u64> {
-        &self.machine_reboot_attempts_in_failed_during_discovery
-    }
-}
-
 impl MetricsEmitter for MachineMetricsEmitter {
     type ObjectMetrics = MachineMetrics;
     type IterationMetrics = MachineStateControllerIterationMetrics;

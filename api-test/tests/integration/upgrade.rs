@@ -10,25 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::grpcurl::grpcurl;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
 use std::fs;
 use std::net::SocketAddr;
+use std::ops::DerefMut;
 use std::path::Path;
-use std::str::FromStr;
 use std::time::{Duration, Instant};
-
-use carbide::db::{
-    machine::{Machine, MachineSearchConfig},
-    DatabaseError,
-};
-use forge_uuid::machine::MachineId;
-use sqlx::{Pool, Postgres};
-
-use crate::grpcurl::grpcurl;
 
 const HALF_SEC: Duration = Duration::from_millis(500);
 
 /// Max amount of time to wait for forge-dpu-agent to upgrade itself
 const MAX_UPGRADE_WAIT: Duration = Duration::from_secs(5);
+
+// Define this type ourselves. Integration tests shouldn't depend directly on types from within the
+// api crate, we just use this to easily deserialize the JSON.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UpgradeDecision {
+    pub should_upgrade: bool,
+    pub to_version: String,
+    pub last_updated: DateTime<Utc>,
+}
 
 /// Upgrade forge-dpu-agent
 pub async fn upgrade_dpu(
@@ -58,27 +62,26 @@ pub async fn upgrade_dpu(
 
 // DPU agent no longer marked for upgrade
 pub async fn confirm_upgraded(db_pool: Pool<Postgres>, dpu_machine_id: &str) -> eyre::Result<()> {
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin check needs_agent_upgrade", e))?;
-    let machine = Machine::find_one(
-        &mut txn,
-        &MachineId::from_str(dpu_machine_id)?,
-        MachineSearchConfig::default(),
-    )
-    .await?
-    .unwrap();
+    let mut txn = db_pool.begin().await?;
+
+    // Simple inline definition of what we expect back from this query
+    #[derive(sqlx::FromRow)]
+    struct DbResult {
+        upgrade_decision: sqlx::types::Json<UpgradeDecision>,
+    }
+
+    let query =
+        r#"SELECT dpu_agent_upgrade_requested as upgrade_decision FROM machines WHERE id = $1"#;
+    let result: DbResult = sqlx::query_as(query)
+        .bind(dpu_machine_id)
+        .fetch_optional(txn.deref_mut())
+        .await?
+        .unwrap_or_else(|| panic!("Machine {dpu_machine_id} not found"));
 
     assert!(
-        !machine.needs_agent_upgrade(),
+        !result.upgrade_decision.should_upgrade,
         "Machine should be marked as upgraded"
     );
-
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit check needs_agent_upgrade", e))?;
-
     Ok(())
 }
 
@@ -132,20 +135,19 @@ async fn mark_agent_for_upgrade(
     db_pool: &Pool<Postgres>,
     dpu_machine_id: &str,
 ) -> eyre::Result<()> {
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin check needs_agent_upgrade", e))?;
-    Machine::set_dpu_agent_upgrade_requested(
-        &mut txn,
-        &MachineId::from_str(dpu_machine_id).unwrap(),
-        true,
-        "v2023.09-82-gb7727207",
-    )
-    .await?;
-    txn.commit()
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit check needs_agent_upgrade", e))?;
+    let mut txn = db_pool.begin().await?;
+    let decision = UpgradeDecision {
+        should_upgrade: true,
+        to_version: "v2023.09-82-gb7727207".to_string(),
+        last_updated: chrono::Utc::now(),
+    };
+    let query = "UPDATE machines SET dpu_agent_upgrade_requested = $1::json WHERE id = $2";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(decision))
+        .bind(dpu_machine_id.to_string())
+        .execute(txn.deref_mut())
+        .await?;
+    txn.commit().await?;
     Ok(())
 }
 

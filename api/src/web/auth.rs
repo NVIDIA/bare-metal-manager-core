@@ -27,7 +27,6 @@ use oauth2::{
     http::HeaderValue as Oauth2HeaderValue, http::StatusCode as Oauth2StatusCode,
     AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse,
 };
-use reqwest;
 use serde::Deserialize;
 use time::Duration as TimeDuration;
 use url::Url;

@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
-pub use ::rpc::common as rpc_common;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::BmcEndpointRequest;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;

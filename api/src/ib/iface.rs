@@ -49,6 +49,7 @@ pub trait IBFabricManager: Send + Sync {
 }
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait IBFabric: Send + Sync {
     /// Get fabric configuration
     async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;

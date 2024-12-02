@@ -1,0 +1,180 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use crate::logging::setup::Logging;
+use crate::logging::{
+    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    setup::create_metrics,
+    setup::setup_logging,
+};
+use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
+use crate::{dynamic_settings, setup, CarbideError};
+use eyre::WrapErr;
+use std::sync::Arc;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::{Receiver, Sender};
+use tracing::subscriber::NoSubscriber;
+use utils::HostPortPair;
+
+pub async fn run(
+    debug: u8,
+    config_str: String,
+    site_config_str: Option<String>,
+    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    skip_logging_setup: bool,
+    stop_channel: Receiver<()>,
+    ready_channel: Sender<()>,
+) -> eyre::Result<()> {
+    let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
+    let tconf = if skip_logging_setup {
+        Logging::default()
+    } else {
+        setup_logging(debug, None::<NoSubscriber>)
+            .await
+            .wrap_err("setup_telemetry")?
+    };
+
+    // Redact credentials before printing the config
+    let print_config = {
+        let mut config = carbide_config.as_ref().clone();
+        if let Some(host_index) = config.database_url.find('@') {
+            let host = config.database_url.split_at(host_index).1;
+            config.database_url = format!("postgres://redacted{}", host);
+        }
+        config
+    };
+
+    tracing::info!("Using configuration: {:#?}", print_config);
+    tracing::info!(
+        "Tokio worker thread count: {} (num_cpus::get()={}, TOKIO_WORKER_THREADS={})",
+        tokio::runtime::Handle::current().metrics().num_workers(),
+        num_cpus::get(),
+        std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
+    );
+
+    let metrics = create_metrics()?;
+
+    // Spin up the webserver which servers `/metrics` requests
+    let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
+    if let Some(metrics_address) = carbide_config.metrics_endpoint {
+        tokio::task::Builder::new()
+            .name("metrics_endpoint")
+            .spawn(async move {
+                if let Err(e) = run_metrics_endpoint(
+                    &MetricsEndpointConfig {
+                        address: metrics_address,
+                        registry: metrics.registry,
+                    },
+                    metrics_stop_rx,
+                )
+                .await
+                {
+                    tracing::error!("Metrics endpoint failed with error: {}", e);
+                }
+            })?;
+    }
+
+    let dynamic_settings = crate::dynamic_settings::DynamicSettings {
+        log_filter: tconf.filter.clone(),
+        create_machines: carbide_config.site_explorer.create_machines.clone(),
+        bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
+    };
+    dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
+
+    tracing::info!(
+        address = carbide_config.listen.to_string(),
+        build_version = forge_version::v!(build_version),
+        build_date = forge_version::v!(build_date),
+        rust_version = forge_version::v!(rust_version),
+        "Start carbide-api",
+    );
+
+    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
+    let redfish_pool = match override_redfish_pool {
+        Some(pool) => {
+            tracing::info!("Using override redfish client pool");
+            pool
+        }
+        None => {
+            let rf_pool = libredfish::RedfishClientPool::builder()
+                .build()
+                .map_err(CarbideError::from)?;
+
+            // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
+            match (
+                &carbide_config.site_explorer.override_target_ip,
+                carbide_config.site_explorer.override_target_port,
+                carbide_config.site_explorer.bmc_proxy.load().as_ref(),
+            ) {
+                (Some(_), _, Some(_)) => {
+                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config.");
+                }
+                (Some(ip), maybe_target_port, None) => {
+                    tracing::warn!("Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                    if let Some(port) = maybe_target_port {
+                        carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
+                            HostPortPair::HostAndPort(ip.to_string(), port),
+                        )));
+                    } else {
+                        carbide_config
+                            .site_explorer
+                            .bmc_proxy
+                            .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
+                    }
+                }
+                (None, Some(port), None) => {
+                    tracing::warn!("Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                    carbide_config
+                        .site_explorer
+                        .bmc_proxy
+                        .store(Arc::new(Some(HostPortPair::PortOnly(port))));
+                }
+                (None, Some(_), Some(_)) => {
+                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config.");
+                }
+                (None, None, _) => {} // leave bmc_proxy untouched
+            }
+            let redfish_pool = RedfishClientPoolImpl::new(
+                vault_client.clone(),
+                rf_pool,
+                carbide_config.site_explorer.bmc_proxy.clone(),
+            );
+            Arc::new(redfish_pool)
+        }
+    };
+
+    // Split stop_channel into a task which will stop both the API server and metrics server
+    let (api_stop_tx, api_stop_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        stop_channel.await.inspect_err(|error| {
+            tracing::error!(%error, "error waiting on stop channel");
+        })?;
+        _ = metrics_stop_tx.send(()).inspect_err(|_| {
+            tracing::error!("could not send stop signal to metrics server. already stopped?");
+        });
+        _ = api_stop_tx.send(()).inspect_err(|_| {
+            tracing::error!("could not send stop signal to api server. already stopped?");
+        });
+        Ok::<(), eyre::Report>(())
+    });
+
+    setup::start_api(
+        carbide_config,
+        metrics.meter,
+        dynamic_settings,
+        redfish_pool,
+        vault_client,
+        api_stop_rx,
+        ready_channel,
+    )
+    .await
+}

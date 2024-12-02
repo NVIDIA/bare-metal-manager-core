@@ -189,43 +189,6 @@ pub async fn find_by_machine_ids(
     )
 }
 
-pub async fn find_host_primary_interface_by_dpu_id(
-    txn: &mut Transaction<'_, Postgres>,
-    dpu_machine_id: &MachineId,
-) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-    let query =
-        "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
-    let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
-        .bind(dpu_machine_id.to_string())
-        .fetch_optional(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-    else {
-        return Ok(None);
-    };
-
-    let mut addresses_for_interfaces = MachineInterfaceAddress::find_by(
-        &mut *txn,
-        ObjectColumnFilter::List(
-            machine_interface_address::MachineInterfaceIdColumn,
-            &[machine_interface.id],
-        ),
-    )
-    .await?;
-
-    if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
-        machine_interface.addresses = addresses.into_iter().map(|a| a.address).collect();
-    } else {
-        tracing::warn!(
-            machine_id = %dpu_machine_id,
-            interface_id = %machine_interface.id,
-            "Interface has no addresses",
-        );
-    }
-
-    Ok(Some(machine_interface))
-}
-
 pub async fn count_by_segment_id(
     txn: &mut Transaction<'_, Postgres>,
     segment_id: &NetworkSegmentId,
@@ -622,6 +585,7 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
         .collect())
 }
 
+#[cfg(test)] // currently only used by tests
 pub async fn get_machine_interface_primary(
     machine_id: &MachineId,
     txn: &mut sqlx::Transaction<'_, Postgres>,

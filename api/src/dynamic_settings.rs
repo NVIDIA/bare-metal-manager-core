@@ -29,11 +29,11 @@ pub struct DynamicSettings {
 }
 
 /// How often to check if the log filter (RUST_LOG) needs resetting
-pub const RESET_PERIOD: Duration = Duration::from_secs(15 * 60); // 1/4 hour
+pub(crate) const RESET_PERIOD: Duration = Duration::from_secs(15 * 60); // 1/4 hour
 
 impl DynamicSettings {
     /// The background task that resets dynamic features to their startup values when the override expires
-    pub fn start_reset_task(&self, period: Duration) {
+    pub(crate) fn start_reset_task(&self, period: Duration) {
         let log_filter = self.log_filter.clone();
         let _ = tokio::task::Builder::new()
             .name("dynamic_feature_reset")

@@ -12,7 +12,9 @@
 use std::net::IpAddr;
 
 pub enum AddressSelectionStrategy<'a> {
+    #[allow(dead_code)] // not supported yet
     Empty,
+    #[allow(dead_code)] // not supported yet
     Static(&'a [IpAddr]),
     Automatic,
 }

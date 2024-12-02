@@ -145,6 +145,7 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    #[cfg(test)] // currently only used in tests
     pub fn dpu_nic_firmware_initial_update_enabled(
         mut self,
         dpu_nic_firmware_initial_update_enabled: bool,
@@ -162,10 +163,12 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    #[cfg(test)] // currently only used in tests
     pub fn reachability_params(mut self, reachability_params: ReachabilityParams) -> Self {
         self.reachability_params = reachability_params;
         self
     }
+
     pub fn dpu_wait_time(mut self, dpu_wait_time: chrono::Duration) -> Self {
         self.reachability_params.dpu_wait_time = dpu_wait_time;
         self

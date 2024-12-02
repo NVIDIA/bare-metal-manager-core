@@ -10,8 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
@@ -36,6 +35,7 @@ pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 pub enum IBFabricManagerType {
     #[default]
     Disable,
+    #[cfg(test)]
     Mock,
     Rest,
 }
@@ -43,6 +43,7 @@ pub enum IBFabricManagerType {
 pub struct IBFabricManagerImpl {
     config: IBFabricManagerConfig,
     credential_provider: Arc<dyn CredentialProvider>,
+    #[cfg(test)]
     mock_fabric: Arc<dyn IBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
 }
@@ -72,9 +73,10 @@ pub fn create_ib_fabric_manager(
     credential_provider: Arc<dyn CredentialProvider>,
     config: IBFabricManagerConfig,
 ) -> IBFabricManagerImpl {
+    #[cfg(test)]
     let mock_fabric = Arc::new(mock::MockIBFabric {
-        ibsubnets: Arc::new(Mutex::new(HashMap::new())),
-        ibports: Arc::new(Mutex::new(HashMap::new())),
+        ibsubnets: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        ibports: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
     let disable_fabric = Arc::new(disable::DisableIBFabric {});
@@ -82,6 +84,7 @@ pub fn create_ib_fabric_manager(
     IBFabricManagerImpl {
         credential_provider,
         config,
+        #[cfg(test)]
         mock_fabric,
         disable_fabric,
     }
@@ -96,6 +99,7 @@ impl IBFabricManager for IBFabricManagerImpl {
     async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
         match self.config.manager_type {
             IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
+            #[cfg(test)]
             IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
             IBFabricManagerType::Rest => {
                 let credentials = self

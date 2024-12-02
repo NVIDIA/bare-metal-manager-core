@@ -24,12 +24,6 @@ pub struct CertDescriptionMiddleware {
     spiffe_context: Arc<ForgeSpiffeContext>,
 }
 
-impl CertDescriptionMiddleware {
-    pub fn new(spiffe_context: Arc<ForgeSpiffeContext>) -> Self {
-        CertDescriptionMiddleware { spiffe_context }
-    }
-}
-
 impl<S> Layer<S> for CertDescriptionMiddleware {
     type Service = CertDescriptionService<S>;
 

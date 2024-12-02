@@ -23,9 +23,7 @@ use tokio::sync::oneshot;
 
 use self::{
     dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{
-        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
-    },
+    machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
     metrics::MachineUpdateManagerMetrics,
 };
 use crate::{
@@ -63,6 +61,7 @@ impl MachineUpdateManager {
     const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 0;
 
     /// create a MachineUpdateManager with provided modules, overriding the default.
+    #[cfg(test)]
     pub fn new_with_modules(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
@@ -109,10 +108,6 @@ impl MachineUpdateManager {
             update_modules,
             metrics: Some(machine_update_metrics),
         }
-    }
-
-    pub fn get_modules(&self) -> &Vec<Box<dyn MachineUpdateModule>> {
-        &self.update_modules
     }
 
     /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
@@ -233,10 +228,11 @@ impl MachineUpdateManager {
         Ok(())
     }
 
+    #[cfg(test)] // currently only used in tests
     pub async fn put_machine_in_maintenance(
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
-        reference: &DpuReprovisionInitiator,
+        reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
     ) -> CarbideResult<()> {
         Machine::set_maintenance_mode(
             txn,

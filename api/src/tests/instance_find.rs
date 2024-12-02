@@ -1,0 +1,389 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use crate::tests::common::api_fixtures::{
+    create_managed_host, create_test_env,
+    instance::{
+        create_instance, create_instance_with_labels, default_tenant_config,
+        single_interface_network_config,
+    },
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    FIXTURE_VPC_ID,
+};
+use ::rpc::forge as rpc;
+use rpc::forge_server::Forge;
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_instance_ids(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    for i in 0..10 {
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+        if i % 2 == 0 {
+            let (_instance_id, _instance) = create_instance(
+                &env,
+                &dpu_machine_id,
+                &host_machine_id,
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
+                None,
+                vec![],
+            )
+            .await;
+        } else {
+            let (_instance_id, _instance) = create_instance_with_labels(
+                &env,
+                &dpu_machine_id,
+                &host_machine_id,
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
+                None,
+                vec![],
+                rpc::Metadata {
+                    name: format!("instance_{}{}{}", i, i, i).to_string(),
+                    description: format!("instance_{}{}{} with label", i, i, i).to_string(),
+                    labels: vec![rpc::Label {
+                        key: "label_test_key".to_string(),
+                        value: Some(format!("label_value_{}", i).to_string()),
+                    }],
+                },
+            )
+            .await;
+        }
+    }
+
+    // test_data contains a bunch of standard inputs thanks to the fact all
+    // we need to do is call `find_instance_ids` over and over with different
+    // rpc::InstanceSearchFilter inputs, and includes the expected length
+    // of results.
+    let test_data = [
+        // Test getting all IDs.
+        (
+            "request_all",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: None,
+                tenant_org_id: None,
+                vpc_id: None,
+            }),
+            10,
+        ),
+        // Test getting IDs based on label key.
+        (
+            "request_label_key",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: None,
+                }),
+                tenant_org_id: None,
+                vpc_id: None,
+            }),
+            5,
+        ),
+        // Test getting IDs based on label value.
+        (
+            "request_label_value",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "".to_string(),
+                    value: Some("label_value_1".to_string()),
+                }),
+                tenant_org_id: None,
+                vpc_id: None,
+            }),
+            1,
+        ),
+        // Test getting IDs based on label key and value.
+        (
+            "request_label_key_and_value",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: Some("label_value_3".to_string()),
+                }),
+                tenant_org_id: None,
+                vpc_id: None,
+            }),
+            1,
+        ),
+        // Test getting IDs based on tenant_org_id.
+        (
+            "request_tenant_org_id",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: None,
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: None,
+            }),
+            10,
+        ),
+        // Test getting IDs based on tenant_org_id and label key.
+        (
+            "request_tenant_org_and_label_key",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: None,
+                }),
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: None,
+            }),
+            5,
+        ),
+        // Test getting IDs based on tenant_org_id and label value.
+        (
+            "request_tenant_org_and_label_value",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "".to_string(),
+                    value: Some("label_value_1".to_string()),
+                }),
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: None,
+            }),
+            1,
+        ),
+        // Test getting IDs based on tenant_org_id and label key AND value.
+        (
+            "request_tenant_org_and_label_key_value",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: Some("label_value_1".to_string()),
+                }),
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: None,
+            }),
+            1,
+        ),
+        // Test getting IDs based on vpc_id only. In this case,
+        // since there's only one VPC being created (based on FIXTURE_VPC_ID),
+        // we expect all 10 instances to be in the VPC.
+        //
+        // TODO(chet): Consider updating fixtures so there's a
+        // NETWORK_SEGMENT_ID_2 to allow for FIXTURE_VPC_ID_1 so
+        // we can test multiple VPCs here (and other places).
+        (
+            "request_vpc_id_only",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: None,
+                tenant_org_id: None,
+                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+            }),
+            10,
+        ),
+        // Test getting IDs based on vpc_id and label key.
+        (
+            "request_vpc_id_and_label_key",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: None,
+                }),
+                tenant_org_id: None,
+                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+            }),
+            5,
+        ),
+        // Test getting IDs based on vpc_id and label key AND value.
+        (
+            "request_vpc_id_and_label_key_value",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: Some("label_value_1".to_string()),
+                }),
+                tenant_org_id: None,
+                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+            }),
+            1,
+        ),
+        // Test providing both vpc_id AND tenant_org_id.
+        (
+            "request_tenant_org_and_vpc_id",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: None,
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+            }),
+            10,
+        ),
+        // Test providing VPC ID + tenant org ID + label filtering.
+        // Getting really crazy now!
+        (
+            "request_label_and_tenant_org_and_vpc_id",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: Some(rpc::Label {
+                    key: "label_test_key".to_string(),
+                    value: None,
+                }),
+                tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+            }),
+            5,
+        ),
+    ];
+
+    // And now loop over the test cases and see how they do.
+    for (name, req, expected) in test_data.into_iter() {
+        assert_eq!(
+            env.api
+                .find_instance_ids(req)
+                .await
+                .map(|response| response.into_inner())
+                .unwrap()
+                .instance_ids
+                .len(),
+            expected,
+            "assertion failed during test loop: {}",
+            name,
+        );
+    }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    for i in 0..10 {
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+        if i % 2 == 0 {
+            let (_instance_id, _instance) = create_instance(
+                &env,
+                &dpu_machine_id,
+                &host_machine_id,
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
+                None,
+                vec![],
+            )
+            .await;
+        } else {
+            let (_instance_id, _instance) = create_instance_with_labels(
+                &env,
+                &dpu_machine_id,
+                &host_machine_id,
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                None,
+                None,
+                vec![],
+                rpc::Metadata {
+                    name: format!("instance_{}{}{}", i, i, i).to_string(),
+                    description: format!("instance_{}{}{} with label", i, i, i).to_string(),
+                    labels: vec![rpc::Label {
+                        key: "label_test_key".to_string(),
+                        value: Some(format!("label_value_{}", i).to_string()),
+                    }],
+                },
+            )
+            .await;
+        }
+    }
+
+    let request_ids = tonic::Request::new(rpc::InstanceSearchFilter {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: None,
+        }),
+        tenant_org_id: None,
+        vpc_id: None,
+    });
+
+    let instance_id_list = env
+        .api
+        .find_instance_ids(request_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_id_list.instance_ids.len(), 5);
+
+    let request_instances = tonic::Request::new(rpc::InstancesByIdsRequest {
+        instance_ids: instance_id_list.instance_ids.clone(),
+    });
+
+    let instance_list = env
+        .api
+        .find_instances_by_ids(request_instances)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_list.instances.len(), 5);
+
+    // validate we got instances with specified ids
+    let mut instances_copy = instance_list.instances.clone();
+    for _ in 0..5 {
+        let instance = instances_copy.remove(0);
+        let instance_id = instance.id.unwrap();
+        assert!(instance_id_list.instance_ids.contains(&instance_id));
+    }
+}
+
+#[sqlx::test()]
+async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // create vector of IDs with more than max allowed
+    // it does not matter if these are real or not, since we are testing an error back for passing more than max
+    let end_index: u32 = env.config.max_find_by_ids + 1;
+    let instance_ids: Vec<::rpc::common::Uuid> = (1..=end_index)
+        .map(|_| ::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        })
+        .collect();
+
+    let request = tonic::Request::new(rpc::InstancesByIdsRequest { instance_ids });
+
+    let response = env.api.find_instances_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        format!(
+            "no more than {} IDs can be accepted",
+            env.config.max_find_by_ids
+        )
+    );
+}
+
+#[sqlx::test()]
+async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let request = tonic::Request::new(rpc::InstancesByIdsRequest::default());
+
+    let response = env.api.find_instances_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        "at least one ID must be provided",
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let request = tonic::Request::new(dpu_machine_id.clone().into());
+    let response = env.api.find_instance_by_machine_id(request).await;
+    // validate
+    assert!(response.is_ok(),);
+    assert_eq!(response.unwrap().into_inner().instances.len(), 0);
+}
