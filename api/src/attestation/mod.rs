@@ -10,9 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-#[cfg(feature = "tss-esapi")]
 pub mod measured_boot;
-#[cfg(feature = "tss-esapi")]
 pub use measured_boot::{
     cli_make_cred, compare_pub_key_against_cert, do_compare_pub_key_against_cert,
     event_log_to_string, has_passed_attestation, verify_pcr_hash, verify_quote_state,

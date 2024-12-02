@@ -34,7 +34,6 @@ use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
-#[cfg(feature = "tss-esapi")]
 use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
     traits::UnMarshall,
@@ -3084,15 +3083,6 @@ impl Forge for Api {
         }))
     }
 
-    #[cfg(not(feature = "tss-esapi"))]
-    async fn attest_quote(
-        &self,
-        _request: tonic::Request<rpc::AttestQuoteRequest>,
-    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
-        Err(CarbideError::AttestQuoteError("attest_quote is feature-disabled".to_string()).into())
-    }
-
-    #[cfg(feature = "tss-esapi")]
     async fn attest_quote(
         &self,
         request: tonic::Request<rpc::AttestQuoteRequest>,

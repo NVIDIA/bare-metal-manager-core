@@ -2,7 +2,7 @@
 export DOCKER_BUILDKIT := "1"
 
 components_dir := "api pxe dns dhcp dev/bmc-mock dev/machine-a-tron admin health"
-components_name := "\"carbide-api --features carbide-api/tss-esapi\" carbide-pxe carbide-dns dhcp bmc-mock machine-a-tron admin health"
+components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock machine-a-tron admin health"
 
 # Start cargo-watch for components "{{components}}"
 watch: check forged-link skaffold-dirs

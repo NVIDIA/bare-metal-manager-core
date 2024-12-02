@@ -10,9 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-#[cfg(feature = "tss-esapi")]
 pub mod measured_boot;
-#[cfg(feature = "tss-esapi")]
 pub use measured_boot::SecretAkPub;
 
 pub mod tpm_ca_certs;
