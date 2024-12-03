@@ -12,7 +12,6 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use chrono::prelude::*;
 use config_version::ConfigVersion;
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -33,10 +32,8 @@ struct DbMachineStateHistory {
 
     /// Current version.
     state_version: ConfigVersion,
-
-    /// The timestamp of the state change
-    #[allow(dead_code)]
-    timestamp: DateTime<Utc>,
+    // The timestamp of the state change, currently unused
+    //timestamp: DateTime<Utc>,
 }
 
 impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory {

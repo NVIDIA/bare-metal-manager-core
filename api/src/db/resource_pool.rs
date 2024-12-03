@@ -289,10 +289,9 @@ impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
 pub struct ResourcePoolEntry {
     pub pool_name: String,
     pub pool_type: ValueType,
-    #[allow(dead_code)]
-    pub value: String,
     pub state: sqlx::types::Json<ResourcePoolEntryState>,
     pub allocated: Option<DateTime<Utc>>,
+    // pub value: String, // currently unused
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
@@ -300,7 +299,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolEntry {
         Ok(ResourcePoolEntry {
             pool_name: row.try_get("name")?,
             pool_type: row.try_get("value_type")?,
-            value: row.try_get("value")?,
             state: row.try_get("state")?,
             allocated: row.try_get("allocated")?,
         })

@@ -16,7 +16,6 @@ use std::ops::DerefMut;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
-use uuid::Uuid;
 
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
@@ -39,14 +38,11 @@ use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
-    #[allow(dead_code)]
-    pub id: Uuid,
     pub instance_id: InstanceId,
     pub circuit_id: String,
-    #[allow(dead_code)]
-    pub address: IpAddr,
-    #[allow(dead_code)]
-    pub prefix: IpNetwork,
+    // pub id: Uuid,          // unused
+    // pub address: IpAddr,   // unused
+    // pub prefix: IpNetwork, // unused
 }
 
 #[derive(Copy, Clone)]
@@ -555,6 +551,7 @@ mod tests {
     use forge_uuid::vpc::VpcId;
     use std::collections::HashMap;
     use std::str::FromStr;
+    use uuid::Uuid;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = VpcId::from_str("11609f10-c11d-1101-3261-6293ea0c0100").unwrap();

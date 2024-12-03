@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use agent::Options;
+use crate::Options;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum_server::tls_rustls::RustlsConfig;
@@ -24,15 +24,13 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 use tempfile::{NamedTempFile, TempDir};
 
-const TLS_CERT: &[u8] = include_bytes!("../../test-certs/tls.crt");
-const TLS_KEY: &[u8] = include_bytes!("../../test-certs/tls.key");
+const TLS_CERT: &[u8] = include_bytes!("../../../test-certs/tls.crt");
+const TLS_KEY: &[u8] = include_bytes!("../../../test-certs/tls.key");
 
-#[allow(dead_code)]
 const TEST_METADATA_SERVICE: bool = false;
 
 // TODO: Add settings to config file and switch this to true
 // Then assert that it works
-#[allow(dead_code)]
 const AGENT_CONFIG: &str = r#"
 [forge-system]
 api-server = "https://$API_SERVER"
@@ -59,7 +57,6 @@ discovery-retry-secs = 1
 discovery-retries-max = 1000
 "#;
 
-#[allow(dead_code)]
 pub fn setup_agent_run_env(
     addr: &SocketAddr,
     td: &TempDir,
@@ -91,10 +88,10 @@ pub fn setup_agent_run_env(
         .replace("$API_SERVER", &addr.to_string());
 
     fs::write(acf.path(), cfg)?;
-    let opts = agent::Options {
+    let opts = crate::Options {
         version: false,
         config_path: Some(acf.path().to_path_buf()),
-        cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
+        cmd: Some(crate::AgentCommand::Run(crate::RunOptions {
             enable_metadata_service: TEST_METADATA_SERVICE,
             override_machine_id: None,
             override_network_virtualization_type: None,

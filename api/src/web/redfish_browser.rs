@@ -41,7 +41,6 @@ struct Header {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct QueryParams {
     url: Option<String>,
 }

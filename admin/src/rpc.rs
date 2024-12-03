@@ -1258,7 +1258,6 @@ pub async fn get_explored_endpoints_by_ids(
     .await
 }
 
-#[allow(dead_code)]
 pub async fn get_all_explored_managed_hosts(
     api_config: &ApiConfig<'_>,
     page_size: usize,
@@ -1285,7 +1284,6 @@ pub async fn get_all_explored_managed_hosts(
     Ok(all_hosts.managed_hosts)
 }
 
-#[allow(dead_code)]
 async fn get_explored_managed_host_ids(
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostIdList> {
@@ -1301,7 +1299,6 @@ async fn get_explored_managed_host_ids(
     .await
 }
 
-#[allow(dead_code)]
 pub async fn get_explored_managed_host_by_ids(
     api_config: &ApiConfig<'_>,
     host_ids: &[String],

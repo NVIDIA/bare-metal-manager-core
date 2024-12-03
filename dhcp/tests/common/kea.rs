@@ -15,7 +15,6 @@ pub struct Kea {
     dhcp_out_port: u16,
 
     // Hold this around so that when Kea is dropped, TempDir is dropped and cleaned up
-    #[allow(dead_code)]
     temp_base_directory: TempDir,
 
     process: Option<Child>,

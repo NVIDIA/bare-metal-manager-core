@@ -295,11 +295,10 @@ impl PrincipalExtractor for &[Principal] {
 // An Authorization is sort of like a ticket that says we're allowed to do the
 // thing we're trying to do, and specifically which Principal was permitted to
 // do it.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Authorization {
-    principal: Principal,
-    predicate: Predicate,
+    _principal: Principal, // Currently unused
+    _predicate: Predicate, // Currently unused
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
@@ -414,8 +413,8 @@ impl PolicyEngine for PermissiveWrapper {
             // authorized to do this. Maybe define a different principal
             // to use here? "Development"?
             let authorization = Authorization {
-                principal: Principal::Anonymous,
-                predicate,
+                _principal: Principal::Anonymous,
+                _predicate: predicate,
             };
             Ok(authorization)
         })
@@ -433,8 +432,8 @@ impl PolicyEngine for NoopEngine {
         // FIXME: same problem again as the PermissiveWrapper implementation.
         // Figure out a name for this use case, and use that instead.
         Ok(Authorization {
-            principal: Principal::Anonymous,
-            predicate,
+            _principal: Principal::Anonymous,
+            _predicate: predicate,
         })
     }
 }

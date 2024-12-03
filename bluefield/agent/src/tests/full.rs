@@ -18,7 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use agent::util::compare_lines;
+use crate::tests::common;
+use crate::util::compare_lines;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -30,8 +31,6 @@ use forge_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
 use rpc::forge::DpuInfo;
 use tokio::sync::Mutex;
-
-mod common;
 
 #[derive(Default, Debug)]
 struct State {
@@ -54,7 +53,7 @@ struct TestOut {
 // files (vs. the nvue-based mechanism, which just provides us with
 // a single nvue_startup.yaml config).
 #[tokio::test(flavor = "multi_thread")]
-async fn test_etv() -> eyre::Result<()> {
+pub async fn test_etv() -> eyre::Result<()> {
     let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer).await?;
     if out.is_skip {
         return Ok(());
@@ -80,7 +79,7 @@ async fn test_etv() -> eyre::Result<()> {
 // for the OG networking config, but using nvue templating mechanism.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv_nvue() -> eyre::Result<()> {
-    let expected = include_str!("../templates/tests/full_nvue_startup_etv.yaml.expected");
+    let expected = include_str!("../../templates/tests/full_nvue_startup_etv.yaml.expected");
     test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
 }
 
@@ -88,7 +87,8 @@ async fn test_etv_nvue() -> eyre::Result<()> {
 // via nvue templating against the FNN classic template.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_fnn_classic() -> eyre::Result<()> {
-    let expected = include_str!("../templates/tests/full_nvue_startup_fnn_classic.yaml.expected");
+    let expected =
+        include_str!("../../templates/tests/full_nvue_startup_fnn_classic.yaml.expected");
     test_nvue_generic(VpcVirtualizationType::FnnClassic, expected).await
 }
 
@@ -96,7 +96,7 @@ async fn test_fnn_classic() -> eyre::Result<()> {
 // via nvue templating against the FNN L3 template.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_fnn_l3() -> eyre::Result<()> {
-    let expected = include_str!("../templates/tests/full_nvue_startup_fnn_l3.yaml.expected");
+    let expected = include_str!("../../templates/tests/full_nvue_startup_fnn_l3.yaml.expected");
     test_nvue_generic(VpcVirtualizationType::FnnL3, expected).await
 }
 
@@ -113,11 +113,11 @@ async fn test_nvue_generic(
     }
 
     // Make sure the nvue startup file was written where
-    // it was supposed to be written (agent::nvue::PATH
+    // it was supposed to be written (crate::nvue::PATH
     // within the test-specific temp dir).
     let td = out.hbn_root_dir.unwrap();
     let hbn_root = td.path();
-    let startup_yaml = hbn_root.join(agent::nvue::PATH);
+    let startup_yaml = hbn_root.join(crate::nvue::PATH);
     assert!(
         startup_yaml.exists(),
         "could not find {} startup_yaml at path: {:?}",
@@ -209,7 +209,7 @@ async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::R
 
     // Start forge-dpu-agent
     tokio::spawn(async move {
-        if let Err(e) = agent::start(opts).await {
+        if let Err(e) = crate::start(opts).await {
             tracing::error!("Failed to start DPU agent: {:#}", e);
         }
     });

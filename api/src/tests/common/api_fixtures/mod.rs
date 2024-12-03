@@ -144,14 +144,10 @@ impl TestEnvOverrides {
     }
 }
 
-#[allow(dead_code)]
 pub struct TestEnv {
     pub api: Arc<Api>,
     pub config: Arc<CarbideConfig>,
-    pub credential_provider: Arc<TestCredentialProvider>,
-    pub certificate_provider: Arc<TestCertificateProvider>,
     pub common_pools: Arc<CommonPools>,
-    pub eth_virt_data: EthVirtData,
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
@@ -160,11 +156,7 @@ pub struct TestEnv {
     machine_state_controller: RefCell<StateController<MachineStateControllerIO>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: RefCell<StateController<NetworkSegmentStateControllerIO>>,
-    pub network_segment_handler: SwapHandler<NetworkSegmentStateHandler>,
     ib_partition_controller: RefCell<StateController<IBPartitionStateControllerIO>>,
-    pub ib_partition_handler: SwapHandler<IBPartitionStateHandler>,
-    network_segment_state_controller_io: NetworkSegmentStateControllerIO,
-    ib_partition_state_controller_io: IBPartitionStateControllerIO,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
@@ -792,9 +784,6 @@ pub async fn create_test_env_with_overrides(
         api,
         common_pools,
         config,
-        credential_provider,
-        certificate_provider,
-        eth_virt_data,
         pool: db_pool,
         redfish_sim,
         nvmesh_sim,
@@ -803,13 +792,9 @@ pub async fn create_test_env_with_overrides(
         machine_state_controller: RefCell::new(machine_controller),
         machine_state_handler: machine_swap,
         ib_partition_controller: RefCell::new(ib_controller),
-        ib_partition_handler: ib_swap,
         network_segment_controller: RefCell::new(network_controller),
-        network_segment_handler: network_swap,
-        network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params,
         attestation_enabled,
-        ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         test_meter,
         site_explorer,
         endpoint_explorer: fake_endpoint_explorer,
@@ -962,10 +947,7 @@ pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::common::Machine
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
 /// Returns tuple of latest (machine_config_version, instance_network_config_version)
-pub async fn network_configured(
-    env: &TestEnv,
-    dpu_machine_id: &MachineId,
-) -> NetworkConfiguredResult {
+pub async fn network_configured(env: &TestEnv, dpu_machine_id: &MachineId) {
     network_configured_with_health(env, dpu_machine_id, None).await
 }
 
@@ -975,7 +957,7 @@ pub async fn network_configured_with_health(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     dpu_health: Option<rpc::health::HealthReport>,
-) -> NetworkConfiguredResult {
+) {
     let network_config = env
         .api
         .get_managed_host_network_config(Request::new(
@@ -1077,19 +1059,6 @@ pub async fn network_configured_with_health(
         .record_dpu_network_status(Request::new(status))
         .await
         .unwrap();
-
-    NetworkConfiguredResult {
-        managed_host_network_config_version: network_config.managed_host_config_version,
-        instance_network_config_version,
-        instance_config_version,
-    }
-}
-
-#[allow(dead_code)] // no tests use these fields, but they might someday
-pub struct NetworkConfiguredResult {
-    managed_host_network_config_version: String,
-    instance_network_config_version: Option<String>,
-    instance_config_version: Option<String>,
 }
 
 /// Fake hardware health service reporting health

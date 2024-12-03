@@ -320,7 +320,7 @@ pub async fn create(
     macaddr: &MacAddress,
     domain_id: Option<DomainId>,
     primary_interface: bool,
-    addresses: AddressSelectionStrategy<'_>,
+    addresses: AddressSelectionStrategy,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
     let mut inner_txn = txn

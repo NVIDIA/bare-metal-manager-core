@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::domain::{self, Domain, DomainMetadata, NewDomain, Soa};
+use crate::db::domain::{self, Domain, NewDomain, Soa};
 use crate::db::ObjectColumnFilter;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::domain::DomainId;
@@ -26,7 +26,6 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
     let domain = NewDomain {
         name: test_name.clone(),
         soa: Soa::new(test_name.as_str()),
-        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;
@@ -58,7 +57,6 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
     let domain: CarbideResult<Domain> = NewDomain {
         name: test_name.clone(),
         soa: Soa::new(test_name.as_str()),
-        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;
@@ -78,7 +76,6 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
     let domain: CarbideResult<Domain> = NewDomain {
         name: "ihaveaspace.com ".to_string(),
         soa: Soa::new("ihavespace.com "),
-        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;
@@ -100,7 +97,6 @@ async fn find_domain(pool: sqlx::PgPool) {
     let domain = NewDomain {
         name: test_name.clone(),
         soa: Soa::new(test_name.as_str()),
-        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;
@@ -157,7 +153,6 @@ async fn update_domain(pool: sqlx::PgPool) {
     let domain = NewDomain {
         name: test_name.clone(),
         soa: Soa::new(test_name.as_str()),
-        metadata: DomainMetadata::default(),
     }
     .persist(&mut txn)
     .await;

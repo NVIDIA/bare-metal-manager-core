@@ -338,19 +338,6 @@ struct BgpStats {
 }
 
 impl BgpStats {
-    /// Returns the list of peers that are mapped connected to TORs, as indicated
-    /// by session names like p0_sf or p0_if
-    #[allow(dead_code)]
-    pub fn tor_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
-        lazy_static::lazy_static! {
-            static ref TOR_SESSION_RE: regex::Regex = regex::Regex::new(r"^p[0-9]+_[si]f$").unwrap();
-        }
-
-        self.peers
-            .iter()
-            .filter(|(name, _peer)| TOR_SESSION_RE.is_match(name))
-    }
-
     /// Returns the list of peers that are not connected to TORs
     pub fn other_peers(&self) -> impl Iterator<Item = (&String, &BgpPeer)> {
         lazy_static::lazy_static! {
@@ -369,10 +356,8 @@ impl BgpStats {
 #[serde(rename_all = "camelCase")]
 struct BgpPeer {
     state: String,
-    #[allow(dead_code)]
-    pfx_rcd: Option<u32>,
-    #[allow(dead_code)]
-    pfx_snt: Option<u32>,
+    // pfx_rcd: Option<u32>, // unused
+    // pfx_snt: Option<u32>, // unused
 }
 
 #[cfg(test)]

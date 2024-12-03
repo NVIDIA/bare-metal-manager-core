@@ -14,11 +14,10 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::tests::common;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use axum::routing::{get, post};
-
-mod common;
 
 const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem";
 
@@ -47,7 +46,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
         marker.path().display()
     );
     let machine_id = "test_machine_id";
-    agent::upgrade::upgrade(
+    crate::upgrade::upgrade(
         &format!("https://{addr}"),
         client_config,
         machine_id,
