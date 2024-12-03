@@ -29,7 +29,6 @@ uname = "0.1"
 uuid = "1.0"
 
 # [local-dependencies]
-forge_secrets = { path = "../secrets" }
 forge-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 rpc = { path = "../../rpc" }

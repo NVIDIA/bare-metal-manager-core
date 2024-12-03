@@ -11,7 +11,7 @@
  */
 use std::borrow::Borrow;
 
-pub use ::rpc::forge as rpc;
+use ::rpc::forge as rpc;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;

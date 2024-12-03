@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    cfg::CarbideConfig,
+    cfg::file::CarbideConfig,
     db::{
         dpu_machine_update::DpuMachineUpdate,
         machine::{Machine, MaintenanceMode},

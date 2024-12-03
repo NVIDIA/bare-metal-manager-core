@@ -28,13 +28,11 @@ name = "admin"
 version = "0.0.1"
 dependencies = [
  "bmc-vendor",
- "byte-unit",
  "chrono",
  "clap",
  "clap_complete",
  "color-eyre",
  "eyre",
- "figment",
  "forge-network",
  "forge-tls",
  "forge-uuid",
@@ -49,9 +47,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "strum",
- "strum_macros",
- "thiserror 2.0.3",
  "tokio",
  "tonic",
  "tracing",
@@ -103,10 +98,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "axum",
- "axum-macros",
  "axum-server",
  "blake3",
- "bytes",
  "chrono",
  "clap",
  "config-version",
@@ -126,7 +119,6 @@ dependencies = [
  "gtmpl_derive",
  "gtmpl_value",
  "health-report",
- "hickory-proto",
  "hickory-resolver",
  "http-body 1.0.1",
  "http-body-util",
@@ -140,9 +132,7 @@ dependencies = [
  "mockall",
  "netlink-packet-route",
  "nonzero_ext",
- "opentelemetry 0.24.0",
- "opentelemetry-http",
- "opentelemetry-otlp",
+ "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -167,7 +157,6 @@ dependencies = [
  "tower 0.5.1",
  "tower-http",
  "tracing",
- "url",
  "utils",
  "uuid",
  "version-compare 0.2.0",
@@ -288,34 +277,25 @@ name = "api-test"
 version = "0.1.0"
 dependencies = [
  "agent",
- "async-trait",
  "bmc-mock",
  "carbide-api",
  "chrono",
  "ctor",
  "eyre",
- "forge-host-support",
  "forge-tls",
- "forge-uuid",
  "forge-version",
  "forge_secrets",
  "futures",
- "ipnetwork",
  "itertools 0.13.0",
- "lazy_static",
- "libredfish",
  "machine-a-tron",
- "opentelemetry 0.24.0",
+ "metrics-endpoint",
  "rpc",
- "rustls 0.23.16",
  "serde",
  "serde_json",
  "serial_test",
  "sqlx",
  "tempfile",
- "thiserror 2.0.3",
  "tokio",
- "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
  "utils",
@@ -954,7 +934,6 @@ dependencies = [
  "eyre",
  "figment",
  "forge-network",
- "forge-tls",
  "forge-uuid",
  "forge-version",
  "forge_secrets",
@@ -985,15 +964,12 @@ dependencies = [
  "octseq",
  "oid-registry",
  "once_cell",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "patricia_tree",
  "pkcs1",
- "prettytable-rs",
  "prometheus",
- "prost-types",
  "rand 0.8.5",
  "rcgen",
  "regex",
@@ -1015,13 +991,11 @@ dependencies = [
  "time",
  "tokio",
  "tokio-rustls 0.26.0",
- "tokio-stream",
  "toml 0.8.19",
  "tonic",
  "tonic-reflection",
  "tower 0.5.1",
  "tower-http",
- "tower-layer",
  "tracing",
  "tracing-subscriber",
  "tss-esapi",
@@ -1030,7 +1004,6 @@ dependencies = [
  "uuid",
  "vaultrs",
  "version-compare 0.2.0",
- "webpki",
  "x509-parser",
 ]
 
@@ -1043,9 +1016,7 @@ dependencies = [
  "eyre",
  "forge-tls",
  "forge-version",
- "futures",
  "rpc",
- "thiserror 2.0.3",
  "tokio",
  "tonic",
  "tracing",
@@ -1063,19 +1034,12 @@ dependencies = [
  "forge-host-support",
  "forge-tls",
  "forge-version",
- "log",
  "prometheus",
  "rocket",
- "rocket_codegen",
  "rocket_dyn_templates",
  "rocket_http",
- "rocket_prometheus",
  "rpc",
  "serde",
- "serde_json",
- "tera",
- "thiserror 2.0.3",
- "tokio",
  "toml 0.8.19",
  "tonic",
  "uuid",
@@ -1344,16 +1308,6 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
-
-[[package]]
-name = "colored"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbf2150cce219b664a8a70df7a1f933836724b503f8a413af9365b4dcc4d90b8"
-dependencies = [
- "lazy_static",
- "windows-sys 0.48.0",
-]
 
 [[package]]
 name = "compact_str"
@@ -1932,10 +1886,7 @@ dependencies = [
  "mac_address",
  "metrics-endpoint",
  "once_cell",
- "opentelemetry 0.24.0",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
+ "opentelemetry",
  "prost",
  "rpc",
  "serde_json",
@@ -1943,7 +1894,6 @@ dependencies = [
  "test-cdylib",
  "tokio",
  "tonic",
- "uuid",
 ]
 
 [[package]]
@@ -1953,26 +1903,17 @@ dependencies = [
  "chrono",
  "clap",
  "dhcproto",
- "eyre",
  "forge-tls",
- "hyper 1.5.0",
- "hyper-rustls 0.27.3",
  "ipnetwork",
- "lazy_static",
  "logfmt",
  "lru",
- "prost",
  "rpc",
- "rustls-pemfile 2.2.0",
  "serde",
  "serde_yaml",
  "socket2",
  "thiserror 2.0.3",
  "tokio",
- "tokio-rustls 0.26.0",
  "tonic",
- "tonic-build",
- "tower 0.5.1",
  "tracing",
  "tracing-subscriber",
  "utils",
@@ -2343,7 +2284,6 @@ dependencies = [
  "csv",
  "eyre",
  "forge-tls",
- "forge_secrets",
  "ipnetwork",
  "libudev",
  "logfmt",
@@ -2373,10 +2313,7 @@ dependencies = [
  "futures-util",
  "hickory-resolver",
  "hyper 1.5.0",
- "hyper-rustls 0.27.3",
  "hyper-util",
- "log",
- "pin-project-lite",
  "socket2",
  "tokio",
  "tokio-socks",
@@ -2394,7 +2331,6 @@ dependencies = [
  "mac_address",
  "rpc",
  "serde",
- "serde_json",
  "sqlx",
 ]
 
@@ -2414,15 +2350,12 @@ version = "0.0.1"
 dependencies = [
  "data-encoding",
  "eyre",
- "prettytable-rs",
  "rpc",
  "serde",
- "serde_json",
  "sha2 0.10.8",
  "sqlx",
  "thiserror 2.0.3",
  "tonic",
- "utils",
  "uuid",
 ]
 
@@ -2434,18 +2367,16 @@ version = "0.1.0"
 name = "forge_secrets"
 version = "0.1.0"
 dependencies = [
- "arc-swap",
  "async-trait",
  "bmc-vendor",
  "eyre",
  "mac_address",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "rand 0.8.5",
  "rpc",
  "serde",
  "tokio",
  "tracing",
- "uuid",
  "vaultrs",
 ]
 
@@ -2822,16 +2753,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hdrhistogram"
-version = "7.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "765c9198f173dd59ce26ff9f95ef0aafd0a0fe01fb9d72841bc5066a4c06511d"
-dependencies = [
- "byteorder",
- "num-traits",
-]
-
-[[package]]
 name = "health"
 version = "0.0.1"
 dependencies = [
@@ -2847,10 +2768,9 @@ dependencies = [
  "hyper-util",
  "lazy_static",
  "libredfish",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
- "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "prometheus",
  "rpc",
@@ -3716,7 +3636,6 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bmc-mock",
- "bytes",
  "chrono",
  "clap",
  "crossterm",
@@ -3726,14 +3645,12 @@ dependencies = [
  "figment",
  "forge-tls",
  "futures",
- "http-body 1.0.1",
  "lazy_static",
  "libredfish",
  "mac_address",
  "rand 0.8.5",
  "ratatui",
  "rcgen",
- "regex",
  "reqwest 0.12.9",
  "rpc",
  "serde",
@@ -3743,10 +3660,8 @@ dependencies = [
  "thiserror 2.0.3",
  "tokio",
  "tonic",
- "tower 0.5.1",
  "tracing",
  "tracing-subscriber",
- "utils",
  "uuid",
 ]
 
@@ -3754,25 +3669,14 @@ dependencies = [
 name = "machine-validation"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-trait",
  "chrono",
- "clap",
- "colored",
- "flate2",
  "forge-tls",
  "futures",
  "futures-util",
- "prettytable-rs",
- "prost-types",
- "rayon",
- "regex",
  "reqwest 0.11.27",
  "rpc",
  "serde",
  "serde_json",
- "serde_yaml",
- "tar",
  "thiserror 2.0.3",
  "tokio",
  "tonic",
@@ -3852,11 +3756,9 @@ dependencies = [
  "clap",
  "eyre",
  "forge-uuid",
- "itertools 0.13.0",
  "prettytable-rs",
  "rpc",
  "serde",
- "serde_json",
  "sqlx",
  "thiserror 2.0.3",
  "tonic",
@@ -3887,7 +3789,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.5.0",
  "hyper-util",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -4373,32 +4275,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3cebff57f7dbd1255b44d8bddc2cebeb0ea677dbaa2e25a3070a91b318f660"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "once_cell",
- "pin-project-lite",
- "thiserror 1.0.65",
-]
-
-[[package]]
-name = "opentelemetry-http"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a8a7f5f6ba7c1b286c2fbca0454eaba116f63bbe69ed250b642d36fbb04d80"
-dependencies = [
- "async-trait",
- "bytes",
- "http 1.1.0",
- "opentelemetry 0.27.0",
-]
-
-[[package]]
 name = "opentelemetry-otlp"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4407,7 +4283,7 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 1.1.0",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
@@ -4423,7 +4299,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4191ce34aa274621861a7a9d68dbcf618d5b6c66b10081631b61fd81fbc015"
 dependencies = [
  "once_cell",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry_sdk",
  "prometheus",
  "protobuf",
@@ -4435,7 +4311,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30ee9f20bff9c984511a02f082dc8ede839e4a9bf15cc2487c8d6fea5ad850d9"
 dependencies = [
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "opentelemetry_sdk",
  "prost",
  "tonic",
@@ -4459,7 +4335,7 @@ dependencies = [
  "futures-util",
  "glob",
  "once_cell",
- "opentelemetry 0.24.0",
+ "opentelemetry",
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
@@ -4523,15 +4399,6 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "patricia_tree"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f2f4539bffe53fc4b4da301df49d114b845b077bd5727b7fe2bd9d8df2ae68"
-dependencies = [
- "bitflags 2.6.0",
-]
 
 [[package]]
 name = "pear"
@@ -5258,26 +5125,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rayon"
-version = "1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b418a60154510ca1a002a752ca9714984e21e4241e804d32555251faf8b78ffa"
-dependencies = [
- "either",
- "rayon-core",
-]
-
-[[package]]
-name = "rayon-core"
-version = "1.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
-dependencies = [
- "crossbeam-deque",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "rcgen"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5672,16 +5519,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocket_prometheus"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76f429d654a6854abef0a5361235e847b6552d5d989c2fc8a312ba4aebd8837f"
-dependencies = [
- "prometheus",
- "rocket",
-]
-
-[[package]]
 name = "rpc"
 version = "0.0.1"
 dependencies = [
@@ -5689,32 +5526,22 @@ dependencies = [
  "eyre",
  "forge-http-connector",
  "forge-tls",
- "futures-util",
  "health-report",
  "hickory-resolver",
  "hyper 1.5.0",
  "hyper-rustls 0.27.3",
  "hyper-util",
- "lazy_static",
- "libc",
  "log",
  "mac_address",
  "prost",
- "prost-build",
  "prost-types",
- "rand 0.8.5",
- "regex",
  "resolv-conf",
  "rustls 0.23.16",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
- "socket2",
- "strum",
- "strum_macros",
  "thiserror 2.0.3",
  "tokio",
- "tokio-rustls 0.26.0",
  "tonic",
  "tonic-build",
  "tower 0.5.1",
@@ -5994,7 +5821,6 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 name = "scout"
 version = "0.0.1"
 dependencies = [
- "base64 0.22.1",
  "chrono",
  "clap",
  "efivar",
@@ -6004,13 +5830,10 @@ dependencies = [
  "forge-version",
  "futures-util",
  "lazy_static",
- "libc",
  "machine-validation",
  "once_cell",
- "procfs",
  "prost-types",
  "pwhash",
- "rand 0.8.5",
  "regex",
  "reqwest 0.11.27",
  "rpc",
@@ -7310,13 +7133,9 @@ checksum = "2873938d487c3cfb9aed7546dc9f2711d867c9f90c46b889989a2cb84eba6b4f"
 dependencies = [
  "futures-core",
  "futures-util",
- "hdrhistogram",
- "indexmap 2.6.0",
  "pin-project-lite",
- "slab",
  "sync_wrapper 0.1.2",
  "tokio",
- "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -7787,7 +7606,6 @@ dependencies = [
  "config-version",
  "eyre",
  "forge-network",
- "forge-tls",
  "health-report",
  "ipnetwork",
  "rpc",
@@ -7980,16 +7798,6 @@ checksum = "f6488b90108c040df0fe62fa815cbdee25124641df01814dd7282749234c6112"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "webpki"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
-dependencies = [
- "ring",
- "untrusted",
 ]
 
 [[package]]

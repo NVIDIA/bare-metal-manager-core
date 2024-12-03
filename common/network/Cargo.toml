@@ -14,7 +14,6 @@ eyre = "*"
 ipnetwork = { version = "^0.20.0", features = ["serde"] }
 mac_address = "1.1.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
 
 rpc = { path = "../../rpc" }

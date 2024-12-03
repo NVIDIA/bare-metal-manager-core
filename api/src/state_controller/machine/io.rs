@@ -15,7 +15,7 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::{
-    cfg::HardwareHealthReportsConfig,
+    cfg::file::HardwareHealthReportsConfig,
     db::{
         self,
         machine::{Machine, MachineSearchConfig},

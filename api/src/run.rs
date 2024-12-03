@@ -19,6 +19,7 @@ use crate::logging::{
 use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 use crate::{dynamic_settings, setup, CarbideError};
 use eyre::WrapErr;
+use forge_secrets::forge_vault;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
@@ -98,7 +99,7 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client = setup::create_vault_client(metrics.meter.clone()).await?;
+    let vault_client = forge_vault::create_vault_client(metrics.meter.clone()).await?;
     let redfish_pool = match override_redfish_pool {
         Some(pool) => {
             tracing::info!("Using override redfish client pool");

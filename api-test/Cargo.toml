@@ -9,40 +9,29 @@ authors.workspace = true
 [dev-dependencies]
 chrono = "0.4.34"
 eyre = "*"
-ipnetwork = { version = "^0.20.0", features = ["serde"] }
-lazy_static = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 serial_test = "3"
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 tempfile = "3"
 tokio.workspace = true
-toml = "0.8.8"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 futures = "0.3"
 itertools = "0.13"
 ctor = "0.2"
-opentelemetry = { workspace = true }
 
 # [local-dependencies]
 agent = { path = "../bluefield/agent" }
 bmc-mock = { path = "../dev/bmc-mock" }
 carbide-api = { path = "../api" }
-forge-host-support = { path = "../common/host-support" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 machine-a-tron = { path = "../dev/machine-a-tron" }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
-forge-uuid = { path = "../common/uuid" }
 utils = { path = "../common/utils" }
-
-[dependencies]
-async-trait = "0.1.72"
-libredfish.workspace = true
-thiserror = "2"
-rustls = { workspace = true }
+metrics-endpoint = { path = "../common/metrics-endpoint" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cfg::FirmwareComponentType;
+use crate::cfg::file::FirmwareComponentType;
 use forge_uuid::machine::MachineId;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.

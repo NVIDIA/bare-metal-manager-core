@@ -16,24 +16,16 @@ serde_yaml = "0.9.27"
 serde = { version = "1.0.190", features = ["derive"] }
 tokio = { workspace = true }
 tonic = { workspace = true }
-prost = "0.13"
-tokio-rustls = "0.26.0"
-hyper = { workspace = true }
-hyper-rustls = { workspace = true, features = ["http2"] }
-rustls-pemfile = "2.2.0"
-eyre = "0.6.8"
-tower = { version = "0.5", features = ["full"] }
 ipnetwork = "0.20.0"
 clap = { version = "4.4.7", features = ["derive"] }
 dhcproto = "0.12.0"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ] }
 thiserror = "2.0.3"
 lru = "0.12.0"
-lazy_static = "1.4.0"
 socket2 = "0.5.5"
 chrono = "0.4.38"
 
@@ -42,6 +34,3 @@ forge-tls = { path = "../common/tls" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
-
-[build-dependencies]
-tonic-build = { version = "^0.12", features = ["prost"] }

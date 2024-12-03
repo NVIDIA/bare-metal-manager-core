@@ -27,7 +27,7 @@ use tokio::{
 
 use self::metrics::PreingestionMetrics;
 use crate::{
-    cfg::{
+    cfg::file::{
         CarbideConfig, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
         FirmwareGlobal,
     },

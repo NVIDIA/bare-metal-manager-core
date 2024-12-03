@@ -13,7 +13,7 @@
 use crate::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
-    cfg::IBFabricConfig,
+    cfg::file::IBFabricConfig,
     db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
         types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},

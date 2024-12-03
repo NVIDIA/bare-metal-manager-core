@@ -22,13 +22,9 @@ lru = "0.12.1"
 mac_address = "*"
 once_cell = "*"
 opentelemetry = { workspace = true }
-opentelemetry-semantic-conventions = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry_sdk = { workspace = true }
 prost = "0.13"
 tokio = { workspace = true }
 tonic = { workspace = true }
-uuid = "1.0"
 
 # [local-dependencies]
 rpc = { path = "../rpc" }

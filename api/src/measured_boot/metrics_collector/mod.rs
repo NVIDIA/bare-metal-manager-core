@@ -13,7 +13,7 @@
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 
-use crate::{cfg::MeasuredBootMetricsCollectorConfig, db::DatabaseError, CarbideResult};
+use crate::{cfg::file::MeasuredBootMetricsCollectorConfig, db::DatabaseError, CarbideResult};
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
 

@@ -40,7 +40,7 @@ use tss_esapi::{
 
 use self::rpc::forge_server::Forge;
 use crate::attestation as attest;
-use crate::cfg::CarbideConfig;
+use crate::cfg::file::CarbideConfig;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};

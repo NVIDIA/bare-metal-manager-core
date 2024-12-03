@@ -34,7 +34,7 @@ use crate::tests::common::{
 };
 use crate::{
     api::Api,
-    cfg::{
+    cfg::file::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
         FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig, IbFabricMonitorConfig,
         IbPartitionStateControllerConfig, MachineStateControllerConfig,
@@ -67,7 +67,7 @@ use crate::{
     },
 };
 use crate::{
-    cfg::{HardwareHealthReportsConfig, MachineValidationConfig, SiteExplorerConfig},
+    cfg::file::{HardwareHealthReportsConfig, MachineValidationConfig, SiteExplorerConfig},
     site_explorer::BmcEndpointExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
@@ -485,7 +485,7 @@ pub fn get_config() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
-        tls: Some(crate::cfg::TlsConfig {
+        tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
             identity_pemfile_path: "Not a real pemfile".to_string(),
             identity_keyfile_path: "Not a real keyfile".to_string(),

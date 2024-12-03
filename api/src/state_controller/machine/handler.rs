@@ -40,7 +40,7 @@ use std::mem::discriminant as enum_discr;
 use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
-    cfg::{
+    cfg::file::{
         DpuModel, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
         MachineValidationConfig,
     },

@@ -17,7 +17,7 @@ use sqlx::{Pool, Postgres};
 use crate::db::ObjectColumnFilter;
 use crate::{
     api::Api,
-    cfg::{AgentUpgradePolicyChoice, CarbideConfig},
+    cfg::file::{AgentUpgradePolicyChoice, CarbideConfig},
     db::{
         domain::{self, Domain, NewDomain},
         dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
@@ -133,7 +133,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin agent upgrade policy", e))?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
-        .unwrap_or(super::cfg::AgentUpgradePolicyChoice::UpOnly)
+        .unwrap_or(super::cfg::file::AgentUpgradePolicyChoice::UpOnly)
         .into();
     let current_policy = DpuAgentUpgradePolicy::get(&mut txn).await?;
     // Only set if the very first time, it's the initial policy

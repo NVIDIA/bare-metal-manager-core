@@ -1,11 +1,13 @@
+use std::env;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use eyre::WrapErr;
-use opentelemetry::metrics::{Counter, Gauge, Histogram};
+use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use opentelemetry::KeyValue;
 use rand::Rng;
 use tokio::sync::RwLock;
@@ -523,4 +525,67 @@ impl CertificateProvider for ForgeVaultClient {
         let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
         vault_task_helper.execute(self).await
     }
+}
+
+pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultClient>> {
+    let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
+    let kv_mount_location =
+        env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
+    let pki_mount_location =
+        env::var("VAULT_PKI_MOUNT_LOCATION").wrap_err("VAULT_PKI_MOUNT_LOCATION")?;
+    let pki_role_name = env::var("VAULT_PKI_ROLE_NAME").wrap_err("VAULT_PKI_ROLE_NAME")?;
+
+    let vault_root_ca_path = "/var/run/secrets/forge-roots/ca.crt".to_string();
+    let service_account_token_path =
+        Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
+    let auth_type = if service_account_token_path.exists() {
+        ForgeVaultAuthenticationType::ServiceAccount(service_account_token_path.to_owned())
+    } else {
+        ForgeVaultAuthenticationType::Root(env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?)
+    };
+
+    let vault_requests_total_counter = meter
+        .u64_counter("carbide-api.vault.requests_attempted")
+        .with_description("The amount of tls connections that were attempted")
+        .init();
+    let vault_requests_succeeded_counter = meter
+        .u64_counter("carbide-api.vault.requests_succeeded")
+        .with_description("The amount of tls connections that were successful")
+        .init();
+    let vault_requests_failed_counter = meter
+        .u64_counter("carbide-api.vault.requests_failed")
+        .with_description("The amount of tcp connections that were failures")
+        .init();
+    let vault_token_time_remaining_until_refresh_gauge = meter
+        .f64_gauge("carbide-api.vault.token_time_until_refresh")
+        .with_description(
+            "The amount of time, in seconds, until the vault token is required to be refreshed",
+        )
+        .with_unit("s")
+        .init();
+    let vault_request_duration_histogram = meter
+        .u64_histogram("carbide-api.vault.request_duration")
+        .with_description("the duration of outbound vault requests, in milliseconds")
+        .with_unit("ms")
+        .init();
+
+    let forge_vault_metrics = ForgeVaultMetrics {
+        vault_requests_total_counter,
+        vault_requests_succeeded_counter,
+        vault_requests_failed_counter,
+        vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
+        vault_request_duration_histogram,
+    };
+
+    let vault_client_config = ForgeVaultClientConfig {
+        auth_type,
+        vault_address,
+        kv_mount_location,
+        pki_mount_location,
+        pki_role_name,
+        vault_root_ca_path,
+    };
+
+    let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
+    Ok(Arc::new(forge_vault_client))
 }

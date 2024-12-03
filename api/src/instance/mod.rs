@@ -21,7 +21,7 @@ use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
-    cfg::HardwareHealthReportsConfig,
+    cfg::file::HardwareHealthReportsConfig,
     db::{
         self,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},

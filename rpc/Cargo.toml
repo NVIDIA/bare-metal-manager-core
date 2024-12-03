@@ -11,16 +11,13 @@ eyre = "0.6"
 hyper = { workspace = true, features = ["full"] }
 hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { version = "^0.1", features = ["server", "http1", "http2", "tokio", "client", "client-legacy"] }
-lazy_static = "1.4"
 mac_address = "*"
 prost = "0.13"
-prost-build = "0.13"
 prost-types = "0.13"
 rustls-pemfile = "^2"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 tokio = { workspace = true }
-tokio-rustls = { workspace = true }
 tonic = { workspace = true }
 tower = "0.5.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -29,16 +26,9 @@ log = "0.4.19"
 hickory-resolver = "0.24.0"
 resolv-conf = "0.7.0"
 tracing = "0.1.37"
-socket2 = "0.5"
-libc = "0.2.147"
-futures-util = "0.3.28"
-rand = "0.8.5"
-regex = "1.6"
 thiserror = "2.0"
 tonic-build = "0.12"
 tryhard = "0.5.1"
-strum_macros = "*"
-strum = "*"
 rustls = { workspace = true, features = ["default", "ring"] }
 # [local-dependencies]
 forge-http-connector = { path = "../common/http-connector" }

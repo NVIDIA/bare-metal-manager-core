@@ -16,7 +16,7 @@ use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
-    cfg::FirmwareComponentType,
+    cfg::file::FirmwareComponentType,
     db::DatabaseError,
     model::site_explorer::{EndpointExplorationReport, ExploredEndpoint, PreingestionState},
 };

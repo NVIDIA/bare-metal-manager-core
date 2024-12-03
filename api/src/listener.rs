@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{api::Api, auth, cfg::AuthConfig, logging::api_logs::LogLayer};
+use crate::{api::Api, auth, cfg::file::AuthConfig, logging::api_logs::LogLayer};
 use ::rpc::forge as rpc;
 use hyper::server::conn::http2;
 use hyper_util::rt::{TokioExecutor, TokioIo};

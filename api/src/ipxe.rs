@@ -1,4 +1,4 @@
-pub use ::rpc::forge as rpc;
+use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;

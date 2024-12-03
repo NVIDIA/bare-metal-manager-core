@@ -61,7 +61,7 @@ impl Default for IBFabricManagerConfig {
     fn default() -> Self {
         IBFabricManagerConfig {
             manager_type: IBFabricManagerType::default(),
-            max_partition_per_tenant: cfg::IBFabricConfig::default_max_partition_per_tenant(),
+            max_partition_per_tenant: cfg::file::IBFabricConfig::default_max_partition_per_tenant(),
             mtu: IBMtu::default(),
             rate_limit: IBRateLimit::default(),
             service_level: IBServiceLevel::default(),

@@ -1,5 +1,5 @@
 use crate::{
-    cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
+    cfg::file::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::MachineUpdateManager, CarbideError, CarbideResult,
 };
 use async_trait::async_trait;

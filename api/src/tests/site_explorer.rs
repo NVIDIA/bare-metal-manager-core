@@ -13,7 +13,7 @@
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use crate::{
-    cfg::SiteExplorerConfig,
+    cfg::file::SiteExplorerConfig,
     db::{
         self,
         expected_machine::ExpectedMachine,

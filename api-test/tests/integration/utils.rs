@@ -16,9 +16,10 @@ use std::{
     time::Duration,
 };
 
-use carbide::{create_metrics, Metrics};
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::forge_vault;
+use metrics_endpoint::MetricsSetup;
 use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
@@ -35,7 +36,7 @@ pub struct IntegrationTestEnvironment {
     pub carbide_metrics_addr: SocketAddr,
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
-    pub metrics: Metrics,
+    pub metrics: MetricsSetup,
 }
 
 impl IntegrationTestEnvironment {
@@ -69,7 +70,7 @@ impl IntegrationTestEnvironment {
             carbide_metrics_addr,
             db_url,
             db_pool,
-            metrics: create_metrics()?, // unique to each test
+            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system")?, // unique to each test
         }))
     }
 }
@@ -203,8 +204,8 @@ impl ApiServerHandle {
     }
 }
 
-pub async fn populate_initial_vault_secrets(metrics: &Metrics) -> Result<(), Report> {
-    let vault_client = carbide::create_vault_client(metrics.meter.clone()).await?;
+pub async fn populate_initial_vault_secrets(metrics: &MetricsSetup) -> Result<(), Report> {
+    let vault_client = forge_vault::create_vault_client(metrics.meter.clone()).await?;
     vault_client
         .set_credentials(
             CredentialKey::BmcCredentials {

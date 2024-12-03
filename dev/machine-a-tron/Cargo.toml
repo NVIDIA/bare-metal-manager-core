@@ -31,17 +31,12 @@ figment = { version = "0.10.16", features = ["toml"] }
 libredfish = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "socks", "multipart"] }
 eyre = "0.6.12"
-tower = "0.5.1"
-http-body = "1.0.0"
-regex = "1.10.5"
-bytes = "1.6.0"
 tempfile = "3"
 duration-str = "0.11"
 rand = "0.8"
+rcgen = "0.13.1"
 
 # [local-dependencies]
 rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
 forge-tls = { path = "../../common/tls" }
-utils = { path = "../../common/utils" }
-rcgen = "0.13.1"
