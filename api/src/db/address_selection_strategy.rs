@@ -9,12 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::IpAddr;
 
-pub enum AddressSelectionStrategy<'a> {
-    #[allow(dead_code)] // not supported yet
-    Empty,
-    #[allow(dead_code)] // not supported yet
-    Static(&'a [IpAddr]),
+pub enum AddressSelectionStrategy {
     Automatic,
+    // May be implemented in the future:
+    // Empty,
+    // Static(&'a [IpAddr]),
 }

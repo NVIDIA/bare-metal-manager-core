@@ -17,7 +17,7 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
-use super::{IBFabric, IBFabricConfig, IBFabricVersions};
+use super::{IBFabric, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct MockIBFabric {
@@ -27,29 +27,6 @@ pub struct MockIBFabric {
 
 #[async_trait]
 impl IBFabric for MockIBFabric {
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
-        Ok(IBFabricConfig::default())
-    }
-
-    /// Delete IBNetwork
-    async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError> {
-        let mut ibsubnets = self
-            .ibsubnets
-            .lock()
-            .map_err(|_| CarbideError::IBFabricError("delete_ib_network mutex lock".to_string()))?;
-
-        if !ibsubnets.contains_key(id) {
-            return Err(CarbideError::NotFoundError {
-                kind: "",
-                id: id.to_string(),
-            });
-        }
-
-        ibsubnets.remove(id);
-
-        Ok(())
-    }
-
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError> {
         let ibsubnets = self
@@ -64,21 +41,6 @@ impl IBFabric for MockIBFabric {
             }),
             Some(ib) => Ok(ib.clone()),
         }
-    }
-
-    /// Find IBSubnet
-    async fn find_ib_network(&self) -> Result<Vec<IBNetwork>, CarbideError> {
-        let ibsubnets = self
-            .ibsubnets
-            .lock()
-            .map_err(|_| CarbideError::IBFabricError("find_ib_network mutex lock".to_string()))?;
-
-        let mut ibs = vec![];
-        for ib in ibsubnets.values() {
-            ibs.push(ib.clone());
-        }
-
-        Ok(ibs)
     }
 
     async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<String>) -> Result<(), CarbideError> {

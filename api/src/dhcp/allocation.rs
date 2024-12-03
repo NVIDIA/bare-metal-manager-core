@@ -123,7 +123,7 @@ impl IpAllocator {
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
         used_ip_resolver: Box<dyn UsedIpResolver + Send>,
-        address_strategy: AddressSelectionStrategy<'_>,
+        address_strategy: AddressSelectionStrategy,
         prefix_length: u8,
     ) -> CarbideResult<Self> {
         match address_strategy {
@@ -145,7 +145,6 @@ impl IpAllocator {
                     prefix_length,
                 })
             }
-            _ => Err(CarbideError::from(DhcpError::StrategyNotImplemented)),
         }
     }
 

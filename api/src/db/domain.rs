@@ -237,8 +237,7 @@ impl<'r> FromRow<'r, PgRow> for Domain {
 pub struct NewDomain {
     pub name: String,
     pub soa: Soa,
-    #[allow(dead_code)]
-    pub metadata: DomainMetadata,
+    // pub metadata: DomainMetadata, // unused
 }
 
 // Marshal Domain object into Protobuf
@@ -267,7 +266,6 @@ impl TryFrom<rpc::Domain> for NewDomain {
         Ok(NewDomain {
             name: value.name.clone(),
             soa: Soa::new(value.name.as_str()),
-            metadata: Default::default(),
         })
     }
 }
@@ -277,7 +275,6 @@ impl NewDomain {
         Self {
             name: name.to_string(),
             soa: Soa::new(name),
-            metadata: Default::default(),
         }
     }
 

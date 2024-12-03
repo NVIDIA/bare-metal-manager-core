@@ -585,7 +585,6 @@ impl DhcpRelayService {
     }
 }
 
-#[allow(dead_code)]
 fn find_code(code: u8, options: &[u8]) -> usize {
     let mut opt_index = 0;
     while opt_index < options.len() {
@@ -599,7 +598,6 @@ fn find_code(code: u8, options: &[u8]) -> usize {
     opt_index
 }
 
-#[allow(dead_code)]
 fn find_string(code: u8, options: &[u8]) -> String {
     let opt_index: usize = find_code(code, options);
     let len: usize = options[opt_index + 1] as usize;

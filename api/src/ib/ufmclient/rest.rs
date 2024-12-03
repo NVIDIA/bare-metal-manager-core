@@ -303,12 +303,6 @@ impl RestClient {
         Ok(())
     }
 
-    pub async fn delete(&self, path: &str) -> Result<(), RestError> {
-        self.execute_request(Method::DELETE, path, None).await?;
-
-        Ok(())
-    }
-
     async fn execute_request(
         &self,
         method: Method,

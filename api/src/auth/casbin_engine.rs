@@ -80,8 +80,8 @@ impl PolicyEngine for CasbinEngine {
                 }
             })
             .map(|principal| Authorization {
-                principal: principal.clone(),
-                predicate,
+                _principal: principal.clone(),
+                _predicate: predicate,
             })
             .ok_or(AuthorizationError::Unauthorized);
 

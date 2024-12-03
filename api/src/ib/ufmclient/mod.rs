@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
 use std::fmt;
 
 use base64::prelude::*;
@@ -266,13 +265,6 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 }
 
 impl Ufm {
-    pub async fn get_sm_config(&self) -> Result<SmConfig, UFMError> {
-        let path = String::from("/app/smconf");
-        let sm_config: SmConfig = self.client.get(&path).await?;
-
-        Ok(sm_config)
-    }
-
     pub async fn update_partition_qos(&self, p: Partition) -> Result<(), UFMError> {
         let path = String::from("/resources/pkeys/qos_conf");
 
@@ -380,38 +372,6 @@ impl Ufm {
             ipoib: pk.ip_over_ib,
             qos: pk.qos_conf,
         })
-    }
-
-    pub async fn list_partition(&self) -> Result<Vec<Partition>, UFMError> {
-        #[derive(Serialize, Deserialize, Debug)]
-        struct Pkey {
-            partition: String,
-            ip_over_ib: bool,
-            qos_conf: PartitionQoS,
-        }
-
-        let path = String::from("/resources/pkeys?qos_conf=true");
-        let pkey_qos: HashMap<String, Pkey> = self.client.list(&path).await?;
-
-        let mut parts = Vec::new();
-
-        for (k, v) in pkey_qos {
-            parts.push(Partition {
-                name: v.partition,
-                pkey: PartitionKey::try_from(&k)?,
-                ipoib: v.ip_over_ib,
-                qos: v.qos_conf.clone(),
-            });
-        }
-
-        Ok(parts)
-    }
-
-    pub async fn delete_partition(&self, pkey: &str) -> Result<(), UFMError> {
-        let path = format!("/resources/pkeys/{}", pkey);
-        self.client.delete(&path).await?;
-
-        Ok(())
     }
 
     async fn list_partition_ports(&self, pkey: &PartitionKey) -> Result<Vec<String>, UFMError> {

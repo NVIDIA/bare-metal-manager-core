@@ -1222,17 +1222,18 @@ fn hostname() -> eyre::Result<Hostname> {
         .ok_or(eyre::eyre!("Empty hostname?"))?;
     let search_domain = fqdn.split('.').skip(1).collect::<Vec<&str>>().join(".");
     Ok(Hostname {
-        fqdn,
         hostname,
         search_domain,
+        #[cfg(test)]
+        fqdn,
     })
 }
 
 struct Hostname {
-    #[allow(dead_code)]
-    fqdn: String,
     hostname: String,
     search_domain: String,
+    #[cfg(test)]
+    fqdn: String,
 }
 
 #[derive(Debug, Clone)]

@@ -49,22 +49,12 @@ pub trait IBFabricManager: Send + Sync {
 }
 
 #[async_trait]
-#[allow(dead_code)]
 pub trait IBFabric: Send + Sync {
-    /// Get fabric configuration
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
-
     /// Update IBNetwork, e.g. QoS
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
 
-    /// Delete IBNetwork
-    async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError>;
-
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError>;
-
-    /// Find IBNetwork
-    async fn find_ib_network(&self) -> Result<Vec<IBNetwork>, CarbideError>;
 
     /// Create IBPort
     async fn bind_ib_ports(

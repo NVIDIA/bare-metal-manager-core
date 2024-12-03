@@ -3,10 +3,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::instrumentation::NetworkMonitorMetricsState;
+use crate::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
+use crate::tests::common;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use agent::instrumentation::NetworkMonitorMetricsState;
-use agent::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMonitorError, Ping};
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -21,8 +22,6 @@ use prometheus::{Encoder, TextEncoder};
 use tokio::sync::{watch, Mutex};
 use tokio::time::sleep;
 use tracing::info;
-
-mod common;
 
 // DPU machine ids for testing purposes
 const DPU_ID: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";

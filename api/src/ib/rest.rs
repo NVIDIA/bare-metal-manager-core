@@ -74,22 +74,6 @@ pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, Carbid
 
 #[async_trait]
 impl IBFabric for RestIBFabric {
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
-        self.ufm
-            .get_sm_config()
-            .await
-            .map(IBFabricConfig::from)
-            .map_err(CarbideError::from)
-    }
-
-    /// Delete IBNetwork
-    async fn delete_ib_network(&self, pkey: &str) -> Result<(), CarbideError> {
-        self.ufm
-            .delete_partition(pkey)
-            .await
-            .map_err(CarbideError::from)
-    }
-
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, pkey: &str) -> Result<IBNetwork, CarbideError> {
         let partition = self
@@ -99,21 +83,6 @@ impl IBFabric for RestIBFabric {
             .map_err(CarbideError::from)?;
 
         IBNetwork::try_from(partition)
-    }
-
-    /// Find IBSubnet
-    async fn find_ib_network(&self) -> Result<Vec<IBNetwork>, CarbideError> {
-        let partitions = self
-            .ufm
-            .list_partition()
-            .await
-            .map_err(CarbideError::from)?;
-
-        let mut ibs = vec![];
-        for p in partitions {
-            ibs.push(IBNetwork::try_from(p)?);
-        }
-        Ok(ibs)
     }
 
     /// Create IBPort

@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-#![allow(dead_code)] // only some of these fields are currently used, more tests may need them later
-
 pub const AK_PUB_SERIALIZED: [u8; 280] = [
     0, 1, 0, 11, 0, 5, 0, 114, 0, 0, 0, 16, 0, 22, 0, 11, 8, 0, 0, 0, 0, 0, 1, 0, 197, 213, 201,
     224, 218, 94, 188, 183, 101, 132, 200, 245, 5, 232, 37, 49, 46, 89, 171, 230, 112, 64, 108, 96,

@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-// this stuff is used in tests and isn't actually dead
-
 use std::{
     fmt::Write,
     fs::File,
