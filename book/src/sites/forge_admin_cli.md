@@ -66,7 +66,7 @@ are already present in the container.
 Run this (or manually substitute the `$HOME` variable). `forge-admin-cli` will look for this config file in that location by default.
 
 ```bash
-envsubst > ~/.config/carbide_api_cli.json << EOF
+cat > ~/.config/carbide_api_cli.json << EOF
 {
   "forge_root_ca_path": "$HOME/.config/forge/forge-root-ca.pem",
   "client_key_path": "$HOME/.nvinit/certs/nvinit-user",
@@ -79,7 +79,7 @@ EOF
 
 With all of that set up, you can now target an individual site with the `-c` option. For example:
 ```bash
-forge-admin-cli -c https://api-demo1.frg.nvidia.com/ version
+forge-admin-cli -c https://api-dev3.frg.nvidia.com/ version
 ```
 
 The per-environment endpoints are listed here under the "Carbide" column: <https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#environments>
