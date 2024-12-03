@@ -852,10 +852,10 @@ impl Firmware {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum FirmwareComponentType {
-    Bfb,
     Bmc,
     Cec,
     Uefi,
+    Nic,
     HGXBmc,
     CombinedBmcUefi,
     #[serde(other)]
@@ -869,8 +869,8 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::Bmc => write!(f, "BMC"),
             FirmwareComponentType::Uefi => write!(f, "UEFI"),
             FirmwareComponentType::CombinedBmcUefi => write!(f, "BMC+UEFI"),
+            FirmwareComponentType::Nic => write!(f, "NIC"),
             FirmwareComponentType::Cec => write!(f, "CEC"),
-            FirmwareComponentType::Bfb => write!(f, "BFB"),
             FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
         }
@@ -884,7 +884,7 @@ impl From<FirmwareComponentType> for libredfish::model::update_service::Componen
             FirmwareComponentType::Bmc => ComponentType::BMC,
             FirmwareComponentType::Uefi => ComponentType::UEFI,
             FirmwareComponentType::Cec => ComponentType::Unknown,
-            FirmwareComponentType::Bfb => ComponentType::Unknown,
+            FirmwareComponentType::Nic => ComponentType::Unknown,
             FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
             FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
