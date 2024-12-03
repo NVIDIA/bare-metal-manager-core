@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::db::{instance, ObjectColumnFilter};
 use crate::{
-    cfg::HardwareHealthReportsConfig,
+    cfg::file::HardwareHealthReportsConfig,
     db::{
         self,
         instance::{FindInstanceTypeFilter, Instance},

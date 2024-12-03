@@ -28,10 +28,11 @@ use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, StateSla,
 };
-use crate::cfg::HardwareHealthReportsConfig;
 use crate::{
-    cfg::FirmwareComponentType, model::hardware_info::HardwareInfo,
-    state_controller::state_handler::StateHandlerError, CarbideError,
+    cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
+    model::hardware_info::HardwareInfo,
+    state_controller::state_handler::StateHandlerError,
+    CarbideError,
 };
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{

@@ -11,7 +11,7 @@
  */
 
 use super::DatabaseError;
-use crate::cfg::{Firmware, FirmwareComponentType, FirmwareConfig};
+use crate::cfg::file::{Firmware, FirmwareComponentType, FirmwareConfig};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use std::{collections::HashMap, default::Default, ops::DerefMut};

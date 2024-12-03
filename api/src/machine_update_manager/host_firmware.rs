@@ -12,7 +12,7 @@
 
 use super::machine_update_module::MachineUpdateModule;
 use crate::{
-    cfg::{CarbideConfig, FirmwareConfig},
+    cfg::file::{CarbideConfig, FirmwareConfig},
     db::{desired_firmware, host_machine_update::HostMachineUpdate, machine::Machine},
     CarbideResult,
 };

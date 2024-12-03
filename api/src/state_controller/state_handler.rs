@@ -15,7 +15,7 @@ use std::sync::Arc;
 use libredfish::RedfishError;
 use opentelemetry::metrics::Meter;
 
-use crate::cfg::CarbideConfig;
+use crate::cfg::file::CarbideConfig;
 use crate::storage::StorageError;
 use crate::{
     db::DatabaseError,

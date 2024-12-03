@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::IBFabricConfig;
+use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
 use crate::{
     api::Api,

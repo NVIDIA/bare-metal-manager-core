@@ -14,7 +14,7 @@ use crate::tests::common;
 
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{cfg::HardwareHealthReportsConfig, db};
+use crate::{cfg::file::HardwareHealthReportsConfig, db};
 use common::api_fixtures::{
     create_managed_host, create_test_env_with_overrides, get_config,
     network_configured_with_health, remove_health_report_override, send_health_report_override,

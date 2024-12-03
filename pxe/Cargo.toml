@@ -15,14 +15,9 @@ base64 = "0.22.1"
 clap = { workspace = true }
 rocket = { version = "= 0.5.1", features = ["uuid"] }
 serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-tera = "*"
-thiserror = "2.0"
-tokio = { workspace = true }
 toml = "0.8.8"
 tonic = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-rocket_prometheus = "0.10.1"
 
 
 # [local-dependencies]
@@ -31,7 +26,6 @@ forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 prometheus = "0.13.4"
-log = "0.4.21"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
@@ -42,9 +36,6 @@ toml = "0.8.8"
 [dependencies.rocket_dyn_templates]
 version = "0.2.0"
 features = ["tera"]
-
-[dependencies.rocket_codegen]
-version = "= 0.5.1"
 
 [dependencies.rocket_http]
 version = "= 0.5.1"

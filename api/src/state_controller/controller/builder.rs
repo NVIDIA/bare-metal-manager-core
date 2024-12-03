@@ -15,7 +15,7 @@ use std::sync::Arc;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
-use crate::cfg::CarbideConfig;
+use crate::cfg::file::CarbideConfig;
 use crate::storage::NvmeshClientPool;
 use crate::{
     ib::IBFabricManager,

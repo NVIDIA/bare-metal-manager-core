@@ -10,16 +10,13 @@ authors.workspace = true
 [dependencies]
 hickory-resolver = { version = "0.24.0" }
 tokio = { workspace = true, features = ["rt", "macros"] }
-log = "0.4.19"
 tracing = "0.1.40"
 socket2 = "0.5.5"
 hyper = { workspace = true, features = [
     "client",
 ] }
-hyper-rustls = { workspace = true, optional = true }
 hyper-util = { version = "0.1.10", features = ["tokio"] }
 
-pin-project-lite = "0.2.11"
 futures-util = "0.3.28"
 tower-service = "0.3.2"
 tokio-socks = "0.5.1"

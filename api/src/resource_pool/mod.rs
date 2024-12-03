@@ -18,5 +18,8 @@ pub(crate) use crate::db::resource_pool::{
 };
 pub(crate) use define::{define_all_from, DefineResourcePoolError};
 
+pub use define::ResourcePoolDef;
+
 // These are currently only used by api-test
-pub use define::{Range, ResourcePoolDef, ResourcePoolType};
+#[cfg(test)]
+pub use define::{Range, ResourcePoolType};

@@ -12,7 +12,6 @@ path = "src/main.rs"
 [dependencies]
 arc-swap = "1.6"
 axum = { version = "0.7", features = ["macros"] }
-axum-macros = "0.4.2"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 async-trait = "0.1.77"
 blake3 = "1.4"
@@ -41,8 +40,6 @@ netlink-packet-route = "=0.19"
 nonzero_ext = "*"
 
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
-opentelemetry-otlp = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry_sdk = { workspace = true }
@@ -62,9 +59,7 @@ tonic = { workspace = true }
 tower = "0.5.1"
 tower-http = { version = "0.6.1", features = ["trace"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-url = "*"
 resolv-conf = "0.7.0"
-hickory-proto = "0.24.0"
 hickory-resolver = "0.24.0"
 version-compare = "0.2.0"
 
@@ -78,13 +73,11 @@ forge-version = { path = "../../common/version" }
 health-report = { path = "../../common/health-report" }
 rpc = { path = "../../rpc" }
 utils = { path = "../../common/utils" }
-bytes = "1.8.0"
 
 [build-dependencies]
 forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
-chrono = "0.4.34"
 ctor = "0.2"
 tempfile = "3"
 prost = "0.13"
@@ -92,6 +85,5 @@ reqwest = { version = "*", default-features = false, features = [
     "rustls-tls",
     "stream",
 ] }
-serde_yaml = "*"
 rustls-pemfile = "2.2.0"
 rustls-pki-types = "1.10.0"

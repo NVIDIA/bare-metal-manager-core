@@ -13,7 +13,7 @@
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_test_env, TestEnvOverrides};
 use crate::{
-    cfg::FirmwareComponentType,
+    cfg::file::FirmwareComponentType,
     db::{
         explored_endpoints::DbExploredEndpoint,
         host_machine_update::HostMachineUpdate,

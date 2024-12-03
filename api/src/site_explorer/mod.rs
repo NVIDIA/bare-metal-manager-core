@@ -27,7 +27,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
+    cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
     db::{
         self,
         bmc_metadata::BmcMetaDataUpdateRequest,

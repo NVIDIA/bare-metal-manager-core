@@ -27,10 +27,12 @@
 mod api;
 mod attestation;
 mod auth;
+mod cfg;
 mod credentials;
 mod db;
 mod db_init;
 mod dhcp;
+mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;
 mod firmware_downloader;
@@ -62,21 +64,7 @@ mod web;
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
 
-// MARK: - Public exports
-
-// Needed by api-test
-pub mod cfg;
-pub mod dynamic_settings;
-pub mod test_logging;
-
 // Stuff needed by main.rs and api-test
-pub use crate::{db::migrations::migrate, run::run};
-
-// Stuff needed by api-test, mostly for declaring a CarbideConfig object
-pub use {
-    ib::{IBMtu, IBRateLimit, IBServiceLevel},
-    logging::setup::{create_metrics, Metrics},
-    model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType},
-    resource_pool::{Range as ResourcePoolRange, ResourcePoolDef, ResourcePoolType},
-    setup::create_vault_client,
+pub use crate::{
+    cfg::command_line::Command, cfg::command_line::Options, db::migrations::migrate, run::run,
 };

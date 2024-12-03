@@ -24,7 +24,7 @@ use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::model::hardware_info::HardwareInfoError;
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::{
-    cfg::{DpuModel, Firmware, FirmwareComponentType},
+    cfg::file::{DpuModel, Firmware, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::from_hardware_info_with_type,

@@ -65,14 +65,37 @@ mod web;
 /// Setup logging for tests.
 #[ctor::ctor]
 fn setup_test_logging() {
-    use tracing_subscriber::util::SubscriberInitExt;
-    let logging = crate::test_logging::test_logging_subscriber();
-    if let Err(e) = logging.try_init() {
+    use tracing::metadata::LevelFilter;
+    use tracing_subscriber::{
+        filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt,
+    };
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .compact()
+                .with_writer(TestWriter::new),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("sqlx=warn".parse().unwrap())
+                .add_directive("tower=warn".parse().unwrap())
+                .add_directive("rustify=off".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("h2=warn".parse().unwrap())
+                // Silence permissive mode related messages
+                .add_directive("carbide::auth=error".parse().unwrap()),
+        )
+        .try_init()
+    {
         // Note: Resist the temptation to ignore this error. We really should only have one place in
         // the test binary that initializes logging.
         panic!(
-            "Failed to initialize trace logging for tests. It's possible some earlier code path \
-        has already set a global default log subscriber: {e}"
+            "Failed to initialize trace logging for carbide-api tests. It's possible some earlier \
+            code path has already set a global default log subscriber: {e}"
         );
     }
 }

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::cfg::file::AgentUpgradePolicyChoice;
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -117,9 +118,9 @@ impl From<AgentUpgradePolicy> for i32 {
 }
 
 // From the config file
-impl From<crate::cfg::AgentUpgradePolicyChoice> for AgentUpgradePolicy {
-    fn from(c: crate::cfg::AgentUpgradePolicyChoice) -> Self {
-        use crate::cfg::AgentUpgradePolicyChoice::*;
+impl From<AgentUpgradePolicyChoice> for AgentUpgradePolicy {
+    fn from(c: AgentUpgradePolicyChoice) -> Self {
+        use AgentUpgradePolicyChoice::*;
         match c {
             Off => AgentUpgradePolicy::Off,
             UpOnly => AgentUpgradePolicy::UpOnly,

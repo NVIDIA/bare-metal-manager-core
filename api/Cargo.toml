@@ -25,7 +25,6 @@ bytes = "1.8.0"
 casbin = { version = "2.0", features = ["glob"] }
 chrono = "0.4.34"
 clap = { workspace = true }
-const_format = "0.2.26"
 dashmap = "6.1.0"
 data-encoding = "2.3.3"
 domain = "0.10.1"
@@ -59,8 +58,6 @@ opentelemetry-semantic-conventions = { version = "0.27", features = ["semconv_ex
 opentelemetry-prometheus.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio"] }
 toml = "0.8.8"
-patricia_tree = "^0"
-prettytable-rs = "^0.10"
 prometheus = "0.13"
 pkcs1 = "0.7.5"
 rand = "0.8"
@@ -81,7 +78,6 @@ tempdir = "0.3.7"
 tokio = { workspace = true }
 tokio-rustls = "0.26"
 rustls-pemfile = "2.2"
-tokio-stream = "*"
 tonic = { workspace = true }
 tonic-reflection = "0.12"
 url = { version = "2", features = ["serde"] }
@@ -91,21 +87,22 @@ tower-http = { version = "0.6.1", features = [
     "auth",
     "normalize-path",
 ] }
-tower-layer = "0.3"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tss-esapi = { version = "7.5.0" }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.7"
 version-compare = "0.2.0"
-webpki = { version = "0.22.4", features = ["alloc", "std"] }
 x509-parser = { version = "0.16.0", features = ["verify"] }
+duration-str = "0.11.2"
+axum-extra = { version = "0.9", features = ["cookie", "cookie-private"] }
+oauth2 = { version = "4.4.2", default-features = false }
+time = "0.3.36"
 
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version", features = ["sqlx"] }
 forge-network = { path = "../common/network", features = ["sqlx"] }
-forge-tls = { path = "../common/tls" }
 forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
 forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }
@@ -114,12 +111,6 @@ logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils", features = ["sqlx"] }
 measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
-duration-str = "0.11.2"
-prost-types = "0.13"
-rcgen = "0.13.1"
-axum-extra = { version = "0.9", features = ["cookie", "cookie-private"] }
-oauth2 = { version = "4.4.2", default-features = false }
-time = "0.3.36"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
@@ -128,3 +119,5 @@ forge-version = { path = "../common/version" }
 figment = { version = "0.10.10", features = ["env", "test", "toml"] }
 ctor = "0.2"
 lazy_static = "1.4.0"
+const_format = "0.2.26"
+rcgen = "0.13.1"

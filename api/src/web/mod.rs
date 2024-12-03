@@ -37,7 +37,7 @@ use tonic::service::AxumBody;
 use tower_http::normalize_path::NormalizePath;
 
 use crate::api::Api;
-use crate::cfg::CarbideConfig;
+use crate::cfg::file::CarbideConfig;
 use crate::CarbideError;
 
 mod auth;

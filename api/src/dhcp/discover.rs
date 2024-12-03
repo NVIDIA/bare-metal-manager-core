@@ -12,13 +12,13 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-pub use ::rpc::forge as rpc;
+use ::rpc::forge as rpc;
 use mac_address::MacAddress;
 use tonic::{Request, Response};
 
 use crate::db::{machine_interface, predicted_machine_interface::PredictedMachineInterface};
 use crate::{
-    cfg::HostHealthConfig,
+    cfg::file::HostHealthConfig,
     db::{
         self,
         dhcp_entry::DhcpEntry,

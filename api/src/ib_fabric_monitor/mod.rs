@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 use tracing::Instrument;
 
 use crate::{
-    cfg::IbFabricMonitorConfig,
+    cfg::file::IbFabricMonitorConfig,
     ib::{IBFabricManager, IBFabricManagerType, DEFAULT_IB_FABRIC_NAME},
     CarbideError, CarbideResult,
 };
