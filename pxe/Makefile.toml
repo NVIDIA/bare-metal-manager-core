@@ -32,14 +32,16 @@ DPU_AGENT_PKG_VERSION = { script = [
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
-# BF2-24.07-14
-BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.07-14/OPN/bf2-bmc-ota-24.07-14-opn.tar"
+# BF2-24.10-9
+BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.10-9/OPN/bf2-bmc-ota-24.10-9-opn.tar"
 BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
 
 # https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release
-# BF3-24.07-14
-BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.07-14/OPN/bf3-bmc-24.07-14_opn.fwpkg"
-BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
+# BF3-24.10-9
+BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.10-9/OPN/bf3-bmc-24.10-9_opn.fwpkg"
+BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0195.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0195.0000-n02-rel-prod.fwpkg"
+
+BFB_FW_BUNDLE = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/doca_2.9.0/20241109/custom-images/bf-fwbundle-2.9.0-90_24.10-prod.bfb"
 
 [tasks.upload-bfb-artifacts-to-urm]
 env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
@@ -153,27 +155,27 @@ dependencies = [
 [tasks.create-ephemeral-image-aarch64-ci]
 category = "Ephemeral Image"
 dependencies = [
-	#"mkosi-clean-qcow-imager",
-	"mkosi-clean-scout-aarch64",
-	"copy-forge-scout-ci-aarch64",
-	"copy-forge-prod-root-ca-aarch64",
-	"mkosi-build-scout-aarch64",
-	#"mkosi-build-qcow-imager",
-	#"mkosi-copy-qcow-imager-to-webroot-aarch64",
-	"mkosi-copy-scout-to-webroot-aarch64",
+  #"mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-aarch64",
+  "copy-forge-scout-ci-aarch64",
+  "copy-forge-prod-root-ca-aarch64",
+  "mkosi-build-scout-aarch64",
+  #"mkosi-build-qcow-imager",
+  #"mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-copy-scout-to-webroot-aarch64",
 ]
 
 [tasks.create-ephemeral-image-aarch64]
 category = "Ephemeral Image"
 dependencies = [
-	#"mkosi-clean-qcow-imager",
-	"mkosi-clean-scout-aarch64",
-	"copy-forge-scout-aarch64",
-	"copy-forge-dev-root-ca-aarch64",
-	"mkosi-build-scout-aarch64",
-	#"mkosi-build-qcow-imager",
-	#"mkosi-copy-qcow-imager-to-webroot-aarch64",
-	"mkosi-copy-scout-to-webroot-aarch64",
+  #"mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-aarch64",
+  "copy-forge-scout-aarch64",
+  "copy-forge-dev-root-ca-aarch64",
+  "mkosi-build-scout-aarch64",
+  #"mkosi-build-qcow-imager",
+  #"mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-copy-scout-to-webroot-aarch64",
 ]
 
 [tasks.cleanup-pxe-submodule]
@@ -215,9 +217,9 @@ args = [
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-	"-f",
-	"${FORGE_CA_PATH}",
-	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "-f",
+  "${FORGE_CA_PATH}",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-dev-root-ca-x86_64]
@@ -233,9 +235,9 @@ args = [
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
-	"-f",
-	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
+  "-f",
+  "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-forge-scout-x86_64]
@@ -250,8 +252,8 @@ args = [
 category = "Copy Forge Scout locally"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/release/forge-scout",
-	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/release/forge-scout",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
 ]
 
 [tasks.copy-forge-scout-ci-x86_64]
@@ -266,8 +268,8 @@ args = [
 category = "Copy Forge Scout in CI"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/debug/forge-scout",
-	"mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/debug/forge-scout",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
 ]
 
 [tasks.mkosi-clean-qcow-imager]
@@ -283,10 +285,7 @@ args = ["--profile", "scout-x86_64", "clean"]
 [tasks.mkosi-clean-scout-aarch64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
-args = [
-	"--profile", "scout-aarch64",
-	"clean"
-]
+args = ["--profile", "scout-aarch64", "clean"]
 
 # `depmod` on our runners is in `/sbin`, so add to PATH
 [tasks.mkosi-build-scout-x86_64]
@@ -301,8 +300,8 @@ args = [
 category = "Ephemeral Image"
 command = "/bin/bash"
 args = [
-	"-c",
-    "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-aarch64 build"
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile scout-aarch64 build",
 ]
 
 [tasks.mkosi-build-qcow-imager]
@@ -326,12 +325,10 @@ dependencies = ["mkdir-static-x86_64"]
 category = "Ephemeral Image"
 command = "cp"
 args = [
-	"mkosi.output/qcow-imager.efi",
-	"static/blobs/internal/aarch64/qcow-imager.efi"
+  "mkosi.output/qcow-imager.efi",
+  "static/blobs/internal/aarch64/qcow-imager.efi",
 ]
-dependencies = [
-	"mkdir-static-x86_64"
-]
+dependencies = ["mkdir-static-x86_64"]
 
 [tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
@@ -342,13 +339,8 @@ dependencies = ["mkdir-static-x86_64"]
 [tasks.mkosi-copy-scout-to-webroot-aarch64]
 category = "Ephemeral Image"
 command = "cp"
-args = [
-	"mkosi.output/scout.efi",
-	"static/blobs/internal/aarch64/scout.efi"
-]
-dependencies = [
-	"mkdir-static-aarch64"
-]
+args = ["mkosi.output/scout.efi", "static/blobs/internal/aarch64/scout.efi"]
+dependencies = ["mkdir-static-aarch64"]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
@@ -830,6 +822,7 @@ script = [
   "wget -nv \"${BF2_CEC_PACKAGE}\"",
   "wget -nv \"${BF3_BMC_PACKAGE}\"",
   "wget -nv \"${BF3_CEC_PACKAGE}\"",
+  "wget -nv \"${BFB_FW_BUNDLE}\"",
 ]
 cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 

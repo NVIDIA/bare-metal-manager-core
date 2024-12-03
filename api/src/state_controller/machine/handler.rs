@@ -26,7 +26,10 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
-    model::task::{Task, TaskState},
+    model::{
+        task::{Task, TaskState},
+        update_service::TransferProtocolType,
+    },
     Boot, Redfish, RedfishError, SystemPowerControl,
 };
 use tokio::{fs::File, sync::Semaphore};
@@ -2094,7 +2097,7 @@ async fn component_update(
         // Note: DPU uses different name for BMC Firmware as
         // BF2: 6d53cf4d_BMC_Firmware
         // BF3: BMC_Firmware
-        FirmwareComponentType::Bfb => "DPU_OS",
+        FirmwareComponentType::Nic => "DPU_NIC",
         FirmwareComponentType::Bmc => "BMC_Firmware",
         FirmwareComponentType::Uefi => "DPU_UEFI",
         FirmwareComponentType::Cec => "Bluefield_FW_ERoT",
@@ -2153,26 +2156,64 @@ async fn component_update(
                 )));
         }
     };
-
-    let update_path = component_value.filename.as_ref().unwrap();
-    let update_file = File::open(update_path).await.map_err(|e| {
-        StateHandlerError::FirmwareUpdateError(eyre!(
-            "Failed to open {:?} path {} with error {}",
-            component,
-            update_path,
-            e.to_string()
-        ))
-    })?;
-
-    tracing::info!("Updating {redfish_component_name} from {cur_version} to {update_version}");
-    match redfish.update_firmware(update_file).await {
-        Ok(task) => Ok(Some(task)),
-        Err(e) => {
-            tracing::error!("redfish command update_firmware error {}", e.to_string());
-            Err(StateHandlerError::RedfishError {
-                operation: "update_firmware",
+    if component_value.get_filename().ends_with("bfb") {
+        let image_uri = format!(
+            "{}/{}",
+            component_value.get_url(),
+            component_value.get_filename().display()
+        );
+        tracing::debug!(
+            "initiate_update: Using simple_update with image URI: {}",
+            image_uri
+        );
+        redfish
+            .enable_rshim_bmc()
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "enable_rshim_bmc",
                 error: e,
-            })
+            })?;
+        match redfish
+            .update_firmware_simple_update(
+                image_uri.as_str(),
+                vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
+                TransferProtocolType::HTTP,
+            )
+            .await
+        {
+            Ok(task) => Ok(Some(task)),
+            Err(e) => {
+                tracing::error!(
+                    "initiate_update: Failed to call update_firmware_simple_update: {e}"
+                );
+
+                Err(StateHandlerError::RedfishError {
+                    operation: "update_firmware",
+                    error: e,
+                })
+            }
+        }
+    } else {
+        let update_path = component_value.filename.as_ref().unwrap();
+        let update_file = File::open(update_path).await.map_err(|e| {
+            StateHandlerError::FirmwareUpdateError(eyre!(
+                "Failed to open {:?} path {} with error {}",
+                component,
+                update_path,
+                e.to_string()
+            ))
+        })?;
+
+        tracing::info!("Updating {redfish_component_name} from {cur_version} to {update_version}");
+        match redfish.update_firmware(update_file).await {
+            Ok(task) => Ok(Some(task)),
+            Err(e) => {
+                tracing::error!("redfish command update_firmware error {}", e.to_string());
+                Err(StateHandlerError::RedfishError {
+                    operation: "update_firmware",
+                    error: e,
+                })
+            }
         }
     }
 }

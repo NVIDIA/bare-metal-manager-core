@@ -593,6 +593,7 @@ build-boot-artifacts-x86_64:
 
 build-boot-artifacts-aarch64:
   extends: .build-boot-artifacts
+  timeout: 2h
   needs:
     - job: prepare-ci
       optional: false

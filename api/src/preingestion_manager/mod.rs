@@ -15,6 +15,7 @@ mod metrics;
 use std::net::SocketAddr;
 use std::{default::Default, sync::Arc, time::Duration};
 
+use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -851,13 +852,14 @@ async fn initiate_update(
     firmware_type: &FirmwareComponentType,
     downloader: &FirmwareDownloader,
 ) -> Result<(), DatabaseError> {
-    if !downloader
-        .available(
-            &to_install.get_filename(),
-            &to_install.get_url(),
-            &to_install.get_checksum(),
-        )
-        .await
+    if !to_install.get_filename().ends_with("bfb")
+        && !downloader
+            .available(
+                &to_install.get_filename(),
+                &to_install.get_url(),
+                &to_install.get_checksum(),
+            )
+            .await
     {
         tracing::debug!(
             "{} is being downloaded from {}, update deferred",
@@ -885,6 +887,7 @@ async fn initiate_update(
             return Ok(());
         }
     };
+
     tracing::debug!(
         "initiate_update: Started upload of firmware to {}",
         endpoint_clone.address
@@ -894,44 +897,80 @@ async fn initiate_update(
             false => libredfish::model::update_service::ComponentType::Unknown,
             true => (*firmware_type).into(),
         };
-    let task = match redfish_client
-        .update_firmware_multipart(
-            to_install.get_filename().as_path(),
-            true,
-            Duration::from_secs(120),
-            redfish_component_type,
-        )
-        .await
-    {
-        Ok(task) => task,
-        Err(RedfishError::NotSupported(err)) => {
-            tracing::warn!("Multipart update is not supported: {err}. Trying to use HttpPushUri");
-            let file = match File::open(to_install.get_filename().as_path()).await {
-                Ok(f) => f,
-                Err(e) => {
-                    tracing::error!("Failed to open a file: {e}");
-                    return Ok(());
-                }
-            };
-            match redfish_client.update_firmware(file).await {
-                Ok(task) => task.id,
-                Err(e) => {
-                    tracing::error!(
-                        "initiate_update: Failed uploading firmware to {}: {e}",
-                        endpoint_clone.address
-                    );
-                    return Ok(());
-                }
+    let task = if to_install.get_filename().ends_with("bfb") {
+        let _ = redfish_client
+            .enable_rshim_bmc()
+            .await
+            .map_err(|e| tracing::error!("initiate_update: Failed to call enable_rshim_bmc: {e}"));
+        let image_uri = format!(
+            "{}/{}",
+            to_install.get_url(),
+            to_install.get_filename().display()
+        );
+        tracing::debug!(
+            "initiate_update: Using simple_update with image URI: {}",
+            image_uri
+        );
+        match redfish_client
+            .update_firmware_simple_update(
+                image_uri.as_str(),
+                vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
+                TransferProtocolType::HTTP,
+            )
+            .await
+        {
+            Ok(task) => task.id,
+            Err(e) => {
+                tracing::error!(
+                    "initiate_update: Failed to call update_firmware_simple_update {}: {e}",
+                    endpoint_clone.address
+                );
+                return Ok(());
             }
         }
-        Err(e) => {
-            tracing::warn!(
-                "initiate_update: Failed uploading firmware to {}: {e}",
-                endpoint_clone.address
-            );
-            return Ok(());
+    } else {
+        match redfish_client
+            .update_firmware_multipart(
+                to_install.get_filename().as_path(),
+                true,
+                Duration::from_secs(120),
+                redfish_component_type,
+            )
+            .await
+        {
+            Ok(task) => task,
+            Err(RedfishError::NotSupported(err)) => {
+                tracing::warn!(
+                    "Multipart update is not supported: {err}. Trying to use HttpPushUri"
+                );
+                let file = match File::open(to_install.get_filename().as_path()).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        tracing::error!("Failed to open a file: {e}");
+                        return Ok(());
+                    }
+                };
+                match redfish_client.update_firmware(file).await {
+                    Ok(task) => task.id,
+                    Err(e) => {
+                        tracing::error!(
+                            "initiate_update: Failed uploading firmware to {}: {e}",
+                            endpoint_clone.address
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "initiate_update: Failed uploading firmware to {}: {e}",
+                    endpoint_clone.address
+                );
+                return Ok(());
+            }
         }
     };
+
     tracing::debug!(
         "initiate_update: Completed upload of firmware to {}",
         endpoint_clone.address

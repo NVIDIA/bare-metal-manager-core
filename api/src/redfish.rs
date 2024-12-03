@@ -613,6 +613,22 @@ impl Redfish for RedfishSimClient {
         .unwrap())
     }
 
+    async fn update_firmware_simple_update(
+        &self,
+        _image_uri: &str,
+        _targets: Vec<String>,
+        _transfer_protocol: TransferProtocolType,
+    ) -> Result<libredfish::model::task::Task, RedfishError> {
+        Ok(serde_json::from_str(
+            "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\"
+            }",
+        )
+        .unwrap())
+    }
+
     async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
         Ok(serde_json::from_str(
             "{
@@ -1083,15 +1099,6 @@ impl Redfish for RedfishSimClient {
 
     async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
         Ok(())
-    }
-
-    async fn update_firmware_simple_update(
-        &self,
-        _image_uri: &str,
-        _targets: Vec<String>,
-        _transfer_protocol: TransferProtocolType,
-    ) -> Result<libredfish::model::task::Task, RedfishError> {
-        todo!();
     }
 
     async fn enable_rshim_bmc(&self) -> Result<(), RedfishError> {
