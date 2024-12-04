@@ -120,8 +120,15 @@ pub async fn query(
     {
         Ok(meta) => meta.into_inner(),
         Err(err) => {
-            tracing::error!(%err, %bmc_ip, "get_bmc_meta_data");
-            browser.error = format!("Failed to retrieve BMC Metadata for URL {}", browser.url);
+            browser.error = match err.code() {
+                tonic::Code::NotFound => {
+                    format!("No BMC Credentials are available for URL {}", browser.url)
+                }
+                _ => {
+                    tracing::error!(%err, %bmc_ip, "get_bmc_meta_data");
+                    format!("Failed to retrieve BMC Metadata for URL {}", browser.url)
+                }
+            };
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
