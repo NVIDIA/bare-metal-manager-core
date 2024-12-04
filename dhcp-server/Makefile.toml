@@ -36,4 +36,4 @@ dependencies = [
 category = "Build"
 workspace = false
 command = "cargo"
-args = ["build", "--bin", "forge-dhcp-server"]
+args = ["build", "--release", "--bin", "forge-dhcp-server"]
