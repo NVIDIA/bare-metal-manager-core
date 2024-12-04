@@ -93,7 +93,7 @@ category = "Build"
 workspace = false
 description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
 command = "cargo"
-args = ["build", "--bin", "forge-dpu-agent"]
+args = ["build", "--release", "--bin", "forge-dpu-agent"]
 
 [tasks.download-otelcol-builder]
 category = "Build"
@@ -332,8 +332,8 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
-    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
-    cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
@@ -365,8 +365,8 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
-    cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
-    cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
