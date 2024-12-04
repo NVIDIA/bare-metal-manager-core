@@ -11,11 +11,6 @@ Enter a valid redfish URL below to send a query and display the response.
 The query needs to be fully qualified - e.g. <b>https://127.0.0.1/redfish/v1</b>.
 </p>
 
-<p><b>
-🚧 Due to implementation limitations, the page can currently only query
-endpoints of ingested machines. That means a Machine entry needs to exist for the endpoint.
-</b></p>
-
 <form id="redfish_console" method="GET" action="/admin/redfish-browser">
 	<label for="url_input">URL to query:</label><input type=text size="80" id="url_input" name="url" placeholder="https://127.0.0.1/redfish/v1" value="{{ url }}" />
 	<input type="submit" value="Start query">
