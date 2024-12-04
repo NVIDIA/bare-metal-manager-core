@@ -34,6 +34,13 @@ service Forge {
   // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
+  // VPC prefixes
+  rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
+  rpc SearchVpcPrefixes(VpcPrefixSearchQuery) returns (VpcPrefixIdList);
+  rpc GetVpcPrefixes(VpcPrefixIdList) returns (VpcPrefixList);
+  rpc UpdateVpcPrefix(VpcPrefixUpdateRequest) returns (VpcPrefix);
+  rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
+
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
@@ -784,6 +791,72 @@ message VpcDeletionResult {
 
 message VpcList {
   repeated Vpc vpcs = 1;
+}
+
+enum PrefixMatchType {
+  // Reminder: Protobuf makes the first variant the default value, so we default
+  // to an exact match.
+  PREFIX_EXACT = 0;
+  // Note that for both the "contains" and "contained by" variants, we allow
+  // equality to match. That is, if 10.0.0.0/24 is the specified prefix, we
+  // consider it to both contain and be contained by that same 10.0.0.0/24
+  // prefix if one exists in the database.
+  PREFIX_CONTAINS = 1;
+  PREFIX_CONTAINED_BY = 2;
+}
+
+message VpcPrefix {
+    common.UUID id = 1;
+    string prefix = 2;
+    string name = 3;
+    common.UUID vpc_id = 4;
+    // UUID tenant_prefix_id = 5;
+}
+
+message VpcPrefixCreationRequest {
+    optional common.UUID id = 1;
+    // IPv4 or IPv6 prefix in CIDR notation
+    string prefix = 2;
+    string name = 3;
+    common.UUID vpc_id = 4;
+    // common.UUID tenant_prefix_id = 5;
+}
+
+message VpcPrefixSearchQuery {
+    optional common.UUID vpc_id = 1;
+    optional common.UUID tenant_prefix_id = 2;
+    optional string name = 3;
+
+    // A prefix to search against, using the prefix_match_type field to
+    // determine the search type. (See the comment on the PrefixMatchType enum
+    // for its semantics.)
+    optional string prefix_match = 4;
+    optional PrefixMatchType prefix_match_type = 5;
+}
+
+message VpcPrefixIdList {
+    repeated common.UUID vpc_prefix_ids = 1;
+}
+
+message VpcPrefixList {
+    repeated VpcPrefix vpc_prefixes = 1;
+}
+
+message VpcPrefixUpdateRequest {
+    common.UUID id = 1;
+    // prefix: CIDR-notation IPv4 or IPv6. If present, it must satisfy:
+    // 1. It is the same address family as the old prefix.
+    // 2. It is not larger than its containing site prefix.
+    // 3. It contains all of its associated network segment prefixes.
+    optional string prefix = 2;
+    optional string name = 3;
+}
+
+message VpcPrefixDeletionRequest {
+    common.UUID id = 1;
+}
+
+message VpcPrefixDeletionResult {
 }
 
 // Enumerates possible instance states from the view of a tenant

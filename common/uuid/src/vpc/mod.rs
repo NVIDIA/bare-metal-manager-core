@@ -22,6 +22,8 @@ use sqlx::{
     {FromRow, Type},
 };
 
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
+
 /// VpcId is a strongly typed UUID specific to a VPC ID, with
 /// trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc.
@@ -92,3 +94,11 @@ impl PgHasArrayType for VpcId {
         <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
     }
 }
+
+pub struct VpcPrefixMarker {}
+
+impl UuidSubtype for VpcPrefixMarker {
+    const TYPE_NAME: &'static str = "VpcPrefixId";
+}
+
+pub type VpcPrefixId = TypedUuid<VpcPrefixMarker>;

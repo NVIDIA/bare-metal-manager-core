@@ -569,3 +569,28 @@ impl UpdateVpcVirtualization {
         }
     }
 }
+
+// Increments the VPC version field. This is used when modifying resources that
+// are attached to this VPC but are not directly part of the `vpcs` table (e.g.
+// VPC prefixes).
+pub async fn increment_vpc_version(
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+    id: VpcId,
+) -> Result<ConfigVersion, DatabaseError> {
+    let read_query = "SELECT version FROM vpcs WHERE id=$1";
+    let current_version: ConfigVersion = sqlx::query_as(read_query)
+        .bind(id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), read_query, e))?;
+
+    let new_version = current_version.increment();
+
+    let update_query = "UPDATE vpcs SET version = $1 WHERE id = $2 RETURNING version";
+    sqlx::query_as(update_query)
+        .bind(new_version)
+        .bind(id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), update_query, e))
+}

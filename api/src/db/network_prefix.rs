@@ -20,14 +20,18 @@ use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
+use super::vpc_prefix::VpcPrefix;
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::CarbideError;
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
 
 #[derive(Debug, Clone)]
 pub struct NetworkPrefix {
     pub id: uuid::Uuid,
     pub segment_id: NetworkSegmentId,
+    pub vpc_prefix_id: Option<VpcPrefixId>,
+    pub vpc_prefix: Option<IpNetwork>,
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
@@ -58,6 +62,8 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
         Ok(NetworkPrefix {
             id: row.try_get("id")?,
             segment_id: row.try_get("segment_id")?,
+            vpc_prefix_id: row.try_get("vpc_prefix_id")?,
+            vpc_prefix: row.try_get("vpc_prefix")?,
             prefix: row.try_get("prefix")?,
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
@@ -156,14 +162,15 @@ impl NetworkPrefix {
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
-    // Return a list of network prefixes for a VPC. More specifically,
-    // take the VPC ID, match all of the network segments under it, and then
-    // all of the network prefixes from that.
+    // Return a list of network segment prefixes that are associated with this
+    // VPC but are _not_ associated with a VPC prefix.
     pub async fn find_by_vpc(
         txn: &mut Transaction<'_, Postgres>,
         vpc_id: VpcId,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-        let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1 ORDER BY ns.created";
+        let query = "SELECT np.* FROM network_prefixes np \
+            INNER JOIN network_segments ns ON np.segment_id = ns.id \
+            WHERE np.vpc_prefix_id IS NULL AND ns.vpc_id = $1 ORDER BY ns.created";
 
         let prefixes = sqlx::query_as(query)
             .bind(vpc_id)
@@ -240,6 +247,29 @@ impl NetworkPrefix {
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    // Update the VPC prefix for this segment prefix using the values
+    // from the specified vpc_prefix.
+    pub async fn set_vpc_prefix(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_prefix: &VpcPrefix,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE network_prefixes SET (vpc_prefix_id, vpc_prefix) VALUES ($1, $2) WHERE id=$3 RETURNING (vpc_prefix_id, vpc_prefix)";
+        let (vpc_prefix_id, vpc_prefix_network) =
+            sqlx::query_as::<_, (VpcPrefixId, IpNetwork)>(query)
+                .bind(vpc_prefix.id)
+                .bind(vpc_prefix.prefix)
+                .bind(self.id)
+                .fetch_one(txn.deref_mut())
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        self.vpc_prefix_id = Some(vpc_prefix_id);
+        self.vpc_prefix = Some(vpc_prefix_network);
+
+        Ok(())
     }
 }
 
