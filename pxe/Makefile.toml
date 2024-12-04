@@ -439,6 +439,7 @@ category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
 args = [
+  "-j",
   "bin-x86_64-efi/snponly.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
   "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
@@ -451,6 +452,7 @@ category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [
+  "-j",
   "CROSS_COMPILE=aarch64-linux-gnu-",
   "bin-arm64-efi/ipxe.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
@@ -464,6 +466,7 @@ category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [
+  "-j",
   "bin-arm64-efi/ipxe.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
   "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
