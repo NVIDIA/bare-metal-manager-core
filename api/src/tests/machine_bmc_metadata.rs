@@ -10,97 +10,59 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db::bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest};
-use crate::model::bmc_info::BmcInfo;
-use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::tests::common;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
-use mac_address::MacAddress;
+use common::api_fixtures::{create_managed_host_with_config, create_test_env};
+use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn machine_bmc_credential_update(pool: PgPool) {
+async fn fetch_bmc_credentials(pool: PgPool) {
     let env = create_test_env(pool).await;
-    // TODO: This probably should test with a host machine instead of a DPU,
-    // since for DPUs we don't really store BMC credentials
     let host_sim = env.start_managed_host_sim();
-    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
+    let host_bmc_mac = host_sim.config.bmc_mac_address;
+    let (host_machine_id, _dpu_machine_id) =
+        create_managed_host_with_config(&env, host_sim.config.clone()).await;
 
-    let bmc_ip = "127.0.0.2".to_string();
-    let bmc_mac_address: MacAddress = "01:02:03:04:05:06".parse().unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    BmcMetaDataUpdateRequest::new(
-        dpu_machine_id.clone(),
-        BmcInfo {
-            ip: Some(bmc_ip.clone()),
-            port: None,
-            mac: Some(bmc_mac_address),
-            version: Some("1".to_string()),
-            firmware_version: Some("2".to_string()),
-        },
-    )
-    .update_bmc_meta_data(&mut txn)
-    .await
-    .unwrap();
-    let _result = txn.commit().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-
-    let get_bmc_meta_data_req = BmcMetaDataGetRequest {
-        machine_id: dpu_machine_id.clone(),
-    };
-
-    let response = get_bmc_meta_data_req
-        .get_bmc_meta_data(&mut txn)
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
         .await
-        .unwrap();
-    assert_eq!(response.bmc_info.ip.unwrap(), bmc_ip.to_string());
-    assert_eq!(response.bmc_info.port, None);
-    assert_eq!(response.bmc_info.mac.unwrap(), bmc_mac_address);
-}
+        .machines
+        .remove(0);
+    let bmc_info = host_machine.bmc_info.clone().unwrap();
+    assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
+    let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn machine_bmc_credential_update_with_port(pool: PgPool) {
-    let env = create_test_env(pool).await;
-    // TODO: This probably should test with a host machine instead of a DPU,
-    // since for DPUs we don't really store BMC credentials
-    let host_sim = env.start_managed_host_sim();
-    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
-
-    let bmc_ip = "127.0.0.3".to_string();
-    let bmc_mac_address: MacAddress = "01:02:03:04:05:07".parse().unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    BmcMetaDataUpdateRequest::new(
-        dpu_machine_id.clone(),
-        BmcInfo {
-            ip: Some(bmc_ip.clone()),
-            port: Some(1266),
-            mac: Some(bmc_mac_address),
-            version: Some("1".to_string()),
-            firmware_version: Some("2".to_string()),
+    for request in vec![
+        rpc::forge::BmcMetaDataGetRequest {
+            machine_id: Some(host_machine_id.clone().into()),
+            request_type: rpc::forge::BmcRequestType::Redfish.into(),
+            role: rpc::forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: None,
         },
-    )
-    .update_bmc_meta_data(&mut txn)
-    .await
-    .unwrap();
+        rpc::forge::BmcMetaDataGetRequest {
+            machine_id: None,
+            request_type: rpc::forge::BmcRequestType::Redfish.into(),
+            role: rpc::forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+                ip_address: host_bmc_ip.clone(),
+                mac_address: None,
+            }),
+        },
+    ]
+    .into_iter()
+    {
+        tracing::info!("Looking up credentials for {:?}", request);
+        let metadata = env
+            .api
+            .get_bmc_meta_data(tonic::Request::new(request))
+            .await
+            .unwrap()
+            .into_inner();
 
-    let _result = txn.commit().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-
-    let get_bmc_meta_data_req = BmcMetaDataGetRequest {
-        machine_id: dpu_machine_id.clone(),
-    };
-
-    let response = get_bmc_meta_data_req
-        .get_bmc_meta_data(&mut txn)
-        .await
-        .unwrap();
-    assert_eq!(response.bmc_info.ip.unwrap(), bmc_ip.to_string());
-    assert_eq!(response.bmc_info.port, Some(1266));
-    assert_eq!(response.bmc_info.mac.unwrap(), bmc_mac_address);
+        assert_eq!(metadata.ip, host_bmc_ip);
+        assert_eq!(metadata.port, None);
+        assert_eq!(metadata.mac, host_bmc_mac.to_string());
+        assert!(!metadata.password.is_empty());
+        assert!(!metadata.user.is_empty());
+    }
 }

@@ -1,4 +1,3 @@
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -11,10 +10,11 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use mac_address::MacAddress;
 
 use crate::api::{log_machine_id, log_request_data, Api};
-use crate::db::bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest};
+use crate::db::bmc_metadata::BmcMetaDataUpdateRequest;
 use crate::db::DatabaseError;
 use crate::CarbideError;
 
@@ -41,8 +41,7 @@ pub(crate) async fn get(
     request: tonic::Request<rpc::BmcMetaDataGetRequest>,
 ) -> Result<tonic::Response<rpc::BmcMetaDataGetResponse>, tonic::Status> {
     log_request_data(&request);
-    let request = BmcMetaDataGetRequest::try_from(request.into_inner())?;
-    log_machine_id(&request.machine_id);
+    let request = request.into_inner();
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -53,49 +52,66 @@ pub(crate) async fn get(
         ))
     })?;
 
-    let mut bmc_info = request.get_bmc_meta_data(&mut txn).await?;
-    // this will handle the legacy case, for hosts that were ingested without having the MAC address set
-    // although we will call enrich everytime, the DB update will only be done once.
-    // it is better to call enrich here rather than in db::get_bmc_information, becuase we can guarantee that txn.commit is called
-    // TODO (spyda): remove this once we've handled all the legacy hosts
-    bmc_info
-        .enrich_mac_address(
-            "get_bmc_meta_data".to_string(),
-            &mut txn,
-            &request.machine_id,
-            true,
-        )
-        .await?;
+    let bmc_endpoint_request = crate::api::validate_and_complete_bmc_endpoint_request(
+        &mut txn,
+        request.bmc_endpoint_request,
+        request.machine_id.clone().map(|id| id.id),
+    )
+    .await?;
 
-    match bmc_info.bmc_info.mac {
-        Some(bmc_mac_address) => {
-            let (username, password) = get_bmc_credentials(api, bmc_mac_address)
-                .await
-                .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-
-            txn.commit().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit get_bmc_meta_data",
-                    e,
-                ))
-            })?;
-
-            Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
-                ip: bmc_info.bmc_info.ip.unwrap_or_default(),
-                port: bmc_info.bmc_info.port.map(|p| p as u32),
-                mac: bmc_mac_address.to_string(),
-                user: username,
-                password,
-            }))
-        }
-        None => Err(CarbideError::GenericError(format!(
-            "could not retrieve BMC mac address for machine {}: {:#?}",
-            request.machine_id, bmc_info
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_bmc_meta_data",
+            e,
         ))
-        .into()),
-    }
+    })?;
+
+    let Some(bmc_mac_address) = bmc_endpoint_request.mac_address else {
+        return Err(CarbideError::NotFoundError {
+            kind: "bmc_metadata",
+            id: format!(
+                "MachineId: {}, IP: {}",
+                request
+                    .machine_id
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                bmc_endpoint_request.ip_address
+            ),
+        }
+        .into());
+    };
+
+    let bmc_mac_address: mac_address::MacAddress = match bmc_mac_address.parse() {
+        Ok(m) => m,
+        Err(_) => {
+            let e = format!(
+                "The MAC address {bmc_mac_address} resolved for MachineId {}, IP {} is not valid",
+                request
+                    .machine_id
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                bmc_endpoint_request.ip_address
+            );
+            tracing::error!(e);
+            return Err(CarbideError::GenericError(e).into());
+        }
+    };
+
+    let (username, password) = get_bmc_credentials(api, bmc_mac_address)
+        .await
+        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+    Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
+        ip: bmc_endpoint_request.ip_address,
+        port: None,
+        mac: bmc_mac_address.to_string(),
+        user: username,
+        password,
+    }))
 }
 
 pub(crate) async fn update(
@@ -117,8 +133,9 @@ pub(crate) async fn update(
         ),
     );
 
-    let mut request = BmcMetaDataUpdateRequest::try_from(request.into_inner())?;
-    log_machine_id(&request.machine_id);
+    let request = request.into_inner();
+    let mut update_request = BmcMetaDataUpdateRequest::try_from(request.clone())?;
+    log_machine_id(&update_request.machine_id);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -129,10 +146,33 @@ pub(crate) async fn update(
         ))
     })?;
 
-    request
+    update_request
         .update_bmc_meta_data(&mut txn)
         .await
         .map(tonic::Response::new)?;
+
+    // Update the actual credentials in Vault
+    // We now only use a single path
+    let key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: update_request.bmc_metadata.bmc_info.mac.unwrap(),
+        },
+    };
+
+    for data in request.data.iter() {
+        api.credential_provider
+            .set_credentials(
+                key.clone(),
+                Credentials::UsernamePassword {
+                    username: data.user.clone(),
+                    password: data.password.clone(),
+                },
+            )
+            .await
+            .map_err(|err| {
+                CarbideError::GenericError(format!("Error setting credential for BMC: {:?}", err))
+            })?;
+    }
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

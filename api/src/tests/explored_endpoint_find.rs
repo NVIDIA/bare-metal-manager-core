@@ -166,8 +166,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.message().contains("Missing credential"));
+    assert!(api_result.is_ok());
 
     // Check that we find full BMC details based only on machine_id
     let req = tonic::Request::new(rpc::AdminBmcResetRequest {
@@ -176,8 +175,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.message().contains("Missing credential"));
+    assert!(api_result.is_ok());
 
     // Check that we find BMC details but things fail because actual and expected BMC MAC are different
     let req = tonic::Request::new(rpc::AdminBmcResetRequest {

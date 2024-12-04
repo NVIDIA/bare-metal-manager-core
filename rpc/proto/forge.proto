@@ -2184,9 +2184,12 @@ enum BMCRequestType {
 }
 
 message BMCMetaDataGetRequest {
+    // Machine ID for which credentials are fetched
     common.MachineId machine_id = 1;
     UserRoles role = 2;
     BMCRequestType request_type = 3;
+    // As an alternative to the Machine ID, the BMC IP can be directly specified
+    optional BmcEndpointRequest bmc_endpoint_request = 4;
 }
 
 message BMCMetaDataGetResponse {

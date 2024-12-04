@@ -87,44 +87,10 @@ impl FromStr for UserRoles {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BmcMetaDataGetRequest {
-    pub machine_id: MachineId,
-}
-
-impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::BmcMetaDataGetRequest) -> Result<Self, Self::Error> {
-        let machine_id = value
-            .machine_id
-            .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
-        Ok(BmcMetaDataGetRequest {
-            machine_id: try_parse_machine_id(&machine_id)?,
-        })
-    }
-}
-
-impl BmcMetaDataGetRequest {
-    pub async fn get_bmc_meta_data(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<BmcMetaDataInfo> {
-        let query = r#"SELECT machine_topologies.topology->>'bmc_info' as bmc_info FROM machine_topologies WHERE machine_id=$1"#;
-        let bmc_info = sqlx::query_as::<_, BmcInfo>(query)
-            .bind(self.machine_id.to_string())
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(BmcMetaDataInfo { bmc_info })
-    }
-}
-
 #[derive(Debug)]
 pub struct BmcMetaDataUpdateRequest {
     pub machine_id: MachineId,
-    bmc_metadata: BmcMetaDataInfo,
+    pub bmc_metadata: BmcMetaDataInfo,
 }
 
 impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
