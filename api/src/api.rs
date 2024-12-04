@@ -216,6 +216,40 @@ impl Forge for Api {
         crate::handlers::vpc::find(self, request).await
     }
 
+    async fn create_vpc_prefix(
+        &self,
+        request: Request<rpc::VpcPrefixCreationRequest>,
+    ) -> Result<Response<rpc::VpcPrefix>, Status> {
+        crate::handlers::vpc_prefix::create(self, request).await
+    }
+
+    async fn search_vpc_prefixes(
+        &self,
+        request: Request<rpc::VpcPrefixSearchQuery>,
+    ) -> Result<Response<rpc::VpcPrefixIdList>, Status> {
+        crate::handlers::vpc_prefix::search(self, request).await
+    }
+
+    async fn get_vpc_prefixes(
+        &self,
+        request: Request<rpc::VpcPrefixIdList>,
+    ) -> Result<Response<rpc::VpcPrefixList>, Status> {
+        crate::handlers::vpc_prefix::get(self, request).await
+    }
+
+    async fn update_vpc_prefix(
+        &self,
+        request: Request<rpc::VpcPrefixUpdateRequest>,
+    ) -> Result<Response<rpc::VpcPrefix>, Status> {
+        crate::handlers::vpc_prefix::update(self, request).await
+    }
+    async fn delete_vpc_prefix(
+        &self,
+        request: Request<rpc::VpcPrefixDeletionRequest>,
+    ) -> Result<Response<rpc::VpcPrefixDeletionResult>, Status> {
+        crate::handlers::vpc_prefix::delete(self, request).await
+    }
+
     async fn find_ib_partition_ids(
         &self,
         request: Request<rpc::IbPartitionSearchFilter>,

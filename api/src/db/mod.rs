@@ -48,6 +48,7 @@ pub mod site_exploration_report;
 pub mod storage;
 pub mod tenant;
 pub mod vpc;
+pub mod vpc_prefix;
 
 use sqlx::Postgres;
 use std::error::Error;

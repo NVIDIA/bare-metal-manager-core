@@ -1,0 +1,267 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::ops::DerefMut;
+
+use ipnetwork::IpNetwork;
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, QueryBuilder, Row, Transaction};
+
+use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
+use crate::db::network_prefix::NetworkPrefix;
+use crate::db::vpc::increment_vpc_version;
+pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
+
+#[derive(Clone, Debug)]
+pub struct VpcPrefix {
+    pub id: VpcPrefixId,
+    pub prefix: IpNetwork,
+    pub name: String,
+    pub vpc_id: VpcId,
+}
+
+impl VpcPrefix {
+    // Get a list of prefixes matching a filter on the ID column.
+    pub async fn get_by_id<'a, C>(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: ObjectColumnFilter<'a, C>,
+    ) -> Result<Vec<Self>, DatabaseError>
+    where
+        C: ColumnInfo<'a, TableType = Self>,
+    {
+        let mut query = super::FilterableQueryBuilder::new("SELECT * FROM network_vpc_prefixes")
+            .filter(&filter);
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+    }
+
+    // Find the prefixes associated with a VPC.
+    pub async fn find_by_vpc(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_id: VpcId,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=$1 \
+            ORDER BY prefix";
+        sqlx::query_as(query)
+            .bind(vpc_id)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    // Search for VPC prefixes by the VPC they're in, name, or a match against
+    // the prefix (or some combination). Returns just the IDs.
+    pub async fn search(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_id: Option<VpcId>,
+        name: Option<String>,
+        prefix_match: Option<PrefixMatch>,
+    ) -> Result<Vec<VpcPrefixId>, DatabaseError> {
+        let mut query = QueryBuilder::new("SELECT id FROM network_vpc_prefixes WHERE true");
+
+        if let Some(vpc_id) = vpc_id {
+            query.push(" AND vpc_id=");
+            query.push_bind(vpc_id);
+        }
+
+        if let Some(name) = name {
+            query.push(" AND name=");
+            query.push_bind(name);
+        }
+
+        if let Some(prefix_match) = prefix_match {
+            use PrefixMatch::*;
+            match prefix_match {
+                Exact(prefix) => {
+                    query.push(" AND prefix=");
+                    query.push_bind(prefix);
+                }
+                Contains(prefix) => {
+                    query.push(" AND prefix>>=");
+                    query.push_bind(prefix);
+                }
+                ContainedBy(prefix) => {
+                    query.push(" AND prefix<<=");
+                    query.push_bind(prefix);
+                }
+            }
+        }
+
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let id = row.try_get("id")?;
+        let prefix = row.try_get("prefix")?;
+        let name = row.try_get("name")?;
+        let vpc_id = row.try_get("vpc_id")?;
+        Ok(VpcPrefix {
+            id,
+            prefix,
+            name,
+            vpc_id,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct IdColumn;
+impl ColumnInfo<'_> for IdColumn {
+    type TableType = VpcPrefix;
+    type ColumnType = VpcPrefixId;
+
+    fn column_name(&self) -> &'static str {
+        "id"
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct VpcIdColumn;
+impl ColumnInfo<'_> for VpcIdColumn {
+    type TableType = VpcPrefix;
+    type ColumnType = VpcId;
+
+    fn column_name(&self) -> &'static str {
+        "vpc_id"
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum PrefixMatch {
+    Exact(IpNetwork),
+    Contains(IpNetwork),
+    ContainedBy(IpNetwork),
+}
+
+/// NewVpcPrefix represents a VPC prefix resource before it's persisted to the
+/// database.
+pub struct NewVpcPrefix {
+    pub id: VpcPrefixId,
+    pub prefix: IpNetwork,
+    pub name: String,
+    pub vpc_id: VpcId,
+}
+
+impl NewVpcPrefix {
+    pub async fn persist(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<VpcPrefix, DatabaseError> {
+        let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) VALUES ($1, $2, $3, $4) RETURNING *";
+        let vpc_prefix: VpcPrefix = sqlx::query_as(insert_query)
+            .bind(self.id)
+            .bind(self.prefix)
+            .bind(self.name.as_str())
+            .bind(self.vpc_id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), insert_query, e))?;
+
+        increment_vpc_version(txn, self.vpc_id).await?;
+
+        Ok(vpc_prefix)
+    }
+
+    // Check for existing VPC prefixes using any of our address space.
+    pub async fn probe(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<VpcPrefix>, DatabaseError> {
+        let query = "SELECT * FROM network_vpc_prefixes WHERE prefix && $1";
+        sqlx::query_as(query)
+            .bind(self.prefix)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    // Given a new VPC prefix which has been not been persisted yet, find the
+    // network segment prefixes that overlap with it, along with the VPC ID each
+    // one is associated with. The caller should use this information to reject
+    // any problematic VPC prefixes, and to update any matching segment prefixes
+    // which should be adopted by the new VPC prefix.
+    pub async fn probe_segment_prefixes(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<(VpcId, NetworkPrefix)>, DatabaseError> {
+        let query = "SELECT ns.vpc_id AS vpc_id, np.* FROM network_prefixes np \
+            INNER JOIN network_segments ns ON np.segment_id = ns.id \
+            WHERE np.prefix && $1 AND ns.network_segment_type='tenant'";
+
+        sqlx::query(query)
+            .bind(self.prefix)
+            .try_map(|row| {
+                let vpc_id: VpcId = row.try_get("vpc_id")?;
+                let network_prefix = NetworkPrefix::from_row(&row)?;
+                Ok((vpc_id, network_prefix))
+            })
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+}
+
+pub struct UpdateVpcPrefix {
+    pub id: VpcPrefixId,
+    // This is all we support updating at the moment. In the future we might
+    // also implement prefix resizing, and at that point we'll need to use
+    // Option for all the fields.
+    pub name: String,
+}
+
+impl UpdateVpcPrefix {
+    pub async fn update(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<VpcPrefix, DatabaseError> {
+        let query = "UPDATE network_vpc_prefixes SET name=$1 WHERE id=$2 RETURNING *";
+        sqlx::query_as(query)
+            .bind(self.name.as_str())
+            .bind(self.id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        // Note that if/when we add support for prefix resizing, we will need to
+        // call increment_vpc_version() here.
+    }
+}
+
+pub struct DeleteVpcPrefix {
+    pub id: VpcPrefixId,
+}
+
+impl DeleteVpcPrefix {
+    pub async fn delete(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<VpcPrefixId, DatabaseError> {
+        let query = "DELETE FROM network_vpc_prefixes WHERE id=$1 RETURNING *";
+        let deleted_prefix: VpcPrefix = sqlx::query_as(query)
+            .bind(self.id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        increment_vpc_version(txn, deleted_prefix.vpc_id).await?;
+
+        Ok(deleted_prefix.id)
+    }
+}

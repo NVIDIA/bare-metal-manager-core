@@ -16,6 +16,7 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
+use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::{network_segment, ObjectColumnFilter};
 use crate::{
     db::{
@@ -238,17 +239,20 @@ pub async fn tenant_network(
         .get(&v4_prefix.id.borrow().into())
         .unwrap_or(&default_prefix);
 
-    // FIXME: Ideally, we would like the containing prefix that is assigned to
-    // the tenant/VPC, but only the cloud tracks that information. Instead, we
-    // have to collect all of the smaller prefixes that were created from it and
-    // are attached to our VPC at the moment.
-    let vpc_prefixes: Vec<_> = match segment.vpc_id {
-        Some(vpc_id) => NetworkPrefix::find_by_vpc(txn, vpc_id)
-            .await
-            .map_err(CarbideError::from)?
-            .into_iter()
-            .map(|np| np.prefix.to_string())
-            .collect(),
+    let vpc_prefixes: Vec<String> = match segment.vpc_id {
+        Some(vpc_id) => {
+            let vpc_prefixes = VpcPrefix::find_by_vpc(txn, vpc_id)
+                .await
+                .map_err(CarbideError::from)?
+                .into_iter()
+                .map(|vpc_prefix| vpc_prefix.prefix.to_string());
+            let vpc_segment_prefixes = NetworkPrefix::find_by_vpc(txn, vpc_id)
+                .await
+                .map_err(CarbideError::from)?
+                .into_iter()
+                .map(|segment_prefix| segment_prefix.prefix.to_string());
+            vpc_prefixes.chain(vpc_segment_prefixes).collect()
+        }
         None => vec![v4_prefix.prefix.to_string()],
     };
 

@@ -7,6 +7,7 @@ pub mod instance;
 pub mod machine;
 pub mod measured_boot;
 pub mod network;
+pub mod typed_uuids;
 pub mod vpc;
 
 #[derive(Debug)]

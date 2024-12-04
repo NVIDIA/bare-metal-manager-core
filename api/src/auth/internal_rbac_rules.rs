@@ -59,6 +59,11 @@ impl InternalRBACRules {
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindVpcs", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateVpcPrefix", vec![SiteAgent]);
+        x.perm("SearchVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateVpcPrefix", vec![SiteAgent]);
+        x.perm("DeleteVpcPrefix", vec![SiteAgent]);
         x.perm(
             "FindNetworkSegmentIds",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
