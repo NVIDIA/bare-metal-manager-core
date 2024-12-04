@@ -899,6 +899,8 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
 }
 
 /// Emulates the `UpdateBmcMetaData` request of a DPU/Host
+/// TODO: This request does not happen anymore in the site-explorer world
+/// The method should be removed once tests are converted to site explorer
 pub async fn update_bmc_metadata(
     env: &TestEnv,
     machine_id: rpc::common::MachineId,

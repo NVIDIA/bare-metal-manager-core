@@ -187,6 +187,7 @@ pub async fn get_machine_bmc_data(
 ) -> Result<libredfish::Endpoint, HealthError> {
     let request = tonic::Request::new(rpc::BmcMetaDataGetRequest {
         machine_id: Some(id.clone()),
+        bmc_endpoint_request: None,
         role: rpc::UserRoles::Administrator.into(),
         request_type: rpc::BmcRequestType::Ipmi.into(),
     });

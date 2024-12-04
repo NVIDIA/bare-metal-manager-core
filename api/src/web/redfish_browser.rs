@@ -106,23 +106,13 @@ pub async fn query(
         }
     };
 
-    let machine_id = match find_machine_id(state.clone(), bmc_ip).await {
-        Ok(Some(machine_id)) => machine_id,
-        Ok(None) => {
-            browser.error = format!("No Machine maps to URL {}", browser.url);
-            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
-        }
-        Err(err) => {
-            tracing::error!(%err, url = browser.url, "find_machine_id");
-            browser.error = format!("Failed to look up Machine for URL {}", browser.url);
-            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
-        }
-    };
-    browser.machine_id = machine_id.id.clone();
-
     let metadata = match state
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
-            machine_id: Some(machine_id.clone()),
+            machine_id: None,
+            bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+                ip_address: bmc_ip.to_string(),
+                mac_address: None,
+            }),
             role: rpc::forge::UserRoles::Administrator.into(),
             request_type: rpc::forge::BmcRequestType::Ipmi.into(),
         }))
@@ -130,8 +120,19 @@ pub async fn query(
     {
         Ok(meta) => meta.into_inner(),
         Err(err) => {
-            tracing::error!(%err, %machine_id, "get_bmc_meta_data");
+            tracing::error!(%err, %bmc_ip, "get_bmc_meta_data");
             browser.error = format!("Failed to retrieve BMC Metadata for URL {}", browser.url);
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
+        }
+    };
+
+    // Informational only. The data is not used for accessing the BMC
+    browser.machine_id = match find_machine_id(state.clone(), bmc_ip).await {
+        Ok(Some(machine_id)) => machine_id.id,
+        Ok(None) => String::new(),
+        Err(err) => {
+            tracing::error!(%err, url = browser.url, "find_machine_id");
+            browser.error = format!("Failed to look up Machine for URL {}", browser.url);
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };

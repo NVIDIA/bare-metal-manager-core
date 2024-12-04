@@ -4235,7 +4235,7 @@ fn truncate(mut s: String, len: usize) -> String {
 /// * `txn`                  - Active database transaction
 /// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
 /// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
-async fn validate_and_complete_bmc_endpoint_request(
+pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut Transaction<'_, Postgres>,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<String>,
