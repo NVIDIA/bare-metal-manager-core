@@ -2352,6 +2352,7 @@ dependencies = [
  "eyre",
  "rpc",
  "serde",
+ "serde_json",
  "sha2 0.10.8",
  "sqlx",
  "thiserror 2.0.3",
