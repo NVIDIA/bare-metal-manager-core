@@ -246,11 +246,19 @@ pub(crate) fn get_pcr_quote(
         let (_, read_list, pcr_list) = ctx.pcr_read(selection_list_mut.clone())?;
         digest_vec.extend_from_slice(pcr_list.value());
 
-        if read_list.is_empty() {
+        if read_list.is_empty()
+            || (read_list.len() == 1 && read_list.get_selections()[0].is_empty())
+        {
             break;
         }
 
         selection_list_mut.subtract(&read_list)?;
+    }
+
+    if digest_vec.is_empty() {
+        tracing::error!(
+            "No PCR values have been read. Maybe a wrong Tpm2Algorithm had been set in BIOS?"
+        );
     }
 
     tracing::debug!("Obtained pcr digests {:?}", digest_vec);
