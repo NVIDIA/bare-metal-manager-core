@@ -845,9 +845,16 @@ args = ["-fr", "${BUILD_LOCATION}/dump-image-v0"]
 [tasks.bfb-rebuild-rootfs]
 category = "iPXE Kernel"
 description = "Rebuild the BFB root fs on aarch64 gitlab runner"
-script = [
-  "find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0",
-]
+script = '''
+    echo "Pipeline source is $CI_PIPELINE_SOURCE"
+    if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] ;then
+      echo "Rebuilding BFB with fast compression"
+      find . -print0 | cpio --null -o --format=newc | gzip -1 > ../dump-initramfs-v0
+    else
+      echo "Rebuilding BFB with best compression"
+      find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0
+    fi
+'''
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-copy-rootfs]
