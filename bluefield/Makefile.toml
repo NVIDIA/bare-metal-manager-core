@@ -65,9 +65,9 @@ dependencies = [
   "cleanup-transceiver-exporter",
 ]
 
-[tasks.build-dpu-agent]
+[tasks.build-dpu-agent-and-dhcp-server]
 category = "Build"
-description = "cross compile forge-dpu-agent locally"
+description = "cross compile forge-dpu-agent and dhcp server locally"
 workspace = false
 script = '''
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
@@ -79,21 +79,25 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "--release" \
     "--target=aarch64-unknown-linux-gnu" \
     "--bin" \
-    "forge-dpu-agent"
+    "forge-dpu-agent"\
+    "--bin" \
+    "forge-dhcp-server"
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent" \
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server" \
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
   { name = "check-cargo-home-set", path = "${REPO_ROOT}" },
 ]
 
-[tasks.build-dpu-agent-ci]
+[tasks.build-dpu-agent-and-dhcp-server-ci]
 category = "Build"
 workspace = false
 description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
 command = "cargo"
-args = ["build", "--release", "--bin", "forge-dpu-agent"]
+args = ["build", "--release", "--bin", "forge-dpu-agent", "--bin", "forge-dhcp-server"]
 
 [tasks.download-otelcol-builder]
 category = "Build"
@@ -313,8 +317,7 @@ script = '''
   sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
-  "build-dpu-agent",
-  { name = "build-dhcp-server", path = "${REPO_ROOT}/dhcp-server" },
+  "build-dpu-agent-and-dhcp-server",
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
@@ -346,8 +349,7 @@ script = '''
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
-  "build-dpu-agent-ci",
-  { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
+  "build-dpu-agent-and-dhcp-server-ci",
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
@@ -379,8 +381,7 @@ script = '''
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
-  "build-dpu-agent-ci",
-  { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
+  "build-dpu-agent-and-dhcp-server-ci",
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
