@@ -90,6 +90,7 @@ fn build_exploration_report(
             pcie_devices: vec![],
             base_mac: None,
             power_state: PowerState::On,
+            sku: None,
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),

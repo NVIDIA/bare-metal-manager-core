@@ -903,6 +903,23 @@ pub struct ComputerSystem {
     pub base_mac: Option<String>,
     #[serde(default)]
     pub power_state: PowerState,
+    pub sku: Option<String>,
+}
+
+impl ComputerSystem {
+    pub fn check_serial_number(&self, expected_serial_number: &String) -> bool {
+        match self.serial_number {
+            Some(ref serial_number) => serial_number == expected_serial_number,
+            None => false,
+        }
+    }
+
+    pub fn check_sku(&self, expected_sku: &String) -> bool {
+        match self.sku {
+            Some(ref sku) => sku == expected_sku,
+            None => false,
+        }
+    }
 }
 
 impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
@@ -1359,6 +1376,7 @@ mod tests {
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),
                 power_state: PowerState::On,
+                sku: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -1414,6 +1432,7 @@ mod tests {
                 pcie_devices: vec![],
                 base_mac: Some("A088C208804C".to_string()),
                 power_state: PowerState::On,
+                sku: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),

@@ -505,6 +505,7 @@ async fn fetch_system(
         pcie_devices,
         base_mac,
         power_state: system.power_state.into(),
+        sku: system.sku,
     })
 }
 
