@@ -38,7 +38,7 @@ pub struct MachineMetrics {
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
     pub num_gpus: usize,
-    pub assigned_to_tenant: Option<TenantOrganizationId>,
+    pub in_use_by_tenant: Option<TenantOrganizationId>,
     /// Health probe alerts for the aggregate host by Probe ID and Target
     pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
     pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
@@ -77,18 +77,18 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_usable: usize,
     pub hosts_total: usize,
     /// The amount of hosts by Health status (healthy==true) and assignment status
-    pub hosts_healthy: HashMap<(bool, IsAssignedToTenant), usize>,
+    pub hosts_healthy: HashMap<(bool, IsInUseByTenant), usize>,
     /// The amount of unhealthy hosts by Probe ID, Probe Target and assignment status
-    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsAssignedToTenant), usize>,
+    pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsInUseByTenant), usize>,
     /// The amount of unhealthy hosts by Alert classification and assignment status
-    pub unhealthy_hosts_by_classification_id: HashMap<(String, IsAssignedToTenant), usize>,
+    pub unhealthy_hosts_by_classification_id: HashMap<(String, IsInUseByTenant), usize>,
     /// The amount of configured overrides by type (merge vs replace) and assignment status
-    pub num_overrides: HashMap<(&'static str, IsAssignedToTenant), usize>,
+    pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
     pub hosts_with_bios_password_set: usize,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub struct IsAssignedToTenant(bool);
+pub struct IsInUseByTenant(bool);
 
 #[derive(Debug)]
 pub struct MachineMetricsEmitter {
@@ -335,7 +335,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics.dpus_healthy += object_metrics.dpus_healthy;
 
         let is_healthy = object_metrics.health_probe_alerts.is_empty();
-        let is_assigned = IsAssignedToTenant(object_metrics.assigned_to_tenant.is_some());
+        let is_assigned = IsInUseByTenant(object_metrics.in_use_by_tenant.is_some());
         *iteration_metrics
             .hosts_healthy
             .entry((is_healthy, is_assigned))
@@ -351,7 +351,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics.hosts_with_bios_password_set +=
             object_metrics.is_host_bios_password_set as usize;
 
-        if let Some(tenant) = object_metrics.assigned_to_tenant.as_ref() {
+        if let Some(tenant) = object_metrics.in_use_by_tenant.as_ref() {
             *iteration_metrics
                 .gpus_in_use_by_tenant
                 .entry(tenant.clone())
@@ -545,19 +545,21 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut health_status_attr = attributes.to_vec();
         health_status_attr.push(KeyValue::new("healthy", "".to_string()));
         health_status_attr.push(KeyValue::new("assigned", "".to_string()));
+        health_status_attr.push(KeyValue::new("in_use", "".to_string()));
         let health_status_attr_len = health_status_attr.len();
         // The HashMap access is used here instead of iterating order to make sure that
         // all 4 combinations always emit metrics. No metric will be absent in case
         // no host falls into that category
         for healthy in [true, false] {
-            for assigned in [true, false] {
+            for in_use in [true, false] {
                 let count = iteration_metrics
                     .hosts_healthy
-                    .get(&(healthy, IsAssignedToTenant(assigned)))
+                    .get(&(healthy, IsInUseByTenant(in_use)))
                     .cloned()
                     .unwrap_or_default();
-                health_status_attr[health_status_attr_len - 2].value = healthy.to_string().into();
-                health_status_attr[health_status_attr_len - 1].value = assigned.to_string().into();
+                health_status_attr[health_status_attr_len - 3].value = healthy.to_string().into();
+                health_status_attr[health_status_attr_len - 2].value = in_use.to_string().into();
+                health_status_attr[health_status_attr_len - 1].value = in_use.to_string().into();
                 observer.observe_u64(
                     &self.hosts_health_status_gauge,
                     count as u64,
@@ -593,11 +595,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
         probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
         probe_id_attr.push(KeyValue::new("probe_target", "".to_string()));
         probe_id_attr.push(KeyValue::new("assigned", "".to_string()));
+        probe_id_attr.push(KeyValue::new("in_use", "".to_string()));
         let probe_id_attr_len = probe_id_attr.len();
-        for ((probe, target, assigned), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
-            probe_id_attr[probe_id_attr_len - 3].value = probe.clone().into();
-            probe_id_attr[probe_id_attr_len - 2].value = target.clone().unwrap_or_default().into();
-            probe_id_attr[probe_id_attr_len - 1].value = assigned.0.to_string().into();
+        for ((probe, target, in_use), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+            probe_id_attr[probe_id_attr_len - 4].value = probe.clone().into();
+            probe_id_attr[probe_id_attr_len - 3].value = target.clone().unwrap_or_default().into();
+            probe_id_attr[probe_id_attr_len - 2].value = in_use.0.to_string().into();
+            probe_id_attr[probe_id_attr_len - 1].value = in_use.0.to_string().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_probe_id_gauge,
                 *count as u64,
@@ -608,14 +612,17 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut probe_classification_attr = attributes.to_vec();
         probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
         probe_classification_attr.push(KeyValue::new("assigned", "".to_string()));
+        probe_classification_attr.push(KeyValue::new("in_use", "".to_string()));
         let probe_classification_attr_len = probe_classification_attr.len();
-        for ((classification, assigned), count) in
+        for ((classification, in_use), count) in
             &iteration_metrics.unhealthy_hosts_by_classification_id
         {
-            probe_classification_attr[probe_classification_attr_len - 2].value =
+            probe_classification_attr[probe_classification_attr_len - 3].value =
                 classification.clone().into();
+            probe_classification_attr[probe_classification_attr_len - 2].value =
+                in_use.0.to_string().into();
             probe_classification_attr[probe_classification_attr_len - 1].value =
-                assigned.0.to_string().into();
+                in_use.0.to_string().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_classification_gauge,
                 *count as u64,
@@ -626,20 +633,22 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut override_type_attr = attributes.to_vec();
         override_type_attr.push(KeyValue::new("override_type", "merge".to_string()));
         override_type_attr.push(KeyValue::new("assigned", "".to_string()));
+        override_type_attr.push(KeyValue::new("in_use", "".to_string()));
         let override_type_attr_len = override_type_attr.len();
         // The HashMap access is used here instead of iterating order to make sure that
         // all 4 combinations always emit metrics. No metric will be absent in case
         // no host falls into that category
         for override_type in ["merge", "replace"] {
-            for assigned in [true, false] {
+            for in_use in [true, false] {
                 let count = iteration_metrics
                     .num_overrides
-                    .get(&(override_type, IsAssignedToTenant(assigned)))
+                    .get(&(override_type, IsInUseByTenant(in_use)))
                     .cloned()
                     .unwrap_or_default();
-                override_type_attr[override_type_attr_len - 2].value =
+                override_type_attr[override_type_attr_len - 3].value =
                     override_type.to_string().into();
-                override_type_attr[override_type_attr_len - 1].value = assigned.to_string().into();
+                override_type_attr[override_type_attr_len - 2].value = in_use.to_string().into();
+                override_type_attr[override_type_attr_len - 1].value = in_use.to_string().into();
                 observer.observe_u64(
                     &self.hosts_health_overrides_gauge,
                     count as u64,
@@ -731,7 +740,7 @@ mod tests {
             MachineMetrics {
                 agent_versions: HashMap::new(),
                 num_gpus: 0,
-                assigned_to_tenant: Some("a".parse().unwrap()),
+                in_use_by_tenant: Some("a".parse().unwrap()),
                 dpus_up: 1,
                 dpus_healthy: 0,
                 dpu_health_probe_alerts: HashMap::from_iter([(
@@ -755,7 +764,7 @@ mod tests {
             },
             MachineMetrics {
                 num_gpus: 2,
-                assigned_to_tenant: Some("a".parse().unwrap()),
+                in_use_by_tenant: Some("a".parse().unwrap()),
                 agent_versions: HashMap::from_iter([("v1".to_string(), 1)]),
                 dpus_up: 1,
                 dpus_healthy: 0,
@@ -802,7 +811,7 @@ mod tests {
             },
             MachineMetrics {
                 num_gpus: 3,
-                assigned_to_tenant: None,
+                in_use_by_tenant: None,
                 agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
                 dpus_up: 0,
                 dpus_healthy: 1,
@@ -828,7 +837,7 @@ mod tests {
             },
             MachineMetrics {
                 num_gpus: 1,
-                assigned_to_tenant: Some("a".parse().unwrap()),
+                in_use_by_tenant: Some("a".parse().unwrap()),
                 agent_versions: HashMap::from_iter([("v3".to_string(), 1)]),
                 dpus_up: 1,
                 dpus_healthy: 1,
@@ -864,7 +873,7 @@ mod tests {
             },
             MachineMetrics {
                 num_gpus: 2,
-                assigned_to_tenant: None,
+                in_use_by_tenant: None,
                 agent_versions: HashMap::new(),
                 dpus_up: 1,
                 dpus_healthy: 0,
@@ -924,7 +933,7 @@ mod tests {
             },
             MachineMetrics {
                 num_gpus: 3,
-                assigned_to_tenant: None,
+                in_use_by_tenant: None,
                 agent_versions: HashMap::new(),
                 dpus_up: 2,
                 dpus_healthy: 0,
@@ -1038,26 +1047,26 @@ mod tests {
         assert_eq!(
             iteration_metrics.hosts_healthy,
             HashMap::from_iter([
-                ((true, IsAssignedToTenant(true)), 1),
-                ((false, IsAssignedToTenant(true)), 2),
-                ((true, IsAssignedToTenant(false)), 1),
-                ((false, IsAssignedToTenant(false)), 2),
+                ((true, IsInUseByTenant(true)), 1),
+                ((false, IsInUseByTenant(true)), 2),
+                ((true, IsInUseByTenant(false)), 1),
+                ((false, IsInUseByTenant(false)), 2),
             ])
         );
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_probe_id,
             HashMap::from_iter([
                 (
-                    ("BgpStats".parse().unwrap(), None, IsAssignedToTenant(false)),
+                    ("BgpStats".parse().unwrap(), None, IsInUseByTenant(false)),
                     2
                 ),
-                (("bgp".to_string(), None, IsAssignedToTenant(true)), 1),
-                (("ntp".to_string(), None, IsAssignedToTenant(true)), 1),
+                (("bgp".to_string(), None, IsInUseByTenant(true)), 1),
+                (("ntp".to_string(), None, IsInUseByTenant(true)), 1),
                 (
                     (
                         "FileExists".to_string(),
                         Some("abc.txt".to_string()),
-                        IsAssignedToTenant(true)
+                        IsInUseByTenant(true)
                     ),
                     1
                 ),
@@ -1065,7 +1074,7 @@ mod tests {
                     (
                         "FileExists".to_string(),
                         Some("def.txt".to_string()),
-                        IsAssignedToTenant(true)
+                        IsInUseByTenant(true)
                     ),
                     2
                 ),
@@ -1073,7 +1082,7 @@ mod tests {
                     (
                         "HeartbeatTimeout".parse().unwrap(),
                         Some("forge-dpu-agent".to_string()),
-                        IsAssignedToTenant(false)
+                        IsInUseByTenant(false)
                     ),
                     1,
                 ),
@@ -1082,18 +1091,18 @@ mod tests {
         assert_eq!(
             iteration_metrics.unhealthy_hosts_by_classification_id,
             HashMap::from_iter([
-                (("Class1".parse().unwrap(), IsAssignedToTenant(true)), 1),
-                (("Class1".parse().unwrap(), IsAssignedToTenant(false)), 2),
-                (("Class2".parse().unwrap(), IsAssignedToTenant(false)), 2),
-                (("Class3".parse().unwrap(), IsAssignedToTenant(true)), 1),
+                (("Class1".parse().unwrap(), IsInUseByTenant(true)), 1),
+                (("Class1".parse().unwrap(), IsInUseByTenant(false)), 2),
+                (("Class2".parse().unwrap(), IsInUseByTenant(false)), 2),
+                (("Class3".parse().unwrap(), IsInUseByTenant(true)), 1),
             ])
         );
         assert_eq!(
             iteration_metrics.num_overrides,
             HashMap::from_iter([
-                (("merge", IsAssignedToTenant(true)), 0),
-                (("merge", IsAssignedToTenant(false)), 2),
-                (("replace", IsAssignedToTenant(false)), 2),
+                (("merge", IsInUseByTenant(true)), 0),
+                (("merge", IsInUseByTenant(false)), 2),
+                (("replace", IsInUseByTenant(false)), 2),
             ])
         );
 

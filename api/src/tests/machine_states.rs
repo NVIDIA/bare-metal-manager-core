@@ -427,18 +427,18 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
+            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
             .unwrap(),
         "1",
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
+            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
         None,
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_health_status_count{assigned=\"false\",fresh=\"true\",healthy=\"false\"}")
+            .formatted_metric("forge_hosts_health_status_count{assigned=\"false\",fresh=\"true\",healthy=\"false\",in_use=\"false\"}")
             .unwrap(),
         "1"
     );
@@ -689,10 +689,10 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     assert_eq!(health_status_metrics.len(), 4);
 
     for expected in [
-        r#"{assigned="false",fresh="true",healthy="false"} 0"#,
-        r#"{assigned="false",fresh="true",healthy="true"} 2"#,
-        r#"{assigned="true",fresh="true",healthy="false"} 0"#,
-        r#"{assigned="true",fresh="true",healthy="true"} 0"#,
+        r#"{assigned="false",fresh="true",healthy="false",in_use="false"} 0"#,
+        r#"{assigned="false",fresh="true",healthy="true",in_use="false"} 2"#,
+        r#"{assigned="true",fresh="true",healthy="false",in_use="true"} 0"#,
+        r#"{assigned="true",fresh="true",healthy="true",in_use="true"} 0"#,
     ] {
         assert!(
             health_status_metrics.iter().any(|m| m.as_str() == expected),

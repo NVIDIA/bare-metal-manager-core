@@ -323,7 +323,7 @@ impl MachineStateHandler {
             .as_ref()
             .map(|info| info.gpus.len())
             .unwrap_or_default();
-        ctx.metrics.assigned_to_tenant = state
+        ctx.metrics.in_use_by_tenant = state
             .instance
             .as_ref()
             .map(|instance| instance.config.tenant.tenant_organization_id.clone());
