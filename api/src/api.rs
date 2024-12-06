@@ -2301,6 +2301,34 @@ impl Forge for Api {
                     ));
                 }
 
+                // Maintenance mode is implemented as a host health override
+                crate::handlers::health::insert_health_report_override(
+                    self,
+                    tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
+                        machine_id: req.host_id.clone(),
+                        r#override: Some(::rpc::forge::HealthReportOverride {
+                            report: Some(health_report::HealthReport {
+                                source: "maintenance".to_string(),
+                                observed_at: Some(chrono::Utc::now()),
+                                successes: Vec::new(),
+                                alerts: vec![health_report::HealthProbeAlert {
+                                    id: "Maintenance".parse().unwrap(),
+                                    target: None,
+                                    in_alert_since: Some(chrono::Utc::now()),
+                                    message: reference.clone(),
+                                    tenant_message: None,
+                                    classifications: vec![
+                                        health_report::HealthAlertClassification::prevent_allocations(),
+                                    ],
+                                }],
+                            }
+                            .into()),
+                            mode: ::rpc::forge::OverrideMode::Merge.into(),
+                        }),
+                    }),
+                )
+                .await?;
+
                 MaintenanceMode::On { reference }
             }
             rpc::MaintenanceOperation::Disable => {
@@ -2312,6 +2340,21 @@ impl Forge for Api {
                         )));
                     }
                 }
+
+                match crate::handlers::health::remove_health_report_override(
+                    self,
+                    tonic::Request::new(rpc::RemoveHealthReportOverrideRequest {
+                        machine_id: req.host_id.clone(),
+                        source: "maintenance".to_string(),
+                    }),
+                )
+                .await
+                {
+                    Ok(_) => (),
+                    Err(status) if status.code() == tonic::Code::NotFound => (),
+                    Err(status) => return Err(status),
+                };
+
                 MaintenanceMode::Off
             }
         };

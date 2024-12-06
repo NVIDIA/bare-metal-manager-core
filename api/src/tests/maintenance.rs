@@ -14,7 +14,7 @@ use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
 use std::collections::HashSet;
 
-use crate::tests::common;
+use crate::{db::machine::MaintenanceMode, tests::common};
 use common::api_fixtures::{
     create_test_env,
     instance::{default_os_config, default_tenant_config, single_interface_network_config},
@@ -44,6 +44,34 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap();
 
+    // Check that the expected alert is set on the Machine
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(
+        host_machine.maintenance_reference.clone().unwrap(),
+        "https://jira.example.com/ABC-123"
+    );
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert_eq!(alerts.len(), 1);
+    let alert = &mut alerts[0];
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        *alert,
+        rpc::health::HealthProbeAlert {
+            id: "Maintenance".to_string(),
+            target: None,
+            in_alert_since: None,
+            message: "https://jira.example.com/ABC-123".to_string(),
+            tenant_message: None,
+            classifications: vec!["PreventAllocations".to_string()]
+        }
+    );
+
     let instance_config = rpcf::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
@@ -67,7 +95,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         Ok(_) => {
             panic!("Allocating an instance on host in maintenance mode should fail");
         }
-        Err(status) if status.code() == tonic::Code::FailedPrecondition => {
+        Err(status) if status.code() == tonic::Code::Unavailable => {
             // Expected
         }
         Err(err) => {
@@ -106,6 +134,17 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         reference: None,
     });
     env.api.set_maintenance(req).await.unwrap();
+
+    // Maintenance reference is cleared and there's no alarm anymore
+    let host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(host_machine.maintenance_reference.is_none());
+    assert!(host_machine.maintenance_start_time.is_none());
+    let alerts = &host_machine.health.as_ref().unwrap().alerts;
+    assert!(alerts.is_empty());
 
     // There are now no machines in maintenance mode
     let machines = env
@@ -194,7 +233,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         Ok(_) => {
             panic!("Allocating an instance on host in maintenance mode should fail");
         }
-        Err(status) if status.code() == tonic::Code::FailedPrecondition => {
+        Err(status) if status.code() == tonic::Code::Unavailable => {
             // Expected
         }
         Err(err) => {
@@ -274,6 +313,87 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         }),
     };
     env.api.allocate_instance(tonic::Request::new(req)).await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    // Create a machine
+    let (host_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+
+    // Manually enable maintenance mode on the Machine
+    let mut txn = env.pool.begin().await.unwrap();
+    crate::db::machine::Machine::set_maintenance_mode(
+        &mut txn,
+        &host_id,
+        &MaintenanceMode::On {
+            reference: "Test".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // Check that maintenance mode is on, but the alert is missing
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert!(alerts.is_empty());
+
+    // Now run the state handler. The alert should show up
+    env.run_machine_state_controller_iteration().await;
+
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert_eq!(alerts.len(), 1);
+    let alert = &mut alerts[0];
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        *alert,
+        rpc::health::HealthProbeAlert {
+            id: "Maintenance".to_string(),
+            target: None,
+            in_alert_since: None,
+            message: "Test".to_string(),
+            tenant_message: None,
+            classifications: vec!["PreventAllocations".to_string()]
+        }
+    );
+
+    // disable maintenance
+    let req = tonic::Request::new(rpcf::MaintenanceRequest {
+        operation: rpcf::MaintenanceOperation::Disable.into(),
+        host_id: Some(rpc_host_id.clone()),
+        reference: None,
+    });
+    env.api.set_maintenance(req).await.unwrap();
+
+    // Maintenance reference is cleared and there's no alarm anymore
+    let host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert!(host_machine.maintenance_reference.is_none());
+    assert!(host_machine.maintenance_start_time.is_none());
+    let alerts = &host_machine.health.as_ref().unwrap().alerts;
+    assert!(alerts.is_empty());
 
     Ok(())
 }
