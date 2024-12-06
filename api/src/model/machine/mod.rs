@@ -203,16 +203,29 @@ impl ManagedHostStateSnapshot {
             }
         }
 
-        // Merge DPU's
-        for snapshot in self.dpu_snapshots.iter() {
-            merge_or_timeout(
-                &mut output,
-                &snapshot.dpu_agent_health_report,
-                "forge-dpu-agent".to_string(),
-            );
+        // Merge DPU's alerts.  If DPU alerts should be suppressed, than remove the classification from the
+        // alert so that metrics won't show a critical issue.
+        let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
+        for snapshot in self.dpu_snapshots.iter_mut() {
+            let health_report = if suppress_dpu_alerts {
+                let mut health_report = snapshot.dpu_agent_health_report.clone();
+
+                if let Some(health_report) = &mut health_report {
+                    for alert in &mut health_report.alerts {
+                        alert.classifications.clear();
+                    }
+                }
+                health_report
+            } else {
+                snapshot.dpu_agent_health_report.clone()
+            };
+
+            merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
+
             if let Some(report) = snapshot.site_explorer_health_report.as_ref() {
                 output.merge(report);
             }
+
             for over in snapshot.health_report_overrides.merges.values() {
                 output.merge(over);
             }
@@ -762,6 +775,15 @@ impl ManagedHostState {
             } => dpu_states.states.get(dpu_id),
             _ => None,
         }
+    }
+
+    pub fn suppress_dpu_alerts(&self) -> bool {
+        matches!(
+            self,
+            ManagedHostState::DpuDiscoveringState { .. }
+                | ManagedHostState::DPUInit { .. }
+                | ManagedHostState::DPUReprovision { .. }
+        )
     }
 }
 
