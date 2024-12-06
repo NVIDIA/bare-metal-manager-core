@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::{AutoDetect, Command, Mode, Options};
+use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
 use forge_host_support::registration;
 use once_cell::sync::Lazy;
@@ -20,11 +21,13 @@ use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
+use x509_parser::pem::parse_x509_pem;
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 mod attestation;
 mod cfg;
@@ -132,7 +135,21 @@ async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
 async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     // Implement the logic to run as a service here
     let machine_id = initial_setup(config).await?;
+
+    // set up a task to check once a day if certs are less than two days from expiry
+    let client_cert = config.client_cert.clone();
+
+    let mut next_certs_check_time = get_next_certs_check_datetime()?;
+
     loop {
+        if is_time_to_check_certs_expiry(next_certs_check_time) {
+            next_certs_check_time = get_next_certs_check_datetime()?;
+            tracing::info!("Renewed next certs check time to {}", next_certs_check_time);
+
+            if check_certs_validity(&client_cert).await? {
+                initial_setup(config).await?;
+            }
+        }
         let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
             Err(e) => {
@@ -441,5 +458,91 @@ async fn query_api_with_retries(
         }
 
         tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_TIMER)).await;
+    }
+}
+
+fn get_next_certs_check_datetime() -> CarbideClientResult<DateTime<Utc>> {
+    let Some(next_certs_check_time) = Utc::now().checked_add_days(Days::new(1)) else {
+        return Err(CarbideClientError::GenericError(
+            "Could not obtain next certs check time".to_string(),
+        ));
+    };
+    Ok(next_certs_check_time)
+}
+
+fn is_time_to_check_certs_expiry(next_check_time: DateTime<Utc>) -> bool {
+    let now = Utc::now();
+    let diff = next_check_time - now;
+    if diff < TimeDelta::minutes(2) {
+        tracing::info!(
+            "Time to check certs expiry: time now is {}, certs check time is {}",
+            now,
+            next_check_time
+        );
+        return true;
+    }
+    false
+}
+
+async fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
+    tracing::info!("Checking if client certs are going to expire soon ...");
+    let mut ca_file = File::open(client_cert_path).map_err(CarbideClientError::StdIo)?;
+
+    let mut ca_file_bytes: Vec<u8> = Vec::new();
+    ca_file
+        .read_to_end(&mut ca_file_bytes)
+        .map_err(CarbideClientError::StdIo)?;
+
+    let ca_file_bytes_der = {
+        // convert pem to der to normalize
+        let res = parse_x509_pem(&ca_file_bytes);
+        match res {
+            Ok((rem, pem)) => {
+                if !rem.is_empty() && (pem.label != *"CERTIFICATE") {
+                    return Err(CarbideClientError::GenericError(
+                        "PEM certificate validation failed".to_string(),
+                    ));
+                }
+
+                pem.contents
+            }
+            _ => {
+                return Err(CarbideClientError::GenericError(
+                    "Could not parse PEM certificate".to_string(),
+                ))
+            }
+        }
+    };
+
+    // create the certificate
+    let ca_cert = X509Certificate::from_der(&ca_file_bytes_der)
+        .map_err(|e| CarbideClientError::GenericError(format!("Could not parse CA cert: {0}", e)))?
+        .1;
+
+    // if not after timestamp is less than two days away, initiate certs regen
+    let not_after = ca_cert.validity.not_after.timestamp();
+    if let Some(not_after_datetime) = DateTime::from_timestamp(not_after, 0) {
+        let now = Utc::now();
+        let diff = not_after_datetime - now;
+        if diff < TimeDelta::days(2) {
+            tracing::info!(
+                "Now timestamp is {}, NotAfter is {}, triggering certs regen",
+                now,
+                not_after_datetime
+            );
+            Ok(true)
+        } else {
+            tracing::info!(
+                "Now timestamp is {}, NotAfter is {}, NOT triggering certs regen",
+                now,
+                not_after_datetime
+            );
+            Ok(false)
+        }
+    } else {
+        Err(CarbideClientError::GenericError(format!(
+            "Could not parse NotAfter timestamp: {}",
+            not_after
+        )))
     }
 }
