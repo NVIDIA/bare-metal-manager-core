@@ -393,6 +393,46 @@ impl MachineStateHandler {
             }
         }
 
+        // Migrate from legacy maintenance mode to health alert
+        if mh_snapshot.host_snapshot.is_maintenance_mode()
+            && !mh_snapshot
+                .aggregate_health
+                .alerts
+                .iter()
+                .any(|alert| alert.id == "Maintenance".parse().unwrap())
+        {
+            let report = health_report::HealthReport {
+                source: "maintenance".to_string(),
+                observed_at: Some(chrono::Utc::now()),
+                successes: Vec::new(),
+                alerts: vec![health_report::HealthProbeAlert {
+                    id: "Maintenance".parse().unwrap(),
+                    target: None,
+                    in_alert_since: Some(chrono::Utc::now()),
+                    message: mh_snapshot
+                        .host_snapshot
+                        .maintenance_reference()
+                        .unwrap()
+                        .to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        health_report::HealthAlertClassification::prevent_allocations(),
+                    ],
+                }],
+            };
+
+            crate::db::machine::Machine::insert_health_report_override(
+                txn,
+                &mh_snapshot.host_snapshot.machine_id,
+                health_report::OverrideMode::Merge,
+                &report,
+            )
+            .await?;
+
+            // The next iteration will have the alert applied
+            return Ok(StateHandlerOutcome::DoNothing);
+        }
+
         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
             // Reprovision is started and user requested for restart of reprovision.
             let (restart_reprov, firmware_upgrade_needed) = can_restart_reprovision(
