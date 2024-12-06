@@ -21,7 +21,7 @@ use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
 use crate::tests::common::api_fixtures::create_test_env;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

@@ -16,7 +16,7 @@ use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 use tonic::Code;
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -55,7 +55,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant.keyset_ids.len(), 2);
 }
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -113,7 +113,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     assert!(keyset3_valid);
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_tenant_keysets_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -151,7 +151,7 @@ async fn test_find_tenant_keysets_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_tenant_keysets_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 

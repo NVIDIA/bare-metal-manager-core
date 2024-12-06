@@ -14,7 +14,7 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 
 use crate::tests::common;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
     let monitor = IbFabricMonitor::new(

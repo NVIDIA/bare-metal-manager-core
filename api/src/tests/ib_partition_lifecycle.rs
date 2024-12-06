@@ -153,12 +153,12 @@ async fn test_ib_partition_lifecycle_impl(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_ib_partition_lifecycle(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     test_ib_partition_lifecycle_impl(pool).await
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_find_ib_partition_for_tenant(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -188,7 +188,7 @@ async fn test_find_ib_partition_for_tenant(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_create_ib_partition_over_max_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -216,7 +216,7 @@ async fn test_create_ib_partition_over_max_limit(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_ib_partition_with_api_with_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -243,7 +243,7 @@ async fn create_ib_partition_with_api_with_id(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let id = IBPartitionId::from(uuid::Uuid::new_v4());
     let new_partition = NewIBPartition {

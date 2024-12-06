@@ -94,7 +94,7 @@ impl FakeMachine {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -484,7 +484,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_expected_machine"))]
 async fn test_site_explorer_audit_exploration_results(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -841,7 +841,7 @@ async fn test_site_explorer_audit_exploration_results(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_reject_zero_dpu_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -924,7 +924,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_reexplore(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1102,7 +1102,7 @@ async fn test_site_explorer_reexplore(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_site_explorer_creates_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1509,7 +1509,7 @@ async fn test_site_explorer_creates_managed_host(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_site_explorer_creates_multi_dpu_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1759,7 +1759,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_site_explorer_clear_last_known_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1806,7 +1806,7 @@ async fn test_site_explorer_clear_last_known_error(
 }
 
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_disable_machine_creation_outside_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1861,7 +1861,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let underlay_segment = create_underlay_network_segment(&env).await;
@@ -2026,7 +2026,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_site_explorer_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2176,7 +2176,7 @@ async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExpl
         .into_inner()
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2295,7 +2295,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2452,7 +2452,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
 async fn test_fetch_host_primary_interface_mac(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2521,7 +2521,7 @@ async fn test_fetch_host_primary_interface_mac(
 
 /// Test the [`api_fixtures::site_explorer::new_host`] factory with various configurations and make
 /// sure they work.
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_new_host_fixture(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2562,7 +2562,7 @@ async fn test_site_explorer_new_host_fixture(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_fixtures_singledpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2634,7 +2634,7 @@ async fn test_site_explorer_fixtures_singledpu(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_fixtures_multidpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2714,7 +2714,7 @@ async fn test_site_explorer_fixtures_multidpu(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2807,7 +2807,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
 /// chance to run (and a machine_interface is created for its MAC with no machine-id), that
 /// site-explorer can "repair" the situation when it discovers the machine, by migrating the machine
 /// interface to the new managed host.
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

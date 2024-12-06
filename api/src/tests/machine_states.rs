@@ -61,7 +61,7 @@ use crate::tests::common::api_fixtures::{
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleState;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -157,7 +157,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -196,7 +196,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     ));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -329,7 +329,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     ));
 }
 /// If the DPU stops sending us health updates we eventually mark it unhealthy
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -446,7 +446,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -617,7 +617,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
 /// Check whether metrics that describe hardware/software versions of discovered machines
 /// are emitted correctly
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id_1, _dpu_machine_id_1) =
@@ -746,7 +746,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 }
 
 /// Check that controller state reason is correct as we work through the states
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_state_outcome(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -796,7 +796,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_state_sla(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_dpu_machine_id, host_machine_id) = create_managed_host(&env).await;
@@ -853,7 +853,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 /// put it into Ready state, and then re-activating the bundle to move
 /// the machine from ::Failed -> back to ::Ready.
 #[cfg(test)]
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
     // introduce the measurement states into the state machine (which
@@ -959,7 +959,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 }
 
 // this is mostly copied from the one above
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
     // introduce the measurement states into the state machine (which
@@ -1152,7 +1152,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pending_bundle_to_ready(
     pool: sqlx::PgPool,
 ) {
@@ -1424,7 +1424,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.attestation_enabled = true;

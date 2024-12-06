@@ -43,7 +43,7 @@ mod tests {
     // It makes sure each profile results in the correct number
     // of records being inserted into the database, and also makes
     // sure the records themselves are correct.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_profile_crudl(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
@@ -163,7 +163,7 @@ mod tests {
     //
     // It makes sure both of those cases fail, and that
     // the actual unique one works.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_profile_duplicates(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -199,7 +199,7 @@ mod tests {
     // a completely different set of attributes, and four with
     // different (but overlapping) attributes, and then makes sure
     // the matching logic works as expected.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_profile_matching(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

@@ -22,7 +22,7 @@ use common::api_fixtures::{
     self, create_managed_host, dpu, instance, network_configured_with_health,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -39,7 +39,7 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     assert!(response.is_ok());
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
@@ -84,7 +84,7 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .ne(&dpu_2_network_config.managed_host_config_version));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -169,7 +169,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -219,7 +219,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
 
 /// Tests whether the in_alert_since field will be correctly populated
 /// in case the DPU sends multiple reports using the same alarm
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

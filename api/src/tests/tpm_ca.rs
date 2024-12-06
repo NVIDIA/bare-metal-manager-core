@@ -35,7 +35,7 @@ pub mod tests {
     use rpc::forge::forge_server::Forge;
     use rpc::forge::TpmCaCert;
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_get_ek_cert_by_machine_id_machine_not_found_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -55,7 +55,7 @@ pub mod tests {
             uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").into();
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_get_ek_cert_by_machine_hw_info_not_found_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -106,7 +106,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_get_ek_cert_by_machine_tpm_ek_cert_not_found_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -182,7 +182,7 @@ pub mod tests {
 
     use crate::attestation::match_insert_new_ek_cert_status_against_ca;
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_match_insert_new_ek_cert_status_against_ca_invalid_ek_cert_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -212,7 +212,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_tpm_ca_cert_invalid"))]
+    #[crate::sqlx_test(fixtures("create_tpm_ca_cert_invalid"))]
     async fn test_match_insert_new_ek_cert_status_against_ca_invalid_ca_cert_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -236,7 +236,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_tpm_ca_wrong_cert"))]
+    #[crate::sqlx_test(fixtures("create_tpm_ca_wrong_cert"))]
     async fn test_match_insert_new_ek_cert_status_against_ca_wrong_ca_cert_should_not_match_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -270,7 +270,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_match_insert_new_ek_cert_status_against_ca_no_ca_found_should_not_match_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -304,7 +304,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_match_update_existing_ek_cert_against_ca_machine_id_not_found_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -341,7 +341,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_match_update_existing_ek_cert_against_ca_ek_cert_invalid_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -381,7 +381,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_match_update_existing_ek_cert_against_ca_ca_cert_invalid_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -419,7 +419,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_match_update_existing_ek_cert_status_against_ca_signature_not_verified_should_not_change_record(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -475,7 +475,7 @@ pub mod tests {
 
     //---------
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_tpm_add_ca_cert_no_ek_present_should_insert_ca_in_db(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -517,7 +517,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_tpm_add_ca_cert_with_two_eks_present_should_update_one_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -570,7 +570,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_tpm_show_ca_certs_returns_two_ca_certs_from_db(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -638,7 +638,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_tpm_show_ca_certs_returns_zero_ca_certs_from_db(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -657,7 +657,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_tpm_show_unmatched_ek_cert_with_two_unmatched_present_returns_two_eks(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -733,7 +733,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_tpm_show_unmatched_ek_cert_one_matched_one_unmatched_return_unmatched(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -808,7 +808,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn test_tpm_delete_ca_cert_two_ca_present_should_delete_one_ca_only(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -868,7 +868,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_tpm_delete_ca_cert_one_ek_matched_one_unmatched_should_unmatch_one_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -969,7 +969,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_discover_machine_ca_present_should_insert_and_match_new_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1024,7 +1024,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_discover_machine_ca_not_present_should_insert_new_unmatched_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1072,7 +1072,7 @@ pub mod tests {
     // Strictly speaking this is an impossible situation: if ca was inserted after ek
     // then it would match on ca insertion, if ek was inserted after ca, then it could
     // only be inserted via discover_machine, which was already tested above.
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
     async fn test_discover_machine_ca_present_ek_present_should_update_and_match_existing_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

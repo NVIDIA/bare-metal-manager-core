@@ -18,7 +18,7 @@ use tracing_subscriber::filter::EnvFilter;
 
 use crate::tests::common;
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     let env = create_test_env(db_pool.clone()).await;
     // Real env does this in api/lib.rs::run

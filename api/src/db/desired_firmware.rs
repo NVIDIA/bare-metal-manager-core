@@ -84,7 +84,7 @@ struct AsStrings {
 }
 
 #[cfg(test)]
-#[sqlx::test]
+#[crate::sqlx_test]
 pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
     // Source config is hacky, but we just need to have 3 different components in unsorted order
     let src_cfg_str = r#"

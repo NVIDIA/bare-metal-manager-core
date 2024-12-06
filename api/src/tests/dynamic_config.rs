@@ -17,7 +17,7 @@ use crate::tests::common::api_fixtures::{
 };
 use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = {
         let mut config = get_config();
@@ -54,7 +54,7 @@ async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_bmc_proxy_setting_config_unspecified(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
@@ -88,7 +88,7 @@ async fn test_bmc_proxy_setting_config_unspecified(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_bmc_proxy_setting_config_not_allowed(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
@@ -125,7 +125,7 @@ async fn test_bmc_proxy_setting_config_not_allowed(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_bmc_proxy_setting_parsed_config_unspecified(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
@@ -170,7 +170,7 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {

@@ -56,7 +56,7 @@ async fn get_pxe_instructions(
         .into_inner()
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -78,7 +78,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     assert_eq!(instructions.pxe_script, "exit".to_string());
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -123,7 +123,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     assert!(!instructions.pxe_script.contains("aarch64/carbide.root"));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -148,7 +148,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -217,7 +217,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -255,7 +255,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
     assert_eq!(instructions.pxe_script, "SomeRandomiPxe".to_string());
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     let env = common::api_fixtures::create_test_env(pool).await;
 
@@ -299,7 +299,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
         .is_some_and(|di| di.update_firmware));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 

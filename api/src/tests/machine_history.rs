@@ -19,7 +19,7 @@ use rpc::forge::forge_server::Forge;
 use crate::tests::common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -167,7 +167,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 /// Check that we can handle old / unknown states in the history.
 /// This allows us to change MachineState enum.
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_old_machine_state_history(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

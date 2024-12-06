@@ -551,7 +551,7 @@ pub fn get_config() -> CarbideConfig {
     }
 }
 
-/// sqlx::test shares the pool with all testcases in a file. If there are many testcases in a file,
+/// crate::sqlx_test shares the pool with all testcases in a file. If there are many testcases in a file,
 /// test cases will start getting PoolTimedOut error. To avoid it, each test case will be assigned
 /// its own pool.
 async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {

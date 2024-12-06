@@ -3,7 +3,7 @@ use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id_1, dpu_machine_id_1) = create_managed_host(&env).await;

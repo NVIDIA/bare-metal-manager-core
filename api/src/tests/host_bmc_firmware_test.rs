@@ -50,7 +50,7 @@ use std::{
 };
 use tempdir::TempDir;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_preingestion_bmc_upgrade(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -391,7 +391,7 @@ fn build_dpu_exploration_report(
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     // Create an environment with one managed host in the ready state.
     let env = create_test_env(pool).await;
@@ -688,7 +688,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_host_fw_upgrade_enabledisable_global_enabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
@@ -726,7 +726,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 
     Ok(())
 }
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_host_fw_upgrade_enabledisable_global_disabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {

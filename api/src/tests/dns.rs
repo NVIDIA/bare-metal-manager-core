@@ -12,7 +12,7 @@ const DOMAIN_NAME: &str = "dwrt1.com";
 const DNS_ADM_SUBDOMAIN: &str = concatcp!("adm.", DOMAIN_NAME);
 const DNS_BMC_SUBDOMAIN: &str = concatcp!("bmc.", DOMAIN_NAME);
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dns(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let api = &env.api;

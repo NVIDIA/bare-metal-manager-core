@@ -43,7 +43,7 @@ fn verify_os_in_tenant_config(
     assert_eq!(tenant_config, &expected_tenant_config);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -231,7 +231,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
 /// Instance creation using legacy method to pass OS
 /// This should be removed once the mechanism is removed
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_creation_with_os_in_tenantconfig(
     _: PgPoolOptions,
     options: PgConnectOptions,

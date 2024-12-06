@@ -18,7 +18,7 @@ use crate::db::route_servers::RouteServer;
 use common::api_fixtures::create_test_env;
 use rpc::{forge::RouteServers, protos::forge::forge_server::Forge};
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let expected_servers = [
@@ -46,7 +46,7 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut expected_servers = vec![
@@ -108,7 +108,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let expected_servers = [
@@ -136,7 +136,7 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let expected_servers = [
@@ -174,7 +174,7 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let expected_servers = [

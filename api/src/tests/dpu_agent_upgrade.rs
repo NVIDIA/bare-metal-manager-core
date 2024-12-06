@@ -19,7 +19,7 @@ use ::rpc::forge::forge_server::Forge;
 use crate::tests::common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
     let host_sim = env.start_managed_host_sim();

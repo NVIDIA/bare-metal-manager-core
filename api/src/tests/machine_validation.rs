@@ -38,7 +38,7 @@ use rpc::Timestamp;
 
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation_complete_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -113,7 +113,7 @@ async fn test_machine_validation_complete_with_error(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -250,7 +250,7 @@ async fn test_machine_validation_with_error(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -347,7 +347,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation_get_results(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -435,7 +435,7 @@ async fn test_machine_validation_get_results(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_create_update_external_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -537,7 +537,7 @@ async fn test_create_update_external_config(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation_test_on_demand_filter(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -651,7 +651,7 @@ async fn test_machine_validation_test_on_demand_filter(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_validation_disabled(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -775,7 +775,7 @@ async fn test_machine_validation_disabled(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_add_new_test_case(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -858,7 +858,7 @@ async fn test_machine_validation_add_new_test_case(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_update_existing_test(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -933,7 +933,7 @@ async fn test_machine_validation_update_existing_test(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_mark_test_as_verfied(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -980,7 +980,7 @@ async fn test_machine_validation_mark_test_as_verfied(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_create_clones(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1042,7 +1042,7 @@ async fn test_machine_validation_create_clones(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_test_disabled(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1104,7 +1104,7 @@ async fn test_machine_validation_test_disabled(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_on_demant_un_verified_machine_validation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1204,7 +1204,7 @@ async fn test_on_demant_un_verified_machine_validation(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_machine_validation_tests",))]
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_get_unverified_tests(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1264,7 +1264,7 @@ async fn test_machine_validation_get_unverified_tests(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_on_demant_machine_validation_all_contexts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

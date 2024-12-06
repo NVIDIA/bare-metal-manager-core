@@ -25,7 +25,7 @@ mod tests {
 
     // test_journal_crudl makes sure database constraints
     // are honored for inserting new journal entries.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_journal_crudl(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let machine_id =

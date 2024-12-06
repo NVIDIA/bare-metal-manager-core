@@ -17,7 +17,7 @@ use crate::tests::common::api_fixtures::{
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -103,7 +103,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant_name.network_segments_ids.len(), 1);
 }
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -161,7 +161,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
     assert_eq!(seg_list.network_segments.len(), 2);
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -195,7 +195,7 @@ async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_network_segments_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 

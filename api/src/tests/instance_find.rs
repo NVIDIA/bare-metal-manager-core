@@ -22,7 +22,7 @@ use crate::tests::common::api_fixtures::{
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -250,7 +250,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -328,7 +328,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -358,7 +358,7 @@ async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -376,7 +376,7 @@ async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

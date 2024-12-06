@@ -25,7 +25,7 @@ use crate::tests::common::api_fixtures::FIXTURE_VPC_ID;
 
 use crate::tests::common;
 
-#[sqlx::test]
+#[crate::sqlx_test]
 #[allow(deprecated)]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
@@ -257,7 +257,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -376,7 +376,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_vpc_with_invalid_labels(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -515,7 +515,7 @@ async fn create_vpc_with_invalid_labels(
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -576,7 +576,7 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -640,7 +640,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
@@ -657,7 +657,7 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let id = uuid::Uuid::new_v4();
@@ -687,7 +687,7 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(pool).await;
 

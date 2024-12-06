@@ -17,14 +17,14 @@ use std::sync::Arc;
 use crate::resource_pool::common::VPC_VNI;
 use crate::resource_pool::ResourcePoolStats as St;
 use crate::resource_pool::{all, DbResourcePool, OwnerType, ResourcePoolError, ValueType};
+use crate::tests;
+use crate::tests::common;
 use common::api_fixtures::create_test_env;
 use rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
-use crate::tests::common;
-
 // Define an IPv4 pool from a range via the admin grpc
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
     let toml = r#"
@@ -50,7 +50,7 @@ ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
 }
 
 // Define an IPv4 pool from a prefix via the admin grpc
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_define_prefix(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
     let toml = r#"
@@ -75,7 +75,7 @@ prefix = "172.0.1.0/24"
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
     let pool = DbResourcePool::new("test_simple".to_string(), ValueType::Integer);
@@ -105,7 +105,7 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
     let pool1 = DbResourcePool::new("test_multiple_1".to_string(), ValueType::Integer);
@@ -152,7 +152,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 
@@ -179,7 +179,7 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
@@ -311,7 +311,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut txn = db_pool.begin().await?;
     let names = &["a", "b", "c"];
@@ -359,15 +359,14 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 50)]
 async fn test_parallel() -> Result<(), eyre::Report> {
-    // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
+    // We have to do [crate::sqlx_test] 's work manually here so that we can use a multi-threaded executor
     let db_url = std::env::var("DATABASE_URL")? + "/test_parallel";
     if sqlx::Postgres::database_exists(&db_url).await? {
         sqlx::Postgres::drop_database(&db_url).await?;
     }
     sqlx::Postgres::create_database(&db_url).await?;
     let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
-    let m = sqlx::migrate!();
-    m.run(&db_pool).await?;
+    tests::MIGRATOR.run(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
     let pool = Arc::new(DbResourcePool::new(
@@ -410,7 +409,7 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 

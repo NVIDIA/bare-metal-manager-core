@@ -36,7 +36,7 @@ mod tests {
     // It makes sure each profile results in the correct number
     // of records being inserted into the database, and also makes
     // sure the records themselves are correct.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_report_crudl(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let machine = create_test_machine(
@@ -197,7 +197,7 @@ mod tests {
 
     // test_report_journal creates a new profile and makes
     // sure the journal gets updated.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_report_journal(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let machine = create_test_machine(
@@ -282,7 +282,7 @@ mod tests {
 
     // test_report_to_active_bundle promotes a report to an active
     // bundle and makes sure all is well.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_report_to_active_bundle(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -466,7 +466,7 @@ mod tests {
 
     // test_report_to_revoked_bundle "promotes" a report to a
     // revoked bundle and makes sure all is well.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_report_to_revoked_bundle(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
