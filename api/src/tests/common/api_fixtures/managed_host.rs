@@ -236,6 +236,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 pcie_devices: pcie_devices.into_iter().map(Into::into).collect(),
                 base_mac: None,
                 power_state: PowerState::On,
+                sku: None,
             }],
             chassis: vec![Chassis {
                 id: "System.Embedded.1".to_string(),

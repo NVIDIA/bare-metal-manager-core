@@ -429,13 +429,16 @@ impl SiteExplorer {
                 // using system serial numbers.
                 // If nothing found, try again with chassis
                 // serial numbers.
-                if !ep.report.systems.iter().any(|s| match s.serial_number {
-                    Some(ref sn) => sn == expected_sn,
-                    _ => false,
-                }) && !ep.report.chassis.iter().any(|s| match s.serial_number {
-                    Some(ref sn) => sn == expected_sn,
-                    _ => false,
-                }) {
+                if !ep
+                    .report
+                    .systems
+                    .iter()
+                    .any(|s| s.check_serial_number(expected_sn) || s.check_sku(expected_sn))
+                    && !ep.report.chassis.iter().any(|s| match s.serial_number {
+                        Some(ref sn) => sn == expected_sn,
+                        _ => false,
+                    })
+                {
                     metrics
                             .increment_endpoint_explorations_expected_serial_number_mismatches_overall_count(
                                 machine_type,

@@ -184,6 +184,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 .into()],
                 base_mac: Some(value.host_mac_address.to_string().replace(':', "")),
                 power_state: PowerState::On,
+                sku: None,
             }],
             chassis: vec![Chassis {
                 id: "Card1".to_string(),
