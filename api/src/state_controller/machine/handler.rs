@@ -330,6 +330,7 @@ impl MachineStateHandler {
         ctx.metrics.is_host_bios_password_set =
             state.host_snapshot.bios_password_set_time.is_some();
 
+        // Note that DPU alerts may be surpressed (classifications removed) in the aggregate health report.
         for alert in state.aggregate_health.alerts.iter() {
             ctx.metrics
                 .health_probe_alerts
@@ -3678,11 +3679,15 @@ fn managed_host_network_config_version_synced_and_dpu_healthy(
         return false;
     };
 
+    // Note that DPU alerts may be surpressed (classifications removed) in the aggregate health
+    // report so the individual DPU's report is used.
     !dpu_health
         .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
 }
 
 fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), StateHandlerError> {
+    // In some states, DPU alerts may be surpressed (classifications removed) in the aggregate health report.
+    // Since this is not called from a state that supresses DPU alerts, this is ok here.
     match state
         .aggregate_health
         .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
