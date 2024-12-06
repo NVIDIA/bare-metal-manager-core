@@ -534,18 +534,27 @@ impl OsImage {
         txn: &mut Transaction<'_, Postgres>,
         tenant_organization_id: Option<TenantOrganizationId>,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let mut query = "SELECT * from os_images l ".to_string();
+        let query = "SELECT * from os_images l {where}".to_string();
+        let mut where_clause = String::new();
+        let mut filter = String::new();
+
         if tenant_organization_id.is_some() {
-            let where_clause = format!(
-                "WHERE l.organization_id='{}'",
-                tenant_organization_id.unwrap()
-            );
-            query.push_str(&where_clause);
+            where_clause = "WHERE l.organization_id=$1".to_string();
+            filter = tenant_organization_id.unwrap().to_string();
         }
-        sqlx::query_as(&query)
-            .fetch_all(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+
+        if filter.is_empty() {
+            sqlx::query_as(&query.replace("{where}", ""))
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+        } else {
+            sqlx::query_as(&query.replace("{where}", &where_clause))
+                .bind(filter)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+        }
     }
 
     pub async fn get(
@@ -760,7 +769,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for OsImage {
         let volume_id: Option<Uuid> = row.try_get("volume_id")?;
         let mut create_volume = false;
         let tenant_organization_id: String = row.try_get("organization_id")?;
-        let status: String = row.try_get("status")?;
         let cap: i64 = row.try_get("capacity")?;
         let capacity = if cap == 0 { None } else { Some(cap as u64) };
         if volume_id.is_some() {
@@ -784,8 +792,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for OsImage {
                 boot_disk: row.try_get("boot_disk")?,
                 capacity,
             },
-            status: OsImageStatus::from_str(&status)
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            status: row.try_get("status")?,
             status_message: row.try_get("status_message")?,
             created_at: row.try_get("created_at")?,
             modified_at: row.try_get("modified_at")?,
