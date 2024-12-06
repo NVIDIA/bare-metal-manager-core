@@ -465,28 +465,26 @@ async fn fetch_system(
         None
     };
 
-    let is_infinite_boot_enabled = if vendor.is_dell() || vendor.is_lenovo() {
-        if vendor.is_dell() {
-            let infinite_boot_status = bios_attributes
-                .get("BootSeqRetry")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| RedfishError::MissingKey {
-                    key: "BootSeqRetry".to_string(),
-                    url: "Bios attributes".to_string(),
-                })
-                .map_err(map_redfish_error)?;
-            Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
-        } else {
-            let infinite_boot_status = bios_attributes
-                .get("BootModes_InfiniteBootRetry")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| RedfishError::MissingKey {
-                    key: "BootModes_InfiniteBootRetry".to_string(),
-                    url: "Bios attributes".to_string(),
-                })
-                .map_err(map_redfish_error)?;
-            Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
-        }
+    let is_infinite_boot_enabled = if vendor.is_dell() {
+        let infinite_boot_status = bios_attributes
+            .get("BootSeqRetry")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RedfishError::MissingKey {
+                key: "BootSeqRetry".to_string(),
+                url: "Bios attributes".to_string(),
+            })
+            .map_err(map_redfish_error)?;
+        Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
+    } else if vendor.is_lenovo() {
+        let infinite_boot_status = bios_attributes
+            .get("BootModes_InfiniteBootRetry")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RedfishError::MissingKey {
+                key: "BootModes_InfiniteBootRetry".to_string(),
+                url: "Bios attributes".to_string(),
+            })
+            .map_err(map_redfish_error)?;
+        Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
     } else {
         None
     };
