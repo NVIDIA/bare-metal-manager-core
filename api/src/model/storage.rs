@@ -176,13 +176,15 @@ pub struct OsImageAttributes {
     pub capacity: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "os_image_status")]
 pub enum OsImageStatus {
-    Uninitialized, // initial state when db entry created
-    InProgress,    // golden volume creation in progress if applicable
-    Failed,        // golden volume creation error
-    Ready,         // ready for use during allocate instance calls
-    Disabled,      // disabled or deprecated, no new instance allocations can use it
+    Uninitialized = 0, // initial state when db entry created
+    InProgress,        // golden volume creation in progress if applicable
+    Failed,            // golden volume creation error
+    Ready,             // ready for use during allocate instance calls
+    Disabled,          // disabled or deprecated, no new instance allocations can use it
 }
 
 impl fmt::Display for OsImageStatus {
@@ -806,11 +808,11 @@ impl FromStr for OsImageStatus {
     type Err = RpcDataConversionError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Uninitialized" => Ok(OsImageStatus::Uninitialized),
-            "InProgress" => Ok(OsImageStatus::InProgress),
-            "Failed" => Ok(OsImageStatus::Failed),
-            "Ready" => Ok(OsImageStatus::Ready),
-            "Disabled" => Ok(OsImageStatus::Disabled),
+            "uninitialized" => Ok(OsImageStatus::Uninitialized),
+            "inprogress" => Ok(OsImageStatus::InProgress),
+            "failed" => Ok(OsImageStatus::Failed),
+            "ready" => Ok(OsImageStatus::Ready),
+            "disabled" => Ok(OsImageStatus::Disabled),
             "" => Ok(OsImageStatus::Uninitialized),
             _ => Err(RpcDataConversionError::InvalidValue(
                 "OsImageStatus".to_string(),
