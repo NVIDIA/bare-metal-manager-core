@@ -37,7 +37,7 @@ lazy_static! {
         uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").into();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // We can't use the fixture created Machine here, since it already has a topology attached
     // therefore we create a new one
@@ -185,7 +185,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -225,7 +225,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     assert!(host.hardware_info().is_some());
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;

@@ -64,7 +64,7 @@ fn assert_metadata_equals(actual: &rpc::forge::Metadata, expected: &rpc::forge::
     assert_eq!(actual, expected);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -368,7 +368,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;

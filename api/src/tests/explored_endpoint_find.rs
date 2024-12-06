@@ -18,7 +18,7 @@ use tonic::Code;
 
 use crate::tests::common;
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_endpoint_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +48,7 @@ async fn test_find_explored_endpoint_ids(
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_endpoints_by_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -98,7 +98,7 @@ async fn test_find_explored_endpoints_by_ids(
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_endpoints_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -127,7 +127,7 @@ async fn test_find_explored_endpoints_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -143,7 +143,7 @@ async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;

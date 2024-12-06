@@ -72,10 +72,7 @@ impl StateHandler for TestMachineStateHandler {
     }
 }
 
-#[sqlx::test(fixtures(
-    path = "../fixtures",
-    scripts("create_domain", "create_vpc", "create_network_segment")
-))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
     let hosts: Vec<_> = (0..4).map(|_| env.start_managed_host_sim()).collect();

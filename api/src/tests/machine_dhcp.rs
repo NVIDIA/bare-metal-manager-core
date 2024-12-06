@@ -26,7 +26,7 @@ use common::api_fixtures::{
     TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
@@ -45,7 +45,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_from_wrong_vlan_fails(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -85,7 +85,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let api = common::api_fixtures::create_test_env(pool.clone())
         .await
@@ -141,7 +141,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -203,7 +203,7 @@ async fn test_multiple_machines_dhcp_with_api(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -299,7 +299,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn machine_interface_discovery_persists_vendor_strings(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -375,7 +375,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_dpu_machine_dhcp_for_existing_dpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

@@ -35,7 +35,7 @@ mod tests {
     // API handler functions that work with measured boot system profiles,
     // going through the steps of making profiles, making sure they can
     // be read back (via show/list), modified (via update/delete), etc.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measurement_system_profiles(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -241,7 +241,7 @@ mod tests {
     // test_machines is used to test all of the different API
     // handler functions that work with measured boot machines (show,
     // list, attest, etc).
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_machines(db_conn: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         // First, lets make a machine behind the scenes.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
@@ -343,7 +343,7 @@ mod tests {
     // other tests, there's generally some overlap with other areas of
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the report calls.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measurement_reports(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -510,7 +510,7 @@ mod tests {
     // other tests, there's generally some overlap with other areas of
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the journal calls.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measurement_journals(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -603,7 +603,7 @@ mod tests {
     // other tests, there's generally some overlap with other areas of
     // measured boot (reports + journals + machines, etc), but this is
     // for focusing specifically on the bundle calls.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measurement_bundles(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -736,7 +736,7 @@ mod tests {
     // functions for site-specific management handlers for measured
     // boot, including import/export, and management of trusted
     // machine and profile approvals.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measurement_site(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1074,7 +1074,7 @@ mod tests {
     // test_permissive_approvals is used to make sure that
     // having a site-wide "permissive" approval of "*" works
     // as intended.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_permissive_approvals(
         db_conn: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

@@ -26,7 +26,7 @@ use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 use crate::tests::common;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -80,7 +80,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit");
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

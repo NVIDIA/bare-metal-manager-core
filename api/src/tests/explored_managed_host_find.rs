@@ -18,7 +18,7 @@ use rpc::forge_server::Forge;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_managed_host_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -55,7 +55,7 @@ async fn test_find_explored_managed_host_ids(
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_managed_hosts_by_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -112,7 +112,7 @@ async fn test_find_explored_managed_hosts_by_ids(
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_managed_hosts_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -141,7 +141,7 @@ async fn test_find_explored_managed_hosts_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_explored_managed_hosts_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 

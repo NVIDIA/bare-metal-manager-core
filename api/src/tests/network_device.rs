@@ -16,7 +16,7 @@ use crate::tests::common::api_fixtures::{
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkDeviceIdList;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     _ = create_managed_host_multi_dpu(&env, 1).await;
@@ -48,7 +48,7 @@ async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool) {
     let expected_ids = vec![
         "mac=a1:b1:c1:00:00:01",
@@ -87,7 +87,7 @@ async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_no_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     _ = create_managed_host_multi_dpu(&env, 1).await;

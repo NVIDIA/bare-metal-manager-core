@@ -125,7 +125,7 @@ impl RouteServer {
 }
 
 #[cfg(test)]
-#[sqlx::test]
+#[crate::sqlx_test]
 pub async fn test_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
@@ -145,7 +145,7 @@ pub async fn test_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::E
 }
 
 #[cfg(test)]
-#[sqlx::test]
+#[crate::sqlx_test]
 pub async fn test_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
@@ -182,7 +182,7 @@ pub async fn test_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 use std::str::FromStr;
 
 #[cfg(test)]
-#[sqlx::test]
+#[crate::sqlx_test]
 pub async fn test_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_servers = vec![
         IpAddr::from_str("1.2.3.4")?,

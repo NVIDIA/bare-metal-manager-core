@@ -19,7 +19,7 @@ use ::rpc::forge as rpc;
 use forge_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -88,7 +88,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_tenant_name.vpc_ids.len(), 1);
 }
 
-#[sqlx::test(fixtures("create_domain"))]
+#[crate::sqlx_test(fixtures("create_domain"))]
 async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -129,7 +129,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc3, vpc_list.vpcs[0]);
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -159,7 +159,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -177,7 +177,7 @@ async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
@@ -224,7 +224,7 @@ async fn find_vpc_by_request(
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -315,7 +315,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.vpcs.len(), 0);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 

@@ -42,7 +42,7 @@ use common::api_fixtures::{
     TestEnv,
 };
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -87,7 +87,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     validate_machine_deletion(&env, &dpu_machine_id, None).await;
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -113,7 +113,7 @@ async fn is_ek_cert_status_entry_present(txn: &mut sqlx::Transaction<'_, sqlx::P
     all_ek_cert_status_count > 0
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -204,7 +204,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -372,7 +372,7 @@ async fn validate_machine_deletion(
 
 // TODO: Test deletion for machines with active instances on them
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -497,7 +497,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
@@ -546,7 +546,7 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
@@ -596,7 +596,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
 }
 
 // test_admin_force_delete_tenant_state verifies that an instance containing a host machine in a ForceDeletion state will have a TenantState of Terminating.
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     // 1) setup
     let env = create_test_env(pool).await;

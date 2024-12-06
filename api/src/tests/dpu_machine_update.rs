@@ -13,7 +13,7 @@ use common::api_fixtures::{
 
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +56,7 @@ async fn test_find_available_outdated_dpus(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus_with_unhealthy(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -133,7 +133,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -175,7 +175,7 @@ async fn test_find_available_outdated_dpus_limit(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_unavailable_outdated_dpus_when_none(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -210,7 +210,7 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_unavailable_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -252,7 +252,7 @@ async fn test_find_unavailable_outdated_dpus(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus_multidpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -284,7 +284,7 @@ async fn test_find_available_outdated_dpus_multidpu(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -346,7 +346,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

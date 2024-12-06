@@ -163,7 +163,7 @@ async fn test_network_segment_lifecycle_impl(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -178,7 +178,7 @@ async fn test_network_segment_lifecycle(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -193,7 +193,7 @@ async fn test_network_segment_lifecycle_with_vpc(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -208,7 +208,7 @@ async fn test_network_segment_lifecycle_with_domain(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc_and_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -223,7 +223,7 @@ async fn test_network_segment_lifecycle_with_vpc_and_domain(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
@@ -234,7 +234,7 @@ async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_admin_free_ips(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -249,7 +249,7 @@ async fn test_network_segment_admin_free_ips(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_tenant_free_ips(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -264,7 +264,7 @@ async fn test_network_segment_tenant_free_ips(
     .await
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_underlay_free_ips(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

@@ -121,3 +121,4 @@ ctor = "0.2"
 lazy_static = "1.4.0"
 const_format = "0.2.26"
 rcgen = "0.13.1"
+carbide-macros = { path = "../common/carbide-macros" }

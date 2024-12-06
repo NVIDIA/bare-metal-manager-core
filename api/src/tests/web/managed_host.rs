@@ -9,10 +9,7 @@ use crate::tests::{
     web::{authenticated_request_builder, make_test_app},
 };
 
-#[sqlx::test(fixtures(
-    path = "../fixtures",
-    scripts("create_domain", "create_vpc", "create_network_segment")
-))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_ok(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);
@@ -50,10 +47,7 @@ async fn test_ok(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures(
-    path = "../fixtures",
-    scripts("create_domain", "create_vpc", "create_network_segment")
-))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);

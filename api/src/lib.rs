@@ -61,6 +61,10 @@ mod storage;
 mod tests;
 mod web;
 
+// Allow carbide_macros::sqlx_test to be referred as #[crate::sqlx_test]
+#[cfg(test)]
+pub(crate) use carbide_macros::sqlx_test;
+
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
 

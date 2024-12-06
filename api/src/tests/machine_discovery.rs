@@ -24,7 +24,7 @@ use common::api_fixtures::{
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_discovery_no_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -55,7 +55,7 @@ async fn test_machine_discovery_no_domain(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_discovery_with_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,7 +92,7 @@ async fn test_machine_discovery_with_domain(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -129,7 +129,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_discover_2_managed_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -149,7 +149,7 @@ async fn test_discover_2_managed_hosts(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_discover_dpu_by_source_ip(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -187,7 +187,7 @@ async fn test_discover_dpu_by_source_ip(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_discover_dpu_not_create_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

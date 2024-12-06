@@ -22,7 +22,7 @@ use rpc::forge::{
     PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
 };
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let ip_prefix = "192.0.2.0/25";
@@ -54,7 +54,7 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -84,7 +84,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -108,7 +108,7 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_vpc"))]
+#[crate::sqlx_test(fixtures("create_vpc"))]
 async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 

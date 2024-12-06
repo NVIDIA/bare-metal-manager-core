@@ -15,7 +15,7 @@ use common::api_fixtures::{create_managed_host_with_config, create_test_env};
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn fetch_bmc_credentials(pool: PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();

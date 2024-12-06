@@ -85,7 +85,7 @@ use crate::tests::common::api_fixtures::update_time_params;
 
 use crate::tests::common;
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -290,7 +290,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_failed_to_ready(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -774,7 +774,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -893,7 +893,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -986,7 +986,7 @@ async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: P
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_instance_with_invalid_long_labels(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -1101,7 +1101,7 @@ async fn test_allocate_instance_with_invalid_long_labels(
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1170,7 +1170,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
     .await;
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1237,7 +1237,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1292,7 +1292,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     assert_eq!("192-0-2-3.dwrt1.com", response.tenant_interfaces[0].fqdn);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -1398,7 +1398,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1443,7 +1443,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_deletion_before_provisioning_finishes(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -1545,7 +1545,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1609,7 +1609,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1667,7 +1667,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
     assert!(err.message().contains("Database Error: error returned from database: duplicate key value violates unique constraint \"instances_pkey\""));
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_cloud_init_metadata(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -1727,7 +1727,7 @@ async fn test_instance_cloud_init_metadata(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2035,7 +2035,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 
 async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
@@ -2079,7 +2079,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2224,7 +2224,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_cannot_create_instance_on_unhealthy_dpu(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -2291,7 +2291,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2346,7 +2346,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     assert_eq!(instance.status.unwrap().tenant.unwrap().state, 1);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2441,7 +2441,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2492,7 +2492,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
     assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: bad_id");
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2553,7 +2553,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_instance_with_old_network_segemnt(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -2641,7 +2641,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
     assert_eq!(network_config_no_addresses, expected_nw_config);
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2729,7 +2729,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_and_release_instance_vpc_prefix_id(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -2985,7 +2985,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;

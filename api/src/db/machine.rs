@@ -2102,7 +2102,7 @@ mod test {
     use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
 
     async fn test_set_firmware_autoupdate(
         pool: sqlx::PgPool,

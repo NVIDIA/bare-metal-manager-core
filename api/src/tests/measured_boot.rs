@@ -40,7 +40,7 @@ pub mod tests {
     use rpc::MachineDiscoveryInfo;
     use tonic::Code;
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
     async fn test_discover_machine_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
         let mut config = get_config();
         config.attestation_enabled = true;
@@ -103,7 +103,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
     async fn test_discover_machine_key_pub_key_does_not_match_cert_returns_error(
         pool: sqlx::PgPool,
     ) {
@@ -171,7 +171,7 @@ pub mod tests {
     //
     // TODO: test_bind_attest_key_get_insert_pubkey_fails_returns_error - not clear how to simulate db failure atm
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_no_secret_in_db_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -204,7 +204,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key_invalid.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key_invalid"))]
     async fn test_verify_quote_invalid_ak_pub_in_db_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -234,7 +234,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_cannot_unmarshall_attest_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -267,7 +267,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_cannot_unmarshall_signature_returns_error(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -297,7 +297,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_cannot_verify_signature_fails_returns_error(pool: sqlx::PgPool) {
         use tss_esapi::structures::Signature;
         use tss_esapi::structures::Signature::RsaPss;
@@ -341,7 +341,7 @@ pub mod tests {
 
     // test_verify_quote_cannot_verify_pcr_hash_fails_returns_error - currently impossible to do since attest fields are private
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_signature_mismatch_returns_false(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -371,7 +371,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_pcr_hash_mismatch_returns_false(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =
@@ -405,7 +405,7 @@ pub mod tests {
         }
     }
 
-    #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
+    #[crate::sqlx_test(fixtures("create_cred_pub_key"))]
     async fn test_verify_quote_signature_and_pcr_hash_mismatch_returns_false(pool: sqlx::PgPool) {
         let env = create_test_env(pool).await;
         let host_id =

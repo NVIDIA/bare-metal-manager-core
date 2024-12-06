@@ -49,7 +49,7 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
     segment.status.unwrap()
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
@@ -294,7 +294,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -329,7 +329,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -364,7 +364,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -409,7 +409,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(

@@ -14,7 +14,7 @@ use crate::db::ObjectColumnFilter;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::domain::DomainId;
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
@@ -45,7 +45,7 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
     assert!(domains.is_empty());
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_invalid_domain_case(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
@@ -66,7 +66,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
     assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
@@ -85,7 +85,7 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
     assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn find_domain(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()
@@ -141,7 +141,7 @@ async fn find_domain(pool: sqlx::PgPool) {
     assert!(domains.is_empty());
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn update_domain(pool: sqlx::PgPool) {
     let mut txn = pool
         .begin()

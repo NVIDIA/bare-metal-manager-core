@@ -20,7 +20,7 @@ use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
 use tonic::Code;
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_tenant(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -202,7 +202,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert!(update_tenant_err.message().contains("metadata"));
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_find_tenant_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -288,7 +288,7 @@ async fn create_keyset(
         .into_inner()
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let keyset = create_keyset(
@@ -317,7 +317,7 @@ async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
     assert!(keyset.keyset_content.unwrap().public_keys.is_empty());
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let _ = create_keyset(
@@ -466,7 +466,7 @@ async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let _ = create_keyset(
@@ -515,7 +515,7 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
     assert!(find_result.keyset.is_empty());
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let _ = create_keyset(
@@ -662,7 +662,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let _keyset = create_keyset(
@@ -812,7 +812,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         .is_err());
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

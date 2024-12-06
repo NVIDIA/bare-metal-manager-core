@@ -26,7 +26,7 @@ use crate::tests::common;
 
 /// Test searching for an IP address. Tests all the cases in a single
 /// test so that we only need to create and populate the DB once.
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -142,7 +142,7 @@ async fn test_inner(ip: &str, ip_type: IpType, env: &TestEnv, caller: &str) {
     panic!("{caller} did not have correct IPType");
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -237,7 +237,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -275,7 +275,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;

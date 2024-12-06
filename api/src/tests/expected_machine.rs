@@ -33,7 +33,7 @@ async fn get_expected_machine_1(
         .unwrap()
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
@@ -50,7 +50,7 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
@@ -79,7 +79,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
@@ -113,7 +113,7 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_delete(pool: sqlx::PgPool) -> () {
     let mut txn = pool
         .begin()
@@ -147,7 +147,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
 */
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_add_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
@@ -178,7 +178,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
     assert_eq!(retrieved_expected_machine, expected_machine);
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_delete_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -212,7 +212,7 @@ async fn test_delete_expected_machine(pool: sqlx::PgPool) {
     assert_eq!(new_expected_machine_count, expected_machine_count - 1);
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
@@ -236,7 +236,7 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_update_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
@@ -266,7 +266,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
     assert_eq!(retrieved_expected_machine, expected_machine);
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
@@ -294,7 +294,7 @@ async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mut expected_machine_count = env
@@ -326,7 +326,7 @@ async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
     assert_eq!(expected_machine_count, 0);
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let expected_machine_count = env
@@ -386,7 +386,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
     assert!(expected_machines.contains(&expected_machine_2));
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
@@ -410,7 +410,7 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let out = env
@@ -437,7 +437,7 @@ async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     // Prep the data
 
@@ -498,7 +498,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
@@ -529,7 +529,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
     assert_eq!(retrieved_expected_machine, expected_machine);
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_with_dpu_serial_numbers(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -567,7 +567,7 @@ async fn test_with_dpu_serial_numbers(
     Ok(())
 }
 
-#[sqlx::test()]
+#[crate::sqlx_test()]
 async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
@@ -586,7 +586,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         .is_err());
 }
 
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -618,7 +618,7 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
 
     assert_eq!(ee1, ee2);
 }
-#[sqlx::test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 

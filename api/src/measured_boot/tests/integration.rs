@@ -24,7 +24,7 @@ mod tests {
 
     // test_measured_boot_integration tests all sorts of
     // things like it was a real active environment.
-    #[sqlx::test]
+    #[crate::sqlx_test]
     pub async fn test_measured_boot_integration(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
