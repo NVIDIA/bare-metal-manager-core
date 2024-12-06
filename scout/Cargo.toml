@@ -34,6 +34,7 @@ reqwest = { version = "*", default-features = false, features = [
 ] }
 futures-util = "0.3"
 prost-types = "0.13"
+x509-parser = { version = "0.16.0"}
 
 # [local-dependencies]
 rpc = { path = "../rpc" }

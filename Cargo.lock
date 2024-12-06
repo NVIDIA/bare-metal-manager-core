@@ -5860,6 +5860,7 @@ dependencies = [
  "uname",
  "utils",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
