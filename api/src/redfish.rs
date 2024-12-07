@@ -1054,6 +1054,10 @@ impl Redfish for RedfishSimClient {
         todo!();
     }
 
+    async fn get_drives_metrics(&self) -> Result<Vec<Drives>, RedfishError> {
+        todo!();
+    }
+
     async fn is_ipmi_over_lan_enabled(&self) -> Result<bool, RedfishError> {
         Ok(false)
     }
@@ -1068,10 +1072,6 @@ impl Redfish for RedfishSimClient {
 
     async fn clear_nvram(&self) -> Result<(), RedfishError> {
         Ok(())
-    }
-
-    async fn get_drives_metrics(&self) -> Result<Vec<Drives>, RedfishError> {
-        Ok(vec![])
     }
 }
 

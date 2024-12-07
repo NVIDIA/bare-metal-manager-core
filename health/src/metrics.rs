@@ -23,6 +23,7 @@ use lazy_static::lazy_static;
 use libredfish::model::power::{PowerControl, PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
+use libredfish::model::storage::Drives;
 use libredfish::model::thermal::{Fan, Temperature};
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::model::{ResourceHealth, ResourceState};
@@ -49,6 +50,7 @@ pub struct HardwareHealth {
     gpu_sensors: Result<Option<Vec<GPUSensors>>, HealthError>,
     logs: Result<Vec<LogEntry>, HealthError>,
     firmware: Result<Vec<SoftwareInventory>, HealthError>,
+    localstorage: Result<Vec<Drives>, RedfishError>,
 }
 
 pub struct DpuHealth {
@@ -106,10 +108,12 @@ pub async fn get_metrics(redfish: Box<dyn Redfish>, last_polled_ts: i64) -> Hard
     // get the system/hardware event log
     let mut logs = Ok(Vec::new());
     let mut firmware = Ok(Vec::new());
+    let mut localstorage = Ok(Vec::new());
     let now: DateTime<Utc> = Utc::now();
     // poll every 30 minutes for firmware versions and sel logs
     if (now.timestamp() - last_polled_ts) > (30 * 60) {
         logs = redfish.get_system_event_log().await;
+        localstorage = redfish.get_drives_metrics().await;
         // get system firmware components versions, such as uefi, bmc, sbios, me, etc
         async fn fetch_firmware(
             redfish: Box<dyn Redfish>,
@@ -130,6 +134,7 @@ pub async fn get_metrics(redfish: Box<dyn Redfish>, last_polled_ts: i64) -> Hard
         gpu_sensors: gpu_sensors.map_err(|e| e.into()),
         logs: logs.map_err(|e| e.into()),
         firmware,
+        localstorage,
     }
 }
 
@@ -444,6 +449,38 @@ fn export_gpu_sensors(
     Ok(())
 }
 
+fn export_localstorage(
+    meter: Meter,
+    localstorage: Vec<Drives>,
+    power_state: PowerState,
+    machine_id: &str,
+) -> Result<(), HealthError> {
+    let power_state_value: i64 = match power_state {
+        PowerState::On => 1,
+        _ => 0,
+    };
+    if power_state_value == 0 {
+        return Ok(());
+    }
+    let drive_life_sensors = meter
+        .f64_observable_gauge("hw.localstorage.life")
+        .with_description("Predicted media life remaining of this drive")
+        .with_unit("Pct")
+        .init();
+    for drive in localstorage {
+        if let Some(life) = drive.predicted_media_life_left_percent.as_ref() {
+            drive_life_sensors.observe(
+                *life,
+                &[
+                    KeyValue::new("hw.id", drive.id.unwrap_or("".to_string())),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
+    }
+    Ok(())
+}
+
 fn export_otel_logs(
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
     firmwares: Vec<SoftwareInventory>,
@@ -550,10 +587,13 @@ pub async fn export_metrics(
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, false)?;
         export_fans(meter.clone(), thermal.fans, machine_id)?;
     }
-    if let (Ok(power), Ok(power_state)) = (health.power, health.power_state) {
+    if let (Ok(power), Ok(localstorage), Ok(power_state)) =
+        (health.power, health.localstorage, health.power_state)
+    {
         export_voltages(meter.clone(), power.voltages, machine_id)?;
         export_power_supplies(meter.clone(), power.power_supplies, power_state, machine_id)?;
         export_power_control(meter.clone(), power.power_control, power_state, machine_id)?;
+        export_localstorage(meter.clone(), localstorage, power_state, machine_id)?;
     }
 
     if let Some(thermal) = dpu_health.thermal {
