@@ -6,9 +6,12 @@ use tonic::service::AxumBody;
 use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use crate::auth::forge_spiffe::ForgeSpiffeContext;
-use crate::auth::{
-    internal_rbac_rules::InternalRBACRules, AuthContext, CasbinAuthorizer, Predicate, Principal,
+use crate::{
+    auth::{
+        forge_spiffe::ForgeSpiffeContext, internal_rbac_rules::InternalRBACRules, AuthContext,
+        CasbinAuthorizer, Predicate, Principal,
+    },
+    cfg::file::AllowedCertCriteria,
 };
 // A middleware layer to deal with per-request authentication.
 // This might mean extracting a service identifier from a SPIFFE x509
@@ -21,17 +24,26 @@ use crate::auth::{
 // along in the request extensions.
 #[derive(Clone, Default)]
 pub struct CertDescriptionMiddleware {
-    spiffe_context: Arc<ForgeSpiffeContext>,
+    pub spiffe_context: Arc<ForgeSpiffeContext>,
+    pub extra_allowed_certs: Option<AllowedCertCriteria>,
+}
+
+impl CertDescriptionMiddleware {
+    pub fn new(extra_allowed_certs: Option<AllowedCertCriteria>) -> Self {
+        CertDescriptionMiddleware {
+            spiffe_context: Arc::new(ForgeSpiffeContext::default()),
+            extra_allowed_certs,
+        }
+    }
 }
 
 impl<S> Layer<S> for CertDescriptionMiddleware {
     type Service = CertDescriptionService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        let spiffe_context = self.spiffe_context.clone();
         CertDescriptionService {
             inner,
-            spiffe_context,
+            authorization_context: Arc::new(self.clone()),
         }
     }
 }
@@ -39,7 +51,7 @@ impl<S> Layer<S> for CertDescriptionMiddleware {
 #[derive(Clone)]
 pub struct CertDescriptionService<S> {
     inner: S,
-    spiffe_context: Arc<ForgeSpiffeContext>,
+    authorization_context: Arc<CertDescriptionMiddleware>,
 }
 
 impl<S, B> Service<Request<B>> for CertDescriptionService<S>
@@ -68,7 +80,7 @@ where
         if let Some(conn_attrs) = extensions.get::<Arc<crate::listener::ConnectionAttributes>>() {
             let peer_certs = conn_attrs.peer_certificates();
             let peer_cert_principals = peer_certs.iter().filter_map(|cert| {
-                match Principal::try_from_client_certificate(cert, &self.spiffe_context) {
+                match Principal::try_from_client_certificate(cert, &self.authorization_context) {
                     Ok(x) => Some(x),
                     Err(e) => {
                         tracing::debug!(
