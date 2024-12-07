@@ -181,17 +181,27 @@ pub async fn listen_and_serve(
     let listener = TcpListener::bind(listen_port).await?;
     let http = http2::Builder::new(TokioExecutor::new());
 
-    let cert_description_layer = auth::middleware::CertDescriptionMiddleware::default();
+    let extra_cli_certs = if let Some(auth_config) = auth_config {
+        auth_config.cli_certs.clone()
+    } else {
+        None
+    };
+
+    let cert_description_layer = auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs);
     let casbin_layer = if let Some(auth_config) = auth_config {
-        let casbin_authorizer = Arc::new(
-            auth::CasbinAuthorizer::build_casbin(
-                &auth_config.casbin_policy_file,
-                auth_config.permissive_mode,
-            )
-            .await?,
-        );
-        let middleware = auth::middleware::CasbinHandler::new(casbin_authorizer);
-        Some(AsyncRequireAuthorizationLayer::new(middleware))
+        if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
+            let casbin_authorizer = Arc::new(
+                auth::CasbinAuthorizer::build_casbin(
+                    casbin_policy_file,
+                    auth_config.permissive_mode,
+                )
+                .await?,
+            );
+            let middleware = auth::middleware::CasbinHandler::new(casbin_authorizer);
+            Some(AsyncRequireAuthorizationLayer::new(middleware))
+        } else {
+            None
+        }
     } else {
         None
     };

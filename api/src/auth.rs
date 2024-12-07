@@ -9,6 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::cfg::file::{AllowedCertCriteria, CertComponent};
+use asn1_rs::PrintableString;
+use middleware::CertDescriptionMiddleware;
+use oid_registry::Oid;
 use rustls_pki_types::CertificateDer;
 use std::path::Path;
 use std::sync::Arc;
@@ -84,11 +88,13 @@ impl Principal {
     // Note: no certificate verification is performed here!
     pub fn try_from_client_certificate(
         certificate: &CertificateDer,
-        spiffe_context: &forge_spiffe::ForgeSpiffeContext,
+        auth_context: &CertDescriptionMiddleware,
     ) -> Result<Principal, SpiffeError> {
         match forge_spiffe::validate_x509_certificate(certificate.as_ref()) {
             Ok(spiffe_id) => {
-                let service_id = spiffe_context.extract_service_identifier(&spiffe_id)?;
+                let service_id = auth_context
+                    .spiffe_context
+                    .extract_service_identifier(&spiffe_id)?;
                 Ok(match service_id {
                     forge_spiffe::SpiffeIdClass::Service(service_id) => {
                         Principal::SpiffeServiceIdentifier(service_id)
@@ -100,8 +106,8 @@ impl Principal {
             }
             Err(e) => {
                 // nvinit certs do not include a SPIFFE ID, check if we might be one of them
-                if let Some(nvinit_cert) = try_external_cert(certificate.as_ref()) {
-                    return Ok(nvinit_cert);
+                if let Some(external_cert) = try_external_cert(certificate.as_ref(), auth_context) {
+                    return Ok(external_cert);
                 }
                 Err(SpiffeError::Validation(e))
             }
@@ -128,8 +134,11 @@ impl Principal {
     }
 }
 
-// try_external_cert will return a Pricipal::ExternalUser if this looks like an nvinit cert
-fn try_external_cert(der_certificate: &[u8]) -> Option<Principal> {
+// try_external_cert will return a Pricipal::ExternalUser if this looks like some external cert
+fn try_external_cert(
+    der_certificate: &[u8],
+    auth_context: &CertDescriptionMiddleware,
+) -> Option<Principal> {
     if let Ok((_remainder, x509_cert)) = X509Certificate::from_der(der_certificate) {
         // Looks through the issuer releative distinguished names for a CN matching what we expect for nvinit certs.
         // Other options may be available in the future, but just this for now.
@@ -143,32 +152,17 @@ fn try_external_cert(der_certificate: &[u8]) -> Option<Principal> {
                         || value.string().as_str() == "NVIDIA Forge Root Certificate Authority 2022"
                 })
             {
-                return match value.string().as_str() {
-                    "pki-k8s-usercert-ca.ngc.nvidia.com" => {
-                        // This CN is what we expect from nvinit certs
-                        Some(Principal::ExternalUser(nvinit_cert_values(
-                            x509_cert.subject(),
-                        )))
-                    }
-                    "NVIDIA Forge Root Certificate Authority 2022" => {
-                        if let Some(subject_cn) = x509_cn(x509_cert.subject()) {
-                            if subject_cn == "carbide-ci/cd" {
-                                // This is for the CI/CD pipeline.  For now, we're treating them as the same as nvinit certs.
-                                Some(Principal::ExternalUser(ExternalUserInfo::new(
-                                    None,
-                                    "CI/CD Pipeline".to_string(),
-                                    None,
-                                )))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
+                if value.string().as_str() == "pki-k8s-usercert-ca.ngc.nvidia.com" {
+                    // This CN is what we expect from nvinit certs
+                    return Some(Principal::ExternalUser(nvinit_cert_values(
+                        x509_cert.subject(),
+                    )));
+                }
             }
+        }
+
+        if let Some(allowed_certs) = &auth_context.extra_allowed_certs {
+            return site_allowed_cert(&x509_cert, allowed_certs);
         }
     }
     None
@@ -206,22 +200,123 @@ fn nvinit_cert_values(subject: &X509Name) -> ExternalUserInfo {
     ExternalUserInfo::new(org, group, user)
 }
 
-// x509_cn returns the CN from a X509Name
-fn x509_cn(subject: &X509Name) -> Option<String> {
-    for rdn in subject.iter() {
-        for attribute in rdn.iter() {
-            match attribute.attr_type() {
-                x if x == &oid_registry::OID_X509_COMMON_NAME => {
-                    if let Ok(value) = attribute.attr_value().as_printablestring() {
-                        return Some(value.string());
-                    }
+// Finds the CertComponent for the given ASN1 OID, given that this is coming from the issuer.
+fn cert_component_from_oid_issuer(oid: Oid) -> Option<CertComponent> {
+    // Lack of implementation in oid_registry means we can't use match here
+    if oid == oid_registry::OID_X509_ORGANIZATION_NAME {
+        Some(CertComponent::IssuerO)
+    } else if oid == oid_registry::OID_X509_ORGANIZATIONAL_UNIT {
+        Some(CertComponent::IssuerOU)
+    } else if oid == oid_registry::OID_X509_COMMON_NAME {
+        Some(CertComponent::IssuerCN)
+    } else {
+        None
+    }
+}
+
+// Finds the CertComponent for the given ASN1 OID, given that this is coming from the subject.
+fn cert_component_from_oid_subject(oid: Oid) -> Option<CertComponent> {
+    // Lack of implementation in oid_registry means we can't use match here
+    if oid == oid_registry::OID_X509_ORGANIZATION_NAME {
+        Some(CertComponent::SubjectO)
+    } else if oid == oid_registry::OID_X509_ORGANIZATIONAL_UNIT {
+        Some(CertComponent::SubjectOU)
+    } else if oid == oid_registry::OID_X509_COMMON_NAME {
+        Some(CertComponent::SubjectCN)
+    } else {
+        None
+    }
+}
+
+// Checks if the given non-nvinit cert is an acceptable forge-admin-cli user based on per site criteria
+pub fn site_allowed_cert(
+    cert: &X509Certificate,
+    criteria: &AllowedCertCriteria,
+) -> Option<Principal> {
+    for rdn in cert.issuer().iter() {
+        if rdn.iter().any(|attribute| {
+            if let Some(component) = cert_component_from_oid_issuer(attribute.attr_type().clone()) {
+                if let Some(required_value) = criteria.required_equals.get(&component) {
+                    attribute
+                        .attr_value()
+                        .as_printablestring()
+                        .ok()
+                        .unwrap_or(PrintableString::new(""))
+                        .string()
+                        != required_value.clone()
+                } else {
+                    false
                 }
-                _ => {}
-            };
+            } else {
+                false
+            }
+        }) {
+            // Something didn't match
+            return None;
         }
     }
-
-    None
+    let mut group = "".to_string();
+    let mut username_from_cert = None;
+    for rdn in cert.subject().iter() {
+        if rdn.iter().any(|attribute| {
+            if let Some(component) = cert_component_from_oid_subject(attribute.attr_type().clone())
+            {
+                if criteria.group_from == Some(component.clone()) {
+                    group = attribute
+                        .attr_value()
+                        .as_printablestring()
+                        .ok()
+                        .unwrap_or(PrintableString::new(""))
+                        .string();
+                }
+                if criteria.username_from == Some(component.clone()) {
+                    username_from_cert = Some(
+                        attribute
+                            .attr_value()
+                            .as_printablestring()
+                            .ok()
+                            .unwrap_or(PrintableString::new(""))
+                            .string(),
+                    );
+                }
+                if let Some(required_value) = criteria.required_equals.get(&component) {
+                    attribute
+                        .attr_value()
+                        .as_printablestring()
+                        .ok()
+                        .unwrap_or(PrintableString::new(""))
+                        .string()
+                        != required_value.clone()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }) {
+            // Something didn't match
+            return None;
+        }
+    }
+    if criteria.username_from.is_some() && username_from_cert.is_some() {
+        Some(Principal::ExternalUser(ExternalUserInfo {
+            org: None,
+            group,
+            user: username_from_cert,
+        }))
+    } else if let Some(username) = &criteria.username {
+        Some(Principal::ExternalUser(ExternalUserInfo {
+            org: None,
+            group,
+            user: Some(username.clone()),
+        }))
+    } else {
+        Some(Principal::ExternalUser(ExternalUserInfo {
+            org: None,
+            group,
+            user: None,
+        }))
+    }
 }
 
 // This is added to the extensions of a request. The authentication (authn)
@@ -442,6 +537,7 @@ impl PolicyEngine for NoopEngine {
 mod tests {
     use super::*;
     use eyre::Context;
+    use std::collections::HashMap;
     use std::io::BufRead;
 
     struct ClientCertTable {
@@ -692,6 +788,53 @@ mod tests {
         82, 84, 73, 70, 73, 67, 65, 84, 69, 45, 45, 45, 45, 45, 10,
     ];
 
+    static CLIENT_CERT_CI: &[u8] = &[
+        45, 45, 45, 45, 45, 66, 69, 71, 73, 78, 32, 67, 69, 82, 84, 73, 70, 73, 67, 65, 84, 69, 45,
+        45, 45, 45, 45, 10, 77, 73, 73, 67, 99, 84, 67, 67, 65, 102, 101, 103, 65, 119, 73, 66, 65,
+        103, 73, 85, 65, 53, 118, 50, 103, 120, 110, 84, 102, 107, 114, 122, 53, 104, 100, 52, 104,
+        74, 109, 76, 74, 111, 81, 53, 106, 107, 111, 119, 67, 103, 89, 73, 75, 111, 90, 73, 122,
+        106, 48, 69, 65, 119, 77, 119, 10, 89, 84, 69, 76, 77, 65, 107, 71, 65, 49, 85, 69, 66,
+        104, 77, 67, 86, 86, 77, 120, 71, 122, 65, 90, 66, 103, 78, 86, 66, 65, 111, 84, 69, 107,
+        53, 87, 83, 85, 82, 74, 81, 83, 66, 68, 98, 51, 74, 119, 98, 51, 74, 104, 100, 71, 108,
+        118, 98, 106, 69, 49, 77, 68, 77, 71, 10, 65, 49, 85, 69, 65, 120, 77, 115, 84, 108, 90,
+        74, 82, 69, 108, 66, 73, 69, 90, 118, 99, 109, 100, 108, 73, 70, 74, 118, 98, 51, 81, 103,
+        81, 50, 86, 121, 100, 71, 108, 109, 97, 87, 78, 104, 100, 71, 85, 103, 81, 88, 86, 48, 97,
+        71, 57, 121, 97, 88, 82, 53, 73, 68, 73, 119, 10, 77, 106, 73, 119, 72, 104, 99, 78, 77,
+        106, 81, 120, 77, 84, 73, 50, 77, 84, 81, 48, 77, 68, 73, 120, 87, 104, 99, 78, 77, 106,
+        81, 120, 77, 84, 73, 50, 77, 106, 65, 48, 77, 68, 85, 120, 87, 106, 65, 54, 77, 82, 89,
+        119, 70, 65, 89, 68, 86, 81, 81, 76, 69, 119, 49, 106, 10, 89, 88, 74, 105, 97, 87, 82,
+        108, 76, 87, 78, 112, 76, 50, 78, 107, 77, 83, 65, 119, 72, 103, 89, 68, 86, 81, 81, 68,
+        69, 120, 100, 104, 99, 71, 107, 116, 90, 71, 86, 50, 78, 67, 53, 109, 99, 109, 99, 117, 98,
+        110, 90, 112, 90, 71, 108, 104, 76, 109, 78, 118, 98, 84, 66, 50, 10, 77, 66, 65, 71, 66,
+        121, 113, 71, 83, 77, 52, 57, 65, 103, 69, 71, 66, 83, 117, 66, 66, 65, 65, 105, 65, 50,
+        73, 65, 66, 68, 86, 109, 65, 80, 57, 71, 50, 84, 67, 43, 76, 108, 116, 98, 49, 103, 65, 72,
+        54, 81, 111, 71, 71, 99, 110, 88, 79, 54, 103, 102, 74, 70, 122, 76, 10, 47, 69, 47, 99,
+        104, 74, 57, 116, 67, 113, 52, 52, 75, 50, 87, 77, 113, 90, 99, 115, 67, 111, 117, 69, 80,
+        57, 103, 108, 113, 89, 111, 105, 52, 98, 118, 50, 78, 111, 102, 52, 75, 66, 111, 120, 118,
+        53, 83, 117, 109, 109, 68, 84, 48, 72, 109, 84, 112, 88, 54, 76, 57, 47, 79, 74, 10, 112,
+        77, 70, 110, 80, 105, 121, 76, 109, 52, 43, 121, 98, 49, 48, 102, 116, 75, 67, 43, 67, 103,
+        69, 120, 81, 80, 122, 48, 102, 113, 79, 66, 108, 106, 67, 66, 107, 122, 65, 79, 66, 103,
+        78, 86, 72, 81, 56, 66, 65, 102, 56, 69, 66, 65, 77, 67, 65, 54, 103, 119, 72, 81, 89, 68,
+        10, 86, 82, 48, 108, 66, 66, 89, 119, 70, 65, 89, 73, 75, 119, 89, 66, 66, 81, 85, 72, 65,
+        119, 69, 71, 67, 67, 115, 71, 65, 81, 85, 70, 66, 119, 77, 67, 77, 66, 48, 71, 65, 49, 85,
+        100, 68, 103, 81, 87, 66, 66, 84, 52, 101, 78, 89, 81, 54, 78, 102, 82, 97, 89, 67, 55, 10,
+        121, 99, 121, 112, 48, 86, 111, 106, 119, 99, 72, 47, 66, 68, 65, 102, 66, 103, 78, 86, 72,
+        83, 77, 69, 71, 68, 65, 87, 103, 66, 83, 77, 67, 55, 112, 111, 98, 108, 83, 85, 105, 97,
+        119, 48, 122, 50, 49, 82, 43, 98, 83, 75, 106, 82, 98, 81, 71, 122, 65, 105, 66, 103, 78,
+        86, 10, 72, 82, 69, 69, 71, 122, 65, 90, 103, 104, 100, 104, 99, 71, 107, 116, 90, 71, 86,
+        50, 78, 67, 53, 109, 99, 109, 99, 117, 98, 110, 90, 112, 90, 71, 108, 104, 76, 109, 78,
+        118, 98, 84, 65, 75, 66, 103, 103, 113, 104, 107, 106, 79, 80, 81, 81, 68, 65, 119, 78,
+        111, 65, 68, 66, 108, 10, 65, 106, 65, 83, 86, 103, 47, 80, 116, 82, 66, 120, 87, 90, 117,
+        75, 104, 121, 104, 83, 54, 102, 110, 48, 120, 90, 87, 115, 51, 111, 89, 117, 116, 57, 86,
+        99, 108, 65, 71, 114, 54, 67, 101, 82, 105, 115, 88, 97, 107, 51, 73, 90, 90, 115, 67, 100,
+        54, 104, 109, 47, 56, 83, 75, 57, 10, 99, 89, 115, 67, 77, 81, 68, 76, 98, 115, 79, 118,
+        82, 48, 76, 52, 101, 101, 84, 98, 97, 115, 81, 122, 85, 47, 103, 79, 122, 47, 119, 98, 78,
+        85, 68, 68, 81, 71, 86, 105, 109, 51, 86, 53, 118, 90, 109, 107, 103, 82, 104, 122, 43,
+        102, 57, 75, 101, 68, 112, 72, 77, 119, 49, 97, 10, 113, 90, 89, 89, 71, 108, 52, 61, 10,
+        45, 45, 45, 45, 45, 69, 78, 68, 32, 67, 69, 82, 84, 73, 70, 73, 67, 65, 84, 69, 45, 45, 45,
+        45, 45, 10,
+    ];
+
     #[test]
     fn test_try_from_client_certificates() -> Result<(), eyre::Error> {
         // Because we are not actually validating these certs, it doesn't matter if they expire
@@ -724,13 +867,33 @@ mod tests {
                     .to_string(),
                 desired: Principal::SpiffeServiceIdentifier("elektra-site-agent".to_string()),
             },
+            // Cert that gets used in CI/CD testing
+            ClientCertTable {
+                cert: std::str::from_utf8(CLIENT_CERT_CI).unwrap().to_string(),
+                desired: Principal::ExternalUser(ExternalUserInfo::new(
+                    None,
+                    "carbide-ci/cd".to_string(),
+                    Some("api-dev4.frg.nvidia.com".to_string()),
+                )),
+            },
         ];
         if let Some(extra) = extra_test_cert() {
             // Pull in an additional cert that would be a security problem to check in
             println!("Extra test cert: {:?}", extra.desired);
             table.push(extra);
         }
-        let context = forge_spiffe::ForgeSpiffeContext::default();
+        let context = CertDescriptionMiddleware::new(Some(AllowedCertCriteria {
+            required_equals: HashMap::from([
+                (CertComponent::IssuerO, "NVIDIA Corporation".to_string()),
+                (
+                    CertComponent::IssuerCN,
+                    "NVIDIA Forge Root Certificate Authority 2022".to_string(),
+                ),
+            ]),
+            group_from: Some(CertComponent::SubjectOU),
+            username_from: Some(CertComponent::SubjectCN),
+            username: None,
+        }));
 
         for test in table {
             let clone = test.cert.clone();

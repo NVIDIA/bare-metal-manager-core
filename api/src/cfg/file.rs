@@ -760,7 +760,32 @@ pub struct AuthConfig {
     pub permissive_mode: bool,
 
     /// The Casbin policy file (in CSV format).
-    pub casbin_policy_file: PathBuf,
+    pub casbin_policy_file: Option<PathBuf>,
+
+    /// Additional forge-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
+    pub cli_certs: Option<AllowedCertCriteria>,
+}
+
+#[derive(Eq, PartialEq, Hash, Clone, Debug, Deserialize, Serialize)]
+pub enum CertComponent {
+    IssuerO,
+    IssuerOU,
+    IssuerCN,
+    SubjectO,
+    SubjectOU,
+    SubjectCN,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AllowedCertCriteria {
+    /// These components of the cert must equal the given values to be approved
+    pub required_equals: HashMap<CertComponent, String>,
+    /// Use this cert component to specify the group it should be reported as
+    pub group_from: Option<CertComponent>,
+    /// Use this cert component to pick the username
+    pub username_from: Option<CertComponent>,
+    /// If not using username_from, specify the username used for all certs of this type
+    pub username: Option<String>,
 }
 
 // Should match api/src/model/machine/upgrade_policy.rs DpuAgentUpgradePolicy
@@ -1556,7 +1581,14 @@ mod tests {
         );
         assert!(config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
-            config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
+            config
+                .auth
+                .as_ref()
+                .unwrap()
+                .casbin_policy_file
+                .as_ref()
+                .unwrap()
+                .as_os_str(),
             "/patched/path/to/policy"
         );
         let pools = config.pools.as_ref().unwrap();
@@ -1662,7 +1694,14 @@ mod tests {
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
         assert!(!config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
-            config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
+            config
+                .auth
+                .as_ref()
+                .unwrap()
+                .casbin_policy_file
+                .clone()
+                .unwrap()
+                .as_os_str(),
             "/path/to/policy"
         );
         let pools = config.pools.as_ref().unwrap();
@@ -1775,6 +1814,53 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(555),
             }
         );
+        assert_eq!(
+            config.auth.clone().unwrap().cli_certs.unwrap().group_from,
+            Some(CertComponent::SubjectOU)
+        );
+        assert_eq!(
+            config
+                .auth
+                .clone()
+                .unwrap()
+                .cli_certs
+                .unwrap()
+                .username_from,
+            Some(CertComponent::SubjectCN)
+        );
+        assert_eq!(
+            config
+                .auth
+                .clone()
+                .unwrap()
+                .cli_certs
+                .unwrap()
+                .required_equals
+                .len(),
+            2
+        );
+        assert_eq!(
+            config
+                .auth
+                .clone()
+                .unwrap()
+                .cli_certs
+                .unwrap()
+                .required_equals
+                .get(&CertComponent::IssuerO),
+            Some("NVIDIA Corporation".to_string()).as_ref()
+        );
+        assert_eq!(
+            config
+                .auth
+                .clone()
+                .unwrap()
+                .cli_certs
+                .unwrap()
+                .required_equals
+                .get(&CertComponent::IssuerCN),
+            Some("NVIDIA Forge Root Certificate Authority 2022".to_string()).as_ref()
+        );
     }
 
     #[test]
@@ -1805,7 +1891,14 @@ mod tests {
         );
         assert!(config.auth.as_ref().unwrap().permissive_mode);
         assert_eq!(
-            config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
+            config
+                .auth
+                .as_ref()
+                .unwrap()
+                .casbin_policy_file
+                .clone()
+                .unwrap()
+                .as_os_str(),
             "/patched/path/to/policy"
         );
         let pools = config.pools.as_ref().unwrap();
@@ -1942,7 +2035,14 @@ mod tests {
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
             assert!(config.auth.as_ref().unwrap().permissive_mode);
             assert_eq!(
-                config.auth.as_ref().unwrap().casbin_policy_file.as_os_str(),
+                config
+                    .auth
+                    .as_ref()
+                    .unwrap()
+                    .casbin_policy_file
+                    .clone()
+                    .unwrap()
+                    .as_os_str(),
                 "/path/to/policy"
             );
 
