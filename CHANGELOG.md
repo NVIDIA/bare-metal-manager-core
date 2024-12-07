@@ -1,5 +1,15 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...trunk)
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [v2024.12.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...v2024.12.06-rc2-0)
 
 ### Added
 
@@ -15,16 +25,37 @@
 - The admin web UI now shows a list of all tenants which have been registered to the site under
   `/admin/tenant`. So far Forge Cloud does not submit tenant information. Therefore the list will be empty.
 - The admin web UI now shows a list of all tenant keysets under `/admin/tenant_keyset`.
+- The admin web UI now shows dpu-agent version under `/admin/dpu/versions`.
 - The site controller has a new "VPC prefix" resource type, which is analogous
   to a network segment in L3 VPCs.
+- Create network segment if vpc_prefix_id is given and allocate IP.
+- Added a new state `WaitingForNetworkSegmentToBeReady` in instance state machine handler.
+- Added static topology description in [UFM runbook](https://nvmetal.gitlab-master-pages.nvidia.com/carbide/playbooks/ib_runbook.html#static-topology-configuration).
+- Enabled internal RBAC enforcement and a config option to disable it.
+- Added instructions on how to recreate the issuer/CA inside vault in the local dev environment.
+- When maintenance mode is enabled, emit a Maintenance health alert.
 
 ### Changed
 
+- Use paginated APIs in site admin web UI.
+- When attestation is enabled,  mTLS certs are only vended if attestation succeeds.
+- Update BFB FW bundle using Redfish.
+- Change dpu-agent and DPU dhcp server from debug builds to release builds.
+- Machine metrics that used the `assigned` label are now also emitted with an additional `in_use` label which carries the same value.
+- The field "Machine Id" on the Explored Endpoints page is renamed to "Derived Machine Id".
+
 ### Fixed
 
-- Fixes the formatting on the network segment details page of the admin web UI
+- Fixed the formatting on the network segment details page of the admin web UI.
+- Fixed the scout RBAC rule and checks scout for required certificates.
+- Removed a potential endless loop that would cause scout to hang.
+- Suppress DPU alerts for states in which the DPU is knowingly offline.
+- Check serial number in the expected machines manifest against the SKU that is reported from redfish.
+- Scout checks for certs expiry and regenerates the certs
 
 ### Removed
+
+- Removed tss-esapi feature, which is no longer required to build forge-admin-cli on macOS.
 
 ## [v2024.11.22-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...v2024.11.22-rc2-0)
 
