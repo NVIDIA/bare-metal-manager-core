@@ -665,6 +665,8 @@ pub enum RedfishCommand {
     On,
     /// List PCIe devices
     PcieDevices,
+    /// List Direct Attached drives
+    LocalStorage,
     /// List pending operations
     Pending,
     /// Display power metrics (voltages, power supplies, etc)

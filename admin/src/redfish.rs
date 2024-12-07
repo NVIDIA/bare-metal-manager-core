@@ -18,7 +18,7 @@ use libredfish::{
         software_inventory::SoftwareInventory,
         task::{Task, TaskState},
         update_service::ComponentType,
-        LinkStatus,
+        LinkStatus, ResourceStatus,
     },
     Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
     RedfishError, RoleId, SystemPowerControl,
@@ -150,6 +150,67 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                         "{} {}",
                         status.health.unwrap_or_default(),
                         status.state.unwrap_or("".to_string())
+                    ),
+                ]);
+            }
+            table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+            table.printstd();
+        }
+        LocalStorage => {
+            let mut table = Table::new();
+            table.set_titles(row![
+                "ID",
+                "Manufacturer",
+                "Name",
+                "model",
+                "capacity(GiB)",
+                "revision",
+                "Serial",
+                "PredictFail",
+                "PredictLife",
+                "Status",
+            ]);
+            for dev in redfish.get_drives_metrics().await? {
+                let mut status = ResourceStatus {
+                    health: Some(libredfish::model::ResourceHealth::Ok),
+                    health_rollup: Some(libredfish::model::ResourceHealth::Ok),
+                    state: Some(libredfish::model::ResourceState::Unknown),
+                };
+                if let Some(x) = dev.status {
+                    status = x;
+                }
+                let mut predictlife = 100;
+                if let Some(ref _pred_fail) = dev.failure_predicted {
+                    if *_pred_fail {
+                        predictlife = 1;
+                    }
+                }
+                if dev.predicted_media_life_left_percent.is_none() {
+                    // supermicro has percentage_drive_life_used in oem...
+                    // if dev.oem.is_some() && dev.oem.clone().unwrap().supermicro.is_some() {
+                    if let Some(oem) = dev.oem {
+                        if let Some(supermicro) = oem.supermicro {
+                            predictlife =
+                                100 - (supermicro.percentage_drive_life_used.unwrap_or(0.0) as i32);
+                        }
+                    }
+                }
+                table.add_row(row![
+                    dev.id.unwrap_or("".to_string()),
+                    dev.manufacturer.unwrap_or("".to_string()),
+                    dev.name.unwrap_or("".to_string()),
+                    dev.model.unwrap_or("".to_string()),
+                    dev.capacity_bytes.unwrap_or(0) / 1024 / 1024 / 1024,
+                    dev.revision.unwrap_or("".to_string()),
+                    dev.serial_number.unwrap_or("".to_string()),
+                    dev.failure_predicted.unwrap_or(true),
+                    predictlife,
+                    format!(
+                        "{} {}",
+                        status.health.unwrap_or_default(),
+                        status
+                            .state
+                            .unwrap_or(libredfish::model::ResourceState::Unknown)
                     ),
                 ]);
             }
