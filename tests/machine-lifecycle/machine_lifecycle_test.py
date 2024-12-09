@@ -249,9 +249,9 @@ else:
 # If there is a failure anywhere here attempt to put the machine into maintenance mode
 # for investigation (this will prevent future runs affecting the machine).
 try:
-    # Wait up to 1 hour for HostInitializing/WaitingForDiscovery
-    print(f"Waiting for carbide to report DPU {machine_under_test_dpu} in 'HostInitializing/WaitingForDiscovery'")
-    admin_cli.wait_for_machine_waitingforhostdiscovery(machine_under_test_dpu, timeout=WAIT_FOR_HOSTINIT)
+    # Wait up to 1 hour for HostInitializing
+    print(f"Waiting for carbide to report DPU {machine_under_test_dpu} in any 'HostInitializing' state")
+    admin_cli.wait_for_machine_hostinitializing(machine_under_test_dpu, timeout=WAIT_FOR_HOSTINIT)
 
     # Wait for Ready state
     print(f"Waiting for carbide to report DPU {machine_under_test_dpu} Ready")

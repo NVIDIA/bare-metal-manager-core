@@ -8,8 +8,6 @@ import sys
 import time
 from json import JSONDecodeError
 
-from rich import print_json
-
 
 def wait_for_machine_ready(machine_id: str, timeout: int) -> None:
     """Check repeatedly until the specified machine is in Ready state, for up to `timeout` seconds."""
@@ -21,9 +19,9 @@ def wait_for_machine_assigned_ready(machine_id: str, timeout: int) -> None:
     wait_for_state(machine_id, "Assigned/Ready", timeout, allow_missing_machine=True)
 
 
-def wait_for_machine_waitingforhostdiscovery(machine_id: str, timeout: int) -> None:
-    """Check repeatedly until the specified machine is in HostInitializing/WaitingForDiscovery state, for up to `timeout` seconds."""
-    wait_for_state(machine_id, "HostInitializing/WaitingForDiscovery", timeout, allow_missing_machine=True)
+def wait_for_machine_hostinitializing(machine_id: str, timeout: int) -> None:
+    """Check repeatedly until the specified machine reaches any HostInitializing state, for up to `timeout` seconds."""
+    wait_for_state(machine_id, "HostInitializing", timeout, allow_missing_machine=True)
 
 
 def wait_for_machine_not_in_maintenance(machine_id: str, timeout: int) -> None:
@@ -44,15 +42,19 @@ def wait_for_machine_not_in_maintenance(machine_id: str, timeout: int) -> None:
 def wait_for_state(machine_id: str, desired_state: str, timeout: int, allow_missing_machine: bool = False) -> None:
     """Check repeatedly until the specified machine is in a specific state, for up to `timeout` seconds.
 
+    desired_state: Can be a partial state name or a full state name.
     "Failed/Discovery" is a (bad) terminal state.
     If we get in any state starting "Failed", raise an exception to fail fast.
     """
+    if not desired_state:
+        raise ValueError("No desired state specified")
     end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         state = get_machine_state(machine_id, allow_missing_machine)
         if state.startswith("Failed"):
             raise Exception(f"Failure! Machine id {machine_id} went into {state}.")
-        if state == desired_state:
+        # Allow partial state names to be queried
+        if desired_state in state:
             print(f"{now}: machine {machine_id} reached desired state ({desired_state})!")
             return
         else:
