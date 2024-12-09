@@ -2957,10 +2957,9 @@ impl DpuMachineStateHandler {
                                     }
                                 }
                                 Err(StateHandlerError::MissingData { object_id, missing }) => {
-                                    tracing::info!(
-                                        "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
+                                    tracing::info!("Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
                                         object_id, missing
-                                    );
+                                   );
 
                                     /***
                                      * If the DPU's BMC comes up after UEFI client was run on an ARM
@@ -2982,21 +2981,29 @@ impl DpuMachineStateHandler {
                                     to fix this on the hardware level.
                                     ***/
 
-                                    dpu_redfish_client
-                                        .power(SystemPowerControl::ForceRestart)
-                                        .await
-                                        .map_err(|e| StateHandlerError::RedfishError {
-                                            operation: "force_restart",
-                                            error: e,
-                                        })?;
+                                    // Do not reboot the DPU indefinitely, something else might be wrong (DPU might be bust).
+                                    if *count < 10 {
+                                        dpu_redfish_client
+                                            .power(SystemPowerControl::ForceRestart)
+                                            .await
+                                            .map_err(|e| StateHandlerError::RedfishError {
+                                                operation: "force_restart",
+                                                error: e,
+                                            })?;
 
-                                    next_state = DpuDiscoveringState::DisableSecureBoot {
-                                        disable_secure_boot_state: Some(
-                                            DisableSecureBootState::CheckSecureBootStatus,
-                                        ),
-                                        count: *count + 1,
+                                        next_state = DpuDiscoveringState::DisableSecureBoot {
+                                            disable_secure_boot_state: Some(
+                                                DisableSecureBootState::CheckSecureBootStatus,
+                                            ),
+                                            count: *count + 1,
+                                        }
+                                        .next_state(&state.managed_state, dpu_machine_id)?;
+                                    } else {
+                                        return Err(StateHandlerError::MissingData {
+                                            object_id,
+                                            missing,
+                                        });
                                     }
-                                    .next_state(&state.managed_state, dpu_machine_id)?;
                                 }
                                 Err(e) => {
                                     return Err(e);
