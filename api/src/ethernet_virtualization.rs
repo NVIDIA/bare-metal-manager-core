@@ -30,7 +30,7 @@ use crate::{
     model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     CarbideError,
 };
-use forge_network::virtualization::{get_svi_ip, get_tenant_vrf_loopback_ip};
+use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
@@ -171,6 +171,7 @@ pub async fn admin_network(
         booturl: None,
         svi_ip: None,
         tenant_vrf_loopback_ip: None,
+        is_l2_segment: true,
     };
     Ok((cfg, interface.id))
 }
@@ -180,6 +181,9 @@ pub async fn tenant_network(
     instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
     fqdn: String,
+    loopback_ip: Option<String>,
+    is_l2_segment: bool,
+    network_virtualization_type: VpcVirtualizationType,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     let Some(network_segment_id) = iface.network_segment_id else {
         return Err(CarbideError::NetworkSegmentNotAllocated.into());
@@ -292,22 +296,20 @@ pub async fn tenant_network(
         // user's provided fqdn later.
         fqdn,
         booturl: None,
-        svi_ip: get_svi_ip(interface_prefix)
-            .map_err(|e| {
-                Status::internal(format!(
-                    "failed to configure FlatInterfaceConfig.svi_ip: {}",
-                    e
-                ))
-            })?
-            .map(|ip| ip.to_string()),
-        tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(interface_prefix)
-            .map_err(|e| {
-                Status::internal(format!(
-                    "failed to configure FlatInterfaceConfig.tenant_vrf_loopback_ip: {}",
-                    e
-                ))
-            })?
-            .map(|ip| ip.to_string()),
+        svi_ip: get_svi_ip(
+            &v4_prefix.prefix,
+            network_virtualization_type,
+            is_l2_segment,
+        )
+        .map_err(|e| {
+            Status::internal(format!(
+                "failed to configure FlatInterfaceConfig.svi_ip: {}",
+                e
+            ))
+        })?
+        .map(|ip| ip.to_string()),
+        tenant_vrf_loopback_ip: loopback_ip,
+        is_l2_segment,
     })
 }
 

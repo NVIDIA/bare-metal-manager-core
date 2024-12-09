@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
+use crate::db::network_segment::NetworkSegment;
+use crate::model::instance::config::network::NetworkDetails;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::BmcEndpointRequest;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
@@ -1985,6 +1987,26 @@ impl Forge for Api {
             // TODO: This might need some changes with the new state machine
             let delete_instance = DeleteInstance { instance_id };
             let _instance = delete_instance.delete(&mut txn).await?;
+
+            let network_segment_ids_with_vpc = instance
+                .config
+                .network
+                .interfaces
+                .iter()
+                .filter_map(|x| match x.network_details {
+                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                    _ => None,
+                })
+                .collect_vec();
+
+            // Mark all network ready for delete which were created for vpc_prefixes.
+            if !network_segment_ids_with_vpc.is_empty() {
+                NetworkSegment::mark_as_deleted_no_validation(
+                    &mut txn,
+                    &network_segment_ids_with_vpc,
+                )
+                .await?;
+            }
         }
 
         if let Some(machine) = &host_machine {
@@ -2158,6 +2180,11 @@ impl Forge for Api {
                     e,
                 ))
             })?;
+
+            // Free up all loopback IPs allocated for this DPU.
+            db::vpc::VpcDpuLoopback::delete(dpu_machine.id(), &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
 
             if let Some(loopback_ip) = dpu_machine.loopback_ip() {
                 self.common_pools

@@ -26,7 +26,7 @@ use crate::db::instance::Instance;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
-use crate::db::vpc::Vpc;
+use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
 use crate::model::hardware_info::MachineInventory;
 use crate::model::instance::status::network::{
@@ -35,6 +35,7 @@ use crate::model::instance::status::network::{
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
+use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::{ethernet_virtualization, CarbideError};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
@@ -118,14 +119,26 @@ pub(crate) async fn get_managed_host_network_config(
     // existing logic (where we set either ETV or ETV w/ NVUE depending
     // on `nvue_enabled` being set), and then, if there's an instance,
     // go into the complete matching logic.
-    let mut network_virtualization_type = Some(if api.runtime_config.nvue_enabled {
-        rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+    let mut network_virtualization_type = if api.runtime_config.nvue_enabled {
+        VpcVirtualizationType::EthernetVirtualizerWithNvue
     } else {
-        rpc::VpcVirtualizationType::EthernetVirtualizer
-    } as i32);
+        VpcVirtualizationType::EthernetVirtualizer
+    };
 
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
+        Some(_instance)
+            // If instance is waiting for network segment to come up in READY state, stay on admin
+            // network.
+            if matches!(
+                snapshot.managed_state,
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
+                }
+            ) =>
+        {
+            vec![]
+        }
         Some(instance) => {
             let interfaces = &instance.config.network.interfaces;
             let Some(network_segment_id) = interfaces[0].network_segment_id else {
@@ -142,20 +155,19 @@ pub(crate) async fn get_managed_host_network_config(
             // that. If it's Fnn*, then set it accordingly. If it is EXPLICITLY ETV w/ NVUE,
             // then set it accordingly. If it's ETV, then check the runtime config to see if
             // nvue_enabled is true.
-            network_virtualization_type = Some(match vpc.network_virtualization_type {
-                VpcVirtualizationType::FnnClassic => rpc::VpcVirtualizationType::FnnClassic,
-                VpcVirtualizationType::FnnL3 => rpc::VpcVirtualizationType::FnnL3,
+            network_virtualization_type = match vpc.network_virtualization_type {
+                VpcVirtualizationType::Fnn => VpcVirtualizationType::Fnn,
                 VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                    rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                    VpcVirtualizationType::EthernetVirtualizerWithNvue
                 }
                 VpcVirtualizationType::EthernetVirtualizer => {
                     if api.runtime_config.nvue_enabled {
-                        rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                        VpcVirtualizationType::EthernetVirtualizerWithNvue
                     } else {
-                        rpc::VpcVirtualizationType::EthernetVirtualizer
+                        VpcVirtualizationType::EthernetVirtualizer
                     }
                 }
-            } as i32);
+            };
 
             vpc_vni = vpc.vni;
 
@@ -228,13 +240,41 @@ pub(crate) async fn get_managed_host_network_config(
                 fqdn = format!("{}.{}", dashed_ip, domain);
             }
 
-            for iface in interfaces {
+            let loopback_ip = VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
+                &api.common_pools,
+                &mut txn,
+                &dpu_machine_id,
+                &vpc.id,
+            )
+            .await?;
+
+            for (idx, iface) in interfaces.iter().enumerate() {
+                let is_l2_segment = match network_virtualization_type {
+                    VpcVirtualizationType::EthernetVirtualizer
+                    | VpcVirtualizationType::EthernetVirtualizerWithNvue => true,
+                    VpcVirtualizationType::Fnn => !matches!(
+                        iface.network_details,
+                        Some(
+                            crate::model::instance::config::network::NetworkDetails::VpcPrefixId(_),
+                        )
+                    ),
+                };
+
                 tenant_interfaces.push(
                     ethernet_virtualization::tenant_network(
                         &mut txn,
                         instance.id,
                         iface,
                         fqdn.clone(),
+                        // DPU agent reads loopback ip only from 0th interface.
+                        // function build in nvue.rs
+                        if idx == 0 {
+                            Some(loopback_ip.to_string())
+                        } else {
+                            None
+                        },
+                        is_l2_segment,
+                        network_virtualization_type,
                     )
                     .await?,
                 );
@@ -304,7 +344,9 @@ pub(crate) async fn get_managed_host_network_config(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type,
+        network_virtualization_type: Some(rpc::VpcVirtualizationType::from(
+            network_virtualization_type,
+        ) as i32),
         vpc_vni: vpc_vni.map(|vni| vni as u32),
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),

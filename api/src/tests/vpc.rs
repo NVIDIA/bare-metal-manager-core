@@ -141,7 +141,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let _updated_vpc_virtualization = UpdateVpcVirtualization {
         id: no_org_vpc_id,
         if_version_match: None,
-        network_virtualization_type: VpcVirtualizationType::FnnL3,
+        network_virtualization_type: VpcVirtualizationType::Fnn,
     }
     .update(&mut txn)
     .await?;
@@ -154,7 +154,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let first = vpcs.swap_remove(0);
     assert_eq!(
         first.network_virtualization_type,
-        VpcVirtualizationType::FnnL3
+        VpcVirtualizationType::Fnn
     );
 
     // And then put the virtualization type back and mark

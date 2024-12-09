@@ -495,8 +495,7 @@ impl MainLoop {
                             .await
                         }
                         VpcVirtualizationType::EthernetVirtualizerWithNvue
-                        | VpcVirtualizationType::FnnClassic
-                        | VpcVirtualizationType::FnnL3 => {
+                        | VpcVirtualizationType::Fnn => {
                             if hbn_version >= self.fmds_minimum_hbn_version {
                                 // Apply the interface plan. This is where we actually configure
                                 // the FMDS phone home interface on the DPU.
@@ -841,7 +840,7 @@ fn effective_virtualization_type(
     // - If we're doing an FNN-based config, we can't, so return an error.
     if hbn_version < nvue_minimum_hbn_version {
         match virtualization_type {
-            VpcVirtualizationType::FnnClassic | VpcVirtualizationType::FnnL3 => {
+            VpcVirtualizationType::Fnn => {
                 return Err(eyre::eyre!("{virtualization_type} virtualization requested, but site does not support NVUE. Cannot configure."));
             }
             VpcVirtualizationType::EthernetVirtualizerWithNvue => {

@@ -44,28 +44,16 @@ pub enum VpcVirtualizationType {
     EthernetVirtualizer = 0,
     #[cfg_attr(feature = "sqlx", sqlx(rename = "etv_nvue"))]
     EthernetVirtualizerWithNvue = 2,
-    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn_classic"))]
-    FnnClassic = 3,
-    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn_l3"))]
-    FnnL3 = 4,
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn"))]
+    Fnn = 4,
 }
 
 impl VpcVirtualizationType {
-    pub fn prefix_length(&self) -> u8 {
-        match self {
-            Self::EthernetVirtualizer => 32,
-            Self::EthernetVirtualizerWithNvue => 32,
-            Self::FnnClassic => 32,
-            Self::FnnL3 => 30,
-        }
-    }
-
     pub fn supports_nvue(&self) -> bool {
         match self {
             Self::EthernetVirtualizer => false,
             Self::EthernetVirtualizerWithNvue => true,
-            Self::FnnClassic => true,
-            Self::FnnL3 => true,
+            Self::Fnn => true,
         }
     }
 }
@@ -81,8 +69,7 @@ impl fmt::Display for VpcVirtualizationType {
         match self {
             Self::EthernetVirtualizer => write!(f, "etv"),
             Self::EthernetVirtualizerWithNvue => write!(f, "etv_nvue"),
-            Self::FnnClassic => write!(f, "fnn_classic"),
-            Self::FnnL3 => write!(f, "fnn_l3"),
+            Self::Fnn => write!(f, "fnn"),
         }
     }
 }
@@ -97,8 +84,7 @@ impl TryFrom<i32> for VpcVirtualizationType {
             x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
                 Self::EthernetVirtualizerWithNvue
             }
-            x if x == rpc::VpcVirtualizationType::FnnClassic as i32 => Self::FnnClassic,
-            x if x == rpc::VpcVirtualizationType::FnnL3 as i32 => Self::FnnL3,
+            x if x == rpc::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
             _ => {
                 return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
             }
@@ -113,8 +99,10 @@ impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
             rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 Self::EthernetVirtualizerWithNvue
             }
-            rpc::VpcVirtualizationType::FnnClassic => Self::FnnClassic,
-            rpc::VpcVirtualizationType::FnnL3 => Self::FnnL3,
+            rpc::VpcVirtualizationType::Fnn => Self::Fnn,
+            // Following are deprecated.
+            rpc::VpcVirtualizationType::FnnClassic => Self::Fnn,
+            rpc::VpcVirtualizationType::FnnL3 => Self::Fnn,
         }
     }
 }
@@ -128,8 +116,7 @@ impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
             VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
             }
-            VpcVirtualizationType::FnnClassic => rpc::VpcVirtualizationType::FnnClassic,
-            VpcVirtualizationType::FnnL3 => rpc::VpcVirtualizationType::FnnL3,
+            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn,
         }
     }
 }
@@ -141,8 +128,7 @@ impl FromStr for VpcVirtualizationType {
         match s {
             "etv" => Ok(Self::EthernetVirtualizer),
             "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
-            "fnn_classic" => Ok(Self::FnnClassic),
-            "fnn_l3" => Ok(Self::FnnL3),
+            "fnn" => Ok(Self::Fnn),
             x => Err(eyre::eyre!(format!("Unknown virt type {}", x))),
         }
     }
@@ -172,80 +158,27 @@ pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<IpAddr> {
 }
 
 /// get_svi_ip returns the SVI IP (also known as the gateway IP)
-/// for a tenant instance for a given IpNetwork. This is being
-/// initially introduced for the purpose of FNN /30 allocations
-/// (where the SVI IP ends up being the 3rd IP -- aka the first
-/// IP of the second /31 allocation in the /30), and will probably
-/// change with a wider refactor + intro of Carbide IP Prefix Management.
-pub fn get_svi_ip(network: &IpNetwork) -> eyre::Result<Option<IpAddr>> {
-    match network.prefix() {
-        32 => Ok(None),
-        30 => match network.iter().nth(2) {
-            Some(ip_addr) => Ok(Some(ip_addr)),
-            None => Err(eyre::eyre!(format!(
-                "no viable SVI IP found in network: {}",
-                network
-            ))),
-        },
-        _ => Err(eyre::eyre!(format!(
-            "tenant instance network size unsupported: {}",
-            network.prefix()
-        ))),
-    }
-}
-
-/// get_tenant_vrf_loopback_ip returns the tenant VRF loopback IP for a tenant
-/// instance for a given IpNetwork allocation. This is being initially
-/// introduced for the purpose of FNN /30 allocations (where the VRF
-/// loopback ends up being the 1st IP -- aka the first IP of the first
-/// /31 allocation in the /30), and will probably change with a wider
-/// refactor + intro of Carbide IP Prefix Management.
-pub fn get_tenant_vrf_loopback_ip(network: &IpNetwork) -> eyre::Result<Option<IpAddr>> {
-    match network.prefix() {
-        32 => Ok(None),
-        // get the first IP (nth(0) but clippy hates it)
-        30 => match network.iter().next() {
-            Some(ip_addr) => Ok(Some(ip_addr)),
-            None => Err(eyre::eyre!(format!(
-                "no viable tenant VRF loopback IP found in network: {}",
-                network
-            ))),
-        },
-        _ => Err(eyre::eyre!(format!(
-            "tenant instance network size unsupported: {}",
-            network.prefix()
-        ))),
-    }
-}
-
-/// get_svi_prefix returns the SVI prefix (also known as the gateway prefix)
-/// for a tenant instance for a given IpNetwork. This is being initially introduced
-/// for the purpose of FNN /30 allocations (where the SVI prefix ends up being
-/// the second /31 allocation of the /30), and will probably change with a wider
-/// refactor + intro of Carbide IP Prefix Management.
-pub fn get_svi_prefix(network: &IpNetwork) -> eyre::Result<Option<IpNetwork>> {
-    match network.prefix() {
-        32 => Ok(None),
-        30 => {
-            let svi_ip = get_svi_ip(network)?;
-            if svi_ip.is_none() {
-                return Err(eyre::eyre!(
-                    "could not determine SVI IP from tenant instance network"
-                ));
+/// for a tenant instance for a given IpNetwork. This is valid only for l2 segments under FNN.
+pub fn get_svi_ip(
+    network: &IpNetwork,
+    virtualization_type: VpcVirtualizationType,
+    is_l2_segment: bool,
+) -> eyre::Result<Option<IpAddr>> {
+    match virtualization_type {
+        VpcVirtualizationType::EthernetVirtualizer
+        | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(None),
+        VpcVirtualizationType::Fnn => {
+            if is_l2_segment {
+                match network.iter().nth(2) {
+                    Some(ip_addr) => Ok(Some(ip_addr)),
+                    None => Err(eyre::eyre!(format!(
+                        "no viable SVI IP found in network: {}",
+                        network
+                    ))),
+                }
+            } else {
+                Ok(None)
             }
-
-            let svi_prefix = IpNetwork::new(svi_ip.unwrap(), 31).map_err(|e| {
-                eyre::eyre!(format!(
-                    "unable to build SVI prefix from tenant instance network: {}",
-                    e
-                ))
-            })?;
-
-            Ok(Some(svi_prefix))
         }
-        _ => Err(eyre::eyre!(format!(
-            "tenant instance network size unsupported: {}",
-            network.prefix()
-        ))),
     }
 }

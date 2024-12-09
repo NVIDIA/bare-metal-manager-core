@@ -731,8 +731,10 @@ enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
   // 1 was previously FORGE_NATIVE_NETWORKING
   ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
+  // Deprecated: FN_CLASSIC and FNN_L3 are deprecated now. Use FNN only.
   FNN_CLASSIC = 3;
   FNN_L3 = 4;
+  FNN = 5;
 }
 
 message VpcUpdateRequest {
@@ -2113,6 +2115,9 @@ message FlatInterfaceConfig {
     // to be able to access this IP; it is intended for monitoring
     // and debugging by operators.
     optional string tenant_vrf_loopback_ip = 14;
+
+    // Is this interface using L2 or L3.
+    bool is_l2_segment = 15;
 }
 
 message ManagedHostNetworkStatusRequest {}
