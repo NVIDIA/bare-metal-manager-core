@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_network::virtualization::{get_svi_ip, get_tenant_vrf_loopback_ip};
+use forge_network::virtualization::get_svi_ip;
 
 use std::fs;
 use std::io::Write;
@@ -83,21 +83,12 @@ async fn test_etv_nvue() -> eyre::Result<()> {
     test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
 }
 
-// test_fnn_classic tests that config is being generated successfully
-// via nvue templating against the FNN classic template.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_fnn_classic() -> eyre::Result<()> {
-    let expected =
-        include_str!("../../templates/tests/full_nvue_startup_fnn_classic.yaml.expected");
-    test_nvue_generic(VpcVirtualizationType::FnnClassic, expected).await
-}
-
 // test_fnn_l3 tests that config is being generated successfully
 // via nvue templating against the FNN L3 template.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_fnn_l3() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_fnn_l3.yaml.expected");
-    test_nvue_generic(VpcVirtualizationType::FnnL3, expected).await
+    test_nvue_generic(VpcVirtualizationType::Fnn, expected).await
 }
 
 // All of the new tests are leveraging nvue for configs, regardless
@@ -281,6 +272,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
+    let admin_network_prefix: IpNetwork = "192.168.0.0/28".parse().unwrap();
 
     let admin_interface = rpc::forge::FlatInterfaceConfig {
         function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
@@ -295,12 +287,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         prefix: "192.168.0.1/32".to_string(),
         fqdn: "host1".to_string(),
         booturl: None,
-        svi_ip: get_svi_ip(&admin_interface_prefix)
+        svi_ip: get_svi_ip(&admin_network_prefix, virtualization_type, false)
             .unwrap()
             .map(|ip| ip.to_string()),
-        tenant_vrf_loopback_ip: get_tenant_vrf_loopback_ip(&admin_interface_prefix)
-            .unwrap()
-            .map(|ip| ip.to_string()),
+        tenant_vrf_loopback_ip: None,
+        is_l2_segment: false,
     };
     assert_eq!(admin_interface.svi_ip, None);
 

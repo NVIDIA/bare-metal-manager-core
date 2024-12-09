@@ -10,6 +10,7 @@ initial_dpu_agent_upgrade_policy = "off"
 dpu_dhcp_server_enabled = true
 nvue_enabled = true
 attestation_enabled = false
+bypass_rbac = true
 
 [site_explorer]
 enabled = true

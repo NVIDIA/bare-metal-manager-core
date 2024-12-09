@@ -5,8 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use forge_network::virtualization::{get_svi_prefix, VpcVirtualizationType};
-use ipnetwork::{IpNetwork, Ipv4Network};
+use ipnetwork::Ipv4Network;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use serde::{Deserialize, Serialize};
 
@@ -104,40 +103,11 @@ impl TryFrom<ManagedHostNetworkConfigResponse> for HostConfig {
             value.tenant_interfaces
         };
 
-        // If the host is part of an FNN L3 virtualized VPC, then the DHCP prefix
-        // should be the gateway interface prefix, which is the second /31 of
-        // the /30 allocated to the DPU interface for FNN.
-        //
-        // Among other things, the prefix here is used to derive the subnet mask
-        // set in the DHCP reply packet (where a /31 will result in a .254 mask),
-        // so it needs to be set accordingly.
-        //
-        // If it's not FNN-L3, just use the prefix that comes with the
-        // corresponding network segment (defaulting to ETV if needed, since
-        // ETV will also just do what we want here).
-        let vpc_virtualization_type =
-            if let Some(virtualization_i32) = value.network_virtualization_type {
-                VpcVirtualizationType::try_from(virtualization_i32)
-                    .map_err(|_| DhcpDataError::ParameterMissing("vpc_virtualization_type"))?
-            } else {
-                VpcVirtualizationType::EthernetVirtualizer
-            };
-
         for interface in interface_configs {
-            match vpc_virtualization_type {
-                VpcVirtualizationType::FnnL3 => {
-                    host_ip_addresses.insert(
-                        format!("vlan{}", interface.vlan_id),
-                        InterfaceInfo::try_from_fnn_l3(interface)?,
-                    );
-                }
-                _ => {
-                    host_ip_addresses.insert(
-                        format!("vlan{}", interface.vlan_id),
-                        InterfaceInfo::try_from(interface)?,
-                    );
-                }
-            }
+            host_ip_addresses.insert(
+                format!("vlan{}", interface.vlan_id),
+                InterfaceInfo::try_from(interface)?,
+            );
         }
 
         Ok(HostConfig {
@@ -145,36 +115,6 @@ impl TryFrom<ManagedHostNetworkConfigResponse> for HostConfig {
                 .host_interface_id
                 .ok_or(DhcpDataError::ParameterMissing("HostInterfaceId"))?,
             host_ip_addresses,
-        })
-    }
-}
-
-impl InterfaceInfo {
-    /// try_from_fnn_l3 takes a FlatInterfaceConfig and converts it into an
-    /// InterfaceInfo, with the assumption the FlatInterfaceConfig is part
-    /// of a machine allocated into an FNN-L3 VPC. In this mode, the network
-    /// prefix (and corresponding subnet mask) are derived from the second
-    /// /31 of the allocated /30 for the DPU, and not from the wider network
-    /// the /30 is being allocated from.
-    pub fn try_from_fnn_l3(
-        value: ::rpc::forge::FlatInterfaceConfig,
-    ) -> Result<Self, DhcpDataError> {
-        let gateway = Ipv4Network::from_str(&value.gateway)?.ip();
-
-        let dpu_prefix: IpNetwork = value
-            .interface_prefix
-            .parse()
-            .map_err(|_| DhcpDataError::ParameterMissing("dpu_prefix"))?;
-        let svi_prefix = get_svi_prefix(&dpu_prefix)
-            .map_err(|_| DhcpDataError::ParameterMissing("svi_prefix"))?
-            .map_or(value.prefix, |svi_prefix| svi_prefix.to_string());
-
-        Ok(InterfaceInfo {
-            address: value.ip.parse()?,
-            gateway,
-            prefix: svi_prefix,
-            fqdn: value.fqdn,
-            booturl: value.booturl,
         })
     }
 }

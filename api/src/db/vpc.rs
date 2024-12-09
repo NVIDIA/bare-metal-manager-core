@@ -10,14 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
+use forge_uuid::machine::MachineId;
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
+use super::machine::Machine;
 use super::{
     network_segment, vpc, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -593,4 +596,94 @@ pub async fn increment_vpc_version(
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), update_query, e))
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct VpcDpuLoopback {
+    pub dpu_id: MachineId,
+    pub vpc_id: VpcId,
+    pub loopback_ip: IpAddr,
+}
+
+impl VpcDpuLoopback {
+    pub fn new(dpu_id: MachineId, vpc_id: VpcId, loopback_ip: IpAddr) -> Self {
+        Self {
+            dpu_id,
+            vpc_id,
+            loopback_ip,
+        }
+    }
+
+    pub async fn persist(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Self, DatabaseError> {
+        let query = "INSERT INTO vpc_dpu_loopbacks (dpu_id, vpc_id, loopback_ip) 
+                           VALUES ($1, $2, $3) RETURNING *";
+        sqlx::query_as(query)
+            .bind(&self.dpu_id)
+            .bind(self.vpc_id)
+            .bind(self.loopback_ip)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn delete(
+        dpu_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *";
+        sqlx::query(query)
+            .bind(dpu_id)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn find(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        dpu_id: &MachineId,
+        vpc_id: &VpcId,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * from vpc_dpu_loopbacks WHERE dpu_id=$1 AND vpc_id=$2";
+
+        sqlx::query_as(query)
+            .bind(dpu_id)
+            .bind(vpc_id)
+            .fetch_optional(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    /// Allocate loopback ip for a vpc and dpu if not allocated yet.
+    /// If already allocated, return the value.
+    pub async fn get_or_allocate_loopback_ip_for_vpc(
+        common_pools: &crate::resource_pool::common::CommonPools,
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_id: &MachineId,
+        vpc_id: &VpcId,
+    ) -> Result<Ipv4Addr, CarbideError> {
+        let loopback_ip = match VpcDpuLoopback::find(txn, dpu_id, vpc_id).await? {
+            Some(x) => match x.loopback_ip {
+                IpAddr::V4(ipv4_addr) => ipv4_addr,
+                IpAddr::V6(_) => {
+                    return Err(CarbideError::NotImplemented);
+                }
+            },
+            None => {
+                let loopback_ip =
+                    Machine::allocate_loopback_ip(common_pools, txn, &dpu_id.to_string()).await?;
+                let vpc_dpu_loopback =
+                    VpcDpuLoopback::new(dpu_id.clone(), *vpc_id, IpAddr::V4(loopback_ip));
+                vpc_dpu_loopback.persist(txn).await?;
+
+                loopback_ip
+            }
+        };
+
+        Ok(loopback_ip)
+    }
 }

@@ -16,6 +16,7 @@ use std::{net::IpAddr, sync::Arc};
 
 use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::db::network_segment::NetworkSegment;
+use crate::db::vpc::VpcDpuLoopback;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::DisableSecureBootState;
 use crate::redfish;
@@ -4824,6 +4825,11 @@ impl StateHandler for InstanceStateHandler {
                         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                     }
 
+                    // Free up all loopback IPs allocated for this instance.
+                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                        VpcDpuLoopback::delete(&dpu_snapshot.machine_id, txn).await?;
+                    }
+
                     let next_state = if self.attestation_enabled {
                         ManagedHostState::PostAssignedMeasuring {
                             measuring_state: MeasuringState::WaitingForMeasurements,
@@ -4833,6 +4839,7 @@ impl StateHandler for InstanceStateHandler {
                             cleanup_state: CleanupState::HostCleanup,
                         }
                     };
+
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::DPUReprovision { .. } => {

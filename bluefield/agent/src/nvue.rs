@@ -24,8 +24,7 @@ pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
 pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
-const TMPL_FNN_CLASSIC: &str = include_str!("../templates/nvue_startup_fnn_classic.conf");
-const TMPL_FNN_L3: &str = include_str!("../templates/nvue_startup_fnn_l3.conf");
+const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn_l3.conf");
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     if !conf.vpc_virtualization_type.supports_nvue() {
@@ -68,35 +67,17 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     Prefix: prefix.to_string(),
                 })
                 .collect(),
+            IsL2Segment: network.is_l2_segment,
             StorageTarget: false, // XXX (Classic, L3)
         });
     }
 
-    // TODO(chet): So the VrfLoopback comes from a /30 interface allocation,
-    // which should be in `PortConfigs`, but in the template its one level
-    // up. Basically what this is saying is L3 templates can only support
-    // a single "address" right now, and a customer can't configure Additional
-    // Subnets. This needs to be addressed before we actually launch FNN,
-    // but for now, just pluck port_configs[0].
-    let vrf_loopback = match conf.vpc_virtualization_type {
-        VpcVirtualizationType::FnnL3 => {
-            if port_configs.is_empty() {
-                return Err(eyre::eyre!(
-                    "cannot configure VrfLoopback; no address allocations",
-                ));
-            }
-            if port_configs.len() > 1 {
-                return Err(eyre::eyre!(
-                    "cannot configure VrfLoopback; expected only one address allocation",
-                ));
-            }
-            port_configs[0].VrfLoopback.clone()
-        }
-        // TODO(chet): We need to figure out where this IP will come from.
-        VpcVirtualizationType::FnnClassic => "FNN".to_string(),
-        // unused by other virtualization types
-        _ => "".to_string(),
-    };
+    if port_configs.is_empty() {
+        return Err(eyre::eyre!(
+            "cannot configure VrfLoopback; no address allocations",
+        ));
+    }
+    let vrf_loopback = port_configs[0].VrfLoopback.clone();
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
@@ -154,8 +135,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let virtualization_template = match conf.vpc_virtualization_type {
         VpcVirtualizationType::EthernetVirtualizer => None,
         VpcVirtualizationType::EthernetVirtualizerWithNvue => Some(TMPL_ETV_WITH_NVUE),
-        VpcVirtualizationType::FnnClassic => Some(TMPL_FNN_CLASSIC),
-        VpcVirtualizationType::FnnL3 => Some(TMPL_FNN_L3),
+        VpcVirtualizationType::Fnn => Some(TMPL_FNN),
     };
 
     if let Some(template) = virtualization_template {
@@ -363,6 +343,7 @@ pub struct PortConfig {
     pub vpc_prefixes: Vec<String>,
     pub svi_ip: Option<String>,
     pub tenant_vrf_loopback_ip: Option<String>,
+    pub is_l2_segment: bool,
 }
 
 //
@@ -507,6 +488,9 @@ struct TmplConfigPort {
     // XXX: all of these added so the L3 template can build, need
     // to really actually wire them up.
     StorageTarget: bool, // XXX (Classic, L3)
+
+    // does this segment support L2?
+    IsL2Segment: bool,
 }
 
 #[allow(non_snake_case)]
