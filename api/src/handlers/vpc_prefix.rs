@@ -155,7 +155,7 @@ pub async fn create(
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
         segment_prefix
-            .set_vpc_prefix(&mut txn, &vpc_prefix)
+            .set_vpc_prefix(&mut txn, &vpc_prefix.id, &vpc_prefix.prefix)
             .await
             .map_err(CarbideError::from)?;
     }
@@ -411,6 +411,7 @@ impl From<db::VpcPrefix> for rpc::VpcPrefix {
             prefix,
             name,
             vpc_id,
+            ..
         } = db_vpc_prefix;
 
         let id = Some(id.into());

@@ -27,6 +27,7 @@ pub struct VpcPrefix {
     pub prefix: IpNetwork,
     pub name: String,
     pub vpc_id: VpcId,
+    pub last_used_prefix: Option<IpNetwork>,
 }
 
 impl VpcPrefix {
@@ -47,6 +48,19 @@ impl VpcPrefix {
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
+    // Get a list of prefixes matching a filter on the ID column with ROW based lock.
+    pub async fn get_by_id_with_row_lock(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: &[VpcPrefixId],
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM network_vpc_prefixes WHERE id=ANY($1) FOR NO KEY UPDATE";
+        sqlx::query_as(query)
+            .bind(filter)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
     // Find the prefixes associated with a VPC.
     pub async fn find_by_vpc(
         txn: &mut Transaction<'_, Postgres>,
@@ -59,6 +73,23 @@ impl VpcPrefix {
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    // Update last used prefix.
+    pub async fn update_last_used_prefix(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_prefix_id: &VpcPrefixId,
+        last_used_prefix: IpNetwork,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE network_vpc_prefixes SET last_used_prefix=$1 WHERE id=$2 RETURNING *";
+        sqlx::query_as::<_, Self>(query)
+            .bind(last_used_prefix)
+            .bind(vpc_prefix_id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 
     // Search for VPC prefixes by the VPC they're in, name, or a match against
@@ -113,11 +144,13 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
         let prefix = row.try_get("prefix")?;
         let name = row.try_get("name")?;
         let vpc_id = row.try_get("vpc_id")?;
+        let last_used_prefix = row.try_get("last_used_prefix")?;
         Ok(VpcPrefix {
             id,
             prefix,
             name,
             vpc_id,
+            last_used_prefix,
         })
     }
 }
