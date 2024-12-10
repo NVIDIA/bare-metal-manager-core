@@ -290,7 +290,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         svi_ip: get_svi_ip(&admin_network_prefix, virtualization_type, false)
             .unwrap()
             .map(|ip| ip.to_string()),
-        tenant_vrf_loopback_ip: None,
+        tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),
         is_l2_segment: false,
     };
     assert_eq!(admin_interface.svi_ip, None);
