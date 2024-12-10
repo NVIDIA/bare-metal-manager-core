@@ -23,17 +23,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
-use axum::Router;
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use tokio::process::Command as TokioCommand;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
@@ -42,11 +39,8 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
 use crate::ethernet_virtualization::ServiceAddresses;
-use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterStateImpl};
-use crate::instrumentation::{
-    create_metrics, get_dpu_agent_meter, get_metrics_router, get_prometheus_registry,
-    AgentMetricsState, WithTracingLayer,
-};
+use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
+use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::{get_host_boot_timestamp, UrlResolver};
@@ -107,7 +101,7 @@ pub async fn setup_and_run(
     let metrics = create_metrics(agent_meter);
 
     if options.enable_metadata_service {
-        spawn_metadata_service(
+        crate::metadata_service::spawn_metadata_service(
             agent_config.metadata_service.address.clone(),
             agent_config.telemetry.metrics_address.clone(),
             metrics.clone(),
@@ -146,7 +140,7 @@ pub async fn setup_and_run(
         "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
     ))?;
 
-    if let Err(err) = set_ovs_vswitchd_yield().await {
+    if let Err(err) = crate::ovs::set_vswitchd_yield().await {
         tracing::warn!(%err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
@@ -709,42 +703,11 @@ impl MainLoop {
             }
         }
 
-        if !self.options.skip_upgrade_check {
-            // We potentially restart at this point, so make it last in the loop
-            if now > self.version_check_time {
-                self.version_check_time = now.add(std::time::Duration::from_secs(
-                    self.agent_config.period.version_check_secs,
-                ));
-                let upgrade_result = upgrade::upgrade(
-                    &self.forge_api_server,
-                    self.forge_client_config.clone(),
-                    &self.machine_id,
-                    self.agent_config.updates.override_upgrade_cmd.as_deref(),
-                )
-                .await;
-                match upgrade_result {
-                    Ok(false) => {
-                        // did not upgrade, normal case, continue
-                    }
-                    Ok(true) => {
-                        // upgraded, need to exit and restart
-                        if let Err(err) = systemd::notify_stop().await {
-                            tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
-                        }
-                        return Ok(IterationResult {
-                            stop_agent: true,
-                            loop_period: Duration::from_secs(0),
-                        });
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            self.forge_api_server,
-                            error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
-                            "upgrade_check failed"
-                        );
-                    }
-                }
-            }
+        if let result @ IterationResult {
+            stop_agent: true, ..
+        } = self.perform_upgrade_check(now).await
+        {
+            return Ok(result);
         }
 
         let loop_period = if self.seen_blank || !is_healthy || has_changed_configs {
@@ -757,15 +720,18 @@ impl MainLoop {
             std::time::Duration::from_secs(self.agent_config.period.main_loop_idle_secs)
         };
 
-        let cr7 = current_health_report.as_ref();
+        let health_alerts = current_health_report
+            .as_ref()
+            .map(|report| report.alerts.as_slice())
+            .unwrap_or_default();
         tracing::info!(
             is_healthy,
             has_changed_configs,
             self.seen_blank,
-            num_health_probe_alerts = cr7.map(|hr| hr.alerts.len()).unwrap_or_default(),
-            health_probe_alerts = cr7.map(|hr| {
+            num_health_probe_alerts = health_alerts.len(),
+            health_probe_alerts = {
                 let mut result = String::new();
-                for alert in hr.alerts.iter() {
+                for alert in health_alerts.iter() {
                     if !result.is_empty() {
                         result.push(',');
                     }
@@ -776,7 +742,7 @@ impl MainLoop {
                     }
                 }
                 result
-            }).unwrap_or_default(),
+            },
             write_config_error = current_config_error.unwrap_or_default(),
             managed_host_network_config_version = current_host_network_config_version.unwrap_or_default(),
             instance_id = current_instance_id.unwrap_or_default(),
@@ -792,6 +758,56 @@ impl MainLoop {
             stop_agent: false,
             loop_period,
         })
+    }
+
+    async fn perform_upgrade_check(&mut self, now: std::time::Instant) -> IterationResult {
+        if self.options.skip_upgrade_check {
+            return IterationResult {
+                stop_agent: false,
+                loop_period: Default::default(),
+            };
+        }
+
+        // We potentially restart at this point, so make it last in the loop
+        if now > self.version_check_time {
+            self.version_check_time = now.add(std::time::Duration::from_secs(
+                self.agent_config.period.version_check_secs,
+            ));
+            let upgrade_result = upgrade::upgrade(
+                &self.forge_api_server,
+                self.forge_client_config.clone(),
+                &self.machine_id,
+                self.agent_config.updates.override_upgrade_cmd.as_deref(),
+            )
+            .await;
+            match upgrade_result {
+                Ok(false) => {
+                    // did not upgrade, normal case, continue
+                }
+                Ok(true) => {
+                    // upgraded, need to exit and restart
+                    if let Err(err) = systemd::notify_stop().await {
+                        tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
+                    }
+                    return IterationResult {
+                        stop_agent: true,
+                        loop_period: Duration::from_secs(0),
+                    };
+                }
+                Err(e) => {
+                    tracing::error!(
+                        self.forge_api_server,
+                        error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
+                        "upgrade_check failed"
+                    );
+                }
+            }
+        }
+
+        IterationResult {
+            stop_agent: false,
+            loop_period: Default::default(),
+        }
     }
 }
 
@@ -922,54 +938,6 @@ pub async fn record_network_status(
     }
 }
 
-fn spawn_metadata_service(
-    metadata_service_address: String,
-    metrics_address: String,
-    metrics_state: Arc<AgentMetricsState>,
-    state: Arc<InstanceMetadataRouterStateImpl>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let instance_metadata_state = state.clone();
-
-    let prometheus_registry = get_prometheus_registry();
-    // let meter = get_dpu_agent_meter();
-    // let metrics_state = create_metrics(meter);
-
-    start_server(
-        metadata_service_address,
-        Router::new()
-            .nest(
-                "/latest",
-                get_fmds_router(instance_metadata_state.clone())
-                    .with_tracing_layer(metrics_state.clone()),
-            )
-            .nest(
-                "/2009-04-04",
-                get_fmds_router(instance_metadata_state.clone())
-                    .with_tracing_layer(metrics_state.clone()),
-            ),
-    )
-    .expect("metadata server panicked");
-
-    start_server(
-        metrics_address,
-        Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
-    )
-}
-
-/// Spawns a background task to run an axum server listening on given socket, and returns.
-fn start_server(address: String, router: Router) -> Result<(), Box<dyn std::error::Error>> {
-    let addr: std::net::SocketAddr = address.parse()?;
-    let server = axum_server::Server::bind(addr);
-
-    tokio::spawn(async move {
-        if let Err(err) = server.serve(router.into_make_service()).await {
-            eprintln!("Error while serving: {}", err);
-        }
-    });
-
-    Ok(())
-}
-
 // Get the link type, carrier status, MTU, and whatever else for our uplinks
 // into the network fabric.
 //
@@ -1032,45 +1000,6 @@ async fn get_fabric_interfaces_data(
         })
         .collect();
     Ok(fabric_interface_data)
-}
-
-/// ovs-vswitchd is part of HBN. It handles network packets in user-space using DPDK
-/// (https://www.dpdk.org/). By default it uses 100% of a CPU core to poll for new packets, never
-/// yielding. Here we set it to yield the CPU for up to 100us if it's been idle recently.
-/// 100us was recommended by NBU/HBN team.
-async fn set_ovs_vswitchd_yield() -> eyre::Result<()> {
-    let mut cmd = TokioCommand::new("/usr/bin/ovs-vsctl");
-    // table: o
-    // record: .
-    // column: other_config
-    // key: pmd-sleep-max
-    // value: 100 nanoseconds
-    cmd.arg("set")
-        .arg("o")
-        .arg(".")
-        .arg("other_config:pmd-sleep-max=100")
-        .kill_on_drop(true);
-    let cmd_str = super::pretty_cmd(cmd.as_std());
-    tracing::trace!("set_ovs_vswitchd_yield running: {cmd_str}");
-
-    // It takes less than 1s, so allow up to 5
-    let out = timeout(Duration::from_secs(5), cmd.output())
-        .await
-        .wrap_err("Timeout")?
-        .wrap_err("Error running command")?;
-    if !out.status.success() {
-        tracing::error!(
-            " STDOUT {cmd_str}: {}",
-            String::from_utf8_lossy(&out.stdout)
-        );
-        tracing::error!(
-            " STDERR {cmd_str}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        eyre::bail!("Failed running ovs-vsctl command. Check logs for stdout/stderr.");
-    }
-
-    Ok(())
 }
 
 const ONE_SECOND: Duration = Duration::from_secs(1);
