@@ -17,6 +17,7 @@
 #[cfg(test)]
 mod tests {
     use crate::db::machine::Machine;
+    use crate::db::machine_topology::MachineTopology;
     use crate::measured_boot::db;
     use crate::measured_boot::rpc::bundle;
     use crate::measured_boot::rpc::journal;
@@ -25,8 +26,10 @@ mod tests {
     use crate::measured_boot::rpc::report;
     use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
+    use crate::model::machine::ManagedHostState;
     use ::measured_boot::pcr::PcrRegisterValue;
     use ::measured_boot::records::MeasurementApprovedMachineRecord;
+    use forge_uuid::machine::MachineId;
     use forge_uuid::measured_boot::TrustedMachineId;
     use rpc::protos::measured_boot as mbrpc;
     use std::str::FromStr;
@@ -1424,5 +1427,48 @@ mod tests {
         assert_eq!(0, resp.reports.len());
 
         Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_handle_show_candidate_machines_should_filter_out_predicted_host(
+        db_conn: sqlx::PgPool,
+    ) {
+        // First, lets make a machine behind the scenes.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut dell_r750_topology = load_topology_json("dell_r750.json");
+
+        // let's pretend the second machine is a predicted one
+        dell_r750_topology.dmi_data = None;
+
+        // create "real" machine
+        let mut txn = db_conn.begin().await.unwrap();
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await
+        .unwrap();
+
+        // create predicted machine "beer-louisiana"
+        let machine_id =
+            MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
+                .unwrap();
+        Machine::create(&mut txn, &machine_id, ManagedHostState::Ready)
+            .await
+            .unwrap();
+        MachineTopology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
+            .await
+            .unwrap();
+
+        txn.commit().await.unwrap();
+
+        let req = mbrpc::ShowCandidateMachinesRequest {};
+        let resp = machine::handle_show_candidate_machines(&db_conn, &req)
+            .await
+            .unwrap();
+        assert_eq!(1, resp.machines.len());
+        let machine = &resp.machines[0];
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
     }
 }

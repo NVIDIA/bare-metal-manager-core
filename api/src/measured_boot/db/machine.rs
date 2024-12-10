@@ -25,7 +25,7 @@ use crate::measured_boot::interface::machine::{
 };
 use crate::{CarbideError, CarbideResult};
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
+use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::DbTable;
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::machine::CandidateMachine;
@@ -169,7 +169,12 @@ async fn get_candidate_machines(
 ) -> CarbideResult<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
     let mut records = get_candidate_machine_records(txn).await?;
+
     for record in records.drain(..) {
+        // there is no dmi_data for predicted hosts, so skip them
+        if record.machine_id.machine_type() == MachineType::PredictedHost {
+            continue;
+        }
         let attrs = match &record.topology.discovery_data.info.dmi_data {
             Some(dmi_data) => Ok(HashMap::from([
                 (String::from("sys_vendor"), dmi_data.sys_vendor.clone()),
