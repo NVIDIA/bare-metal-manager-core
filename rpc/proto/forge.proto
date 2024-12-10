@@ -37,7 +37,7 @@ service Forge {
   // VPC prefixes
   rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
   rpc SearchVpcPrefixes(VpcPrefixSearchQuery) returns (VpcPrefixIdList);
-  rpc GetVpcPrefixes(VpcPrefixIdList) returns (VpcPrefixList);
+  rpc GetVpcPrefixes(VpcPrefixGetRequest) returns (VpcPrefixList);
   rpc UpdateVpcPrefix(VpcPrefixUpdateRequest) returns (VpcPrefix);
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
@@ -834,6 +834,10 @@ message VpcPrefixSearchQuery {
     // for its semantics.)
     optional string prefix_match = 4;
     optional PrefixMatchType prefix_match_type = 5;
+}
+
+message VpcPrefixGetRequest {
+  repeated common.UUID vpc_prefix_ids = 1;
 }
 
 message VpcPrefixIdList {
