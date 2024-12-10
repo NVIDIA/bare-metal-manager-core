@@ -4,11 +4,6 @@
     rev-id: 1.0
     version: Cumulus Linux 5.6.0
 - set:
-    bridge:
-      domain:
-        br_default:
-          vlan:
-            '10': {}
     evpn:
       enable: on
     interface:
@@ -25,44 +20,32 @@
         type: swp
       p1_if:
         type: swp
+ 
       pf0hpf_if:
         type: swp
-        bridge:
-          domain:
-            br_default:
-              access: 10
-      vlan10:
-        type: svi
-        vlan: 10
+        acl: 
+          security_group: 
+            inbound: {} 
         ip:
           address:
-            192.168.0.0/16: {}
+            192.168.0.0/16: {} 
+          vrf: vpc_0 
     nve:
       vxlan:
         arp-nd-suppress: on
         enable: on
         source:
-          address: 127.0.0.1
+          address: 127.0.0.1 
     router:
       bgp:
-        autonomous-system: 65535
+        autonomous-system: 65535 
         enable: on
         router-id: 127.0.0.1
       vrr:
         enable: on
       policy:
         prefix-list:
-          aggregate-service:
-            rule:
-              '10':
-                action: permit
-                match:
-                  '192.168.0.12/32': {}
-              '20':
-                action: deny
-                match:
-                  any: {}
-          dpu_from_instance:
+          dpu_from_instance: 
             rule:
               '10':
                 action: permit
@@ -70,21 +53,6 @@
                   0.0.0.0/0:
                     min-prefix-len: 32
         route-map:
-          no-l2:
-            rule:
-              '10':
-                action:
-                  deny: {}
-                match:
-                  evpn-route-type: macip
-              '20':
-                action:
-                  deny: {}
-                match:
-                  evpn-route-type: imet
-              '30':
-                action:
-                  permit: {}
           dpu_to_instance:
             rule:
               '10':
@@ -125,11 +93,79 @@
                     enable: off
                   l2vpn-evpn:
                     enable: on
-                    policy:
-                      outbound:
-                        route-map: no-l2
                 multihop-ttl: 255
                 remote-as: external
                 update-source: lo
               underlay:
                 remote-as: external
+      vpc_0: 
+        evpn:
+          enable: on
+          vni:
+            '0': {} 
+        loopback:
+          ip:
+            address:
+              /32: {} 
+        router:
+          bgp:
+            address-family:
+              ipv4-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
+            enable: on
+            neighbor:
+              192.168.0.12:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+            peer-group:
+              tenant:
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        prefix-list: dpu_from_instance
+                      outbound:
+                        route-map: dpu_to_instance
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
+            route-export:
+              to-evpn:
+                route-target:
+                  11414:0: {}
+            route-import:
+              from-evpn:
+                route-target:
+                  11414:1337: {}
+                  11414:0: {}
+                  auto: {}
+    acl:
+      security_group:
+        rule:
+        type: ipv4
+      drop_dhcp_flood_over_overlay:
+        rule:
+          '10':
+            action:
+              deny: {}
+            hw-offload: off
+            match:
+              ip:
+                dest-ip: 255.255.255.255
+                protocol: udp
+                dest-port:
+                  '67': {}
+                source-port:
+                  '68': {}
+        type: ipv4

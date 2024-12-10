@@ -24,7 +24,7 @@ pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
 pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
-const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn_l3.conf");
+const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     if !conf.vpc_virtualization_type.supports_nvue() {
@@ -79,6 +79,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
 
+    let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -119,12 +121,13 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         }],
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
-        StorageTarget: false,                         // XXX (Classic, L3)
-        StorageDpuIP: "127.9.9.9".to_string(),        // XXX (Classic, L3)
-        l3vnistorageVLAN: "vlan1337".to_string(),     // XXX (Classic, L3)
-        StorageL3VNI: 0,                              // XXX (Classic, L3)
-        StorageLoopback: "127.8.8.8".to_string(),     // XXX (Classic, L3)
-        DPUstorageprefix: "127.7.7.7/32".to_string(), // XXX (Classic, L3)
+        IsStorageClient: false,                   // XXX (Classic, L3)
+        StorageDpuIP: "127.9.9.9".to_string(),    // XXX (Classic, L3)
+        l3vnistorageVLAN: "vlan1337".to_string(), // XXX (Classic, L3)
+        StorageL3VNI: 0,                          // XXX (Classic, L3)
+        StorageLoopback: "127.8.8.8".to_string(), // XXX (Classic, L3)
+        DPUstorageprefix: "127.7.7.7/32".to_string(),
+        IncludeBridge: include_bridge,
     };
 
     // Returns the full content of the nvue template for the forge-dpu-agent
@@ -391,12 +394,13 @@ struct TmplNvue {
     // client nodes that are NOT storage targets, so in the
     // case where StorageTarget is false, we would expect
     // there to be a StorageDpuIP.
-    StorageTarget: bool,      // XXX (Classic, L3)
+    IsStorageClient: bool,    // XXX (Classic, L3)
     StorageDpuIP: String,     // XXX (Classic, L3)
     l3vnistorageVLAN: String, // XXX (Classic, L3)
     StorageL3VNI: u32,        // XXX (Classic, L3)
     StorageLoopback: String,  // XXX (Classic, L3)
     DPUstorageprefix: String, // XXX (Classic, L3)
+    IncludeBridge: bool,
 }
 
 #[allow(non_snake_case)]
