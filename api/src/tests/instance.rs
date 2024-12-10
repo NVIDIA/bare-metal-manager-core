@@ -2641,7 +2641,12 @@ async fn test_allocate_instance_with_old_network_segemnt(
     assert_eq!(network_config_no_addresses, expected_nw_config);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_vpc_prefix",
+    "create_network_segment"
+))]
 async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2653,7 +2658,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             network_details: Some(
                 rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
                     rpc::common::Uuid {
-                        value: uuid::Uuid::new_v4().to_string(),
+                        value: "63fd2e18-5fff-400e-8861-1e7a6c862b7c".to_string(),
                     },
                 ),
             ),
@@ -2729,7 +2734,12 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_vpc_prefix",
+    "create_network_segment"
+))]
 async fn test_allocate_and_release_instance_vpc_prefix_id(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -2764,7 +2774,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     ));
     txn.commit().await.unwrap();
 
-    let vpc_prefix_id = uuid::Uuid::new_v4();
+    let vpc_prefix_id = uuid::Uuid::from_str("63fd2e18-5fff-400e-8861-1e7a6c862b7c").unwrap();
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
@@ -2985,7 +2995,12 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test(fixtures(
+    "create_domain",
+    "create_vpc",
+    "create_vpc_prefix",
+    "create_network_segment"
+))]
 async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -2996,12 +3011,12 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc_prefix_id = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+    let vpc_prefix_id = uuid::uuid!("63fd2e18-5fff-400e-8861-1e7a6c862b7c");
 
     let allocator = Ipv4PrefixAllocator::new(
         // 15 IPs
-        vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        vpc_prefix_id.into(),
+        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
@@ -3037,8 +3052,8 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        vpc_prefix_id.into(),
+        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
@@ -3074,8 +3089,8 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
+        vpc_prefix_id.into(),
+        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
@@ -3104,9 +3119,9 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
 
     txn.commit().await.unwrap();
     // The allocation should take care of already assigned prefixes and should not allocate twice.
-    assert_eq!(Ipv4Addr::new(10, 1, 1, 96), address1);
-    assert_eq!(Ipv4Addr::new(10, 1, 1, 98), address2);
-    assert_eq!(Ipv4Addr::new(10, 1, 1, 100), address3);
+    assert_eq!(Ipv4Addr::new(10, 217, 5, 224), address1);
+    assert_eq!(Ipv4Addr::new(10, 217, 5, 226), address2);
+    assert_eq!(Ipv4Addr::new(10, 217, 5, 228), address3);
     assert_ne!(address1, address2);
     assert_ne!(address1, address3);
     assert_ne!(address2, address3);
@@ -3118,9 +3133,9 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 96), 28).unwrap(),
-        Some(Ipv4Network::new(Ipv4Addr::new(10, 1, 1, 106), 31).unwrap()),
+        vpc_prefix_id.into(),
+        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
+        Some(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 234), 31).unwrap()),
         31,
     );
 
@@ -3148,6 +3163,5 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
 
     txn.commit().await.unwrap();
 
-    // last_used_prefix was 10.1.1.106/31, next should be 10.1.1.108/31.
-    assert_eq!(Ipv4Addr::new(10, 1, 1, 108), address4);
+    assert_eq!(Ipv4Addr::new(10, 217, 5, 236), address4);
 }

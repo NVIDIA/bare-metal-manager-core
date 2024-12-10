@@ -20,7 +20,6 @@ use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
-use super::vpc_prefix::VpcPrefix;
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::CarbideError;
 use forge_uuid::network::NetworkSegmentId;
@@ -254,20 +253,21 @@ impl NetworkPrefix {
     pub async fn set_vpc_prefix(
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
-        vpc_prefix: &VpcPrefix,
+        vpc_prefix_id: &VpcPrefixId,
+        prefix: &IpNetwork,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE network_prefixes SET (vpc_prefix_id, vpc_prefix) VALUES ($1, $2) WHERE id=$3 RETURNING (vpc_prefix_id, vpc_prefix)";
-        let (vpc_prefix_id, vpc_prefix_network) =
-            sqlx::query_as::<_, (VpcPrefixId, IpNetwork)>(query)
-                .bind(vpc_prefix.id)
-                .bind(vpc_prefix.prefix)
-                .bind(self.id)
-                .fetch_one(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let query =
+            "UPDATE network_prefixes SET vpc_prefix_id=$1, vpc_prefix=$2 WHERE id=$3 RETURNING *";
+        let network_prefix = sqlx::query_as::<_, Self>(query)
+            .bind(Into::<uuid::Uuid>::into(*vpc_prefix_id))
+            .bind(prefix)
+            .bind(self.id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        self.vpc_prefix_id = Some(vpc_prefix_id);
-        self.vpc_prefix = Some(vpc_prefix_network);
+        self.vpc_prefix_id = network_prefix.vpc_prefix_id;
+        self.vpc_prefix = network_prefix.vpc_prefix;
 
         Ok(())
     }

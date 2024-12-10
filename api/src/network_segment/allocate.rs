@@ -1,6 +1,9 @@
 use std::net::Ipv4Addr;
 
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
+use forge_uuid::{
+    network::NetworkSegmentId,
+    vpc::{VpcId, VpcPrefixId},
+};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
@@ -18,7 +21,7 @@ use crate::{
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
 #[derive(Debug)]
 pub struct Ipv4PrefixAllocator {
-    _vpc_prefix_id: uuid::Uuid,
+    vpc_prefix_id: VpcPrefixId,
     vpc_prefix: Ipv4Network,
     last_used_prefix: Option<Ipv4Network>,
     prefix: u8,
@@ -74,13 +77,13 @@ impl Ipv4PrefixAllocator {
     }
 
     pub fn new(
-        vpc_prefix_id: uuid::Uuid,
+        vpc_prefix_id: VpcPrefixId,
         vpc_prefix: Ipv4Network,
         last_used_prefix: Option<Ipv4Network>,
         prefix: u8,
     ) -> Ipv4PrefixAllocator {
         Self {
-            _vpc_prefix_id: vpc_prefix_id,
+            vpc_prefix_id,
             vpc_prefix,
             last_used_prefix,
             prefix,
@@ -110,20 +113,30 @@ impl Ipv4PrefixAllocator {
                 prefix: prefix.into(),
                 gateway: Some(prefix.network().into()),
                 num_reserved: 0,
-                // TODO: abhi Later add vpc_prefix_id.
             }],
             vlan_id,
             vni,
             segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
         };
 
-        let segment = ns
+        let mut segment = ns
             .persist(
                 txn,
                 crate::model::network_segment::NetworkSegmentControllerState::Provisioning,
             )
             .await
             .map_err(CarbideError::from)?;
+
+        for prefix in &mut segment.prefixes {
+            prefix
+                .set_vpc_prefix(
+                    txn,
+                    &self.vpc_prefix_id,
+                    &ipnetwork::IpNetwork::V4(self.vpc_prefix),
+                )
+                .await
+                .map_err(CarbideError::from)?;
+        }
 
         Ok((segment.id, prefix))
     }
@@ -225,7 +238,7 @@ mod test {
     #[test]
     fn test_next_iter() {
         let allocator = Ipv4PrefixAllocator::new(
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f"),
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
             Ipv4Network::new("10.0.0.248".parse().unwrap(), 29).unwrap(),
             None,
             31,
@@ -259,7 +272,7 @@ mod test {
     #[test]
     fn test_next_iter_overflow() {
         let allocator = Ipv4PrefixAllocator::new(
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f"),
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
             Ipv4Network::new("202.164.25.0".parse().unwrap(), 30).unwrap(),
             None,
             31,

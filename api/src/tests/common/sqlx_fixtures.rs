@@ -40,4 +40,5 @@ define_sqlx_fixtures!(
     "create_tpm_ca_cert_invalid",
     "create_tpm_ca_wrong_cert",
     "create_vpc",
+    "create_vpc_prefix"
 );

@@ -10,12 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::{HashMap, HashSet};
+
 use config_version::ConfigVersion;
-use ipnetwork::Ipv4Network;
+use forge_uuid::vpc::VpcPrefixId;
+use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::api::Api;
-use crate::db::vpc::Vpc;
+use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::ObjectColumnFilter;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
@@ -104,14 +108,55 @@ pub async fn allocate_network(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     api: &Api,
 ) -> CarbideResult<()> {
-    // TODO: abhi Take ROW LEVEL lock on all the vpc_prefix taken.
+    // Take ROW LEVEL lock on all the vpc_prefix taken.
     // This is needed so that last_used_prefix is not modified by multiple clients at same time.
-    // e.g. SELECT * FROM vpc_prefixes WHERE id IN ANY($1) FOR NO KEY UPDATE
     // Keep values in mut Hashmap and update last_used_prefix in the end of this function.
     // Also Validate:
     // 1. All vpc_prefix_ids should point to same vpc.
     // 2. Pointed vpc'organization id must be same as instance's tenant_org.
     // 3. If no vpc_prefix_id is mentioned, return.
+
+    let vpc_prefix_ids: Vec<VpcPrefixId> = network_config
+        .interfaces
+        .iter()
+        .filter_map(|x| {
+            if let Some(NetworkDetails::VpcPrefixId(id)) = x.network_details {
+                Some(id.into())
+            } else {
+                None
+            }
+        })
+        .collect_vec();
+
+    if vpc_prefix_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut vpc_prefixes: HashMap<VpcPrefixId, VpcPrefix> =
+        VpcPrefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
+            .await
+            .map_err(CarbideError::from)?
+            .iter()
+            .map(|x| (x.id, x.clone()))
+            .collect::<HashMap<VpcPrefixId, VpcPrefix>>();
+
+    // This can be empty also if vpc_prefix_id is not configured at carbide.
+    // In this case error 'Unknown VPC prefix id' will be thrown.
+    if vpc_prefixes
+        .values()
+        .map(|x| x.vpc_id)
+        .collect::<HashSet<_>>()
+        .len()
+        > 1
+    {
+        return Err(CarbideError::GenericError(format!(
+            "Interface config contains interfaces from multiple vpcs {:?}.",
+            vpc_prefixes
+                .values()
+                .map(|x| (x.id, x.vpc_id))
+                .collect_vec()
+        )));
+    };
 
     // get all used prefixes under this vpc_prefix.
     for interface in &mut network_config.interfaces {
@@ -119,36 +164,64 @@ pub async fn allocate_network(
             match network_details {
                 NetworkDetails::NetworkSegment(_) => {}
                 NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
-                    // TODO: abhi Replace this with Drew's implementation.
-                    let (vpc_id, vpc_prefix, last_used_prefix) = (
-                        *(Vpc::find_ids(
-                            txn,
-                            rpc::forge::VpcSearchFilter {
-                                name: None,
-                                tenant_org_id: None,
-                                label: None,
-                            },
-                        )
-                        .await
-                        .unwrap()
-                        .first()
-                        .unwrap()),
-                        Ipv4Network::new("10.217.5.224".parse().unwrap(), 27).unwrap(),
-                        None,
-                    );
+                    let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
+                    let (vpc_id, vpc_prefix, last_used_prefix) = {
+                        if let Some(vpc) = vpc_prefixes.get(vpc_prefix_id) {
+                            let prefix = match vpc.prefix {
+                                ipnetwork::IpNetwork::V4(ipv4_network) => ipv4_network,
+                                ipnetwork::IpNetwork::V6(_) => {
+                                    return Err(CarbideError::GenericError(format!(
+                                        "IPv6 prefix: {} with prefix id {} is not supported.",
+                                        vpc.prefix, vpc_prefix_id
+                                    )));
+                                }
+                            };
 
-                    let (ns_id, _prefix) =
+                            let last_used_prefix = if let Some(x) = vpc.last_used_prefix {
+                                match x {
+                                    ipnetwork::IpNetwork::V4(ipv4_network) => Some(ipv4_network),
+                                    ipnetwork::IpNetwork::V6(_) => {
+                                        return Err(CarbideError::GenericError(format!(
+                                            "IPv6 prefix: {} with prefix id {} is not supported.",
+                                            vpc.prefix, vpc_prefix_id
+                                        )));
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
+                            (vpc.vpc_id, prefix, last_used_prefix)
+                        } else {
+                            return Err(CarbideError::GenericError(format!(
+                                "Unknown VPC prefix id: {}",
+                                vpc_prefix_id
+                            )));
+                        }
+                    };
+
+                    let (ns_id, prefix) =
                         Ipv4PrefixAllocator::new(*vpc_prefix_id, vpc_prefix, last_used_prefix, 31)
                             .allocate_network_segment(txn, api, vpc_id)
                             .await?;
                     interface.network_segment_id = Some(ns_id);
-                    // TODO: abhi update prefix as last_used_prefix in Hashmap.
+                    vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
+                        x.last_used_prefix = Some(IpNetwork::V4(prefix));
+                    });
                 }
             }
         }
     }
 
-    // TODO: abhi Update latest last_used_prefix in db
+    // Update last used prefixes here.
+    for vpc_prefix in vpc_prefixes.values() {
+        let Some(last_used_prefix) = vpc_prefix.last_used_prefix else {
+            continue;
+        };
+        VpcPrefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix)
+            .await
+            .map_err(CarbideError::from)?;
+    }
 
     Ok(())
 }
