@@ -253,11 +253,11 @@ pub async fn search(
 
 pub async fn get(
     api: &Api,
-    request: Request<rpc::VpcPrefixIdList>,
+    request: Request<rpc::VpcPrefixGetRequest>,
 ) -> Result<Response<rpc::VpcPrefixList>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPrefixIdList { vpc_prefix_ids } = request.into_inner();
+    let rpc::VpcPrefixGetRequest { vpc_prefix_ids } = request.into_inner();
     if vpc_prefix_ids.len() > (api.runtime_config.max_find_by_ids as usize) {
         let msg = format!(
             "Too many VPC prefix IDs were specified (the limit is {maximum})",

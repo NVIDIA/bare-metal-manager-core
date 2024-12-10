@@ -234,7 +234,7 @@ impl Forge for Api {
 
     async fn get_vpc_prefixes(
         &self,
-        request: Request<rpc::VpcPrefixIdList>,
+        request: Request<rpc::VpcPrefixGetRequest>,
     ) -> Result<Response<rpc::VpcPrefixList>, Status> {
         crate::handlers::vpc_prefix::get(self, request).await
     }
