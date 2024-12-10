@@ -8,6 +8,7 @@ route_servers = ["9.10.11.12"]
 rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
+dpu_dhcp_server_enabled = true
 dpu_nic_firmware_intial_update_enabled = false
 dpu_nic_firmware_reprovision_update_enabled = true
 dpu_nic_firmware_update_version = { "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
@@ -16,6 +17,7 @@ machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
 max_find_by_ids = 75
+nvue_enabled = true
 internet_l3_vni = 1337
 
 [tls]
@@ -71,7 +73,7 @@ enabled = false
 run_interval = "101s"
 
 [site_explorer]
-enabled = false
+enabled = true
 run_interval = "100s"
 explorations_per_run = 11
 create_machines = true

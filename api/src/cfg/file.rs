@@ -141,12 +141,12 @@ pub struct CarbideConfig {
     pub site_explorer: SiteExplorerConfig,
 
     /// Enable DHCP server on DPU to serve host.
-    #[serde(default)]
+    #[serde(default = "default_to_true")]
     pub dpu_dhcp_server_enabled: bool,
 
     /// DPU agent to use NVUE instead of writing files directly.
     /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
-    #[serde(default = "default_nvue_enabled")]
+    #[serde(default = "default_to_true")]
     pub nvue_enabled: bool,
 
     /// Controls whether or not machine attestion is required before a machine
@@ -524,7 +524,7 @@ impl IBFabricConfig {
 /// SiteExplorer related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SiteExplorerConfig {
-    #[serde(default)]
+    #[serde(default = "default_to_true")]
     /// Whether SiteExplorer is enabled
     pub enabled: bool,
     /// The interval at which site explorer runs.
@@ -550,12 +550,12 @@ pub struct SiteExplorerConfig {
     #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
     pub explorations_per_run: u64,
 
+    /// Whether SiteExplorer should create Managed Host state machine
     #[serde(
-        default,
+        default = "SiteExplorerConfig::default_create_machines",
         deserialize_with = "deserialize_create_machines",
         serialize_with = "serialize_create_machines"
     )]
-    /// Whether SiteExplorer should create Managed Host state machine
     pub create_machines: Arc<ArcSwap<bool>>,
 
     #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
@@ -617,11 +617,11 @@ pub struct SiteExplorerConfig {
 impl Default for SiteExplorerConfig {
     fn default() -> Self {
         SiteExplorerConfig {
-            enabled: false,
+            enabled: true,
             run_interval: Self::default_run_interval(),
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),
-            create_machines: crate::dynamic_settings::create_machines(false),
+            create_machines: crate::dynamic_settings::create_machines(true),
             machines_created_per_run: Self::default_machines_created_per_run(),
             override_target_ip: None,
             override_target_port: None,
@@ -648,6 +648,10 @@ impl PartialEq for SiteExplorerConfig {
 impl SiteExplorerConfig {
     pub const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(120)
+    }
+
+    pub fn default_create_machines() -> Arc<ArcSwap<bool>> {
+        Arc::new(ArcSwap::new(Arc::new(true)))
     }
 
     pub const fn default_concurrent_explorations() -> u64 {
@@ -1202,7 +1206,7 @@ pub fn default_max_find_by_ids() -> u32 {
     100
 }
 
-pub fn default_nvue_enabled() -> bool {
+pub fn default_to_true() -> bool {
     true
 }
 
@@ -1515,6 +1519,7 @@ mod tests {
         assert_eq!(config.metrics_endpoint, None);
         assert_eq!(config.asn, 123);
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
+        assert!(config.dpu_dhcp_server_enabled);
         assert_eq!(
             config.max_database_connections,
             default_max_database_connections()
@@ -1530,7 +1535,9 @@ mod tests {
                 run_interval: IbFabricMonitorConfig::default_run_interval(),
             }
         });
-        assert!(!config.site_explorer.enabled); // Currently disabled by default
+        assert!(config.nvue_enabled);
+        assert!(config.site_explorer.enabled);
+        assert!(*config.site_explorer.create_machines.load_full());
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig::default()
@@ -1567,6 +1574,8 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
+        assert!(!config.dpu_dhcp_server_enabled);
+        assert!(!config.nvue_enabled);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/patched/path/to/cert"
@@ -1611,11 +1620,11 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: true,
+                enabled: false,
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: crate::dynamic_settings::create_machines(true),
+                create_machines: crate::dynamic_settings::create_machines(false),
                 machines_created_per_run: 1,
                 override_target_ip: None,
                 override_target_port: None,
@@ -1682,6 +1691,8 @@ mod tests {
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
+        assert!(config.dpu_dhcp_server_enabled);
+        assert!(config.nvue_enabled);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
@@ -1745,7 +1756,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: false,
+                enabled: true,
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
@@ -1942,11 +1953,11 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: true,
+                enabled: false,
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: crate::dynamic_settings::create_machines(true),
+                create_machines: crate::dynamic_settings::create_machines(false),
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
