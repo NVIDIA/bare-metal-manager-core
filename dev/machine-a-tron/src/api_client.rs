@@ -5,7 +5,7 @@ use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{ConfigSetting, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest};
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
-    forge::{MachineSearchConfig, MachineType},
+    forge::MachineType,
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
 use std::future::Future;
@@ -276,34 +276,6 @@ pub async fn discovery_complete(
             .map(|response| response.into_inner())
             .map_err(ClientApiError::InvocationError)?;
         Ok(out)
-    })
-    .await
-}
-
-pub async fn get_machine(
-    app_context: &MachineATronContext,
-    machine_id: rpc::MachineId,
-) -> ClientApiResult<Option<rpc::forge::Machine>> {
-    let machine_id = Some(machine_id);
-
-    with_forge_client(app_context, |mut client| async move {
-        let out = client
-            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                id: machine_id,
-                fqdn: None,
-                search_config: Some(MachineSearchConfig {
-                    include_dpus: true,
-                    include_history: false,
-                    include_predicted_host: true,
-                    only_maintenance: false,
-                    exclude_hosts: false,
-                }),
-            }))
-            .await
-            .map(|response| response.into_inner())
-            .map_err(ClientApiError::InvocationError)?;
-
-        Ok(out.machines.first().cloned())
     })
     .await
 }
