@@ -139,10 +139,15 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     // Query the aggregate health.
     let reported_health = env
         .api
-        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![dpu_machine_id.to_string().into()],
+            include_history: false,
+        }))
         .await
         .unwrap()
         .into_inner()
+        .machines
+        .remove(0)
         .health;
     let mut reported_health = reported_health.unwrap();
     assert!(reported_health.observed_at.is_some());
@@ -248,10 +253,15 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     // Query the new HealthReport format
     let reported_health = env
         .api
-        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![dpu_machine_id.to_string().into()],
+            include_history: false,
+        }))
         .await
         .unwrap()
         .into_inner()
+        .machines
+        .remove(0)
         .health;
 
     let reported_health = reported_health.unwrap();
@@ -270,10 +280,15 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
     let reported_health = env
         .api
-        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![dpu_machine_id.to_string().into()],
+            include_history: false,
+        }))
         .await
         .unwrap()
         .into_inner()
+        .machines
+        .remove(0)
         .health;
     let reported_health = reported_health.unwrap();
     assert!(reported_health.observed_at.is_some());
