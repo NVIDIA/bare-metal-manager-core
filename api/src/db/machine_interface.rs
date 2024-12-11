@@ -269,7 +269,9 @@ pub async fn validate_existing_mac_and_create(
                 "No existing machine_interface with mac address exists yet, creating one",
             );
             match NetworkSegment::for_relay(txn, relay).await? {
-                None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+                None => Err(CarbideError::internal(format!(
+                    "No network segment defined for relay address: {relay}"
+                ))),
                 Some(segment) => {
                     // actually create the interface
                     let v = create(
@@ -300,7 +302,7 @@ pub async fn validate_existing_mac_and_create(
                     mac.segment_id,
                     ifc.id,
                 ))),
-                None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+                None => Err(CarbideError::internal(format!("No network segment defined for relay address: {relay}"))),
             }
         }
         _ => {
@@ -623,15 +625,18 @@ pub async fn move_predicted_machine_interface_to_machine(
         "Got DHCP from predicted machine interface, moving to machine"
     );
     let Some(network_segment) = NetworkSegment::for_relay(txn, relay_ip).await? else {
-        return Err(CarbideError::NoNetworkSegmentsForRelay(relay_ip));
+        return Err(CarbideError::internal(format!(
+            "No network segment defined for relay address: {relay_ip}"
+        )));
     };
 
     if network_segment.segment_type != predicted_machine_interface.expected_network_segment_type {
-        return Err(CarbideError::PredictedHostWrongNetworkSegment(
+        return Err(CarbideError::internal(format!(
+            "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
             network_segment.id,
             predicted_machine_interface.expected_network_segment_type,
-        ));
+        )));
     }
 
     let machine_interface_id = match self::find_by_mac_address(

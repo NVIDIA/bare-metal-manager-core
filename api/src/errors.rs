@@ -22,9 +22,7 @@ use crate::model::{
 use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
 use config_version::{ConfigVersion, ConfigVersionParseError};
-use db::network_segment::NetworkSegmentType;
 use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
 use tonic::Status;
 
@@ -82,27 +80,14 @@ pub enum CarbideError {
     #[error("Database migration error: {0}")]
     DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
 
-    #[error("Multiple network segments defined for relay address: {0}")]
-    MultipleNetworkSegmentsForRelay(IpAddr),
-
-    #[error("No network segment defined for relay address: {0}")]
-    NoNetworkSegmentsForRelay(IpAddr),
-
     #[error("Duplicate MAC address for network: {0}")]
     NetworkSegmentDuplicateMacAddress(MacAddress),
 
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
 
-    #[error("Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}"
-    )]
-    PredictedHostWrongNetworkSegment(MacAddress, NetworkSegmentId, NetworkSegmentType),
-
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),
-
-    #[error("Prefix overlaps with an existing one")]
-    NetworkSegmentPrefixOverlap,
 
     #[error("Admin network is not configured.")]
     AdminNetworkNotConfigured,
@@ -112,9 +97,6 @@ pub enum CarbideError {
 
     #[error("Network has attached VPC or Subdomain : {0}")]
     NetworkSegmentDelete(String),
-
-    #[error("A machine that was just created, failed to return any rows: {0}")]
-    DatabaseInconsistencyOnMachineCreate(MachineId),
 
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
     )]
@@ -289,7 +271,6 @@ impl From<CarbideError> for tonic::Status {
             e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
             CarbideError::UnhealthyHost => Status::unavailable(from.to_string()),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-            CarbideError::NetworkSegmentPrefixOverlap => Status::invalid_argument(from.to_string()),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
                 Status::failed_precondition(error.to_string())
             }

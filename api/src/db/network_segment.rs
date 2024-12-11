@@ -458,7 +458,9 @@ impl NetworkSegment {
 
                 Ok(Some(segment))
             }
-            _ => Err(CarbideError::MultipleNetworkSegmentsForRelay(relay)),
+            _ => Err(CarbideError::internal(format!(
+                "Multiple network segments defined for relay address {relay}"
+            ))),
         }
     }
 
