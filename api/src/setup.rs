@@ -293,6 +293,7 @@ pub async fn start_api(
                 .attestation_enabled(carbide_config.attestation_enabled)
                 .upload_limiter(upload_limiter.clone())
                 .machine_validation_config(carbide_config.machine_validation_config)
+                .common_pools(common_pools.clone())
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

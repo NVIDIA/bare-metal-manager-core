@@ -24,6 +24,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         network_prefix::NetworkPrefix,
         network_segment::{IdColumn, NetworkSegment, NetworkSegmentSearchConfig},
+        vpc::{UpdateVpcVirtualization, Vpc},
         ObjectColumnFilter,
     },
     dhcp::allocation::UsedIpResolver,
@@ -2772,6 +2773,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
             .current_state(),
         ManagedHostState::Ready
     ));
+    let mut vpc = Vpc::find_by_name(&mut txn, "test vpc 1").await.unwrap();
+    let vpc = vpc.remove(0);
+
+    let update_vpc = UpdateVpcVirtualization {
+        id: vpc.id,
+        if_version_match: None,
+        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+    };
+    update_vpc.update(&mut txn).await.unwrap();
+
     txn.commit().await.unwrap();
 
     let vpc_prefix_id = uuid::Uuid::from_str("63fd2e18-5fff-400e-8861-1e7a6c862b7c").unwrap();

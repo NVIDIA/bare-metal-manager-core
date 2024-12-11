@@ -240,15 +240,20 @@ pub(crate) async fn get_managed_host_network_config(
                 fqdn = format!("{}.{}", dashed_ip, domain);
             }
 
-            let loopback_ip = VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
-                &api.common_pools,
-                &mut txn,
-                &dpu_machine_id,
-                &vpc.id,
-            )
-            .await?;
+            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
+                let tenant_loopback_ip = VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
+                    &api.common_pools,
+                    &mut txn,
+                    &dpu_machine_id,
+                    &vpc.id,
+                )
+                .await?;
 
-            for (idx, iface) in interfaces.iter().enumerate() {
+                Some(tenant_loopback_ip.to_string())
+            } else {
+                None
+            };
+            for iface in interfaces {
                 let is_l2_segment = match network_virtualization_type {
                     VpcVirtualizationType::EthernetVirtualizer
                     | VpcVirtualizationType::EthernetVirtualizerWithNvue => true,
@@ -268,11 +273,7 @@ pub(crate) async fn get_managed_host_network_config(
                         fqdn.clone(),
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
-                        if idx == 0 {
-                            Some(loopback_ip.to_string())
-                        } else {
-                            None
-                        },
+                        tenant_loopback_ip.clone(),
                         is_l2_segment,
                         network_virtualization_type,
                     )

@@ -49,6 +49,7 @@ const OPTIONAL_POOLS: [&str; 1] = [PKEY];
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// ResourcePools that are used throughout the application
+#[derive(Debug)]
 pub struct CommonPools {
     pub ethernet: EthernetPools,
     pub infiniband: IbPools,
@@ -59,6 +60,7 @@ pub struct CommonPools {
 }
 
 /// ResourcePools that are used for ethernet virtualization
+#[derive(Debug)]
 pub struct EthernetPools {
     pub pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>>,
     pub pool_vlan_id: Arc<DbResourcePool<i16>>,
@@ -67,6 +69,7 @@ pub struct EthernetPools {
 }
 
 /// ResourcePools that are used for infiniband
+#[derive(Debug)]
 pub struct IbPools {
     pub pool_pkey: Arc<DbResourcePool<u16>>,
 }
