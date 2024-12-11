@@ -1,5 +1,5 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...trunk)
 
 ### Added
 
@@ -8,6 +8,12 @@
 ### Fixed
 
 ### Removed
+
+## [v2024.12.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.06-rc3-0)
+
+### Added
+
+- Added ubuntu modules to enable discovery of IB devices.
 
 ## [v2024.12.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...v2024.12.06-rc2-0)
 
@@ -56,6 +62,24 @@
 ### Removed
 
 - Removed tss-esapi feature, which is no longer required to build forge-admin-cli on macOS.
+
+## [v2024.11.22-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc4-0...v2024.11.22-rc5-0)
+
+### Added
+
+- Added ubuntu modules to enable discovery of IB devices.
+
+## [v2024.11.22-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc3-0...v2024.11.22-rc4-0)
+
+### Fixed
+
+- Verify the serial number in the expected machines table matches the SKU that is reported from redfish
+
+## [v2024.11.22-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...v2024.11.22-rc3-0)
+
+### Fixed
+
+- Corrected the rate limit value of InfiniBand partitions
 
 ## [v2024.11.22-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.08-rc2-0...v2024.11.22-rc2-0)
 
