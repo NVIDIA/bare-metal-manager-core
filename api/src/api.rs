@@ -2182,9 +2182,13 @@ impl Forge for Api {
             })?;
 
             // Free up all loopback IPs allocated for this DPU.
-            db::vpc::VpcDpuLoopback::delete(dpu_machine.id(), &mut txn)
-                .await
-                .map_err(CarbideError::from)?;
+            db::vpc::VpcDpuLoopback::delete_and_deallocate(
+                &self.common_pools,
+                dpu_machine.id(),
+                &mut txn,
+            )
+            .await
+            .map_err(CarbideError::from)?;
 
             if let Some(loopback_ip) = dpu_machine.loopback_ip() {
                 self.common_pools

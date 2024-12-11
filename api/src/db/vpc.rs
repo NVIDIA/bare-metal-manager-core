@@ -629,16 +629,36 @@ impl VpcDpuLoopback {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn delete(
+    pub async fn delete_and_deallocate(
+        common_pools: &crate::resource_pool::common::CommonPools,
         dpu_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    ) -> Result<(), CarbideError> {
         let query = "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *";
-        sqlx::query(query)
+        let ret_val = sqlx::query_as::<_, Self>(query)
             .bind(dpu_id)
-            .execute(txn.deref_mut())
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        if let Some(value) = ret_val {
+            // We deleted a IP from vpc_dpu_loopback table. Deallocate this IP from common pool.
+            let ipv4_addr = match value.loopback_ip {
+                IpAddr::V4(ipv4_addr) => ipv4_addr,
+                IpAddr::V6(_) => {
+                    return Err(CarbideError::InvalidArgument(
+                        "Ipv6 is not supported.".to_string(),
+                    ));
+                }
+            };
+
+            common_pools
+                .ethernet
+                .pool_loopback_ip
+                .release(txn, ipv4_addr)
+                .await
+                .map_err(CarbideError::from)?;
+        }
 
         Ok(())
     }

@@ -20,6 +20,7 @@ use crate::db::vpc::VpcDpuLoopback;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::DisableSecureBootState;
 use crate::redfish;
+use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::{
     get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
 };
@@ -123,6 +124,7 @@ pub struct MachineStateHandlerBuilder {
     attestation_enabled: bool,
     upload_limiter: Option<Arc<Semaphore>>,
     machine_validation_config: MachineValidationConfig,
+    common_pools: Option<Arc<CommonPools>>,
 }
 
 impl MachineStateHandlerBuilder {
@@ -141,6 +143,7 @@ impl MachineStateHandlerBuilder {
             attestation_enabled: false,
             upload_limiter: None,
             machine_validation_config: MachineValidationConfig { enabled: true },
+            common_pools: None,
         }
     }
 
@@ -216,6 +219,10 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    pub fn common_pools(mut self, common_pools: Arc<CommonPools>) -> Self {
+        self.common_pools = Some(common_pools);
+        self
+    }
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -239,6 +246,7 @@ impl MachineStateHandler {
                 builder.attestation_enabled,
                 builder.reachability_params,
                 builder.hardware_models.clone().unwrap_or_default(),
+                builder.common_pools,
             ),
             reachability_params: builder.reachability_params,
             parsed_hosts: Arc::new(builder.hardware_models.unwrap_or_default()),
@@ -4391,6 +4399,7 @@ pub struct InstanceStateHandler {
     attestation_enabled: bool,
     reachability_params: ReachabilityParams,
     hardware_models: FirmwareConfig,
+    common_pools: Option<Arc<CommonPools>>,
 }
 
 impl InstanceStateHandler {
@@ -4399,12 +4408,14 @@ impl InstanceStateHandler {
         attestation_enabled: bool,
         reachability_params: ReachabilityParams,
         hardware_models: FirmwareConfig,
+        common_pools: Option<Arc<CommonPools>>,
     ) -> Self {
         InstanceStateHandler {
             dpu_nic_firmware_reprovision_update_enabled,
             attestation_enabled,
             reachability_params,
             hardware_models,
+            common_pools,
         }
     }
 }
@@ -4834,7 +4845,17 @@ impl StateHandler for InstanceStateHandler {
 
                     // Free up all loopback IPs allocated for this instance.
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                        VpcDpuLoopback::delete(&dpu_snapshot.machine_id, txn).await?;
+                        if let Some(common_pools) = &self.common_pools {
+                            VpcDpuLoopback::delete_and_deallocate(
+                                common_pools,
+                                &dpu_snapshot.machine_id,
+                                txn,
+                            )
+                            .await
+                            .map_err(|e| {
+                                StateHandlerError::GenericError(eyre::eyre!(e.to_string()))
+                            })?;
+                        }
                     }
 
                     let next_state = if self.attestation_enabled {
