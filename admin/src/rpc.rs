@@ -45,12 +45,20 @@ where
 
 pub async fn get_machine(id: String, api_config: &ApiConfig<'_>) -> CarbideCliResult<rpc::Machine> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::common::MachineId { id });
-        let mut machine_details = client
-            .get_machine(request)
+        let mut machines = client
+            .find_machines_by_ids(::rpc::forge::MachinesByIdsRequest {
+                machine_ids: vec![id.clone().into()],
+                include_history: true,
+            })
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
+
+        if machines.machines.is_empty() {
+            return Err(CarbideCliError::MachineNotFound(id.into()));
+        }
+
+        let mut machine_details = machines.machines.remove(0);
 
         // Note: The field going forward is `associated_dpu_machine_ids`, but if we're talking to
         // an older version of the API which doesn't support it, fall back on building our own Vec
