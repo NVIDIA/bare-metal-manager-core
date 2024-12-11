@@ -502,26 +502,37 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_managed_hosts(
-    AxumState(state): AxumState<Arc<Api>>,
+    AxumState(api): AxumState<Arc<Api>>,
 ) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
-    let request = tonic::Request::new(forgerpc::MachineSearchQuery {
-        id: None,
-        fqdn: None,
-        search_config: Some(forgerpc::MachineSearchConfig {
+    let machine_ids = api
+        .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
-            include_history: true,
+            include_history: false,
             include_predicted_host: true,
             only_maintenance: false,
             exclude_hosts: false,
-        }),
-    });
-    let all_machines = state
-        .find_machines(request)
-        .await
-        .map(|response| response.into_inner())?
-        .machines;
+        }))
+        .await?
+        .into_inner()
+        .machine_ids;
 
-    let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, state).await;
+    let mut all_machines = Vec::new();
+    let mut offset = 0;
+    while offset != machine_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
+        let next_ids = &machine_ids[offset..offset + page_size];
+        let request = tonic::Request::new(forgerpc::MachinesByIdsRequest {
+            machine_ids: next_ids.to_vec(),
+            include_history: true,
+        });
+        let next_machines = api.find_machines_by_ids(request).await?.into_inner();
+
+        all_machines.extend(next_machines.machines.into_iter());
+        offset += page_size;
+    }
+
+    let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, api).await;
     let managed_hosts = utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
@@ -667,35 +678,43 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::MachineSearchQuery {
-        id: Some(rpc::MachineId {
+    let request = tonic::Request::new(forgerpc::MachinesByIdsRequest {
+        machine_ids: vec![rpc::common::MachineId {
             id: machine_id.clone(),
-        }),
-        fqdn: None,
-        search_config: Some(forgerpc::MachineSearchConfig {
-            include_predicted_host: true,
-            include_dpus: true,
-            ..Default::default()
-        }),
+        }],
+        include_history: true,
     });
 
-    let machine_details = match state
-        .find_machines(request)
+    let host_machine = match state
+        .find_machines_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(m) => m,
+        Ok(m) if m.machines.is_empty() => {
+            return super::not_found_response(machine_id);
+        }
+        Ok(m) if m.machines.len() != 1 => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Machine list for {machine_id} returned {} machines",
+                    m.machines.len()
+                ),
+            )
+                .into_response();
+        }
+        Ok(mut m) => m.machines.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
             return super::not_found_response(machine_id);
         }
         Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machines");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
+            tracing::error!(%err, %machine_id, "find_machines_by_ids");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading machine details",
+            )
+                .into_response();
         }
-    };
-
-    let Some(host_machine) = machine_details.machines.first() else {
-        return super::not_found_response(machine_id);
     };
 
     let dpu_machines = if host_machine.associated_dpu_machine_ids.is_empty() {
