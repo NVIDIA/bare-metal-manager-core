@@ -259,7 +259,7 @@ impl NetworkPrefix {
         let query =
             "UPDATE network_prefixes SET vpc_prefix_id=$1, vpc_prefix=$2 WHERE id=$3 RETURNING *";
         let network_prefix = sqlx::query_as::<_, Self>(query)
-            .bind(Into::<uuid::Uuid>::into(*vpc_prefix_id))
+            .bind(vpc_prefix_id)
             .bind(prefix)
             .bind(self.id)
             .fetch_one(txn.deref_mut())
