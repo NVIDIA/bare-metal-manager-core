@@ -1338,7 +1338,7 @@ impl Forge for Api {
                     .await?
                     .into()],
                 Err(_) => {
-                    return Err(CarbideError::GenericError(
+                    return Err(CarbideError::internal(
                         "Could not marshall an ID from the request".to_string(),
                     )
                     .into());
@@ -1352,7 +1352,7 @@ impl Forge for Api {
                     {
                         Some(interface) => vec![interface.into()],
                         None => {
-                            return Err(CarbideError::GenericError(format!(
+                            return Err(CarbideError::internal(format!(
                                 "No machine interface with IP {ip} was found"
                             ))
                             .into());
@@ -1360,7 +1360,7 @@ impl Forge for Api {
                     }
                 }
                 Err(_) => {
-                    return Err(CarbideError::GenericError(
+                    return Err(CarbideError::internal(
                         "Could not marshall an IP from the request".to_string(),
                     )
                     .into());
@@ -1379,7 +1379,7 @@ impl Forge for Api {
                 }
             }
             _ => {
-                return Err(CarbideError::GenericError(
+                return Err(CarbideError::internal(
                     "Could not find an ID or IP in the request".to_string(),
                 )
                 .into());
@@ -1443,7 +1443,7 @@ impl Forge for Api {
         let interface = match MachineInterfaceId::try_from(id) {
             Ok(uuid) => db::machine_interface::find_one(&mut txn, uuid).await?,
             Err(_) => {
-                return Err(CarbideError::GenericError(
+                return Err(CarbideError::internal(
                     "Could not marshall an ID from the request".to_string(),
                 )
                 .into())
@@ -1942,7 +1942,7 @@ impl Forge for Api {
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
-                    CarbideError::GenericError(format!(
+                    CarbideError::internal(format!(
                         "Could not find an instance for {}",
                         instance_id
                     ))
@@ -4406,13 +4406,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                     })?;
 
             let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::GenericError(
+                CarbideError::internal(
                     format!("Machine found for {machine_id} but BMC IP is missing").to_string(),
                 )
             })?;
 
             let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                CarbideError::GenericError(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string())
+                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string())
             })?;
 
             Ok(BmcEndpointRequest {

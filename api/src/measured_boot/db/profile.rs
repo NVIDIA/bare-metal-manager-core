@@ -240,7 +240,7 @@ async fn match_profile(
     // one). If there's a conflict, then return an error.
     matching.sort_by(|a, b| b.attrs.len().cmp(&a.attrs.len()));
     if matching[0].attrs.len() == matching[1].attrs.len() {
-        return Err(CarbideError::GenericError(String::from(
+        return Err(CarbideError::internal(String::from(
             "cannot determine most specific profile match",
         )));
     }
@@ -280,13 +280,11 @@ pub async fn create_measurement_profile(
                         kind: "MeasurementSystemProfile",
                         id: profile_name.clone(),
                     },
-                    sqlx::error::ErrorKind::NotNullViolation => {
-                        CarbideError::GenericError(format!(
-                            "system profile missing not null value: {} (msg: {})",
-                            profile_name.clone(),
-                            db_err
-                        ))
-                    }
+                    sqlx::error::ErrorKind::NotNullViolation => CarbideError::internal(format!(
+                        "system profile missing not null value: {} (msg: {})",
+                        profile_name.clone(),
+                        db_err
+                    )),
                     _ => CarbideError::from(DatabaseError::new(
                         file!(),
                         line!(),

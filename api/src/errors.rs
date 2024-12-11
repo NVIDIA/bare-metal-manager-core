@@ -116,12 +116,12 @@ pub enum CarbideError {
     #[error("A machine that was just created, failed to return any rows: {0}")]
     DatabaseInconsistencyOnMachineCreate(MachineId),
 
-    #[error("Generic error: {0}")]
-    GenericError(String),
-
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
     )]
     IdentifierSpecifiedForNewObject(String),
+
+    #[error("Internal error: {message}")]
+    Internal { message: String },
 
     #[error("Only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
@@ -221,18 +221,25 @@ pub enum CarbideError {
     },
 }
 
+impl CarbideError {
+    /// Creates a `Internal` error with the given error message
+    pub fn internal(message: String) -> Self {
+        CarbideError::Internal { message }
+    }
+}
+
 #[test]
 fn test_carbide_error() {
-    let error = crate::CarbideError::GenericError(String::from("unable to yeet foo into the sun"));
+    let error = crate::CarbideError::internal(String::from("unable to yeet foo into the sun"));
     assert_eq!(
         error.to_string(),
-        "Generic error: unable to yeet foo into the sun"
+        "Internal error: unable to yeet foo into the sun"
     );
 }
 
 impl From<::measured_boot::Error> for CarbideError {
     fn from(value: ::measured_boot::Error) -> Self {
-        CarbideError::GenericError(value.to_string())
+        CarbideError::internal(value.to_string())
     }
 }
 
@@ -267,6 +274,7 @@ impl From<CarbideError> for tonic::Status {
         // TODO: There's many more mapped to `Status::internal` which are likely
         // user errors instead
         match &from {
+            e @ CarbideError::Internal { .. } => Status::internal(e.to_string()),
             CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
             CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
@@ -300,7 +308,7 @@ fn test_carbide_result() {
     use crate::{CarbideError, CarbideResult};
 
     pub fn do_something() -> CarbideResult<u8> {
-        Err(CarbideError::GenericError(String::from("can't make u8")))
+        Err(CarbideError::internal(String::from("can't make u8")))
     }
-    assert!(matches!(do_something(), Err(CarbideError::GenericError(_))));
+    assert!(matches!(do_something(), Err(CarbideError::Internal { .. })));
 }

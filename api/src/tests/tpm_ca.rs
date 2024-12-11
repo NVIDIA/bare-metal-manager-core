@@ -45,7 +45,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await.unwrap();
 
         match get_ek_cert_by_machine_id(&mut txn, &host_id).await {
-         Err(e) => assert_eq!(e.to_string(), "Generic error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."),
+         Err(e) => assert_eq!(e.to_string(), "Internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."),
          _ => panic!("Failed: should have returned an error")
      }
     }
@@ -99,7 +99,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
         match get_ek_cert_by_machine_id(&mut txn, &machine_id).await {
-            Err(e) => assert_eq!(e.to_string(), "Generic error: Hardware Info not found."),
+            Err(e) => assert_eq!(e.to_string(), "Internal error: Hardware Info not found."),
             _ => panic!("Failed: should have returned an error"),
         }
 
@@ -158,7 +158,7 @@ pub mod tests {
         match get_ek_cert_by_machine_id(&mut txn, &machine_id).await {
             Err(e) => assert_eq!(
                 e.to_string(),
-                "Generic error: TPM EK Certificate not found."
+                "Internal error: TPM EK Certificate not found."
             ),
             _ => panic!("Failed: should have returned an error"),
         }
@@ -334,7 +334,7 @@ pub mod tests {
             Ok(_) => panic!("Failed: should have returned an error!"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "Generic error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."
+                "Internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."
             ),
         }
 
@@ -374,7 +374,7 @@ pub mod tests {
             Ok(_) => panic!("Failed: should have returned an error!"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "Generic error: Could not parse EK cert: Parsing Error: NomError(Eof)"
+                "Internal error: Could not parse EK cert: Parsing Error: NomError(Eof)"
             ),
         }
 
@@ -413,7 +413,7 @@ pub mod tests {
         .await
         {
             Ok(_) => panic!("Failed: should have returned an error!"),
-            Err(e) => assert_eq!(e.to_string(), "Generic error: Could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"),
+            Err(e) => assert_eq!(e.to_string(), "Internal error: Could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"),
         }
 
         Ok(())

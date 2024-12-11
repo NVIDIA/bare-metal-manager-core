@@ -79,10 +79,7 @@ impl FromStr for UserRoles {
             "administrator" => Ok(UserRoles::Administrator),
             "operator" => Ok(UserRoles::Operator),
             "noaccess" => Ok(UserRoles::Noaccess),
-            x => Err(CarbideError::GenericError(format!(
-                "Unknown role found: {}",
-                x
-            ))),
+            x => Err(CarbideError::internal(format!("Unknown role found: {}", x))),
         }
     }
 }
@@ -100,7 +97,7 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
             machine_id: match request.machine_id {
                 Some(id) => try_parse_machine_id(&id)?,
                 _ => {
-                    return Err(CarbideError::GenericError("Machine id is null".to_string()));
+                    return Err(CarbideError::internal("Machine id is null".to_string()));
                 }
             },
             bmc_metadata: BmcMetaDataInfo {
@@ -124,7 +121,7 @@ impl BmcMetaDataUpdateRequest {
     ) -> CarbideResult<()> {
         let bmc_info: BmcInfo = self.bmc_metadata.bmc_info.clone();
         if bmc_info.mac.is_none() {
-            return Err(CarbideError::GenericError(format!(
+            return Err(CarbideError::internal(format!(
                 "BMC Info in machine_topologies does not have a MAC address for machine {}",
                 self.machine_id
             )));
@@ -181,7 +178,7 @@ impl BmcMetaDataInfo {
         persist: bool,
     ) -> CarbideResult<()> {
         if self.bmc_info.ip.is_none() {
-            return Err(CarbideError::GenericError(format!(
+            return Err(CarbideError::internal(format!(
                 "{} cannot enrich BMC Info without a valid BMC IP address for machine {}: {:#?}",
                 caller, machine_id, self.bmc_info
             )));

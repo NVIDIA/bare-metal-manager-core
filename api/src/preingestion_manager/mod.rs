@@ -527,7 +527,7 @@ impl PreingestionManagerStatic {
         .await
         .map_err(|e| match e {
             RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-            _ => CarbideError::GenericError(format!("{}", e)),
+            _ => CarbideError::internal(format!("{}", e)),
         }) {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
@@ -658,7 +658,7 @@ impl PreingestionManagerStatic {
         .await
         .map_err(|e| match e {
             RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-            _ => CarbideError::GenericError(format!("{}", e)),
+            _ => CarbideError::internal(format!("{}", e)),
         }) {
             Ok(redfish_client) => redfish_client,
             Err(e) => {

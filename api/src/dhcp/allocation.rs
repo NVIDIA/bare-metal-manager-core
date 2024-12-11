@@ -186,7 +186,7 @@ impl IpAllocator {
 
         let allocated_ips = self
             .get_allocated(segment_prefix)
-            .map_err(|e| CarbideError::GenericError(format!("failed to get_allocated: {}", e)))?;
+            .map_err(|e| CarbideError::internal(format!("failed to get_allocated: {}", e)))?;
 
         let total_allocated: u32 =
             allocated_ips
@@ -223,7 +223,7 @@ impl Iterator for IpAllocator {
             Err(e) => {
                 return Some((
                     segment_prefix.id,
-                    Err(CarbideError::GenericError(format!(
+                    Err(CarbideError::internal(format!(
                         "failed to get allocated IPs for prefix: {} (err: {})",
                         segment_prefix.prefix, e
                     ))),
@@ -241,7 +241,7 @@ impl Iterator for IpAllocator {
                 Err(e) => {
                     return Some((
                         segment_prefix.id,
-                        Err(CarbideError::GenericError(format!(
+                        Err(CarbideError::internal(format!(
                             "failed to get next available for prefix: {} (err: {})",
                             segment_prefix.prefix, e
                         ))),
@@ -440,7 +440,7 @@ fn next_available_prefix(
     allocated_networks: Vec<IpNetwork>,
 ) -> CarbideResult<Option<IpNetwork>> {
     if prefix_length <= network_segment.prefix() {
-        return Err(CarbideError::GenericError(format!(
+        return Err(CarbideError::internal(format!(
             "requested prefix length ({}) must be greater than the network segment prefix length ({})",
             prefix_length,
             network_segment.prefix()

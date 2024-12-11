@@ -75,13 +75,11 @@ pub async fn new_with_txn(
                         kind: "MeasurementBundle",
                         id: bundle_name.clone(),
                     },
-                    sqlx::error::ErrorKind::NotNullViolation => {
-                        CarbideError::GenericError(format!(
-                            "bundle missing not null value: {} (msg: {})",
-                            bundle_name.clone(),
-                            db_err
-                        ))
-                    }
+                    sqlx::error::ErrorKind::NotNullViolation => CarbideError::internal(format!(
+                        "bundle missing not null value: {} (msg: {})",
+                        bundle_name.clone(),
+                        db_err
+                    )),
                     _ => CarbideError::from(DatabaseError::new(
                         file!(),
                         line!(),
@@ -276,7 +274,7 @@ pub async fn delete_for_id_with_txn(
     // Note that due to relational constraints, values must be
     // deleted before the parent record.
     if purge_journals {
-        return Err(CarbideError::GenericError(String::from(
+        return Err(CarbideError::internal(String::from(
             "journal purge not implemented -- TODO",
         )));
     }
@@ -345,7 +343,7 @@ pub async fn delete_for_name(
     // Note that due to relational constraints, values must be
     // deleted before the parent record.
     if purge_journals {
-        return Err(CarbideError::GenericError(String::from(
+        return Err(CarbideError::internal(String::from(
             "journal purge not supported -- TODO",
         )));
     }
@@ -481,7 +479,7 @@ async fn match_bundle(
     // one). If there's a conflict, then return an error.
     matching.sort_by(|a, b| b.values.len().cmp(&a.values.len()));
     if matching[0].values.len() == matching[1].values.len() {
-        return Err(CarbideError::GenericError(String::from(
+        return Err(CarbideError::internal(String::from(
             "cannot determine most specific bundle match",
         )));
     }
@@ -513,12 +511,12 @@ pub async fn set_state_for_bundle_id(
             }),
             Some(existing_bundle) => {
                 if existing_bundle.state == MeasurementBundleState::Revoked {
-                    Err(CarbideError::GenericError(format!(
+                    Err(CarbideError::internal(format!(
                         "bundle cannot be moved from revoked state: {}",
                         bundle_id
                     )))
                 } else {
-                    Err(CarbideError::GenericError(format!(
+                    Err(CarbideError::internal(format!(
                         "totally unknown reason why this happened for bundle: {}",
                         bundle_id
                     )))

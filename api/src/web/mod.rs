@@ -120,7 +120,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             let private_cookiejar_key = Key::try_from(
                 env::var(CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV)
                     .map_err(|e| {
-                        CarbideError::GenericError(format!(
+                        CarbideError::internal(format!(
                             "{}: {}",
                             CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV, e
                         ))
@@ -148,7 +148,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 ),
                 Some(ClientSecret::new(
                     env::var(OAUTH2_CLIENT_SECRET_ENV).map_err(|e| {
-                        CarbideError::GenericError(format!("{}: {}", OAUTH2_CLIENT_SECRET_ENV, e))
+                        CarbideError::internal(format!("{}: {}", OAUTH2_CLIENT_SECRET_ENV, e))
                     })?,
                 )),
                 AuthUrl::new(

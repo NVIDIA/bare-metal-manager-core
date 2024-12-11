@@ -339,7 +339,7 @@ pub(crate) async fn is_bmc_in_managed_host(
     let in_managed_host =
         crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut txn)
             .await
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

@@ -468,7 +468,7 @@ pub(crate) async fn invoke_power(
     // Check if reprovision is requested.
     // TODO: multidpu: Fix it for multiple dpus.
     if snapshot.dpu_snapshots.is_empty() {
-        return Err(CarbideError::GenericError("No DPU found.".to_string()).into());
+        return Err(CarbideError::internal("No DPU found.".to_string()).into());
     }
 
     let mut reprovision_handled = false;
@@ -496,7 +496,7 @@ pub(crate) async fn invoke_power(
                     tracing::error!(machine=%machine_id, "{:?}", err);
 
                     // TODO: What does this error actually mean
-                    CarbideError::GenericError(
+                    CarbideError::internal(
                         "Internal Failure. Try again after sometime.".to_string(),
                     )
                 })?;
@@ -541,7 +541,7 @@ pub(crate) async fn invoke_power(
             true,
         )
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     // Lenovo does not yet provide a BMC lockdown so a user could
     // change the boot order which we set in `libredfish::forge_setup`.
@@ -557,7 +557,7 @@ pub(crate) async fn invoke_power(
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
         .map_err(|e| {
-            CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
+            CarbideError::internal(format!("Failed redfish ForceRestart subtask: {}", e))
         })?;
 
     Ok(Response::new(rpc::InstancePowerResult {}))
@@ -729,7 +729,7 @@ fn snapshot_to_instance(
     Option::<rpc::Instance>::try_from(mh_snapshot)
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
-            CarbideError::GenericError(format!(
+            CarbideError::internal(format!(
                 "Instance on Machine {} can be converted from snapshot",
                 machine_id
             ))

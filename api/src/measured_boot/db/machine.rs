@@ -85,7 +85,7 @@ pub async fn from_id_with_txn(
                     (String::from("product_name"), dmi_data.product_name.clone()),
                     (String::from("bios_version"), dmi_data.bios_version.clone()),
                 ])),
-                None => Err(CarbideError::GenericError(String::from(
+                None => Err(CarbideError::internal(String::from(
                     "machine missing dmi data",
                 ))),
             }?;
@@ -181,7 +181,7 @@ async fn get_candidate_machines(
                 (String::from("product_name"), dmi_data.product_name.clone()),
                 (String::from("bios_version"), dmi_data.bios_version.clone()),
             ])),
-            None => Err(CarbideError::GenericError(String::from(
+            None => Err(CarbideError::internal(String::from(
                 "machine missing dmi data",
             ))),
         }?;

@@ -97,13 +97,13 @@ pub(crate) async fn get(
                 bmc_endpoint_request.ip_address
             );
             tracing::error!(e);
-            return Err(CarbideError::GenericError(e).into());
+            return Err(CarbideError::internal(e).into());
         }
     };
 
     let (username, password) = get_bmc_credentials(api, bmc_mac_address)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
         ip: bmc_endpoint_request.ip_address,
@@ -170,7 +170,7 @@ pub(crate) async fn update(
             )
             .await
             .map_err(|err| {
-                CarbideError::GenericError(format!("Error setting credential for BMC: {:?}", err))
+                CarbideError::internal(format!("Error setting credential for BMC: {:?}", err))
             })?;
     }
 

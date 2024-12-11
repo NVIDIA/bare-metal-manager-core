@@ -54,7 +54,7 @@ pub(crate) async fn tpm_add_ca_cert(
     let db_ca_cert = match db_ca_cert_opt {
         Some(cert) => cert,
         None => {
-            return Err(CarbideError::GenericError(
+            return Err(CarbideError::internal(
                 "CA Cert not returned on successful insertion".to_string(),
             )
             .into())
