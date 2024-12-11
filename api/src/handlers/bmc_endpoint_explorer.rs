@@ -39,7 +39,7 @@ pub(crate) async fn explore(
         .endpoint_explorer
         .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(tonic::Response::new(report.into()))
 }
@@ -54,7 +54,7 @@ pub(crate) async fn redfish_reset_bmc(
     api.endpoint_explorer
         .redfish_reset_bmc(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -69,7 +69,7 @@ pub(crate) async fn ipmitool_reset_bmc(
     api.endpoint_explorer
         .ipmitool_reset_bmc(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -85,7 +85,7 @@ pub(crate) async fn redfish_power_control(
     api.endpoint_explorer
         .redfish_power_control(bmc_addr, &machine_interface, action)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -119,7 +119,7 @@ pub(crate) async fn forge_setup(
     api.endpoint_explorer
         .forge_setup(bmc_addr, &machine_interface, None)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -135,7 +135,7 @@ pub(crate) async fn forge_setup_status(
         .endpoint_explorer
         .forge_setup_status(bmc_addr, &machine_interface)
         .await
-        .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
 

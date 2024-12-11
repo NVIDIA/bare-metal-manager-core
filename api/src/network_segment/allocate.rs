@@ -169,7 +169,7 @@ impl Ipv4PrefixAllocator {
 
         loop {
             let Some(next_address) = allocator_itr.next() else {
-                return Err(CarbideError::GenericError("Prefix exhausted.".to_string()));
+                return Err(CarbideError::internal("Prefix exhausted.".to_string()));
             };
 
             if !used_prefixes.iter().any(|x| x.overlaps(next_address)) {
@@ -177,7 +177,7 @@ impl Ipv4PrefixAllocator {
             }
 
             if current_iteration > total_network_possible {
-                return Err(CarbideError::GenericError(format!(
+                return Err(CarbideError::internal(format!(
                     "IP address exhausted: {}",
                     self.vpc_prefix
                 )));

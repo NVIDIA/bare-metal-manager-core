@@ -294,7 +294,7 @@ pub async fn validate_existing_mac_and_create(
             // Ensure the relay segment exists before blindly giving the mac address back out
             match NetworkSegment::for_relay(txn, relay).await? {
                 Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
-                Some(ifc) => Err(CarbideError::GenericError(format!(
+                Some(ifc) => Err(CarbideError::internal(format!(
                     "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
                     mac.mac_address,
                     mac.segment_id,
@@ -362,7 +362,7 @@ pub async fn create(
         let address = maybe_address?;
         if address.prefix() != prefix_length {
             return Err(
-                CarbideError::GenericError(
+                CarbideError::internal(
                     format!(
                         "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
                         prefix_length, address.prefix())));
@@ -373,7 +373,7 @@ pub async fn create(
         }
     }
     if hostname.is_empty() {
-        return Err(CarbideError::GenericError(
+        return Err(CarbideError::internal(
             "Could not generate hostname".to_string(),
         ));
     }
@@ -500,7 +500,7 @@ fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
     let hostname = address.to_string().replace('.', "-");
     match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
         true => Ok(hostname),
-        false => Err(CarbideError::GenericError(format!(
+        false => Err(CarbideError::internal(format!(
             "invalid address to hostname: {}",
             hostname
         ))),
@@ -602,7 +602,7 @@ pub async fn get_machine_interface_primary(
         .collect::<Vec<MachineInterfaceSnapshot>>()
         .pop()
         .ok_or_else(|| {
-            CarbideError::GenericError(format!(
+            CarbideError::internal(format!(
                 "Couldn't find primary interface for {}.",
                 machine_id
             ))

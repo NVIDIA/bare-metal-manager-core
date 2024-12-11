@@ -1176,11 +1176,11 @@ pub async fn host_power_control(
         let machine_id = &machine_snapshot.machine_id;
 
         let maybe_ip = machine_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
-            CarbideError::GenericError(format!("IP address is missing for {}", machine_id))
+            CarbideError::internal(format!("IP address is missing for {}", machine_id))
         })?;
 
         let ip = maybe_ip.parse().map_err(|_| {
-            CarbideError::GenericError(format!("Invalid IP address for {}", machine_id))
+            CarbideError::internal(format!("Invalid IP address for {}", machine_id))
         })?;
 
         let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
@@ -1200,7 +1200,7 @@ pub async fn host_power_control(
             .restart(&machine_snapshot.machine_id, ip, false, credential_key)
             .await
             .map_err(|e: eyre::ErrReport| {
-                CarbideError::GenericError(format!("Failed to restart machine: {}", e))
+                CarbideError::internal(format!("Failed to restart machine: {}", e))
             })?;
     } else {
         redfish_client
@@ -1225,7 +1225,7 @@ pub async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run uefi_setup call");
-            CarbideError::GenericError(format!("Failed redfish uefi_setup subtask: {}", e))
+            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {}", e))
         })
 }
 
@@ -1238,7 +1238,7 @@ pub async fn clear_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run clear_host_uefi_password call");
-            CarbideError::GenericError(format!(
+            CarbideError::internal(format!(
                 "Failed redfish clear_host_uefi_password subtask: {}",
                 e
             ))

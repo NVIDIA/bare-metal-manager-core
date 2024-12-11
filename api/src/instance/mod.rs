@@ -149,7 +149,7 @@ pub async fn allocate_network(
         .len()
         > 1
     {
-        return Err(CarbideError::GenericError(format!(
+        return Err(CarbideError::internal(format!(
             "Interface config contains interfaces from multiple vpcs {:?}.",
             vpc_prefixes
                 .values()
@@ -170,7 +170,7 @@ pub async fn allocate_network(
                             let prefix = match vpc.prefix {
                                 ipnetwork::IpNetwork::V4(ipv4_network) => ipv4_network,
                                 ipnetwork::IpNetwork::V6(_) => {
-                                    return Err(CarbideError::GenericError(format!(
+                                    return Err(CarbideError::internal(format!(
                                         "IPv6 prefix: {} with prefix id {} is not supported.",
                                         vpc.prefix, vpc_prefix_id
                                     )));
@@ -181,7 +181,7 @@ pub async fn allocate_network(
                                 match x {
                                     ipnetwork::IpNetwork::V4(ipv4_network) => Some(ipv4_network),
                                     ipnetwork::IpNetwork::V6(_) => {
-                                        return Err(CarbideError::GenericError(format!(
+                                        return Err(CarbideError::internal(format!(
                                             "IPv6 prefix: {} with prefix id {} is not supported.",
                                             vpc.prefix, vpc_prefix_id
                                         )));
@@ -193,7 +193,7 @@ pub async fn allocate_network(
 
                             (vpc.vpc_id, prefix, last_used_prefix)
                         } else {
-                            return Err(CarbideError::GenericError(format!(
+                            return Err(CarbideError::internal(format!(
                                 "Unknown VPC prefix id: {}",
                                 vpc_prefix_id
                             )));
@@ -304,7 +304,7 @@ pub async fn allocate_instance(
             "Could not create instance on machine {}. Machine is already used by another Instance creation request.",
             machine_id,
         )),
-            NotAllocatableReason::NoDpuSnapshots => CarbideError::GenericError(format!(
+            NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
                 "Machine {machine_id} has no DPU. Cannot allocate."
             )),
             NotAllocatableReason::MaintenanceMode  => CarbideError::MaintenanceMode,
@@ -377,7 +377,7 @@ pub async fn allocate_instance(
         Instance::find_by_machine_id(&mut txn, &machine_id)
             .await?
             .ok_or_else(|| {
-                CarbideError::GenericError(format!(
+                CarbideError::internal(format!(
                     "Newly created instance for {machine_id} was not found"
                 ))
             })?,

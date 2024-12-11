@@ -54,7 +54,7 @@ impl RouteServer {
                     result.rows_affected()
                 );
                 tracing::warn!("{msg}");
-                return Err(crate::CarbideError::GenericError(msg));
+                return Err(crate::CarbideError::internal(msg));
             }
             Ok(addresses.to_vec())
         } else {

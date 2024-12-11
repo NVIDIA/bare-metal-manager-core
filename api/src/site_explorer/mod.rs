@@ -198,9 +198,10 @@ impl SiteExplorer {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = SiteExplorationMetrics::new();
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::GenericError(format!("Failed to create transaction: {e}"))
-        })?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::internal(format!("Failed to create transaction: {e}"))
+            })?;
 
         if sqlx::query_scalar(SiteExplorer::DB_LOCK_QUERY)
             .fetch_one(&mut *txn)
@@ -275,7 +276,7 @@ impl SiteExplorer {
             res?;
 
             txn.commit().await.map_err(|e| {
-                CarbideError::GenericError(format!("Failed to commit transaction: {e}"))
+                CarbideError::internal(format!("Failed to commit transaction: {e}"))
             })?;
         }
 
@@ -621,7 +622,7 @@ impl SiteExplorer {
         let host_machine_id = managed_host
             .clone()
             .machine_id
-            .ok_or(CarbideError::GenericError(format!(
+            .ok_or(CarbideError::internal(format!(
                 "Failed to get machine ID for host: {:#?}",
                 managed_host
             )))?;
@@ -911,7 +912,7 @@ impl SiteExplorer {
         self.endpoint_explorer
             .check_preconditions(metrics)
             .await
-            .map_err(|e| CarbideError::GenericError(e.to_string()))
+            .map_err(|e| CarbideError::internal(e.to_string()))
     }
 
     async fn update_explored_endpoints(
@@ -1571,7 +1572,7 @@ impl SiteExplorer {
             .await?;
 
         if host_machine_interface.machine_id.is_some() {
-            return Err(CarbideError::GenericError(format!(
+            return Err(CarbideError::internal(format!(
                 "The host's machine interface for DPU {} already has the machine ID set--something is wrong: {:#?}",
                 explored_dpu.report.machine_id.as_ref().unwrap(),
                 host_machine_interface
@@ -1582,14 +1583,13 @@ impl SiteExplorer {
             .await?;
 
         // configure_host_machine should have setup the machine_id for the host
-        let host_machine_id =
-            explored_host
-                .clone()
-                .machine_id
-                .ok_or(CarbideError::GenericError(format!(
-                    "Failed to set machine ID for host: {:#?}",
-                    explored_host
-                )))?;
+        let host_machine_id = explored_host
+            .clone()
+            .machine_id
+            .ok_or(CarbideError::internal(format!(
+                "Failed to set machine ID for host: {:#?}",
+                explored_host
+            )))?;
 
         db::machine_interface::associate_interface_with_machine(
             &host_machine_interface.id,
@@ -1850,7 +1850,7 @@ impl SiteExplorer {
 
                 Ok(())
             }
-            Err(e) => Err(CarbideError::GenericError(format!(
+            Err(e) => Err(CarbideError::internal(format!(
                 "site-explorer failed to cold reset bmc through ipmitool {}: {:#?}",
                 endpoint.address, e
             ))),
@@ -1882,7 +1882,7 @@ impl SiteExplorer {
 
                 Ok(())
             }
-            Err(e) => Err(CarbideError::GenericError(format!(
+            Err(e) => Err(CarbideError::internal(format!(
                 "site-explorer failed to reset bmc through redfish {}: {:#?}",
                 endpoint.address, e
             ))),
@@ -1918,7 +1918,7 @@ impl SiteExplorer {
 
                 Ok(())
             }
-            Err(e) => Err(CarbideError::GenericError(format!(
+            Err(e) => Err(CarbideError::internal(format!(
                 "site-explorer failed to reboot {}: {:#?}",
                 endpoint.address, e
             ))),

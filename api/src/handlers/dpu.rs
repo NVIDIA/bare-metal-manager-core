@@ -180,7 +180,7 @@ pub(crate) async fn get_managed_host_network_config(
             });
 
             let Some(physical_iface) = physical_iface else {
-                return Err(CarbideError::GenericError(String::from(
+                return Err(CarbideError::internal(String::from(
                     "Physical interface not found",
                 ))
                 .into());
@@ -190,7 +190,7 @@ pub(crate) async fn get_managed_host_network_config(
             let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
                 Some((_, ip_addr)) => *ip_addr,
                 None => {
-                    return Err(CarbideError::GenericError(String::from(
+                    return Err(CarbideError::internal(String::from(
                         "Physical IP address not found",
                     ))
                     .into())
@@ -288,7 +288,7 @@ pub(crate) async fn get_managed_host_network_config(
         .interfaces
         .iter()
         .find(|x| x.is_primary)
-        .ok_or_else(|| CarbideError::GenericError("Primary Interface is missing.".to_string()))?;
+        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
 
@@ -502,7 +502,7 @@ pub(crate) async fn record_dpu_network_status(
             .ok_or_else(|| CarbideError::MissingArgument("dpu_health"))?
             .clone(),
     )
-    .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+    .map_err(|e| CarbideError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
     health_report.source = "forge-dpu-agent".to_string();
@@ -850,7 +850,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         match req.mode() {
             rpc::dpu_reprovisioning_request::Mode::Restart => {}
             _ => {
-                return Err(CarbideError::GenericError(
+                return Err(CarbideError::internal(
                     "Reprovisioning is already started.".to_string(),
                 )
                 .into());

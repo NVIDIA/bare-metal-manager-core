@@ -92,7 +92,7 @@ pub(crate) async fn get_cloud_init_instructions(
         .parse()
         .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
     if ip.is_ipv6() {
-        return Err(CarbideError::GenericError("IPv6 not supported".to_string()).into());
+        return Err(CarbideError::internal("IPv6 not supported".to_string()).into());
     }
 
     let instructions = match InstanceAddress::find_by_address(&mut txn, ip)
@@ -105,13 +105,11 @@ pub(crate) async fn get_cloud_init_instructions(
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
-                    CarbideError::GenericError(format!(
-                        "No machine interface with IP {ip} was found"
-                    ))
+                    CarbideError::internal(format!("No machine interface with IP {ip} was found"))
                 })?;
 
             let domain_id = machine_interface.domain_id.ok_or_else(|| {
-                CarbideError::GenericError(format!(
+                CarbideError::internal(format!(
                     "Machine Interface did not have an associated domain {}",
                     machine_interface.id
                 ))
@@ -125,7 +123,7 @@ pub(crate) async fn get_cloud_init_instructions(
             .map_err(CarbideError::from)?
             .first()
             .ok_or_else(|| {
-                CarbideError::GenericError(format!("Could not find a domain for {}", domain_id))
+                CarbideError::internal(format!("Could not find a domain for {}", domain_id))
             })?
             .to_owned();
 
@@ -189,7 +187,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
                     // inconsistent data model
-                    CarbideError::GenericError(format!(
+                    CarbideError::internal(format!(
                         "Could not find an instance for {}",
                         instance_address.instance_id
                     ))

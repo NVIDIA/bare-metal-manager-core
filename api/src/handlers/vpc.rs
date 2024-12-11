@@ -121,7 +121,7 @@ pub(crate) async fn update_virtualization(
     .map_err(CarbideError::from)?;
 
     if !instances.is_empty() {
-        return Err(CarbideError::GenericError(format!(
+        return Err(CarbideError::internal(format!(
             "cannot modify VPC virtualization type in VPC with existing instances (found: {})",
             instances.len()
         ))

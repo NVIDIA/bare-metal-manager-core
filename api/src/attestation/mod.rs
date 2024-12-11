@@ -48,17 +48,15 @@ pub async fn get_ek_cert_by_machine_id(
     )
     .await
     .map_err(CarbideError::from)?
-    .ok_or_else(|| {
-        CarbideError::GenericError(format!("Machine with id {machine_id} not found."))
-    })?;
+    .ok_or_else(|| CarbideError::internal(format!("Machine with id {machine_id} not found.")))?;
 
     // obtain an ek cert
     let tpm_ek_cert = machine
         .hardware_info()
-        .ok_or_else(|| CarbideError::GenericError("Hardware Info not found.".to_string()))?
+        .ok_or_else(|| CarbideError::internal("Hardware Info not found.".to_string()))?
         .tpm_ek_certificate
         .as_ref()
-        .ok_or_else(|| CarbideError::GenericError("TPM EK Certificate not found.".to_string()))?;
+        .ok_or_else(|| CarbideError::internal("TPM EK Certificate not found.".to_string()))?;
 
     Ok(tpm_ek_cert.clone())
 }

@@ -77,7 +77,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     )
     .await;
     assert!(
-        matches!(output, Err(CarbideError::GenericError(x)) if x.starts_with("Network segment mismatch for existing mac address"))
+        matches!(output, Err(CarbideError::Internal { message, ..}) if message.starts_with("Network segment mismatch for existing mac address"))
     );
 
     txn.commit().await.unwrap();

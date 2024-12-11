@@ -52,7 +52,7 @@ impl UpdateCredentials {
         for credential in self.credentials.iter() {
             let credential_purpose = CredentialPurpose::try_from(credential.credential_purpose)
                 .map_err(|error| {
-                    CarbideError::GenericError(format!(
+                    CarbideError::internal(format!(
                         "invalid discriminant {error:?} for Credential Purpose from grpc?"
                     ))
                 })?;
@@ -82,7 +82,7 @@ impl UpdateCredentials {
                     },
                 )
                 .await
-                .map_err(|err| CarbideError::GenericError(format!("{err}")))?;
+                .map_err(|err| CarbideError::internal(format!("{err}")))?;
         }
         Ok(MachineCredentialsUpdateResponse {})
     }

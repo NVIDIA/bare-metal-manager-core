@@ -34,10 +34,10 @@ pub fn extract_ca_fields(
 
     Ok((
         DateTime::<Utc>::from_timestamp(ca_cert.validity.not_before.timestamp(), 0).ok_or(
-            CarbideError::GenericError("Could not parse CA's NOT BEFORE field".to_string()),
+            CarbideError::internal("Could not parse CA's NOT BEFORE field".to_string()),
         )?,
         DateTime::<Utc>::from_timestamp(ca_cert.validity.not_after.timestamp(), 0).ok_or(
-            CarbideError::GenericError("Could not parse CA's NOT AFTER field".to_string()),
+            CarbideError::internal("Could not parse CA's NOT AFTER field".to_string()),
         )?,
         (*(ca_cert.subject.as_raw())).to_vec(),
     ))
@@ -170,12 +170,12 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
 
     // create X509 EK cert
     let ek_cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
-        .map_err(|e| CarbideError::GenericError(format!("Could not parse EK cert: {}", e)))?
+        .map_err(|e| CarbideError::internal(format!("Could not parse EK cert: {}", e)))?
         .1;
 
     // create X509 CA cert
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
-        .map_err(|e| CarbideError::GenericError(format!("Could not parse CA cert: {}", e)))?
+        .map_err(|e| CarbideError::internal(format!("Could not parse CA cert: {}", e)))?
         .1;
 
     // verify signature
@@ -188,7 +188,7 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
 
     // update the DB
     EkCertVerificationStatus::update_ca_verification_status(txn, ek_cert_sha256, true, Some(ca_id))
-            .await.map_err(|e|CarbideError::GenericError(format!("Could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
+            .await.map_err(|e|CarbideError::internal(format!("Could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
             ek_cert.raw_serial_as_string(),
             ek_cert.issuer,
             e)))?;

@@ -465,7 +465,7 @@ impl Machine {
         if interface.machine_id.is_some() {
             let machine_id = interface.machine_id.as_ref().unwrap();
             if machine_id != stable_machine_id {
-                return Err(CarbideError::GenericError(format!(
+                return Err(CarbideError::internal(format!(
                     "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
                     machine_id, interface.id,
                     stable_machine_id)));
@@ -1922,7 +1922,7 @@ impl Machine {
                 })?;
 
         if ids.len() != all_machines.len() {
-            return Err(CarbideError::GenericError(format!(
+            return Err(CarbideError::internal(format!(
                 "Expected updates: {:?}, Actual updates: {:?}",
                 all_machines, ids,
             )));

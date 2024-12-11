@@ -221,7 +221,7 @@ impl TryFrom<MachineState> for new_machine::MachineState {
                 is_enabled,
             },
             _ => {
-                return Err(CarbideError::GenericError(format!(
+                return Err(CarbideError::internal(format!(
                     "Invalid machine state for host: {:?}",
                     value
                 )))
@@ -297,7 +297,7 @@ async fn migrate_machine_to_v2(
                     DpuInitState::WaitingForPlatformConfiguration
                 }
                 _ => {
-                    return Err(CarbideError::GenericError(format!(
+                    return Err(CarbideError::internal(format!(
                         "State: {:?} is not correct for DPU for host: {}.",
                         machine_state, host_id
                     )))

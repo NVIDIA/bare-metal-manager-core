@@ -319,7 +319,7 @@ pub fn pcr_register_values_to_map(
         .map(|rec| (rec.pcr_register, rec.clone()))
         .collect();
     if total_values != value_map.len() {
-        return Err(CarbideError::GenericError(String::from(
+        return Err(CarbideError::internal(String::from(
             "detected pcr_register collision in input bundle values",
         )));
     }
