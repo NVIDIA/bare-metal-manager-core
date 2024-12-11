@@ -1512,8 +1512,8 @@ impl Machine {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         if machine_id != *stable_machine_id {
-            return Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
-                stable_machine_id.clone(),
+            return Err(CarbideError::internal(
+                format!("Mmachine {stable_machine_id} was just created, but database failed to return any rows")
             ));
         }
 

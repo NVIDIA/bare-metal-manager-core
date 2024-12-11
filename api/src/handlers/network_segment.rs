@@ -346,7 +346,9 @@ pub(crate) async fn save(
             source: sqlx::Error::Database(e),
             ..
         }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
-            return Err(CarbideError::NetworkSegmentPrefixOverlap);
+            return Err(CarbideError::InvalidArgument(
+                "Prefix overlaps with an existing one".to_string(),
+            ));
         }
         Err(err) => {
             return Err(err.into());
