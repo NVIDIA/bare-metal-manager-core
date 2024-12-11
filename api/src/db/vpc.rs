@@ -635,13 +635,13 @@ impl VpcDpuLoopback {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), CarbideError> {
         let query = "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *";
-        let ret_val = sqlx::query_as::<_, Self>(query)
+        let deleted_loopbacks = sqlx::query_as::<_, Self>(query)
             .bind(dpu_id)
-            .fetch_optional(txn.deref_mut())
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        if let Some(value) = ret_val {
+        for value in deleted_loopbacks {
             // We deleted a IP from vpc_dpu_loopback table. Deallocate this IP from common pool.
             let ipv4_addr = match value.loopback_ip {
                 IpAddr::V4(ipv4_addr) => ipv4_addr,
