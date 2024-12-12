@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{path::Path, str::FromStr, time::Duration};
+use std::{collections::HashMap, path::Path, str::FromStr, time::Duration};
 
 use color_eyre::eyre::eyre;
 use libredfish::{
@@ -25,12 +25,45 @@ use libredfish::{
 };
 use mac_address::MacAddress;
 use prettytable::{row, Table};
+use rpc::forge_tls_client::ApiConfig;
+use serde::Serialize;
 use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
-use crate::cfg::carbide_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
+use crate::cfg::carbide_options::{
+    DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort, UriInfo,
+};
 
-pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
+async fn handle_browse_command(api_config: &ApiConfig<'_>, uri: &str) -> color_eyre::Result<()> {
+    let data = crate::rpc::redfish_browse(api_config, uri.to_string()).await?;
+    #[derive(Serialize, Debug)]
+    struct Output {
+        text: serde_json::Value,
+        headers: HashMap<String, String>,
+    }
+
+    let text = match serde_json::from_str(&data.text) {
+        Ok(text) => text,
+        Err(_) => {
+            println!("{:?}", data);
+            return Ok(());
+        }
+    };
+
+    let output = Output {
+        text,
+        headers: data.headers,
+    };
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+
+    Ok(())
+}
+
+pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_eyre::Result<()> {
+    if let RedfishCommand::Browse(UriInfo { uri }) = &action.command {
+        return handle_browse_command(api_config, uri).await;
+    }
+
     let endpoint = libredfish::Endpoint {
         host: match action.address {
             Some(a) => a,
@@ -438,6 +471,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ClearNvram => {
             redfish.clear_nvram().await?;
         }
+        Browse(_) => {}
     }
     Ok(())
 }
