@@ -4310,6 +4310,13 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
         update_machine_validation_run(self, request).await
     }
+
+    async fn redfish_browse(
+        &self,
+        request: tonic::Request<rpc::RedfishBrowseRequest>,
+    ) -> Result<tonic::Response<rpc::RedfishBrowseResponse>, Status> {
+        crate::redfish::redfish_browse(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

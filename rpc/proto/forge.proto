@@ -433,6 +433,8 @@ service Forge {
   rpc TpmShowCaCerts(google.protobuf.Empty) returns (TpmCaCertDetailCollection);
   rpc TpmShowUnmatchedEkCerts(google.protobuf.Empty) returns (TpmEkCertStatusCollection);
   rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
+
+  rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -3660,4 +3662,14 @@ message MachineValidationRunRequest {
 }
 message MachineValidationRunResponse {
   string message = 1;
+}
+
+message RedfishBrowseRequest {
+  string uri = 1;
+}
+
+message RedfishBrowseResponse {
+  // Response in JSON String
+  string text = 1;
+  map<string, string> headers = 2;
 }

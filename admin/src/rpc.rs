@@ -19,7 +19,7 @@ use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IsBmcInManagedHostResponse,
     MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
-    NetworkSegmentSearchConfig, VpcVirtualizationType,
+    NetworkSegmentSearchConfig, RedfishBrowseResponse, VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -2930,6 +2930,22 @@ pub async fn machine_validation_test_enable_disable(
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())
+    })
+    .await
+}
+
+pub async fn redfish_browse(
+    api_config: &ApiConfig<'_>,
+    uri: String,
+) -> CarbideCliResult<RedfishBrowseResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::RedfishBrowseRequest { uri });
+        let response = client
+            .redfish_browse(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(response)
     })
     .await
 }

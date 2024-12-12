@@ -349,6 +349,7 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent, Scout],
         );
         x.perm("UpdateMachineValidationRun", vec![Scout, SiteAgent]);
+        x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
 
         x
     }

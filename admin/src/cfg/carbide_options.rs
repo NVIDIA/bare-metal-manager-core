@@ -722,6 +722,14 @@ pub enum RedfishCommand {
     GetBaseMacAddress,
     // Clear Nvram (Viking only)
     ClearNvram,
+    // Redfish browser
+    Browse(UriInfo),
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct UriInfo {
+    #[clap(long, help = "Redfish URI")]
+    pub uri: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
