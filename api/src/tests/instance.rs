@@ -2282,8 +2282,8 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     let Err(err) = result else {
         panic!("Creating an instance should have been refused");
     };
-    if err.code() != tonic::Code::Unavailable {
-        panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
+    if err.code() != tonic::Code::FailedPrecondition {
+        panic!("Expected grpc code FailedPrecondition, got {}", err.code());
     }
     assert_eq!(
         err.message(),

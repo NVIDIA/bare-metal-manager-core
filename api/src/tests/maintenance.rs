@@ -95,7 +95,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         Ok(_) => {
             panic!("Allocating an instance on host in maintenance mode should fail");
         }
-        Err(status) if status.code() == tonic::Code::Unavailable => {
+        Err(status) if status.code() == tonic::Code::FailedPrecondition => {
             // Expected
         }
         Err(err) => {
@@ -233,7 +233,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         Ok(_) => {
             panic!("Allocating an instance on host in maintenance mode should fail");
         }
-        Err(status) if status.code() == tonic::Code::Unavailable => {
+        Err(status) if status.code() == tonic::Code::FailedPrecondition => {
             // Expected
         }
         Err(err) => {
