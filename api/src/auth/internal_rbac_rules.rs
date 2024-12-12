@@ -331,13 +331,19 @@ impl InternalRBACRules {
             "GetMachineValidationTests",
             vec![ForgeAdminCLI, SiteAgent, Agent, Scout],
         );
-        x.perm("AddMachineValidationTest", vec![Scout, SiteAgent]);
-        x.perm("UpdateMachineValidationTest", vec![Scout, SiteAgent]);
+        x.perm("AddMachineValidationTest", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "UpdateMachineValidationTest",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm(
             "MachineValidationTestVerfied",
             vec![ForgeAdminCLI, Scout, SiteAgent],
         );
-        x.perm("MachineValidationTestNextVersion", vec![Scout, SiteAgent]);
+        x.perm(
+            "MachineValidationTestNextVersion",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm(
             "MachineValidationTestEnableDisableTest",
             vec![ForgeAdminCLI, SiteAgent, Scout],
