@@ -538,7 +538,7 @@ Ports          :
     1070fd0300bd588c    -                   pf        1070fd0300bd588c    7         Active    1070fd0300bd588c_1  localhost ibp202s0f0
 ```
 
-### How to check whether the token was updated in Forge?
+### How to check the auth token and UFM IP in Forge?
 
 After configuring UFM credentials in Forge, using the following commands to check whether the token was updated in Forge accordingly.
 
@@ -546,6 +546,28 @@ After configuring UFM credentials in Forge, using the following commands to chec
 kubectl exec -it vault-0 -n vault -- /bin/sh
 vault kv get -field=UsernamePassword --tls-skip-verify secrets/ufm/default/auth
 ```
+
+This returns something like
+```
+======== Secret Path ========
+secrets/data/ufm/default/auth
+
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2024-10-17T15:08:13.312903569Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            2
+
+========== Data ==========
+Key                 Value
+---                 -----
+UsernamePassword    map[password:ABCDEF username:https://1.2.3.4:443/]
+```
+
+The `username` here encodes the UFM address, while the `password` identifies the auth token.
 
 SRE can also check the InfiniBand fabric monitor metrics emitted by Carbide to determine whether carbide can reach UFM. E.g. the following graph shows a scenario where
 
