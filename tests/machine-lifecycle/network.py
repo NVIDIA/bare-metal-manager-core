@@ -39,14 +39,17 @@ def wait_for_redfish_endpoint(hostname: str, max_retries: int = 20, sleep_time: 
         try:
             response = requests.get(url, timeout=5, verify=False)
             response.raise_for_status()
+            data = response.json()
+            if not data.get("Vendor"):
+                raise KeyError("The 'Vendor' field is missing or empty.")
             _time_print(f"Successful response from Redfish API on {hostname}")
             return
-        except requests.exceptions.RequestException:
-            _time_print(f"No response from {hostname}. Retrying in {sleep_time} seconds...")
+        except (requests.exceptions.RequestException, requests.exceptions.JSONDecodeError, KeyError) as e:
+            _time_print(f"Invalid response from {hostname}: {e} \nRetrying in {sleep_time} seconds...")
             retry_count += 1
             time.sleep(sleep_time)
     else:
-        raise TimeoutError(_time_print(f"No response from {hostname} within the time limit."))
+        raise TimeoutError(_time_print(f"No valid response from {hostname} within the time limit."))
 
 
 def _time_print(message) -> str:
