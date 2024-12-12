@@ -9,15 +9,56 @@ development feeling.
 
 - Install Visual Studio Code from [https://code.visualstudio.com](https://code.visualstudio.com)
 - Install the [Remote Development Extension Pack](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.vscode-remote-extensionpack)
+- Enable the `code` command for MacBook:
+    - Open VS Code
+    - Press `Cmd + Shift + P` to open the Command Palette.
+    - Type `Shell Command: Install 'code' command in PATH` and select it. This sets up the code command for your terminal.
+- For MacBook and VS Code 1.8X or 1.9x version:
+    - Port forwarding may fail if VS Code is version 1.8x or 1.9x.
+    - To resolve this issue, remove the `~/.ssh/known_hosts` file. 
+    *Source*: [Stack Overflow](https://stackoverflow.com/questions/75837749/vscode-failed-to-set-up-socket-for-dynamic-port-forward-to-remote-port-connect)
+    - **Note**: Be sure to back up the file before deleting it.
+- Update the `~/.ssh/config` file to set up the jump host and remote instance. Example
+    ```
+    Host my_instance
+        HostName remote_server_ip
+        User your_id
+        Port 22
+        ProxyJump renojump
+        
+    # Jumphost info
+    Host renojump 155.130.12.194
+    User your_id
+    HostName 155.130.12.194
+    Compression yes
+    PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com  # This is only required if you are running the latest SSH. OpenSSH deprecated RSA a while ago
+    ```
+- On the remote server, update the SSH daemon configuration to support port forwarding:
+    - Edit the sshd configuration file:
+        ```
+        doas vi /etc/ssh/sshd_config
+        ```
+    - Add or update the following lines:
+        ```
+        AllowTcpForwarding yes
+        GatewayPorts yes
+        ```
+    - Restart sshd daemon:
+        ```
+        doas systemctl restart sshd
+        ```
 
 ### Basic remote setup
 
-If your Linux Machine that will be used to host the containers is also remote,
-you first use the remote SSH extension to open a Visual Studio Code window on that.
-To that that, click the remote button on the lower left of the IDE window:
+Start `VS Code` using the `code` command in the same shell after running `nvinit`:
+- ```
+  nvinit ssh -user `whoami`
+  code
+  ```
+
+Click the remote button on the lower left of the IDE window:
 ![](../static/remote_button.png).
-Select "Connect to Host", enter the hostname or IP of your remote development machine,
-and connect. A new Visual Studio Code window should open, which is now on that host.
+Select "Connect to Host", choose the remote hostname define in [Prerequisites](#Prerequisites), and connect. A new Visual Studio Code window should open, which is now on that host.
 Inside that window, open the folder which contains the carbide project.
 
 Assuming that remote machine already has all dev tools installed, and you want to
