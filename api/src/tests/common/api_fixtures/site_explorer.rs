@@ -1,25 +1,48 @@
-use std::{collections::HashMap, future::Future, iter, net::IpAddr, str::FromStr};
+use std::{collections::HashMap, future::Future, iter, net::IpAddr};
 
-use crate::{
-    db,
-    db::explored_endpoints::DbExploredEndpoint,
-    model::{
-        hardware_info::HardwareInfo, machine::ManagedHostStateSnapshot,
-        site_explorer::EndpointExplorationReport,
-    },
+use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
+use super::{
+    discovery_completed, dpu::create_machine_inventory, inject_machine_measurements,
+    network_configured,
 };
-use forge_uuid::machine::MachineId;
-use rpc::{forge, forge::forge_server::Forge, DiscoveryData, DiscoveryInfo};
-
+use crate::db::machine::Machine;
+use crate::db::machine_interface::find_by_mac_address;
+use crate::model::machine::MeasuringState;
 use crate::tests::common::api_fixtures::{
     dpu::DpuConfig,
+    forge_agent_control, get_machine_validation_runs,
+    host::host_uefi_setup,
+    machine_validation_completed,
     managed_host::ManagedHostConfig,
     network_segment::{
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
     },
-    TestEnv,
+    persist_machine_validation_result, update_machine_validation_run, TestEnv,
 };
+use crate::{
+    db,
+    db::explored_endpoints::DbExploredEndpoint,
+    model::{
+        hardware_info::HardwareInfo,
+        machine::{
+            machine_id::try_parse_machine_id, DpuInitState, FailureCause, FailureDetails,
+            FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState,
+            ManagedHostState, ManagedHostStateSnapshot,
+        },
+        site_explorer::EndpointExplorationReport,
+    },
+};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+use forge_uuid::machine::MachineId;
+use health_report::HealthReport;
+use rpc::machine_discovery::AttestKeyInfo;
+use rpc::{
+    forge::{self, forge_server::Forge, HardwareHealthReport},
+    forge_agent_control_response::Action,
+    DiscoveryData, DiscoveryInfo,
+};
+use tonic::Request;
 
 /// MockExploredHost presents a fluent interface for declaring a mock host and running it through
 /// the site-explorer ingestion lifecycle. Its methods are intended to be chained together to
@@ -31,6 +54,7 @@ pub struct MockExploredHost<'a> {
     pub dpu_bmc_ips: HashMap<u8, IpAddr>,
     pub host_dhcp_response: Option<forge::DhcpRecord>,
     pub machine_discovery_response: Option<forge::MachineDiscoveryResult>,
+    pub dpu_machine_ids: HashMap<u8, MachineId>,
 }
 
 impl<'a> MockExploredHost<'a> {
@@ -42,6 +66,7 @@ impl<'a> MockExploredHost<'a> {
             dpu_bmc_ips: HashMap::new(),
             host_dhcp_response: None,
             machine_discovery_response: None,
+            dpu_machine_ids: HashMap::new(),
         }
     }
 
@@ -113,7 +138,7 @@ impl<'a> MockExploredHost<'a> {
     // Create an EndpointExplorationReport for the host and DPUs, and seed them into the
     // MockEndpointExplorer in this test env. If any of the host BMC or DPU BMC's have not run DHCP
     // yet, they will be skipped (as we won't yet know their IP.)
-    pub async fn insert_site_exploration_results(self) -> eyre::Result<Self> {
+    pub async fn insert_site_exploration_results(mut self) -> eyre::Result<Self> {
         self.test_env.endpoint_explorer.insert_endpoints(
             self.managed_host
                 .dpus
@@ -122,6 +147,8 @@ impl<'a> MockExploredHost<'a> {
                 .filter_map(|(index, dpu)| {
                     let mut report: EndpointExplorationReport = dpu.clone().into();
                     report.generate_machine_id(false).unwrap();
+                    self.dpu_machine_ids
+                        .insert(index.try_into().unwrap(), report.machine_id.unwrap());
                     Some((*self.dpu_bmc_ips.get(&(index as u8))?, dpu.clone().into()))
                 })
                 .chain(
@@ -174,6 +201,25 @@ impl<'a> MockExploredHost<'a> {
         Ok(self)
     }
 
+    pub async fn discover_dhcp_dpu_primary_iface(self, dpu_index: u8) -> Self {
+        let _ = self
+            .test_env
+            .api
+            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
+                mac_address: self.managed_host.dpus[dpu_index as usize]
+                    .oob_mac_address
+                    .to_string(),
+                relay_address: FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string(),
+                link_address: None,
+                vendor_string: Some("SomeVendor".to_string()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await;
+
+        self
+    }
+
     /// Simulates scout running machine discovery on the managed host.
     ///
     /// Yields the discovery result to the passed closure.
@@ -187,6 +233,16 @@ impl<'a> MockExploredHost<'a> {
         f: F,
     ) -> eyre::Result<Self> {
         // Run scout discovery from the host
+
+        let mut discovery_info =
+            DiscoveryInfo::try_from(HardwareInfo::from(&self.managed_host)).unwrap();
+
+        discovery_info.attest_key_info = Some(AttestKeyInfo {
+            ek_pub: EK_PUB_SERIALIZED.to_vec(),
+            ak_pub: AK_PUB_SERIALIZED.to_vec(),
+            ak_name: AK_NAME_SERIALIZED.to_vec(),
+        });
+
         let result = self
             .test_env
             .api
@@ -201,9 +257,7 @@ impl<'a> MockExploredHost<'a> {
                         .clone(),
                 ),
                 create_machine: true,
-                discovery_data: Some(DiscoveryData::Info(DiscoveryInfo::try_from(
-                    HardwareInfo::from(&self.managed_host),
-                )?)),
+                discovery_data: Some(DiscoveryData::Info(discovery_info)),
             }))
             .await;
 
@@ -221,6 +275,342 @@ impl<'a> MockExploredHost<'a> {
         self
     }
 
+    /// Runs dpu_state_controller
+    pub async fn dpu_state_controller_iterations(self) -> Self {
+        if self.managed_host.dpus.is_empty() {
+            return self;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+
+        let host_machine_id =
+            Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .id()
+                .clone();
+
+        for machine_id in self.dpu_machine_ids.values() {
+            create_machine_inventory(self.test_env, machine_id).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                20,
+                &mut txn,
+                ManagedHostState::DPUInit {
+                    dpu_states: crate::model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::Init))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        //run scout discovery for dpu(s)
+        for dpu in self.managed_host.dpus.clone() {
+            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+                .await
+                .unwrap();
+            let primary_interface = machine_interfaces
+                .iter()
+                .find(|interface| interface.is_primary)
+                .unwrap();
+            let _ = self
+                .test_env
+                .api
+                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                    machine_interface_id: Some(primary_interface.id.into()),
+                    create_machine: true,
+                    discovery_data: Some(DiscoveryData::Info(
+                        DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
+                    )),
+                }))
+                .await;
+        }
+
+        for machine_id in self.dpu_machine_ids.values() {
+            let response = forge_agent_control(self.test_env, machine_id.clone().into()).await;
+            assert_eq!(
+                response.action,
+                rpc::forge_agent_control_response::Action::Discovery as i32
+            );
+
+            discovery_completed(self.test_env, machine_id.clone().into()).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                20,
+                &mut txn,
+                ManagedHostState::DPUInit {
+                    dpu_states: crate::model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        txn.commit().await.unwrap();
+
+        for machine_id in self.dpu_machine_ids.values() {
+            network_configured(self.test_env, machine_id).await;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                4,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::EnableIpmiOverLan,
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        self
+    }
+
+    pub async fn dpu_state_controller_iterations_to_network_install(self) -> Self {
+        if self.managed_host.dpus.is_empty() {
+            return self;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+
+        let host_machine_id =
+            Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .id()
+                .clone();
+
+        for machine_id in self.dpu_machine_ids.values() {
+            create_machine_inventory(self.test_env, machine_id).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                20,
+                &mut txn,
+                ManagedHostState::DPUInit {
+                    dpu_states: crate::model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::Init))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        //run scout discovery for dpu(s)
+        for dpu in self.managed_host.dpus.clone() {
+            let machine_interfaces = find_by_mac_address(&mut txn, dpu.oob_mac_address)
+                .await
+                .unwrap();
+            let primary_interface = machine_interfaces
+                .iter()
+                .find(|interface| interface.is_primary)
+                .unwrap();
+            let _ = self
+                .test_env
+                .api
+                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                    machine_interface_id: Some(primary_interface.id.into()),
+                    create_machine: true,
+                    discovery_data: Some(DiscoveryData::Info(
+                        DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
+                    )),
+                }))
+                .await;
+        }
+
+        for machine_id in self.dpu_machine_ids.values() {
+            discovery_completed(self.test_env, machine_id.clone().into()).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                20,
+                &mut txn,
+                ManagedHostState::DPUInit {
+                    dpu_states: crate::model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
+                },
+            )
+            .await;
+
+        txn.commit().await.unwrap();
+
+        self
+    }
+
+    pub async fn host_state_controller_iterations(self) -> Self {
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        let rpc_host_machine_id = self
+            .machine_discovery_response
+            .as_ref()
+            .unwrap()
+            .machine_id
+            .clone()
+            .unwrap();
+
+        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap().clone();
+
+        if self.test_env.attestation_enabled {
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    3,
+                    &mut txn,
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::Measuring {
+                            measuring_state: MeasuringState::WaitingForMeasurements,
+                        },
+                    },
+                )
+                .await;
+            txn.commit().await.unwrap();
+
+            inject_machine_measurements(self.test_env, rpc_host_machine_id.clone()).await;
+        }
+
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                4,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::WaitingForDiscovery,
+                },
+            )
+            .await;
+
+        self.test_env
+            .api
+            .record_hardware_health_report(Request::new(HardwareHealthReport {
+                machine_id: Some(host_machine_id.to_string().into()),
+                report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+            }))
+            .await
+            .expect("Failed to add hardware health report to newly created machine");
+
+        txn.commit().await.unwrap();
+
+        discovery_completed(self.test_env, host_machine_id.clone().into()).await;
+        host_uefi_setup(
+            self.test_env,
+            &host_machine_id,
+            host_machine_id.clone().into(),
+        )
+        .await;
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                2,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::WaitingForLockdown {
+                        lockdown_info: LockdownInfo {
+                            state: LockdownState::WaitForDPUUp,
+                            mode: LockdownMode::Enable,
+                        },
+                    },
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        // We use forge_dpu_agent's health reporting as a signal that
+        // DPU has rebooted.
+        for machine_id in self.dpu_machine_ids.values() {
+            super::network_configured(self.test_env, machine_id).await;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                3,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::MachineValidating {
+                        context: "Discovery".to_string(),
+                        id: uuid::Uuid::default(),
+                        completed: 1,
+                        total: 1,
+                        is_enabled: self.test_env.config.machine_validation_config.enabled,
+                    },
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        machine_validation_completed(self.test_env, host_machine_id.clone().into(), None).await;
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                3,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::Discovered {
+                        skip_reboot_wait: false,
+                    },
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        let response = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+        assert_eq!(
+            response.action,
+            rpc::forge_agent_control_response::Action::Noop as i32
+        );
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                1,
+                &mut txn,
+                ManagedHostState::Ready,
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        self
+    }
     /// Marks all BMC IP's as having completed preingestion, manually using the database.
     pub async fn mark_preingestion_complete(self) -> eyre::Result<Self> {
         let ips = self
@@ -235,6 +625,257 @@ impl<'a> MockExploredHost<'a> {
         }
         txn.commit().await?;
         Ok(self)
+    }
+
+    pub async fn host_state_controller_iterations_with_machine_validation(
+        self,
+        machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+        error: Option<String>,
+    ) -> Self {
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        let rpc_host_machine_id = self
+            .machine_discovery_response
+            .as_ref()
+            .unwrap()
+            .machine_id
+            .clone()
+            .unwrap();
+        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap().clone();
+        let mut machine_validation_result = machine_validation_result_data.unwrap_or_default();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                4,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::WaitingForDiscovery,
+                },
+            )
+            .await;
+
+        self.test_env
+            .api
+            .record_hardware_health_report(Request::new(HardwareHealthReport {
+                machine_id: Some(host_machine_id.to_string().into()),
+                report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+            }))
+            .await
+            .expect("Failed to add hardware health report to newly created machine");
+
+        txn.commit().await.unwrap();
+
+        discovery_completed(self.test_env, host_machine_id.clone().into()).await;
+        host_uefi_setup(
+            self.test_env,
+            &host_machine_id,
+            host_machine_id.clone().into(),
+        )
+        .await;
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                2,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::WaitingForLockdown {
+                        lockdown_info: LockdownInfo {
+                            state: LockdownState::WaitForDPUUp,
+                            mode: LockdownMode::Enable,
+                        },
+                    },
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        // We use forge_dpu_agent's health reporting as a signal that
+        // DPU has rebooted.
+        for machine_id in self.dpu_machine_ids.values() {
+            super::network_configured(self.test_env, machine_id).await;
+        }
+
+        let mut txn = self.test_env.pool.begin().await.unwrap();
+        self.test_env
+            .run_machine_state_controller_iteration_until_state_matches(
+                &host_machine_id,
+                3,
+                &mut txn,
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::MachineValidating {
+                        context: "Discovery".to_string(),
+                        id: uuid::Uuid::default(),
+                        completed: 1,
+                        total: 1,
+                        is_enabled: self.test_env.config.machine_validation_config.enabled,
+                    },
+                },
+            )
+            .await;
+        txn.commit().await.unwrap();
+
+        let response = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+        if self.test_env.config.machine_validation_config.enabled {
+            let uuid = &response.data.unwrap().pair[1].value;
+            let validation_id = Some(rpc::Uuid {
+                value: uuid.to_owned(),
+            });
+            let success = update_machine_validation_run(
+                self.test_env,
+                validation_id.clone(),
+                Some(rpc::Duration::from(std::time::Duration::from_secs(1200))),
+                1,
+            )
+            .await;
+            assert_eq!(success.message, "Success".to_string());
+            let runs =
+                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
+                    .await;
+            for run in runs.runs {
+                if run.validation_id == validation_id {
+                    assert_eq!(run.status.unwrap_or_default().total, 1);
+                    assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
+                    assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
+                }
+            }
+            machine_validation_result.validation_id = validation_id.clone();
+            persist_machine_validation_result(self.test_env, machine_validation_result.clone())
+                .await;
+            assert_eq!(
+                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
+                    .await
+                    .runs[0]
+                    .end_time,
+                None
+            );
+
+            machine_validation_completed(
+                self.test_env,
+                host_machine_id.clone().into(),
+                error.clone(),
+            )
+            .await;
+
+            let runs =
+                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
+                    .await;
+            for run in runs.runs {
+                if run.validation_id == validation_id {
+                    assert_eq!(run.status.unwrap_or_default().total, 1);
+                    assert_eq!(run.status.unwrap_or_default().completed_tests, 1);
+                    assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
+                }
+            }
+
+            if error.is_some() {
+                self.test_env.run_machine_state_controller_iteration().await;
+
+                let mut txn = self.test_env.pool.begin().await.unwrap();
+                let machine = Machine::find_one(
+                    &mut txn,
+                    &self.dpu_machine_ids[&0],
+                    crate::db::machine::MachineSearchConfig::default(),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+
+                match machine.current_state() {
+                    ManagedHostState::Failed { .. } => {}
+                    s => {
+                        panic!("Incorrect state: {}", s);
+                    }
+                }
+
+                txn.commit().await.unwrap();
+            } else if machine_validation_result.exit_code == 0 {
+                let _ = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+
+                let mut txn = self.test_env.pool.begin().await.unwrap();
+                self.test_env
+                    .run_machine_state_controller_iteration_until_state_matches(
+                        &host_machine_id,
+                        3,
+                        &mut txn,
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::Discovered {
+                                skip_reboot_wait: false,
+                            },
+                        },
+                    )
+                    .await;
+                txn.commit().await.unwrap();
+
+                let response =
+                    forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+                assert_eq!(response.action, Action::Noop as i32);
+                let mut txn = self.test_env.pool.begin().await.unwrap();
+                self.test_env
+                    .run_machine_state_controller_iteration_until_state_matches(
+                        &host_machine_id,
+                        1,
+                        &mut txn,
+                        ManagedHostState::Ready,
+                    )
+                    .await;
+                txn.commit().await.unwrap();
+            } else {
+                let mut txn = self.test_env.pool.begin().await.unwrap();
+                self.test_env
+                    .run_machine_state_controller_iteration_until_state_matches(
+                        &host_machine_id,
+                        1,
+                        &mut txn,
+                        ManagedHostState::Failed {
+                            details: FailureDetails {
+                                cause: FailureCause::MachineValidation {
+                                    err: format!("{} is failed", machine_validation_result.name),
+                                },
+                                failed_at: chrono::Utc::now(),
+                                source: FailureSource::Scout,
+                            },
+                            machine_id: host_machine_id.clone(),
+                            retry_count: 0,
+                        },
+                    )
+                    .await;
+                txn.commit().await.unwrap();
+            }
+        } else {
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    3,
+                    &mut txn,
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::Discovered {
+                            skip_reboot_wait: true,
+                        },
+                    },
+                )
+                .await;
+
+            txn.commit().await.unwrap();
+
+            // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
+            // machine validation and thus not doing an extra reboot.
+
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    1,
+                    &mut txn,
+                    ManagedHostState::Ready,
+                )
+                .await;
+            txn.commit().await.unwrap();
+        }
+
+        self
     }
 
     /// Run the passed closure with a mutable referece to self
@@ -256,18 +897,46 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
-/// Use this function to make a new managed  host with a given number of DPUs, using site-explorer
+/// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database.
-pub async fn new_host(env: &TestEnv, dpu_count: u8) -> eyre::Result<ManagedHostStateSnapshot> {
-    let managed_host =
-        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
-    let mut mock_explored_host = MockExploredHost::new(env, managed_host);
+pub async fn new_host(
+    env: &TestEnv,
+    config: ManagedHostConfig,
+    dpu_count: u8,
+) -> eyre::Result<ManagedHostStateSnapshot> {
+    // Set BMC credentials in vault
+    for bmc_mac_address in vec![config.bmc_mac_address]
+        .into_iter()
+        .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
+    {
+        env.api
+            .credential_provider
+            .set_credentials(
+                CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                },
+                Credentials::UsernamePassword {
+                    username: "root".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )
+            .await?;
+    }
+
+    let mut mock_explored_host = MockExploredHost::new(env, config);
 
     // Run BMC DHCP. DPUs first...
     for dpu_index in 0..dpu_count {
         mock_explored_host = mock_explored_host
             .discover_dhcp_dpu_bmc(dpu_index, |_, _| Ok(()))
             .await?;
+    }
+
+    // Run DHCP for DPU primary iface
+    for dpu_index in 0..dpu_count {
+        mock_explored_host = mock_explored_host
+            .discover_dhcp_dpu_primary_iface(dpu_index)
+            .await;
     }
 
     mock_explored_host
@@ -284,16 +953,20 @@ pub async fn new_host(env: &TestEnv, dpu_count: u8) -> eyre::Result<ManagedHostS
         .await
         .discover_dhcp_host_primary_iface(|_, _| Ok(()))
         .await?
+        .dpu_state_controller_iterations()
+        .await
         .discover_machine(|_, _| Ok(()))
         .await?
         .run_site_explorer_iteration()
+        .await
+        .host_state_controller_iterations()
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok(db::managed_host::load_snapshot(
                 &mut txn,
-                &MachineId::from_str(&machine_id.id)?,
+                &try_parse_machine_id(&machine_id).unwrap(),
                 Default::default(),
             )
             .await
@@ -301,4 +974,134 @@ pub async fn new_host(env: &TestEnv, dpu_count: u8) -> eyre::Result<ManagedHostS
             .unwrap()?)
         })
         .await
+}
+
+pub async fn new_host_with_machine_validation(
+    env: &TestEnv,
+    dpu_count: u8,
+    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+    error: Option<String>,
+) -> eyre::Result<ManagedHostStateSnapshot> {
+    let managed_host =
+        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let mut mock_explored_host = MockExploredHost::new(env, managed_host);
+
+    // Run BMC DHCP. DPUs first...
+    for dpu_index in 0..dpu_count {
+        mock_explored_host = mock_explored_host
+            .discover_dhcp_dpu_bmc(dpu_index, |_, _| Ok(()))
+            .await?;
+    }
+
+    // Run DHCP for DPU primary iface
+    for dpu_index in 0..dpu_count {
+        mock_explored_host = mock_explored_host
+            .discover_dhcp_dpu_primary_iface(dpu_index)
+            .await;
+    }
+
+    mock_explored_host
+        // ...Then run host BMC's DHCP
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await?
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .discover_dhcp_host_primary_iface(|_, _| Ok(()))
+        .await?
+        .dpu_state_controller_iterations()
+        .await
+        .discover_machine(|_, _| Ok(()))
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .host_state_controller_iterations_with_machine_validation(
+            machine_validation_result_data,
+            error,
+        )
+        .await
+        .finish(|mock| async move {
+            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let mut txn = mock.test_env.pool.begin().await.unwrap();
+            Ok(db::managed_host::load_snapshot(
+                &mut txn,
+                &try_parse_machine_id(&machine_id).unwrap(),
+                Default::default(),
+            )
+            .await
+            .transpose()
+            .unwrap()?)
+        })
+        .await
+}
+
+pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<MachineId> {
+    let mut mock_explored_host = MockExploredHost::new(env, config);
+
+    mock_explored_host = mock_explored_host
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .await?;
+
+    mock_explored_host = mock_explored_host.discover_dhcp_dpu_primary_iface(0).await;
+
+    mock_explored_host = mock_explored_host
+        // ...Then run host BMC's DHCP
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await?
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .dpu_state_controller_iterations()
+        .await;
+
+    Ok(mock_explored_host.dpu_machine_ids[&0].clone())
+}
+
+pub async fn new_dpu_in_network_install(
+    env: &TestEnv,
+    config: ManagedHostConfig,
+) -> eyre::Result<(MachineId, MachineId)> {
+    let mut mock_explored_host = MockExploredHost::new(env, config);
+
+    mock_explored_host = mock_explored_host
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .await?;
+
+    mock_explored_host = mock_explored_host.discover_dhcp_dpu_primary_iface(0).await;
+
+    mock_explored_host = mock_explored_host
+        // ...Then run host BMC's DHCP
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await?
+        .insert_site_exploration_results()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .dpu_state_controller_iterations_to_network_install()
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0].clone();
+    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id()
+        .clone();
+
+    Ok((dpu_machine_id, host_machine_id))
 }

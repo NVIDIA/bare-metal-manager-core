@@ -16,7 +16,7 @@ use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 use tonic::Code;
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -55,7 +55,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant.keyset_ids.len(), 2);
 }
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 

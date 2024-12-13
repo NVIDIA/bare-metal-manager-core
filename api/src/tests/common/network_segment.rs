@@ -10,9 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use super::api_fixtures::TestEnv;
 use crate::api::Api;
 use crate::db::network_segment_state_history::NetworkSegmentStateHistory;
 use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
@@ -20,17 +22,12 @@ use rpc::forge::{
 use rpc::Uuid;
 use tonic::Request;
 
-use super::api_fixtures::FIXTURE_VPC_ID;
-
-pub const FIXTURE_CREATED_DOMAIN_UUID: uuid::Uuid =
-    uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
-
 pub struct NetworkSegmentHelper {
     inner: NetworkSegmentCreationRequest,
 }
 
 impl NetworkSegmentHelper {
-    pub fn new_with_tenant_prefix(prefix: &str, gateway: &str) -> Self {
+    pub fn new_with_tenant_prefix(prefix: &str, gateway: &str, vpc_id: VpcId) -> Self {
         let prefixes = vec![rpc::forge::NetworkPrefix {
             id: None,
             prefix: prefix.into(),
@@ -42,7 +39,7 @@ impl NetworkSegmentHelper {
             free_ip_count: 0,
         }];
         let inner = NetworkSegmentCreationRequest {
-            vpc_id: Some(FIXTURE_VPC_ID.into()),
+            vpc_id: Some(vpc_id.into()),
             name: "TEST_SEGMENT".into(),
             subdomain_id: None,
             mtu: Some(1500),
@@ -62,13 +59,31 @@ impl NetworkSegmentHelper {
 }
 
 pub async fn create_network_segment_with_api(
-    api: &Api,
+    env: &TestEnv,
     use_subdomain: bool,
     use_vpc: bool,
     id: Option<Uuid>,
     segment_type: i32,
     num_reserved: i32,
 ) -> rpc::forge::NetworkSegment {
+    let vpc_id = if use_vpc {
+        env.api
+            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+                id: None,
+                name: "test vpc 1".to_string(),
+                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+                metadata: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .id
+    } else {
+        None
+    };
+
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id,
         mtu: Some(1500),
@@ -83,12 +98,13 @@ pub async fn create_network_segment_with_api(
             circuit_id: None,
             free_ip_count: 0,
         }],
-        subdomain_id: use_subdomain.then(|| FIXTURE_CREATED_DOMAIN_UUID.into()),
-        vpc_id: use_vpc.then(|| FIXTURE_VPC_ID.into()),
+        subdomain_id: use_subdomain.then(|| env.domain.into()),
+        vpc_id,
         segment_type,
     };
 
-    api.create_network_segment(Request::new(request))
+    env.api
+        .create_network_segment(Request::new(request))
         .await
         .expect("Unable to create network segment")
         .into_inner()

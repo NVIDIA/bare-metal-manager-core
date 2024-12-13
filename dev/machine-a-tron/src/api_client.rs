@@ -9,7 +9,6 @@ use rpc::{
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
 use std::future::Future;
-use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use uuid::Uuid;
 
@@ -190,50 +189,6 @@ pub async fn discover_machine(
     with_forge_client(app_context, |mut client| async move {
         let out = client
             .discover_machine(tonic::Request::new(mdi))
-            .await
-            .map(|response| response.into_inner())
-            .map_err(ClientApiError::InvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
-pub async fn update_bmc_metadata(
-    app_context: &MachineATronContext,
-    template_dir: &str,
-    machine_type: MachineType,
-    machine_id: rpc::MachineId,
-    bmc_host: Ipv4Addr,
-    bmc_mac: MacAddress,
-) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
-    let json_path = if machine_type == MachineType::Dpu {
-        format!("{}/dpu_metadata_update.json", template_dir)
-    } else {
-        format!("{}/host_metadata_update.json", template_dir)
-    };
-    let md_request_string = std::fs::read_to_string(&json_path)
-        .map_err(|e| ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e)))?;
-
-    let mut default_data: rpc::forge::BmcMetaDataUpdateRequest =
-        serde_json::from_str(&md_request_string).map_err(|e| {
-            ClientApiError::ConfigError(format!(
-                "{} does not have correct format: {}",
-                json_path, e
-            ))
-        })?;
-
-    default_data.machine_id = Some(machine_id);
-
-    default_data.bmc_info = Some(rpc::forge::BmcInfo {
-        ip: Some(bmc_host.to_string()),
-        port: Some(app_context.app_config.bmc_mock_port.into()),
-        mac: Some(bmc_mac.to_string()),
-        ..Default::default()
-    });
-
-    with_forge_client(app_context, |mut client| async move {
-        let out = client
-            .update_bmc_meta_data(tonic::Request::new(default_data))
             .await
             .map(|response| response.into_inner())
             .map_err(ClientApiError::InvocationError)?;

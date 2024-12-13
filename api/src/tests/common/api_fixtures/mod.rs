@@ -21,11 +21,14 @@ use std::{
     sync::Arc,
 };
 
+use crate::tests::common::api_fixtures::network_segment::{
+    create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+};
 use crate::tests::common::{
     api_fixtures::{
-        dpu::create_dpu_machine,
         endpoint_explorer::MockEndpointExplorer,
-        host::create_host_machine,
         managed_host::{ManagedHostConfig, ManagedHostSim},
     },
     test_certificates::TestCertificateProvider,
@@ -47,10 +50,7 @@ use crate::{
     logging::level_filter::ActiveLevel,
     model::{
         instance_type,
-        machine::{
-            machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
-            ManagedHostState,
-        },
+        machine::{FailureDetails, MachineLastRebootRequested, ManagedHostState},
         metadata::Metadata,
     },
     redfish::RedfishSim,
@@ -74,6 +74,7 @@ use crate::{
     site_explorer::BmcEndpointExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
+use crate::{db, model::hardware_info::TpmEkCertificate};
 use crate::{
     state_controller::state_handler::{
         StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -82,14 +83,16 @@ use crate::{
 };
 use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Duration, Utc};
+use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
-use forge_uuid::{instance_type::InstanceTypeId, machine::MachineId};
+use forge_uuid::{
+    instance_type::InstanceTypeId, machine::MachineId, network::NetworkSegmentId, vpc::VpcId,
+};
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
-use mac_address::MacAddress;
 use measured_boot::pcr::PcrRegisterValue;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use regex::Regex;
@@ -97,6 +100,7 @@ use rpc::forge::{
     forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
     RemoveHealthReportOverrideRequest,
 };
+use site_explorer::new_host_with_machine_validation;
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use tokio::sync::Mutex;
 use tonic::Request;
@@ -120,15 +124,32 @@ pub mod vpc;
 /// In production the relay IP is a MetalLB VIP so isn't in a network segment.
 pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
 
-pub const FIXTURE_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
-pub const FIXTURE_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
-
 // The site fabric prefixes list that the tests run with. Double check against
 // the test logic before changing it, as at least one test relies on this list
 // _excluding_ certain address space.
 lazy_static! {
-    pub static ref TEST_SITE_PREFIXES: Vec<IpNetwork> =
-        vec![IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)), 24).unwrap()];
+    pub static ref TEST_SITE_PREFIXES: Vec<IpNetwork> = vec![
+        IpNetwork::new(
+            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+        )
+        .unwrap(),
+    ];
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,12 +158,20 @@ pub struct TestEnvOverrides {
     pub site_prefixes: Option<Vec<IpNetwork>>,
     pub config: Option<CarbideConfig>,
     pub ibports: Option<HashMap<String, crate::ib::types::IBPort>>,
+    pub create_network_segments: Option<bool>,
 }
 
 impl TestEnvOverrides {
     pub fn with_config(config: CarbideConfig) -> Self {
         Self {
             config: Some(config),
+            ..Default::default()
+        }
+    }
+
+    pub fn no_network_segments() -> Self {
+        Self {
+            create_network_segments: Some(false),
             ..Default::default()
         }
     }
@@ -166,6 +195,9 @@ pub struct TestEnv {
     pub attestation_enabled: bool,
     pub site_explorer: SiteExplorer,
     pub endpoint_explorer: MockEndpointExplorer,
+    pub admin_segment: Option<NetworkSegmentId>,
+    pub underlay_segment: Option<NetworkSegmentId>,
+    pub domain: uuid::Uuid,
 }
 
 impl TestEnv {
@@ -387,12 +419,83 @@ impl TestEnv {
             .unwrap()
             .into_inner()
     }
+
+    pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
+        let vpc = self
+            .api
+            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+                id: None,
+                name: "test vpc 1".to_string(),
+                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+                metadata: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let tenant_network_id = create_tenant_network_segment(
+            &self.api,
+            vpc.id,
+            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            "TENANT",
+            true,
+        )
+        .await;
+
+        // Get the tenant segment into ready state
+        self.run_network_segment_controller_iteration().await;
+        self.run_network_segment_controller_iteration().await;
+
+        tenant_network_id
+    }
+
+    pub async fn create_vpc_and_dual_tenant_segment(&self) -> (NetworkSegmentId, NetworkSegmentId) {
+        let vpc = self
+            .api
+            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+                id: None,
+                name: "test vpc 1".to_string(),
+                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+                metadata: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let tenant_network_id_1 = create_tenant_network_segment(
+            &self.api,
+            vpc.id.clone(),
+            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            "TENANT",
+            true,
+        )
+        .await;
+        self.run_network_segment_controller_iteration().await;
+        self.run_network_segment_controller_iteration().await;
+
+        let tenant_network_id_2 = create_tenant_network_segment(
+            &self.api,
+            vpc.id,
+            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+            "TENANT2",
+            false,
+        )
+        .await;
+        self.run_network_segment_controller_iteration().await;
+        self.run_network_segment_controller_iteration().await;
+
+        (tenant_network_id_1, tenant_network_id_2)
+    }
 }
 
 fn dpu_fw_example() -> Firmware {
     Firmware {
         vendor: bmc_vendor::BMCVendor::Nvidia,
-        model: "Bluefield 3 SmartNIC Main Card".to_string(),
+        model: "BlueField-3 SmartNIC Main Card".to_string(),
         components: HashMap::from([(
             FirmwareComponentType::Bmc,
             FirmwareComponent {
@@ -769,7 +872,7 @@ pub async fn create_test_env_with_overrides(
         ))),
     };
 
-    let network_controller = StateController::builder()
+    let mut network_controller = StateController::builder()
         .database(db_pool.clone())
         .meter("forge_machines", test_meter.meter())
         .redfish_client_pool(redfish_sim.clone())
@@ -846,6 +949,39 @@ pub async fn create_test_env_with_overrides(
     }
 
     txn.commit().await.unwrap();
+    // Create domain
+    let domain: uuid::Uuid = api
+        .create_domain(Request::new(rpc::forge::Domain {
+            id: None,
+            name: "dwrt1.com".to_string(),
+            created: None,
+            updated: None,
+            deleted: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .map(forge_uuid::domain::DomainId::try_from)
+        .unwrap()
+        .unwrap()
+        .into();
+
+    let (admin_segment, underlay_segment) = if overrides.create_network_segments.unwrap_or(true) {
+        // Create admin network
+        let admin = Some(create_admin_network_segment(&api).await);
+        network_controller.run_single_iteration().await;
+        network_controller.run_single_iteration().await;
+
+        // Create underlay network
+        let underlay = Some(create_underlay_network_segment(&api).await);
+        network_controller.run_single_iteration().await;
+        network_controller.run_single_iteration().await;
+
+        (admin, underlay)
+    } else {
+        (None, None)
+    };
 
     TestEnv {
         api,
@@ -865,6 +1001,9 @@ pub async fn create_test_env_with_overrides(
         test_meter,
         site_explorer,
         endpoint_explorer: fake_endpoint_explorer,
+        admin_segment,
+        underlay_segment,
+        domain,
     }
 }
 
@@ -963,43 +1102,6 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         },
     );
     defs
-}
-
-/// Emulates the `UpdateBmcMetaData` request of a DPU/Host
-/// TODO: This request does not happen anymore in the site-explorer world
-/// The method should be removed once tests are converted to site explorer
-pub async fn update_bmc_metadata(
-    env: &TestEnv,
-    machine_id: rpc::common::MachineId,
-    bmc_ip_address: &str,
-    admin_user: String,
-    bmc_mac_address: MacAddress,
-    bmc_version: String,
-    bmc_firmware_version: String,
-) {
-    let bmc_info = rpc::forge::BmcInfo {
-        ip: Some(bmc_ip_address.to_owned()),
-        port: None,
-        mac: Some(bmc_mac_address.to_string()),
-        version: Some(bmc_version),
-        firmware_version: Some(bmc_firmware_version),
-    };
-
-    let _response = env
-        .api
-        .update_bmc_meta_data(Request::new(rpc::forge::BmcMetaDataUpdateRequest {
-            machine_id: Some(machine_id),
-            data: vec![rpc::forge::bmc_meta_data_update_request::DataItem {
-                user: admin_user,
-                password: "notforprod".to_string(),
-                role: rpc::forge::UserRoles::Administrator as i32,
-            }],
-            request_type: rpc::forge::BmcRequestType::Redfish as i32,
-            bmc_info: Some(bmc_info),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
@@ -1198,23 +1300,86 @@ pub async fn forge_agent_control(
         .into_inner()
 }
 
+/// Create a managed host with 1 DPU (default config)
 pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
-    create_managed_host_with_config(env, ManagedHostConfig::default()).await
+    let mh = site_explorer::new_host(env, ManagedHostConfig::default(), 1)
+        .await
+        .expect("Failed to create a new host");
+    (
+        mh.host_snapshot.machine_id,
+        mh.dpu_snapshots[0].machine_id.clone(),
+    )
 }
 
+pub async fn create_managed_host_with_ek(
+    env: &TestEnv,
+    ek_cert: &[u8],
+) -> (MachineId, MachineId, ManagedHostSim) {
+    let host_sim = ManagedHostSim {
+        config: ManagedHostConfig {
+            tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
+            ..Default::default()
+        },
+    };
+
+    let (host_machine_id, dpu_machine_id) =
+        create_managed_host_with_config(env, host_sim.config.clone()).await;
+
+    (host_machine_id, dpu_machine_id[0].clone(), host_sim)
+}
+
+/// Create a managed host with `dpu_count` DPUs (default config)
+pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> MachineId {
+    assert!(dpu_count >= 1, "need to specify at least 1 dpu");
+    let config =
+        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let mh = site_explorer::new_host(env, config, dpu_count.try_into().unwrap())
+        .await
+        .unwrap();
+
+    mh.host_snapshot.machine_id
+}
+
+/// Create a managed host with full config control
 pub async fn create_managed_host_with_config(
     env: &TestEnv,
     config: ManagedHostConfig,
-) -> (MachineId, MachineId) {
-    // TODO: Return host_sim
-    let host_sim = env.start_managed_host_sim_with_config(config);
-    let dpu_machine_id = create_dpu_machine(env, &host_sim.config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let host_machine_id = create_host_machine(env, &host_sim.config, &dpu_machine_id).await;
+) -> (MachineId, Vec<MachineId>) {
+    let dpu_count: usize = config.dpus.len();
+    let mh = site_explorer::new_host(env, config, dpu_count.try_into().unwrap())
+        .await
+        .expect("Failed to create a new host");
 
+    let host_machine_id = mh.host_snapshot.machine_id;
+
+    match dpu_count {
+        0 => (host_machine_id, vec![]),
+        1 => (
+            host_machine_id,
+            vec![mh.dpu_snapshots[0].machine_id.clone()],
+        ),
+        _ => {
+            let dpu_ids = mh
+                .dpu_snapshots
+                .iter()
+                .map(|snapshot| snapshot.machine_id.clone())
+                .collect();
+            (host_machine_id, dpu_ids)
+        }
+    }
+}
+
+pub async fn create_host_with_machine_validation(
+    env: &TestEnv,
+    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+    error: Option<String>,
+) -> (rpc::MachineId, MachineId) {
+    let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
+        .await
+        .unwrap();
     (
-        try_parse_machine_id(&host_machine_id).unwrap(),
-        dpu_machine_id,
+        mh.host_snapshot.machine_id.into(),
+        mh.dpu_snapshots[0].machine_id.clone(),
     )
 }
 
@@ -1431,6 +1596,17 @@ pub async fn update_machine_validation_run(
         .unwrap()
         .into_inner()
 }
+
+pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
+    db::vpc::Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .id
+}
+
 /// A hot swappable machine state handler.
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).

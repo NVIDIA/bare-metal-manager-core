@@ -26,7 +26,7 @@ use crate::{
     model::machine::BmcFirmwareUpgradeSubstate,
 };
 use chrono::Utc;
-use common::api_fixtures::managed_host::create_managed_host_multi_dpu;
+use common::api_fixtures::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -35,19 +35,16 @@ use sqlx::{Postgres, Transaction};
 
 use crate::tests::common;
 
-use crate::tests::common::api_fixtures::dpu::{
-    create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
-};
+use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use crate::tests::common::api_fixtures::instance::{
     create_instance, single_interface_network_config,
 };
-use crate::tests::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use crate::tests::common::api_fixtures::{
     create_managed_host, discovery_completed, forge_agent_control, network_configured,
     update_time_params, TestEnv,
 };
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -202,7 +199,7 @@ pub async fn trigger_bmc_fw_update(
     env.run_machine_state_controller_iteration().await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -510,7 +507,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -539,11 +536,10 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
         .is_err());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let (_, dpu_machine_id) = create_managed_host(&env).await;
 
     assert!(env
         .api
@@ -562,7 +558,7 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
         .is_err());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -758,16 +754,17 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (_instance_id, instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1169,16 +1166,17 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     ));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1501,7 +1499,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains("exit"));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -1581,7 +1579,7 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     assert!(dpu.reprovisioning_requested().is_some(),);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_reboot_retry(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -1629,7 +1627,6 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.last_reboot_requested().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
-
     trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1857,7 +1854,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -2015,7 +2012,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_clear_with_function_call(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -2063,7 +2060,7 @@ async fn test_clear_with_function_call(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -2102,7 +2099,7 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
         .is_err());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -2135,7 +2132,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -2258,7 +2255,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_reprov(
     pool: sqlx::PgPool,
 ) {
@@ -2625,7 +2622,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
@@ -2995,16 +2992,17 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],

@@ -18,22 +18,26 @@ use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_prefix::NewNetworkPrefix;
 use crate::db::network_segment::{NetworkSegmentType, NewNetworkSegment};
 use crate::model::network_segment::NetworkSegmentControllerState;
-use forge_uuid::domain::DomainId;
 use ipnetwork::IpNetwork;
 use std::net::IpAddr;
 
+use crate::tests::common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+    let domain = crate::db::domain::Domain::find_by_name(&mut txn, "dwrt1.com")
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
 
     let new_ns = NewNetworkSegment {
         name: "PDX01-M01-H14-IPMITOR-01".to_string(),
         // domain id from tests/fixtures/create_domain.sql
-        subdomain_id: Some(DomainId::from(uuid::uuid!(
-            "1ebec7c1-114f-4793-a9e4-63f3d22b5b5e"
-        ))),
+        subdomain_id: Some(domain.id),
         vpc_id: None,
         mtu: 1490,
         prefixes: vec![NewNetworkPrefix {
@@ -54,9 +58,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        Some(DomainId::from(uuid::uuid!(
-            "1ebec7c1-114f-4793-a9e4-63f3d22b5b5e"
-        ))),
+        Some(domain.id),
         true,
         AddressSelectionStrategy::Automatic,
     )

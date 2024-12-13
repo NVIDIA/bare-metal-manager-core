@@ -15,26 +15,18 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{
-    db::{self, machine::Machine},
-    model::{
-        hardware_info::{HardwareInfo, NetworkInterface, TpmEkCertificate},
-        machine::machine_id::try_parse_machine_id,
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState,
-            Service, UefiDevicePath,
-        },
+use crate::model::{
+    hardware_info::{HardwareInfo, NetworkInterface, TpmEkCertificate},
+    site_explorer::{
+        Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
+        EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
     },
 };
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 
-use super::{
-    create_random_self_signed_cert, dpu::create_dpu_machine, host::create_host_machine, TestEnv,
-};
+use super::create_random_self_signed_cert;
 use crate::tests::common::{api_fixtures::dpu::DpuConfig, mac_address_pool};
 
 static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
@@ -250,16 +242,16 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 id: "FirmwareInventory".to_string(),
                 inventories: vec![
                     Inventory {
-                        id: "Slot_3.1".to_string(),
-                        description: Some("The information of Firmware firmware.".to_string()),
-                        version: Some("32.38.1002".to_string()),
+                        id: "Installed-__iDRACz".to_string(),
+                        description: Some("The information of BMC (Primary) firmware.".to_string()),
+                        version: Some("5.10.20".to_string()),
                         release_date: None,
                     },
                     Inventory {
-                        id: "BMC-Primary".to_string(),
-                        description: Some("The information of BMC (Primary) firmware.".to_string()),
-                        version: Some("38U-3.86".to_string()),
-                        release_date: Some("2023-09-12T00:00:00Z".to_string()),
+                        id: "Current-159-1.13.2__BIOS.Setup.1-1".to_string(),
+                        description: Some("The information of Firmware firmware.".to_string()),
+                        version: Some("1.12.0".to_string()),
+                        release_date: None,
                     },
                 ],
             }],
@@ -268,71 +260,4 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             model: None,
         }
     }
-}
-
-/// Create a managed_host set of machines with `dpu_count` DPUs. This currently uses a hacky
-/// approach by creating `dpu_count` managed_hosts and then moving the DPUs of all of the managed
-/// hosts to the first host.
-///
-/// This will be cleaned up to be made less hacky as we implement more of the logic for ingesting
-/// "real" multi-dpu hosts.
-pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> MachineId {
-    assert!(dpu_count >= 1, "need to specify at least 1 dpu");
-    let mut txn = env.pool.begin().await.unwrap();
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(env, &host_sim.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(env, &host_sim.config, &dpu_machine_id).await)
-            .unwrap();
-
-    for _ in 1..dpu_count {
-        let extra_host_sim = env.start_managed_host_sim();
-        let extra_dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(env, &extra_host_sim.config).await).unwrap();
-        let extra_host_machine_id = try_parse_machine_id(
-            &create_host_machine(env, &extra_host_sim.config, &extra_dpu_machine_id).await,
-        )
-        .unwrap();
-
-        tracing::info!(
-            "Created extra mh: host: {extra_host_machine_id} dpu: {extra_dpu_machine_id}"
-        );
-
-        let interface =
-            db::machine_interface::find_by_machine_ids(&mut txn, &[extra_host_machine_id.clone()])
-                .await
-                .unwrap()
-                .get(&extra_host_machine_id)
-                .unwrap()
-                .first()
-                .unwrap()
-                .clone();
-
-        associate_interface_with_machine_as_non_primary(&interface.id, &mut txn, &host_machine_id)
-            .await;
-
-        tracing::info!("Deleting extra host: {extra_host_machine_id}");
-        if let Err(e) = Machine::force_cleanup(&mut txn, &extra_host_machine_id).await {
-            tracing::warn!("Failed to clean up extra host: {e}");
-        }
-    }
-
-    // Make sure any calls to the API will see the changes we just wrote.
-    txn.commit().await.unwrap();
-    host_machine_id
-}
-
-pub async fn associate_interface_with_machine_as_non_primary(
-    interface_id: &MachineInterfaceId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
-) {
-    db::machine_interface::set_primary_interface(interface_id, false, txn)
-        .await
-        .unwrap();
-    db::machine_interface::associate_interface_with_machine(interface_id, machine_id, txn)
-        .await
-        .unwrap();
 }

@@ -12,9 +12,10 @@ const DOMAIN_NAME: &str = "dwrt1.com";
 const DNS_ADM_SUBDOMAIN: &str = concatcp!("adm.", DOMAIN_NAME);
 const DNS_BMC_SUBDOMAIN: &str = concatcp!("bmc.", DOMAIN_NAME);
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dns(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
     let api = &env.api;
 
     // Database should have 0 rows in the dns_records view.

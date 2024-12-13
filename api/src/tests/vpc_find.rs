@@ -9,17 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::db::vpc::Vpc;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
-use crate::tests::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
-use crate::tests::common::api_fixtures::FIXTURE_VPC_ID;
 use crate::tests::common::api_fixtures::{create_test_env, vpc::create_vpc, TestEnv};
 use ::rpc::forge as rpc;
 use forge_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
+use std::ops::DerefMut;
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -88,7 +86,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_tenant_name.vpc_ids.len(), 1);
 }
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -177,9 +175,14 @@ async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
+    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
+
+    sqlx::query(r#"
+        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
+    "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
     let some_vpc = Vpc::find_by_name(&mut txn, "test vpc 1").await?;
 
@@ -187,7 +190,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
     let first = some_vpc.first();
 
-    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_VPC_ID)));
+    assert!(matches!(first, Some(x) if x.id == vpc_id));
 
     Ok(())
 }
@@ -224,7 +227,7 @@ async fn find_vpc_by_request(
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -315,9 +318,10 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.vpcs.len(), 0);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
 
     let mut txn = env
         .pool
@@ -325,8 +329,12 @@ async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc = Vpc::find_by_segment(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+    let vpc_id = Vpc::find_by_name(&mut txn, "test vpc 1")
         .await
-        .unwrap();
-    assert_eq!(vpc.id.to_string(), *FIXTURE_VPC_ID.to_string());
+        .unwrap()
+        .first()
+        .unwrap()
+        .id;
+    let vpc = Vpc::find_by_segment(&mut txn, segment_id).await.unwrap();
+    assert_eq!(vpc.id.to_string(), vpc_id.to_string());
 }

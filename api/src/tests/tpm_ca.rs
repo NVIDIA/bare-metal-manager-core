@@ -27,10 +27,7 @@ pub mod tests {
 
     use crate::db;
     use crate::db::machine::Machine;
-    use crate::tests::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
-    use forge_uuid::domain::DomainId;
     use forge_uuid::machine::MachineId;
-    use lazy_static::lazy_static;
 
     use rpc::forge::forge_server::Forge;
     use rpc::forge::TpmCaCert;
@@ -50,12 +47,7 @@ pub mod tests {
      }
     }
 
-    lazy_static! {
-        pub static ref FIXTURE_CREATED_DOMAIN_ID: DomainId =
-            uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").into();
-    }
-
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_get_ek_cert_by_machine_hw_info_not_found_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -69,7 +61,7 @@ pub mod tests {
 
         let segment = NetworkSegment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
+            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
             crate::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -80,7 +72,7 @@ pub mod tests {
             &mut txn,
             &segment,
             &dpu.host_mac_address,
-            Some(*FIXTURE_CREATED_DOMAIN_ID),
+            Some(env.domain.into()),
             true,
             crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
@@ -106,7 +98,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_get_ek_cert_by_machine_tpm_ek_cert_not_found_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -120,7 +112,7 @@ pub mod tests {
 
         let segment = NetworkSegment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
+            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
             crate::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -131,7 +123,7 @@ pub mod tests {
             &mut txn,
             &segment,
             &dpu.host_mac_address,
-            Some(*FIXTURE_CREATED_DOMAIN_ID),
+            Some(env.domain.into()),
             true,
             crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )
@@ -341,7 +333,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_match_update_existing_ek_cert_against_ca_ek_cert_invalid_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -381,7 +373,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_match_update_existing_ek_cert_against_ca_ca_cert_invalid_returns_error(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -419,7 +411,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_match_update_existing_ek_cert_status_against_ca_signature_not_verified_should_not_change_record(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -517,7 +509,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_tpm_add_ca_cert_with_two_eks_present_should_update_one_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -657,7 +649,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_tpm_show_unmatched_ek_cert_with_two_unmatched_present_returns_two_eks(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -733,7 +725,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_tpm_show_unmatched_ek_cert_one_matched_one_unmatched_return_unmatched(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -868,7 +860,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_tpm_delete_ca_cert_one_ek_matched_one_unmatched_should_unmatch_one_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -969,7 +961,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_discover_machine_ca_present_should_insert_and_match_new_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1024,7 +1016,7 @@ pub mod tests {
         Ok(())
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_discover_machine_ca_not_present_should_insert_new_unmatched_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1072,7 +1064,7 @@ pub mod tests {
     // Strictly speaking this is an impossible situation: if ca was inserted after ek
     // then it would match on ca insertion, if ek was inserted after ca, then it could
     // only be inserted via discover_machine, which was already tested above.
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+    #[crate::sqlx_test]
     async fn test_discover_machine_ca_present_ek_present_should_update_and_match_existing_ek(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1175,7 +1167,7 @@ pub mod tests {
 
         let segment = NetworkSegment::find_by(
             &mut txn,
-            ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
+            ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
             crate::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -1186,7 +1178,7 @@ pub mod tests {
             &mut txn,
             &segment,
             &dpu.host_mac_address,
-            Some(*FIXTURE_CREATED_DOMAIN_ID),
+            Some(env.domain.into()),
             true,
             crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
         )

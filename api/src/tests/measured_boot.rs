@@ -19,11 +19,11 @@ pub mod tests {
     use crate::model::hardware_info::TpmEkCertificate;
     use crate::model::machine::machine_id::try_parse_machine_id;
     use crate::tests::common;
+    use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
+    use crate::tests::common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::create_test_env_with_overrides;
-    use common::api_fixtures::dpu::create_dpu_machine;
     use common::api_fixtures::get_config;
-    use common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::tpm_attestation::{
         AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
         ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
@@ -40,7 +40,7 @@ pub mod tests {
     use rpc::MachineDiscoveryInfo;
     use tonic::Code;
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    #[crate::sqlx_test]
     async fn test_discover_machine_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
         let mut config = get_config();
         config.attestation_enabled = true;
@@ -103,7 +103,7 @@ pub mod tests {
         }
     }
 
-    #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    #[crate::sqlx_test]
     async fn test_discover_machine_key_pub_key_does_not_match_cert_returns_error(
         pool: sqlx::PgPool,
     ) {

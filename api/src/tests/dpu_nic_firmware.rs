@@ -13,25 +13,16 @@ use crate::{
         dpu_nic_firmware::DpuNicFirmwareUpdate,
         machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
     },
-    model::machine::machine_id::try_parse_machine_id,
 };
-use common::api_fixtures::{
-    create_test_env, dpu::create_dpu_machine, host::create_host_machine,
-    managed_host::create_managed_host_multi_dpu,
-};
+use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use sqlx::Row;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
-            .unwrap();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert(
         "BlueField-3 SmartNIC Main Card".to_owned(),
@@ -81,7 +72,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_start_updates_with_multidpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -155,17 +146,12 @@ async fn test_start_updates_with_multidpu(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_get_updates_in_progress(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
-            .unwrap();
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert(
         "BlueField-3 SmartNIC Main Card".to_owned(),
@@ -205,21 +191,11 @@ async fn test_get_updates_in_progress(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim1 = env.start_managed_host_sim();
-    let host_sim2 = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
-    let _host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id).await)
-            .unwrap();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
-    let _host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
-            .unwrap();
+    create_managed_host(&env).await;
+    create_managed_host(&env).await;
 
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert(
@@ -247,17 +223,12 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_clear_complated_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
-            .unwrap();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert(
         "BlueField-3 SmartNIC Main Card".to_owned(),

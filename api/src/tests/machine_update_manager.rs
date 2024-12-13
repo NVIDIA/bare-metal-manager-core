@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use crate::tests::common::api_fixtures::create_managed_host;
 use crate::{
     cfg::file::CarbideConfig,
     db::{
@@ -19,19 +20,16 @@ use crate::{
         },
         MachineUpdateManager,
     },
-    model::machine::machine_id::try_parse_machine_id,
     CarbideResult,
 };
 use async_trait::async_trait;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+use common::api_fixtures::create_test_env;
 use figment::{
     providers::{Format, Toml},
     Figment,
 };
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Row, Transaction};
-
-use crate::tests::common::api_fixtures::host::create_host_machine;
 
 const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
@@ -102,23 +100,13 @@ impl fmt::Display for TestUpdateModule {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_max_outstanding_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim1 = env.start_managed_host_sim();
-    let host_sim2 = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
-    let _host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id).await)
-            .unwrap();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
-    let _host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
-            .unwrap();
+    create_managed_host(&env).await;
+    let (_, dpu_machine_id) = create_managed_host(&env).await;
 
     let config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
@@ -150,22 +138,13 @@ async fn test_max_outstanding_updates(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_put_machine_in_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim1 = env.start_managed_host_sim();
-    let host_sim2 = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
-    try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id).await)
-        .unwrap();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
-            .unwrap();
+    create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -213,22 +192,13 @@ async fn test_put_machine_in_maintenance(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_remove_machine_from_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim1 = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
-    try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id).await)
-        .unwrap();
-    let host_sim2 = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
-    let host_machine_id =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
-            .unwrap();
+    create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -340,23 +310,13 @@ fn test_start(pool: sqlx::PgPool) {
     assert_eq!(start_count, end_count);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_get_machines_in_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim1 = env.start_managed_host_sim();
-    let host_sim2 = env.start_managed_host_sim();
-    let dpu_machine_id1 =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
-    let host_machine_id1 =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id1).await)
-            .unwrap();
-    let dpu_machine_id2 =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
-    let host_machine_id2 =
-        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id2).await)
-            .unwrap();
+    let (host_machine_id1, dpu_machine_id1) = create_managed_host(&env).await;
+    let (host_machine_id2, dpu_machine_id2) = create_managed_host(&env).await;
 
     let mut txn = env
         .pool

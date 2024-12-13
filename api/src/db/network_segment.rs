@@ -446,7 +446,6 @@ impl NetworkSegment {
             0 => Ok(None),
             1 => {
                 let mut segment: NetworkSegment = results.remove(0);
-
                 let query = "SELECT * FROM network_prefixes WHERE segment_id=$1::uuid";
                 segment.prefixes = sqlx::query_as(query)
                     .bind(segment.id())

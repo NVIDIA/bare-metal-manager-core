@@ -11,12 +11,9 @@
  */
 
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 
-use crate::tests::common::api_fixtures::{
-    create_test_env, dpu::create_dpu_machine, host::create_host_machine,
-};
+use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[sqlx::test]
 async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -141,7 +138,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[sqlx::test]
 async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -192,14 +189,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     });
 
     // Create a host machine to associate with the instance type
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id: MachineId = create_dpu_machine(&env, &host_sim.config)
-        .await
-        .id
-        .parse()
-        .unwrap();
-
-    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Associate the machine with the instance type
     let _ = env
@@ -207,7 +197,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .associate_machines_with_instance_type(tonic::Request::new(
             rpc::forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
-                machine_ids: vec![tmp_machine_id.id.clone()],
+                machine_ids: vec![tmp_machine_id.to_string()],
             },
         ))
         .await
@@ -243,7 +233,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
             rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
-                machine_id: tmp_machine_id.id,
+                machine_id: tmp_machine_id.to_string(),
             },
         ))
         .await
@@ -376,7 +366,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[sqlx::test]
 async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -407,14 +397,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let id = existing_instance_types[0].id.clone();
 
     // Create a host machine to associate with the instance type
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id: MachineId = create_dpu_machine(&env, &host_sim.config)
-        .await
-        .id
-        .parse()
-        .unwrap();
-
-    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+    let (tmp_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     // Associate the machine with the instance type
     let _ = env
@@ -422,7 +405,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .associate_machines_with_instance_type(tonic::Request::new(
             rpc::forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
-                machine_ids: vec![tmp_machine_id.id.clone()],
+                machine_ids: vec![tmp_machine_id.to_string()],
             },
         ))
         .await
@@ -443,7 +426,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
             rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
-                machine_id: tmp_machine_id.id.clone(),
+                machine_id: tmp_machine_id.to_string(),
             },
         ))
         .await
@@ -493,7 +476,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .associate_machines_with_instance_type(tonic::Request::new(
             rpc::forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
-                machine_ids: vec![tmp_machine_id.id],
+                machine_ids: vec![tmp_machine_id.to_string()],
             },
         ))
         .await

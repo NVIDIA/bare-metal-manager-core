@@ -24,7 +24,7 @@ use health_report::OverrideMode;
 use rpc::forge::{forge_server::Forge, HealthOverrideOrigin};
 use tonic::Request;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_machine_health_reporting(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -116,7 +116,7 @@ async fn test_machine_health_reporting(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_hardware_health_reporting(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -153,7 +153,7 @@ async fn test_hardware_health_reporting(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_health_aggregation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -342,7 +342,7 @@ async fn test_machine_health_aggregation(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
@@ -366,7 +366,7 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 

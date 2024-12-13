@@ -27,42 +27,19 @@ use crate::{
     },
     CarbideError,
 };
-use forge_uuid::{domain::DomainId, network::NetworkSegmentId};
 
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};
-use sqlx::{Connection, Postgres};
 
-use crate::db::{network_segment, ObjectColumnFilter};
+use crate::db::ObjectColumnFilter;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
-use common::api_fixtures::{
-    create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_DHCP_RELAY_ADDRESS,
-};
+use common::api_fixtures::{create_test_env, FIXTURE_DHCP_RELAY_ADDRESS};
 use tokio::sync::broadcast;
 use tonic::Code;
 
-async fn get_fixture_network_segment(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
-    network_segment::NetworkSegment::find_by(
-        txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
-        network_segment::NetworkSegmentSearchConfig::default(),
-    )
-    .await?
-    .pop()
-    .ok_or_else(|| {
-        format!(
-            "Can't find the Network Segment by well-known-uuid: {}",
-            *FIXTURE_NETWORK_SEGMENT_ID
-        )
-        .into()
-    })
-}
-
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn only_one_primary_interface_per_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -74,7 +51,7 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
 
     let new_interface = db::machine_interface::create(
         &mut txn,
@@ -119,13 +96,13 @@ async fn only_one_primary_interface_per_machine(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn many_non_primary_interfaces_per_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
 
     db::machine_interface::create(
         &mut txn,
@@ -139,7 +116,7 @@ async fn many_non_primary_interfaces_per_machine(
     .expect("Unable to create machine interface");
 
     txn.commit().await.unwrap();
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let should_be_ok_interface = db::machine_interface::create(
         &mut txn,
@@ -158,14 +135,15 @@ async fn many_non_primary_interfaces_per_machine(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn return_existing_machine_interface_on_rediscover(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // TODO: This tests only DHCP without Machines. For Interfaces with a Machine,
     // there are tests in `machine_dhcp.rs`
     // This should also be migrated to use actual API calls
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
@@ -188,7 +166,7 @@ async fn return_existing_machine_interface_on_rediscover(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn find_all_interfaces_test_cases(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -196,7 +174,7 @@ async fn find_all_interfaces_test_cases(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
     let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
@@ -261,7 +239,7 @@ async fn find_all_interfaces_test_cases(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -269,7 +247,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
     let domain_ids = Domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     let domain_id = domain_ids[0].id;
     let new_interface = db::machine_interface::create(
@@ -328,23 +306,11 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let network = NetworkSegment::find_by(
-        &mut txn,
-        ObjectColumnFilter::One(
-            network_segment::IdColumn,
-            &NetworkSegmentId::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
-        ),
-        network_segment::NetworkSegmentSearchConfig {
-            include_history: false,
-            include_num_free_ips: false,
-        },
-    )
-    .await
-    .unwrap()
-    .remove(0);
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+    let network = NetworkSegment::admin(&mut txn).await?;
     txn.commit().await.unwrap();
 
     let (tx, _rx1) = broadcast::channel(10);
@@ -353,7 +319,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     for i in 0..max_interfaces {
         let n = network.clone();
         let mac = format!("ff:ff:ff:ff:{:02}:{:02}", i / 100, i % 100);
-        let db_pool = pool.clone();
+        let db_pool = env.pool.clone();
         let mut rx = tx.subscribe();
         let h = tokio::spawn(async move {
             // Let's start all threads together.
@@ -363,7 +329,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 &mut txn,
                 &n,
                 &MacAddress::from_str(&mac).unwrap(),
-                Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+                Some(env.domain.into()),
                 true,
                 AddressSelectionStrategy::Automatic,
             )
@@ -382,7 +348,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     for h in handles {
         _ = h.await;
     }
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();
 
     assert_eq!(interfaces.len(), max_interfaces);
@@ -397,16 +363,17 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
     let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -428,16 +395,17 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
     let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -446,11 +414,11 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     db::machine_interface::delete(&interface.id, &mut txn).await?;
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let _interface = db::machine_interface::find_one(&mut txn, interface.id).await;
     assert!(matches!(
         CarbideError::FindOneReturnedNoResultsError(interface.id.0),
@@ -462,7 +430,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_delete_interface_with_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -508,7 +476,7 @@ async fn test_delete_interface_with_machine(
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_delete_bmc_interface_with_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -524,9 +492,8 @@ async fn test_delete_bmc_interface_with_machine(
         .iter()
         .filter(|x| x.attached_dpu_machine_id.is_none())
         .collect::<Vec<&MachineInterfaceSnapshot>>();
-
-    if interfaces.len() != 1 {
-        // We have only three interfaces, 2 for managed host and one for bmc.
+    if interfaces.len() != 2 {
+        // We have only four interfaces, 2 for managed host and 2 for bmc (host and dpu).
         panic!("Wrong interface count {}.", interfaces.len());
     }
 
@@ -561,16 +528,17 @@ async fn test_delete_bmc_interface_with_machine(
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let network_segment = NetworkSegment::admin(&mut txn).await?;
     let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(env.domain.into()),
         true,
         AddressSelectionStrategy::Automatic,
     )

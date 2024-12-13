@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::db::network_segment::NetworkSegment;
 use common::api_fixtures::create_managed_host_with_config;
 use common::api_fixtures::dpu;
 use common::api_fixtures::instance::{create_instance, single_interface_network_config};
 use common::api_fixtures::managed_host::ManagedHostConfig;
-use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS, FIXTURE_DOMAIN_ID,
-    FIXTURE_VPC_ID,
+    create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::IpType;
@@ -26,10 +25,11 @@ use crate::tests::common;
 
 /// Test searching for an IP address. Tests all the cases in a single
 /// test so that we only need to create and populate the DB once.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let host_machine = env
         .find_machines(Some(host_machine_id.to_string().into()), None, true)
@@ -41,7 +41,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
@@ -64,7 +64,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     )
     .await;
     test_inner(
-        "192.0.2.3",
+        "192.0.4.3",
         IpType::InstanceAddress,
         &env,
         "test_instance_address",
@@ -87,7 +87,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     .await;
 
     test_inner(
-        "192.0.3.1",
+        "192.0.4.1",
         IpType::NetworkSegment,
         &env,
         "test_network_segment",
@@ -142,17 +142,18 @@ async fn test_inner(ip: &str, ip_type: IpType, env: &TestEnv, caller: &str) {
     panic!("{caller} did not have correct IPType");
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
@@ -173,7 +174,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Network segment
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+        uuid: Some((segment_id).into()),
     };
     let res = env
         .api
@@ -211,8 +212,16 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     );
 
     // VPC
+    let mut txn = db_pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
+        .await
+        .unwrap();
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(FIXTURE_VPC_ID.into()),
+        uuid: Some(segment.vpc_id.unwrap().into()),
     };
     let res = env
         .api
@@ -224,7 +233,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Domain
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(FIXTURE_DOMAIN_ID.into()),
+        uuid: Some(env.domain.into()),
     };
     let res = env
         .api
@@ -237,7 +246,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -275,7 +284,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -286,7 +295,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let res = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id.to_string().into()],
+            machine_ids: vec![dpu_machine_id[0].to_string().into()],
             ..Default::default()
         }))
         .await
@@ -329,7 +338,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         .into_inner();
     assert_eq!(
         res.machine_id.unwrap().to_string(),
-        dpu_machine_id.to_string()
+        dpu_machine_id[0].to_string()
     );
 
     Ok(())

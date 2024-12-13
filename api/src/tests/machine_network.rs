@@ -20,9 +20,9 @@ use rpc::forge::forge_server::Forge;
 use crate::tests::common;
 use common::api_fixtures::{
     self, create_managed_host, dpu, instance, network_configured_with_health,
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+
+#[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -39,11 +39,11 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     assert!(response.is_ok());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
-    let managed_host_id = api_fixtures::managed_host::create_managed_host_multi_dpu(&env, 2).await;
+    let managed_host_id = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -84,16 +84,17 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .ne(&dpu_2_network_config.managed_host_config_version));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Add an instance
     let instance_network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+            network_segment_id: Some((segment_id).into()),
             network_details: None,
         }],
     });
@@ -174,7 +175,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -224,7 +225,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
 
 /// Tests whether the in_alert_since field will be correctly populated
 /// in case the DPU sends multiple reports using the same alarm
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

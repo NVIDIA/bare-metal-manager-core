@@ -4,36 +4,24 @@ use std::collections::HashMap;
 
 use crate::{
     db::{dpu_machine_update::DpuMachineUpdate, machine::Machine},
-    model::machine::{machine_id::try_parse_machine_id, network::MachineNetworkStatusObservation},
+    model::machine::network::MachineNetworkStatusObservation,
 };
-use common::api_fixtures::{
-    create_test_env, dpu::create_dpu_machine, host::create_host_machine,
-    managed_host::create_managed_host_multi_dpu,
-};
+use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
-        let host_sim = env.start_managed_host_sim();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
         dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(
-            try_parse_machine_id(
-                &create_host_machine(&env, &host_sim.config, &dpu_machine_id).await,
-            )
-            .unwrap(),
-        );
-        host_sims.push(host_sim);
+        host_machine_ids.push(host_machine_id.clone());
     }
 
     let mut txn = env.pool.begin().await?;
@@ -56,27 +44,18 @@ async fn test_find_available_outdated_dpus(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus_with_unhealthy(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
-        let host_sim = env.start_managed_host_sim();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
         dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(
-            try_parse_machine_id(
-                &create_host_machine(&env, &host_sim.config, &dpu_machine_id).await,
-            )
-            .unwrap(),
-        );
-        host_sims.push(host_sim);
+        host_machine_ids.push(host_machine_id.clone());
     }
 
     let machine_obs = MachineNetworkStatusObservation {
@@ -133,27 +112,18 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
-        let host_sim = env.start_managed_host_sim();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
         dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(
-            try_parse_machine_id(
-                &create_host_machine(&env, &host_sim.config, &dpu_machine_id).await,
-            )
-            .unwrap(),
-        );
-        host_sims.push(host_sim);
+        host_machine_ids.push(host_machine_id.clone());
     }
 
     let mut txn = env.pool.begin().await?;
@@ -175,27 +145,18 @@ async fn test_find_available_outdated_dpus_limit(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_unavailable_outdated_dpus_when_none(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
-        let host_sim = env.start_managed_host_sim();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
         dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(
-            try_parse_machine_id(
-                &create_host_machine(&env, &host_sim.config, &dpu_machine_id).await,
-            )
-            .unwrap(),
-        );
-        host_sims.push(host_sim);
+        host_machine_ids.push(host_machine_id.clone());
     }
 
     let mut txn = env.pool.begin().await?;
@@ -210,27 +171,18 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_unavailable_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
     let mut host_machine_ids = Vec::default();
     for _ in 0..2 {
-        let host_sim = env.start_managed_host_sim();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
         dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(
-            try_parse_machine_id(
-                &create_host_machine(&env, &host_sim.config, &dpu_machine_id).await,
-            )
-            .unwrap(),
-        );
-        host_sims.push(host_sim);
+        host_machine_ids.push(host_machine_id.clone());
     }
 
     let host_sim = env.start_managed_host_sim();
@@ -252,7 +204,7 @@ async fn test_find_unavailable_outdated_dpus(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus_multidpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -284,7 +236,7 @@ async fn test_find_available_outdated_dpus_multidpu(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -346,7 +298,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

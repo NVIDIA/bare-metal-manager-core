@@ -12,6 +12,7 @@
 
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{
     api::Api,
     db::{
@@ -24,8 +25,7 @@ use common::api_fixtures::{
     create_managed_host, create_test_env,
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
     instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    TestEnv, TestEnvOverrides,
+    TestEnv,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
@@ -50,7 +50,7 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
     segment.status.unwrap()
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
@@ -66,6 +66,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         TestEnvOverrides::with_config(config),
     )
     .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
 
     let (ib_partition_id, ib_partition) = create_ib_partition(
         &env,
@@ -163,9 +164,14 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ],
     };
 
-    let (instance_id, instance) =
-        create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config.clone())
-            .await;
+    let (instance_id, instance) = create_instance_with_ib_config(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        ib_config.clone(),
+        segment_id,
+    )
+    .await;
 
     let mut txn = env
         .pool
@@ -308,7 +314,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -316,7 +322,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -351,7 +357,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -386,7 +392,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -431,7 +437,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
@@ -476,7 +482,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[sqlx::test]
 async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
@@ -580,7 +586,8 @@ pub async fn try_allocate_instance(
     host_machine_id: &MachineId,
     ib_config: rpc::forge::InstanceInfinibandConfig,
 ) -> Result<(uuid::Uuid, rpc::forge::Instance), tonic::Status> {
-    let config = config_for_ib_config(ib_config);
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let config = config_for_ib_config(ib_config, segment_id);
 
     let instance = env
         .api

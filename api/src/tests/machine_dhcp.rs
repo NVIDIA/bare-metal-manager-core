@@ -18,17 +18,17 @@ use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 
+use crate::db::network_segment::NetworkSegment;
 use crate::tests::common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu,
-    instance::{create_instance, FIXTURE_CIRCUIT_ID, FIXTURE_CIRCUIT_ID_1},
-    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
-    TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+    create_managed_host, create_test_env, dpu, instance::create_instance, TestEnv,
+    FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
@@ -45,11 +45,12 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_dhcp_from_wrong_vlan_fails(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
@@ -73,9 +74,10 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     let output = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
-        "192.0.3.1".parse().unwrap(),
+        "192.0.1.1".parse().unwrap(),
     )
     .await;
+
     assert!(
         matches!(output, Err(CarbideError::Internal { message, ..}) if message.starts_with("Network segment mismatch for existing mac address"))
     );
@@ -85,16 +87,14 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone())
-        .await
-        .api;
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Inititially 0 addresses are allocated on the segment
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         0
@@ -102,7 +102,8 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await.unwrap();
 
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
-    let response = api
+    let response = env
+        .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
@@ -117,14 +118,11 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     assert_eq!(
         response.segment_id.unwrap(),
-        (*FIXTURE_NETWORK_SEGMENT_ID).into()
+        (env.admin_segment.unwrap()).into()
     );
 
     assert_eq!(response.mac_address, mac_address);
-    assert_eq!(
-        response.subdomain_id.unwrap(),
-        common::api_fixtures::FIXTURE_DOMAIN_ID.into()
-    );
+    assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
     assert_eq!(response.address, "192.0.2.3".to_owned());
     assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
     assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
@@ -132,7 +130,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // After DHCP, 1 address is allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         1
@@ -141,18 +139,16 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = common::api_fixtures::create_test_env(pool.clone())
-        .await
-        .api;
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         0
@@ -164,7 +160,8 @@ async fn test_multiple_machines_dhcp_with_api(
     for i in 0..NUM_MACHINES {
         let mac = format!("{}{}", mac_address, i);
         let expected_ip = format!("192.0.2.{}", i + 3); // IP starts with 3.
-        let response = api
+        let response = env
+            .api
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: mac.clone(),
                 relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
@@ -179,14 +176,11 @@ async fn test_multiple_machines_dhcp_with_api(
 
         assert_eq!(
             response.segment_id.unwrap(),
-            (*FIXTURE_NETWORK_SEGMENT_ID).into()
+            (env.admin_segment.unwrap()).into()
         );
 
         assert_eq!(response.mac_address, mac);
-        assert_eq!(
-            response.subdomain_id.unwrap(),
-            common::api_fixtures::FIXTURE_DOMAIN_ID.into()
-        );
+        assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
         assert_eq!(response.address, expected_ip);
         assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
         assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
@@ -194,7 +188,7 @@ async fn test_multiple_machines_dhcp_with_api(
 
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         NUM_MACHINES
@@ -203,11 +197,12 @@ async fn test_multiple_machines_dhcp_with_api(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
@@ -221,16 +216,22 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+                network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+                network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
             },
         ],
     });
+    let segment_1 = NetworkSegment::find_by_name(&mut txn, "TENANT")
+        .await
+        .unwrap();
+    let segment_2 = NetworkSegment::find_by_name(&mut txn, "TENANT2")
+        .await
+        .unwrap();
     let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
@@ -249,26 +250,20 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             relay_address: dpu_loopback_ip.to_string(),
             link_address: None,
             vendor_string: None,
-            circuit_id: Some(FIXTURE_CIRCUIT_ID.to_string()),
+            circuit_id: Some(format!("vlan{}", segment_1.vlan_id.unwrap())),
             remote_id: Some(dpu_machine_id.remote_id()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!(
-        response.segment_id.unwrap(),
-        (*FIXTURE_NETWORK_SEGMENT_ID).into()
-    );
+    assert_eq!(response.segment_id.unwrap(), (segment_id_1).into());
 
     assert_eq!(response.mac_address, mac_address);
-    assert_eq!(
-        response.subdomain_id.unwrap(),
-        common::api_fixtures::FIXTURE_DOMAIN_ID.into()
-    );
-    assert_eq!(response.address, "192.0.2.3".to_owned());
-    assert_eq!(response.prefix, "192.0.2.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.2.1".to_owned());
+    assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
+    assert_eq!(response.address, "192.0.4.3".to_owned());
+    assert_eq!(response.prefix, "192.0.4.0/24".to_owned());
+    assert_eq!(response.gateway.unwrap(), "192.0.4.1".to_owned());
 
     let response = env
         .api
@@ -277,29 +272,26 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             relay_address: dpu_loopback_ip.to_string(),
             link_address: None,
             vendor_string: None,
-            circuit_id: Some(FIXTURE_CIRCUIT_ID_1.to_string()),
+            circuit_id: Some(format!("vlan{}", segment_2.vlan_id.unwrap())),
             remote_id: Some(dpu_machine_id.remote_id()),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!(
-        response.segment_id.unwrap(),
-        (*FIXTURE_NETWORK_SEGMENT_ID_1).into()
-    );
+    assert_eq!(response.segment_id.unwrap(), (segment_id_2).into());
 
     assert!(response.machine_interface_id.is_none());
 
     assert_eq!(response.mac_address, mac_address);
     assert!(response.subdomain_id.is_none(),);
-    assert_eq!(response.address, "192.0.3.3".to_owned());
-    assert_eq!(response.prefix, "192.0.3.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.3.1".to_owned());
+    assert_eq!(response.address, "192.0.5.3".to_owned());
+    assert_eq!(response.prefix, "192.0.5.0/24".to_owned());
+    assert_eq!(response.gateway.unwrap(), "192.0.5.1".to_owned());
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn machine_interface_discovery_persists_vendor_strings(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -375,7 +367,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_dpu_machine_dhcp_for_existing_dpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

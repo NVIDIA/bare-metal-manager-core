@@ -14,7 +14,7 @@ use crate::tests::common::api_fixtures::{create_test_env, ib_partition::create_i
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
@@ -84,7 +84,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant_name.ib_partition_ids.len(), 1);
 }
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
