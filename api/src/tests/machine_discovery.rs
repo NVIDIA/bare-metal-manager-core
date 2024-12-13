@@ -24,11 +24,12 @@ use common::api_fixtures::{
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_machine_discovery_no_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
 
     let machine_interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
@@ -55,11 +56,13 @@ async fn test_machine_discovery_no_domain(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_machine_discovery_with_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
+    let env = create_test_env(pool).await;
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -92,7 +95,7 @@ async fn test_machine_discovery_with_domain(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -129,7 +132,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_discover_2_managed_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -149,7 +152,7 @@ async fn test_discover_2_managed_hosts(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_discover_dpu_by_source_ip(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -187,7 +190,7 @@ async fn test_discover_dpu_by_source_ip(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_discover_dpu_not_create_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

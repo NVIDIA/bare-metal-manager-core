@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
+use super::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 use rpc::forge::forge_server::Forge;
 use rpc::{common::MachineIdList, MachineId};
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -63,7 +63,7 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     _ = create_managed_host_multi_dpu(&env, 1).await;
@@ -82,7 +82,7 @@ async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_connected_devices_by_machine_ids_missing_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     _ = create_managed_host_multi_dpu(&env, 1).await;

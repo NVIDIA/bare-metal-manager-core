@@ -29,21 +29,21 @@ const BMC_CREDENTIALS66: &str = r#"{
 }"#;
 
 pub const BMC_METADATA: &str = r#"{
-  "machine_id": {
-    "id": "$HOST_MACHINE_ID"
-  },
-  "bmc_info": {
-    "ip": "127.0.0.1",
-    "port": 1266
-  },
-  "data": [
-    {
-      "user": "forge_admin",
-      "password": "notforprod",
-      "role": 1
-    }
-  ],
-  "request_type": 1
+    "machine_id": {
+      "id": "$HOST_MACHINE_ID"
+    },
+    "bmc_info": {
+      "ip": "127.0.0.1",
+      "port": 1266
+    },
+    "data": [
+      {
+        "user": "forge_admin",
+        "password": "notforprod",
+        "role": 1
+      }
+    ],
+    "request_type": 1
 }"#;
 
 pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {

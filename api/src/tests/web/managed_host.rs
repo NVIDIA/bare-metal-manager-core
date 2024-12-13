@@ -5,11 +5,11 @@ use tower::ServiceExt;
 use utils::ManagedHostOutput;
 
 use crate::tests::{
-    common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu},
+    common::api_fixtures::{create_managed_host_multi_dpu, create_test_env},
     web::{authenticated_request_builder, make_test_app},
 };
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_ok(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);
@@ -47,7 +47,7 @@ async fn test_ok(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);

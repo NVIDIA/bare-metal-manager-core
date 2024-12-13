@@ -10,16 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-// use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::{
-    create_test_env, network_segment::create_network_segment, vpc::create_vpc,
+    create_test_env_with_overrides, network_segment::create_network_segment, vpc::create_vpc,
+    TestEnvOverrides,
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     for i in 0..4 {
         let mut tenant_org_id = "tenant_org_1";
@@ -34,7 +34,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
         )
         .await;
         create_network_segment(
-            &env,
+            &env.api,
             format!("segment_{}", i).as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
@@ -42,6 +42,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
             Some(::rpc::common::Uuid {
                 value: vpc_id.to_string(),
             }),
+            true,
         )
         .await;
     }
@@ -103,9 +104,9 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant_name.network_segments_ids.len(), 1);
 }
 
-#[crate::sqlx_test(fixtures("create_domain"))]
+#[crate::sqlx_test]
 async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     for i in 0..4 {
         let mut tenant_org_id = "tenant_org_1";
@@ -120,7 +121,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
         )
         .await;
         create_network_segment(
-            &env,
+            &env.api,
             format!("segment_{}", i).as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
@@ -128,6 +129,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
             Some(::rpc::common::Uuid {
                 value: vpc_id.to_string(),
             }),
+            true,
         )
         .await;
     }
@@ -163,7 +165,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test()]
 async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
@@ -197,7 +199,7 @@ async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test()]
 async fn test_find_network_segments_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest::default());
 

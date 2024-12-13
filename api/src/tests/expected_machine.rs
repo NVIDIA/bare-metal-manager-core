@@ -437,7 +437,7 @@ async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     // Prep the data
 

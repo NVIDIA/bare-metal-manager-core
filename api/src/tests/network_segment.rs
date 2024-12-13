@@ -18,41 +18,52 @@ use crate::db;
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
-use crate::db::vpc::{self, Vpc};
 use crate::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
     NetworkSegmentDeletionState,
 };
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
-use common::api_fixtures::create_test_env;
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
 };
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
 use crate::db::{network_segment, ObjectColumnFilter};
 use crate::tests::common;
-use crate::tests::common::api_fixtures::FIXTURE_VPC_ID;
+use crate::tests::common::api_fixtures::{
+    create_test_env_with_overrides, get_vpc_fixture_id, TestEnvOverrides,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn test_advance_network_prefix_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::no_network_segments()).await;
+    let mut txn = env.pool.begin().await?;
 
-    let vpc = Vpc::find_by(
-        &mut txn,
-        ObjectColumnFilter::One(vpc::IdColumn, &VpcId::from(FIXTURE_VPC_ID)),
-    )
-    .await?
-    .pop()
-    .unwrap();
+    let vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc 1".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let parsed_uuid = uuid::Uuid::parse_str(&vpc.id.unwrap().value).unwrap();
 
     let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
     let segment: NetworkSegment = NewNetworkSegment {
@@ -60,7 +71,7 @@ async fn test_advance_network_prefix_state(
         name: "integration_test".to_string(),
         subdomain_id: None,
         mtu: 1500i32,
-        vpc_id: Some(vpc.id),
+        vpc_id: Some(VpcId::from(parsed_uuid)),
         segment_type: NetworkSegmentType::Admin,
 
         prefixes: vec![
@@ -98,13 +109,13 @@ async fn test_advance_network_prefix_state(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
     let segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         false,
         None,
@@ -154,13 +165,13 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     // This uses prefix "192.0.2.0/24"
     let _segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         false,
         None,
@@ -200,14 +211,14 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_network_segment_max_history_length(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     let segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         true,
         true,
         None,
@@ -328,9 +339,11 @@ async fn test_network_segment_max_history_length(
 /// and then create an new network segment.
 /// The new segment should be able to re-use the vlan_id from
 /// the deleted segment.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(db_pool.clone()).await;
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
 
     // create_test_env makes a vlan-id pool, so clean that up first
     let mut txn = db_pool.begin().await?;
@@ -348,7 +361,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Create a network segment rpc call
     let segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         true,
         None,
@@ -392,7 +405,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Create a new segment, re-using the VLAN
     create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         true,
         None,
@@ -412,9 +425,11 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(db_pool.clone()).await;
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
     let networks = HashMap::from([
         (
             "admin".to_string(),
@@ -480,12 +495,12 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     let segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         false,
         None,
@@ -515,13 +530,13 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     let id = uuid::Uuid::new_v4();
     let segment = create_network_segment_with_api(
-        &env.api,
+        &env,
         false,
         false,
         Some(::rpc::Uuid {
@@ -538,9 +553,9 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id: None,
@@ -582,13 +597,15 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
 // Attempt to use address space outside of what is configured in
 // site_fabric_prefixes. In the test environment, this is set to 192.0.2.0/24.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_segment_prefix_in_unconfigured_address_space(
     pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
     let bad_prefix_segment =
-        NetworkSegmentHelper::new_with_tenant_prefix("198.51.100.0/24", "198.51.100.1");
+        NetworkSegmentHelper::new_with_tenant_prefix("198.51.100.0/24", "198.51.100.1", vpc_id);
     let response = bad_prefix_segment.create_with_api(&env.api).await;
 
     // The API should have rejected our request with "invalid argument"; check
@@ -619,9 +636,10 @@ async fn test_network_segment_metrics(
     seg_type: i32,
     seg_type_str: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::no_network_segments()).await;
 
-    let segment = create_network_segment_with_api(&env.api, true, true, None, seg_type, 1).await;
+    let segment = create_network_segment_with_api(&env, true, true, None, seg_type, 1).await;
     let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
 
     env.run_network_segment_controller_iteration().await;
@@ -694,7 +712,8 @@ async fn test_network_segment_metrics(
 
     drop(env);
 
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::no_network_segments()).await;
 
     // Delete the segment, releasing the VNI back to the pool
     env.api
@@ -770,7 +789,7 @@ async fn test_network_segment_metrics(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_network_segment_metrics_admin(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -782,7 +801,7 @@ async fn test_network_segment_metrics_admin(
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_network_segment_metrics_tenant(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -794,7 +813,7 @@ async fn test_network_segment_metrics_tenant(
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_network_segment_metrics_tor(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

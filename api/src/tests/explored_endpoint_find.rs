@@ -143,7 +143,7 @@ async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
@@ -190,7 +190,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let e = api_result.unwrap_err();
     assert!(e.code() == Code::InvalidArgument);
     // Note: The MAC address is generated from a sequence so we can't include it in the expected error
-    assert!(e.message().contains("192.0.2.6 resolves to "));
+    assert!(e.message().contains("192.0.1.4 resolves to "));
     assert!(e.message().contains(" not 00:DE:AD:BE:EF:00"));
 
     // Check that we don't find what we're looking for.

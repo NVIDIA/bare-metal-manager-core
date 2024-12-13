@@ -14,27 +14,13 @@
 // in the fixtures folder. This file just contains the UUID references
 // for those.
 
+use crate::api::Api;
+use ::rpc::forge::forge_server::Forge;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use std::net::{IpAddr, Ipv4Addr};
 
-use crate::tests::common::network_segment::FIXTURE_CREATED_DOMAIN_UUID;
-
-use super::TestEnv;
-
-use rpc::forge::forge_server::Forge;
-
 use lazy_static::lazy_static;
-
-lazy_static! {
-    pub static ref FIXTURE_NETWORK_SEGMENT_ID: NetworkSegmentId =
-        uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-}
-
-lazy_static! {
-    pub static ref FIXTURE_NETWORK_SEGMENT_ID_1: NetworkSegmentId =
-        uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9").into();
-}
 
 lazy_static! {
     pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =
@@ -51,7 +37,17 @@ lazy_static! {
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 3, 1)), 24).unwrap();
 }
 
-pub async fn create_underlay_network_segment(env: &TestEnv) -> NetworkSegmentId {
+lazy_static! {
+    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 4, 1)), 24).unwrap();
+}
+
+lazy_static! {
+    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap();
+}
+
+pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -61,17 +57,18 @@ pub async fn create_underlay_network_segment(env: &TestEnv) -> NetworkSegmentId 
     let gateway = FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip().to_string();
 
     create_network_segment(
-        env,
+        api,
         "UNDERLAY",
         &prefix,  // 192.0.1.0/24
         &gateway, // 192.0.1.1
         rpc::forge::NetworkSegmentType::Underlay,
         None,
+        true,
     )
     .await
 }
 
-pub async fn create_admin_network_segment(env: &TestEnv) -> NetworkSegmentId {
+pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -81,17 +78,18 @@ pub async fn create_admin_network_segment(env: &TestEnv) -> NetworkSegmentId {
     let gateway = FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string();
 
     create_network_segment(
-        env,
+        api,
         "ADMIN",
         &prefix,  // 192.0.2.0/24
         &gateway, // 192.0.2.1
         rpc::forge::NetworkSegmentType::Admin,
         None,
+        true,
     )
     .await
 }
 
-pub async fn create_host_inband_network_segment(env: &TestEnv) -> NetworkSegmentId {
+pub async fn create_host_inband_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -101,24 +99,73 @@ pub async fn create_host_inband_network_segment(env: &TestEnv) -> NetworkSegment
     let gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip().to_string();
 
     create_network_segment(
-        env,
+        api,
         "HOST_INBAND",
         &prefix,  // 192.0.3.0/24
         &gateway, // 192.0.3.1
         rpc::forge::NetworkSegmentType::HostInband,
         None,
+        true,
+    )
+    .await
+}
+
+pub async fn create_tenant_network_segment(
+    api: &Api,
+    vpc_id: Option<rpc::Uuid>,
+    network: IpNetwork,
+    name: &str,
+    include_subdomain: bool,
+) -> NetworkSegmentId {
+    let prefix = IpNetwork::new(network.network(), network.prefix())
+        .unwrap()
+        .to_string();
+    let gateway = network.ip().to_string();
+
+    create_network_segment(
+        api,
+        name,
+        &prefix,  // 192.0.4.0/24
+        &gateway, // 192.0.4.1
+        rpc::forge::NetworkSegmentType::Tenant,
+        vpc_id,
+        include_subdomain,
     )
     .await
 }
 
 pub async fn create_network_segment(
-    env: &TestEnv,
+    api: &Api,
     name: &str,
     prefix: &str,
     gateway: &str,
     segment_type: rpc::forge::NetworkSegmentType,
     vpc_id: Option<rpc::Uuid>,
+    include_subdomain: bool,
 ) -> NetworkSegmentId {
+    let subdomain_id = if include_subdomain {
+        let request = rpc::forge::DomainSearchQuery {
+            id: None,
+            name: Some("dwrt1.com".to_string()),
+        };
+
+        let domain = api
+            .find_domain(tonic::Request::new(request))
+            .await
+            .expect("Unable to find a domain")
+            .into_inner()
+            .domains
+            .first()
+            .and_then(|d| d.id.clone())
+            .map(forge_uuid::domain::DomainId::try_from)
+            .unwrap()
+            .unwrap();
+
+        Some(domain.into())
+    } else {
+        None
+    };
+
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
@@ -127,28 +174,23 @@ pub async fn create_network_segment(
             id: None,
             prefix: prefix.to_string(),
             gateway: Some(gateway.to_string()),
-            reserve_first: 1,
+            reserve_first: 3,
             state: None,
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
         }],
-        subdomain_id: Some(FIXTURE_CREATED_DOMAIN_UUID.into()),
+        subdomain_id,
         vpc_id,
         segment_type: segment_type as _,
     };
 
-    let response = env
-        .api
+    let segment = api
         .create_network_segment(tonic::Request::new(request))
         .await
         .expect("Unable to create network segment")
         .into_inner();
-    let segment_id: NetworkSegmentId = response.id.unwrap().try_into().unwrap();
-
-    // Get the segment into ready state
-    env.run_network_segment_controller_iteration().await;
-    env.run_network_segment_controller_iteration().await;
+    let segment_id: NetworkSegmentId = segment.id.unwrap().try_into().unwrap();
 
     segment_id
 }

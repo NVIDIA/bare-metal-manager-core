@@ -61,6 +61,7 @@ mod test_meter;
 mod tpm_ca;
 mod vpc;
 mod vpc_find;
+mod vpc_prefix;
 mod web;
 
 /// Make these symols available as crate::tests::MIGRATOR and crate::tests::sqlx_fixture_from_str,

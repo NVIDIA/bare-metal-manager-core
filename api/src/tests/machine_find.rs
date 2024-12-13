@@ -33,11 +33,9 @@ use common::{
 };
 use rpc::forge::{forge_server::Forge, MachinesByIdsRequest};
 
-use crate::tests::common::api_fixtures::{
-    host::create_host_machine, managed_host::create_managed_host_multi_dpu,
-};
+use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -66,7 +64,7 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
         .is_none());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -95,7 +93,7 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
         .is_none());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -134,7 +132,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
         .is_none());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -170,7 +168,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
         .is_none());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -218,7 +216,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     assert!(machines.is_empty());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
@@ -236,7 +234,7 @@ async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
     assert!(machine_types.contains(&(rpc::forge::MachineType::Dpu as i32)));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
@@ -270,7 +268,7 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
     assert!(machines.is_empty());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: true,
@@ -297,7 +295,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     assert!(machine_ids.contains(&host_machine_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: true,
@@ -324,7 +322,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     assert!(!machine_ids.contains(&host_machine_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: false,
@@ -351,7 +349,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     assert!(machine_ids.contains(&host_machine_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: false,
@@ -372,7 +370,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     assert!(machine_ids.is_empty());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: false,
@@ -383,12 +381,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-
-    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
-    let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+    let (host_machine_id, _) = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -398,7 +391,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     assert!(machine_ids.contains(&host_machine_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: false,
@@ -409,12 +402,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-
-    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
-    let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+    let (host_machine_id, _) = create_managed_host(&env).await;
 
     let host_sim2 = env.start_managed_host_sim();
     create_dpu_machine(&env, &host_sim2.config).await;
@@ -432,7 +420,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     assert!(machine_ids.contains(&predicted_host_machine_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let machine_id = create_managed_host_multi_dpu(&env, 2).await;

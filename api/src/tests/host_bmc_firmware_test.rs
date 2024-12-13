@@ -32,10 +32,7 @@ use crate::{
     preingestion_manager::PreingestionManager,
     CarbideResult,
 };
-use common::api_fixtures::{
-    self, create_test_env_with_overrides, get_config,
-    network_segment::create_admin_network_segment, TestEnv,
-};
+use common::api_fixtures::{self, create_test_env_with_overrides, get_config, TestEnv};
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::DhcpDiscovery;
@@ -50,12 +47,11 @@ use std::{
 };
 use tempdir::TempDir;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_preingestion_bmc_upgrade(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let mgr = PreingestionManager::new(
         pool.clone(),
@@ -392,54 +388,11 @@ fn build_dpu_exploration_report(
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     // Create an environment with one managed host in the ready state.
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = env.pool.begin().await.unwrap();
-
-    // Getting the test stubs of the state machine and site explorer to work together is problematic, so we'll fake the bits of what site explorer would do that we care about.
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(host.host_reprovisioning_requested().is_none());
-
-    let mut exploration_report: EndpointExplorationReport = build_exploration_report(
-        "Dell",
-        host.model().as_str(),
-        "7.10.20",
-        "1.12.0",
-        host_machine_id.to_string().as_str(),
-    );
-    let fw_info = env
-        .config
-        .get_firmware_config()
-        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
-        .unwrap();
-    exploration_report.parse_versions(&fw_info);
-    DbExploredEndpoint::insert(
-        host.bmc_info().ip_addr().unwrap(),
-        &exploration_report,
-        &mut txn,
-    )
-    .await?;
-    drop(exploration_report);
-
-    txn.commit().await.unwrap();
-
-    // Get the state handler started and make sure we're in the ready state
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    let ManagedHostState::Ready = host.current_state() else {
-        panic!("Not ready: {:?}", host.current_state());
-    };
 
     // Create and start an update manager
     let update_manager =
@@ -513,7 +466,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info().ip_addr().unwrap()]).await?;
     let mut endpoint = endpoints.first().unwrap().clone();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
-    endpoint.report.parse_versions(&fw_info);
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
     DbExploredEndpoint::try_update(
         host.bmc_info().ip_addr().unwrap(),
         endpoint.report_version,
@@ -580,7 +536,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info().ip_addr().unwrap()]).await?;
     let mut endpoint = endpoints.first().unwrap().clone();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
-    endpoint.report.parse_versions(&fw_info);
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
     DbExploredEndpoint::try_update(
         host.bmc_info().ip_addr().unwrap(),
         endpoint.report_version,
@@ -689,7 +648,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_host_fw_upgrade_enabledisable_global_enabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
@@ -727,7 +686,8 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 
     Ok(())
 }
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+
+#[crate::sqlx_test]
 async fn test_host_fw_upgrade_enabledisable_global_disabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
@@ -771,37 +731,6 @@ async fn test_host_fw_upgrade_enabledisable_generic(
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = env.pool.begin().await.unwrap();
-
-    // Getting the test stubs of the state machine and site explorer to work together is problematic, so we'll fake the bits of what site explorer would do that we care about.
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(host.host_reprovisioning_requested().is_none());
-
-    let mut exploration_report: EndpointExplorationReport = build_exploration_report(
-        "Dell",
-        host.model().as_str(),
-        "7.10.20",
-        "1.12.0",
-        host_machine_id.to_string().as_str(),
-    );
-    let fw_info = env
-        .config
-        .get_firmware_config()
-        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
-        .unwrap();
-    exploration_report.parse_versions(&fw_info);
-    DbExploredEndpoint::insert(
-        host.bmc_info().ip_addr().unwrap(),
-        &exploration_report,
-        &mut txn,
-    )
-    .await?;
-    drop(exploration_report);
-
-    txn.commit().await.unwrap();
 
     Ok((env, host_machine_id))
 }

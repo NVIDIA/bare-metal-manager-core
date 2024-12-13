@@ -10,27 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::PgPool;
-use tonic::Request;
-
-pub mod common;
-
-use crate::common::api_fixtures::FIXTURE_VPC_ID;
-use common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
 };
+use sqlx::PgPool;
+use tonic::Request;
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
     let ip_prefix = "192.0.2.0/25";
+    let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -54,9 +52,11 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
 
     let ip_prefix = "192.0.2.128/25";
     let overlapping_ip_prefix = "192.0.2.192/26";
@@ -65,7 +65,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -75,7 +75,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: overlapping_ip_prefix.into(),
         name: "Overlapping VPC prefix".into(),
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
     };
     let request = Request::new(overlapping_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -84,9 +84,11 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
 
     for (prefix, description) in [
         ("198.51.100.0/24", "This VPC prefix is not within the site prefixes"),
@@ -97,7 +99,7 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
             id: None,
             prefix: prefix.into(),
             name: description.into(),
-            vpc_id: Some(FIXTURE_VPC_ID.into()),
+            vpc_id: Some(vpc_id.into()),
         };
         let request = Request::new(bad_vpc_prefix);
         let response = env.api.create_vpc_prefix(request).await;
@@ -108,9 +110,11 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
 
     let p1 = "192.0.2.0/25";
     let p2 = "192.0.2.128/25";
@@ -118,13 +122,13 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         id: None,
         prefix: p1.into(),
         name: "VPC prefix p1".into(),
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
     };
     let create_p2 = VpcPrefixCreationRequest {
         id: None,
         prefix: p2.into(),
         name: "VPC prefix p2".into(),
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
     };
     let p1_request = Request::new(create_p1);
     let p2_request = Request::new(create_p2);
@@ -143,9 +147,9 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         (p2.prefix.as_str(), p2.id.clone()),
     ] {
         dbg!(&vpc_prefix_id);
-        dbg!(FIXTURE_VPC_ID);
+        dbg!(vpc_id);
         let prefix_query = VpcPrefixSearchQuery {
-            vpc_id: Some(FIXTURE_VPC_ID.into()),
+            vpc_id: Some(vpc_id.into()),
             tenant_prefix_id: None,
             name: None,
             prefix_match: Some(prefix.into()),
@@ -174,9 +178,9 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         ("192.0.2.170/32", p2.id.clone()),
     ] {
         dbg!(&vpc_prefix_id);
-        dbg!(FIXTURE_VPC_ID);
+        dbg!(vpc_id);
         let prefix_query = VpcPrefixSearchQuery {
-            vpc_id: Some(FIXTURE_VPC_ID.into()),
+            vpc_id: Some(vpc_id.into()),
             tenant_prefix_id: None,
             name: None,
             prefix_match: Some(prefix.into()),
@@ -202,7 +206,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     // both of them.
     let prefix = "192.0.2.0/24";
     let prefix_query = VpcPrefixSearchQuery {
-        vpc_id: Some(FIXTURE_VPC_ID.into()),
+        vpc_id: Some(vpc_id.into()),
         tenant_prefix_id: None,
         name: None,
         prefix_match: Some(prefix.into()),

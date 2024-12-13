@@ -36,9 +36,7 @@ use crate::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
     CarbideError,
 };
-use common::api_fixtures::{
-    endpoint_explorer::MockEndpointExplorer, network_segment::FIXTURE_NETWORK_SEGMENT_ID, TestEnv,
-};
+use common::api_fixtures::{endpoint_explorer::MockEndpointExplorer, TestEnv};
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -57,8 +55,7 @@ use crate::tests::common::{
         dpu::DpuConfig,
         managed_host::ManagedHostConfig,
         network_segment::{
-            create_admin_network_segment, create_host_inband_network_segment,
-            create_underlay_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
+            create_host_inband_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
             FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
         },
         site_explorer::MockExploredHost,
@@ -94,12 +91,9 @@ impl FakeMachine {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let underlay_segment = create_underlay_network_segment(&env).await;
-    let admin_segment = create_admin_network_segment(&env).await;
 
     // Let's create 3 machines on the underlay, and 1 on the admin network
     // The 1 on the admin network is not supposed to be searched. This is verified
@@ -110,28 +104,28 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         FakeMachine {
             mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // machines[1] has 1 dpu (machines[0])
         FakeMachine {
             mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
             dhcp_vendor: "Vendor2".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // machines[2] has no DPUs
         FakeMachine {
             mac: "AA:AB:AC:AD:AA:03".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // machines[3] is not on the underlay network and should not be searched.
         FakeMachine {
             mac: "AA:AB:AC:AD:BB:01".parse().unwrap(),
             dhcp_vendor: "VendorInvalidSegment".to_string(),
-            segment: admin_segment,
+            segment: env.admin_segment.unwrap(),
             ip: String::new(),
         },
     ];
@@ -142,7 +136,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
                 },
                 link_address: None,
@@ -162,13 +156,13 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
             .await
             .unwrap(),
         3
     );
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &admin_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         1
@@ -373,7 +367,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     // We don't want to test the preingestion stuff here, so fake that it all completed successfully.
     let mut txn = pool.begin().await?;
-    for addr in ["192.0.1.2", "192.0.1.3", "192.0.1.4"] {
+    for addr in ["192.0.1.3", "192.0.1.4", "192.0.1.5"] {
         DbExploredEndpoint::set_preingestion_complete(
             std::net::IpAddr::from_str(addr).unwrap(),
             &mut txn,
@@ -429,7 +423,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     addresses.sort();
     let mut expected_addresses: Vec<String> = machines
         .iter()
-        .filter(|m| m.segment == underlay_segment)
+        .filter(|m| m.segment == env.underlay_segment.unwrap())
         .map(|m| m.ip.to_string())
         .collect();
     expected_addresses.sort();
@@ -484,13 +478,11 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_expected_machine"))]
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_site_explorer_audit_exploration_results(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let underlay_segment = create_underlay_network_segment(&env).await;
 
     let mut machines = vec![
         // This will be our expected DPU, and it will have the
@@ -499,28 +491,28 @@ async fn test_site_explorer_audit_exploration_results(
         FakeMachine {
             mac: "5a:5b:5c:5d:5e:5f".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This will be expected but unauthorized, and the serial is mismatched
         FakeMachine {
             mac: "0a:0b:0c:0d:0e:0f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This host will be expected but missing credentials, and the serial is mismatched
         FakeMachine {
             mac: "1a:1b:1c:1d:1e:1f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This host will be expected, but the serial number will be mismatched.
         FakeMachine {
             mac: "2a:2b:2c:2d:2e:2f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This will be expected, with a good serial number.
@@ -528,21 +520,21 @@ async fn test_site_explorer_audit_exploration_results(
         FakeMachine {
             mac: "3a:3b:3c:3d:3e:3f".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This host is not expected.
         FakeMachine {
             mac: "ab:cd:ef:ab:cd:ef".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         // This DPU is really not expected. (i.e. no DB entry)
         FakeMachine {
             mac: "ef:cd:ab:ef:cd:ab".parse().unwrap(),
             dhcp_vendor: "Vendor3".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
     ];
@@ -553,7 +545,7 @@ async fn test_site_explorer_audit_exploration_results(
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
                 },
                 link_address: None,
@@ -573,7 +565,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
             .await
             .unwrap(),
         7
@@ -841,7 +833,7 @@ async fn test_site_explorer_audit_exploration_results(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_reject_zero_dpu_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -851,8 +843,6 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let test_meter = TestMeter::default();
@@ -924,25 +914,23 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_reexplore(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let underlay_segment = create_underlay_network_segment(&env).await;
-
     let mut machines = vec![
         FakeMachine {
             mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
             dhcp_vendor: "Vendor1".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
         FakeMachine {
             mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
             dhcp_vendor: "Vendor2".to_string(),
-            segment: underlay_segment,
+            segment: env.underlay_segment.unwrap(),
             ip: String::new(),
         },
     ];
@@ -965,7 +953,7 @@ async fn test_site_explorer_reexplore(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
             .await
             .unwrap(),
         2
@@ -1102,7 +1090,7 @@ async fn test_site_explorer_reexplore(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_site_explorer_creates_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1114,8 +1102,6 @@ async fn test_site_explorer_creates_managed_host(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let test_meter = TestMeter::default();
@@ -1509,13 +1495,11 @@ async fn test_site_explorer_creates_managed_host(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_site_explorer_creates_multi_dpu_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let test_meter = TestMeter::default();
@@ -1759,7 +1743,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_site_explorer_clear_last_known_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1806,7 +1790,7 @@ async fn test_site_explorer_clear_last_known_error(
 }
 
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_disable_machine_creation_outside_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1825,8 +1809,6 @@ async fn test_disable_machine_creation_outside_site_explorer(
     )
     .await;
     let host_sim = env.start_managed_host_sim();
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let hardware_info = HardwareInfo::from(&host_sim.config);
     let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
@@ -1861,11 +1843,9 @@ async fn test_disable_machine_creation_outside_site_explorer(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
@@ -1874,14 +1854,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut host1_dpu = FakeMachine {
         mac: HOST1_DPU_MAC.parse().unwrap(),
         dhcp_vendor: "Vendor1".to_string(),
-        segment: underlay_segment,
+        segment: env.underlay_segment.unwrap(),
         ip: String::new(),
     };
 
     let mut host1 = FakeMachine {
         mac: HOST1_MAC.parse().unwrap(),
         dhcp_vendor: "Vendor2".to_string(),
-        segment: underlay_segment,
+        segment: env.underlay_segment.unwrap(),
         ip: String::new(),
     };
 
@@ -1892,7 +1872,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             .discover_dhcp(tonic::Request::new(DhcpDiscovery {
                 mac_address: machine.mac.to_string(),
                 relay_address: match machine.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
                     _ => "192.0.2.1".to_string(),
                 },
                 link_address: None,
@@ -2026,12 +2006,13 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_machine = env
         .find_machines(Some(host_machine_id.to_string().into()), None, false)
         .await
@@ -2089,7 +2070,7 @@ async fn test_site_explorer_health_report(
     let mut txn = env.pool.begin().await?;
     let query = format!(
         "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{}'",
-        *FIXTURE_NETWORK_SEGMENT_ID
+        segment_id,
     );
     sqlx::query::<_>(&query).execute(&mut *txn).await.unwrap();
     txn.commit().await.unwrap();
@@ -2176,13 +2157,11 @@ async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExpl
         .into_inner()
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
 
     let mock_host = ManagedHostConfig::default();
     let mock_dpu = mock_host.dpus.first().unwrap();
@@ -2295,13 +2274,11 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
     let mock_host = ManagedHostConfig::default();
     let mock_dpu = mock_host.dpus.first().unwrap();
 
@@ -2452,7 +2429,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc",))]
+#[crate::sqlx_test]
 async fn test_fetch_host_primary_interface_mac(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2475,8 +2452,6 @@ async fn test_fetch_host_primary_interface_mac(
     const NUM_DPUS: usize = 2;
 
     let env = common::api_fixtures::create_test_env(pool).await;
-    let _underlay_segment = create_underlay_network_segment(&env).await;
-    let _admin_segment = create_admin_network_segment(&env).await;
     let mut txn = env.pool.begin().await?;
     let mut oob_interfaces = Vec::new();
     let mut explored_dpus = Vec::new();
@@ -2521,7 +2496,7 @@ async fn test_fetch_host_primary_interface_mac(
 
 /// Test the [`api_fixtures::site_explorer::new_host`] factory with various configurations and make
 /// sure they work.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_new_host_fixture(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2546,29 +2521,29 @@ async fn test_site_explorer_new_host_fixture(
     )
     .await;
 
-    create_underlay_network_segment(&env).await;
-    create_admin_network_segment(&env).await;
-    create_host_inband_network_segment(&env).await;
+    create_host_inband_network_segment(&env.api).await;
 
-    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, 0).await?;
+    let zero_dpu_host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(Vec::new()), 0)
+            .await?;
     assert_eq!(zero_dpu_host.dpu_snapshots.len(), 0);
 
-    let single_dpu_host = api_fixtures::site_explorer::new_host(&env, 1).await?;
+    let single_dpu_host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default(), 1).await?;
     assert_eq!(single_dpu_host.dpu_snapshots.len(), 1);
 
-    let two_dpu_host = api_fixtures::site_explorer::new_host(&env, 2).await?;
+    let config = ManagedHostConfig::with_dpus((0..2).map(|_| DpuConfig::default()).collect());
+    let two_dpu_host = api_fixtures::site_explorer::new_host(&env, config, 2).await?;
     assert_eq!(two_dpu_host.dpu_snapshots.len(), 2);
 
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_fixtures_singledpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    create_underlay_network_segment(&env).await;
-    create_admin_network_segment(&env).await;
 
     let mock_host = ManagedHostConfig::default();
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
@@ -2634,13 +2609,11 @@ async fn test_site_explorer_fixtures_singledpu(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_fixtures_multidpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    create_underlay_network_segment(&env).await;
-    create_admin_network_segment(&env).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![DpuConfig::default(), DpuConfig::default()],
@@ -2714,7 +2687,7 @@ async fn test_site_explorer_fixtures_multidpu(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2739,9 +2712,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
     )
     .await;
 
-    create_underlay_network_segment(&env).await;
-    create_admin_network_segment(&env).await;
-    create_host_inband_network_segment(&env).await;
+    create_host_inband_network_segment(&env.api).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],
@@ -2807,7 +2778,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
 /// chance to run (and a machine_interface is created for its MAC with no machine-id), that
 /// site-explorer can "repair" the situation when it discovers the machine, by migrating the machine
 /// interface to the new managed host.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2832,9 +2803,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     )
     .await;
 
-    create_underlay_network_segment(&env).await;
-    create_admin_network_segment(&env).await;
-    create_host_inband_network_segment(&env).await;
+    create_host_inband_network_segment(&env.api).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],

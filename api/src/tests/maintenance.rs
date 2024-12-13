@@ -18,16 +18,15 @@ use crate::{db::machine::MaintenanceMode, tests::common};
 use common::api_fixtures::{
     create_test_env,
     instance::{default_os_config, default_tenant_config, single_interface_network_config},
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
 use crate::tests::common::api_fixtures::create_managed_host;
-use crate::tests::common::api_fixtures::managed_host::create_managed_host_multi_dpu;
+use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
     let (host_id, dpu_machine_id) = create_managed_host(&env).await;
     let rpc_host_id: rpc::MachineId = host_id.to_string().into();
@@ -75,7 +74,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let instance_config = rpcf::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -178,10 +177,11 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     Ok(())
 }
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+
+#[crate::sqlx_test]
 async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
     let rpc_host_id: rpc::MachineId = host_id.to_string().into();
@@ -212,7 +212,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
 
     let instance_config = rpcf::InstanceConfig {
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         os: Some(default_os_config()),
         infiniband: None,
         storage: None,
@@ -317,7 +317,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 

@@ -18,7 +18,6 @@ use common::api_fixtures::{
         create_instance_with_config, default_tenant_config, single_interface_network_config,
     },
     network_configured,
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
 use config_version::ConfigVersion;
@@ -64,10 +63,11 @@ fn assert_metadata_equals(actual: &rpc::forge::Metadata, expected: &rpc::forge::
     assert_eq!(actual, expected);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
@@ -85,7 +85,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let initial_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -368,10 +368,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
@@ -389,7 +390,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let valid_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };

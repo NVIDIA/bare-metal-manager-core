@@ -32,13 +32,8 @@ macro_rules! define_sqlx_fixtures {
 define_sqlx_fixtures!(
     "create_cred_pub_key",
     "create_cred_pub_key_invalid",
-    "create_domain_2",
-    "create_domain",
     "create_expected_machine",
     "create_machine_validation_tests",
-    "create_network_segment",
     "create_tpm_ca_cert_invalid",
     "create_tpm_ca_wrong_cert",
-    "create_vpc",
-    "create_vpc_prefix"
 );

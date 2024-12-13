@@ -18,7 +18,6 @@ use common::api_fixtures::{
         create_instance_with_config, default_os_config, default_tenant_config,
         single_interface_network_config,
     },
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
 use config_version::ConfigVersion;
@@ -43,10 +42,11 @@ fn verify_os_in_tenant_config(
     assert_eq!(tenant_config, &expected_tenant_config);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
@@ -64,7 +64,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -231,13 +231,14 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
 /// Instance creation using legacy method to pass OS
 /// This should be removed once the mechanism is removed
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_creation_with_os_in_tenantconfig(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut tenant_config = default_tenant_config();
@@ -258,7 +259,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config.clone()),
         os: None,
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };

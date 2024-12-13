@@ -27,21 +27,26 @@ use crate::state_controller::machine::handler::{
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
-use common::api_fixtures::host::{
-    create_managed_host_with_ek, host_bmc_discover_dhcp, host_discover_dhcp, host_discover_machine,
-    host_uefi_setup, FIXTURE_HOST_BMC_ADMIN_USER_NAME, FIXTURE_HOST_BMC_FIRMWARE_VERSION,
-    FIXTURE_HOST_BMC_VERSION,
-};
+use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
-use common::api_fixtures::{
-    create_managed_host, create_test_env, machine_validation_completed, update_bmc_metadata,
-};
+use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use measured_boot::pcr::PcrRegisterValue;
 
 use crate::model::machine::{FailureCause, FailureSource};
+use crate::tests::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
+use crate::tests::common::api_fixtures::{
+    create_managed_host_with_ek, discovery_completed,
+    dpu::{
+        DEFAULT_DPU_FIRMWARE_VERSION, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION,
+        TEST_DPU_AGENT_VERSION,
+    },
+    forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
+};
 use chrono::Duration;
 use common::api_fixtures::{create_test_env_with_overrides, get_config};
 use health_report::HealthReport;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
@@ -49,19 +54,7 @@ use rpc::forge_agent_control_response::Action;
 use std::collections::HashMap;
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
-use crate::tests::common::api_fixtures::{
-    discovery_completed,
-    dpu::{
-        DEFAULT_DPU_FIRMWARE_VERSION, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION,
-        TEST_DPU_AGENT_VERSION,
-    },
-    forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
-};
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::records::MeasurementBundleState;
-
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -78,7 +71,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
         .parsed_metrics("forge_machines_per_state")
         .contains(&(
             "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-            "1".to_string()
+            "2".to_string()
         )));
 
     let expected_states_entered = &[
@@ -96,7 +89,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             1,
         ),
         (r#"{state="hostnotready",substate="waitingforlockdown"}"#, 2),
-        (r#"{state="ready",substate=""}"#, 1),
+        (r#"{state="ready",substate=""}"#, 3),
     ];
 
     let states_entered = env
@@ -157,7 +150,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -196,7 +189,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     ));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -328,8 +321,9 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         ManagedHostState::WaitingForCleanup { .. }
     ));
 }
+
 /// If the DPU stops sending us health updates we eventually mark it unhealthy
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -450,7 +444,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
@@ -621,7 +615,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
 /// Check whether metrics that describe hardware/software versions of discovered machines
 /// are emitted correctly
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id_1, _dpu_machine_id_1) =
@@ -750,7 +744,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 }
 
 /// Check that controller state reason is correct as we work through the states
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_outcome(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -800,7 +794,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_sla(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_dpu_machine_id, host_machine_id) = create_managed_host(&env).await;
@@ -856,8 +850,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 /// a FailureCause::MeasurementsRetired state by retiring the bundle that
 /// put it into Ready state, and then re-activating the bundle to move
 /// the machine from ::Failed -> back to ::Ready.
-#[cfg(test)]
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
     // introduce the measurement states into the state machine (which
@@ -876,7 +869,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         .await
         .expect("Failed to add CA cert");
 
-    let (host_machine_id, _dpu_machine_id) =
+    let (host_machine_id, _dpu_machine_id, _) =
         create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     env.run_machine_state_controller_iteration().await;
@@ -963,7 +956,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 }
 
 // this is mostly copied from the one above
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: sqlx::PgPool) {
     // For this test case, we'll flip on attestation, which will
     // introduce the measurement states into the state machine (which
@@ -984,7 +977,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .expect("Failed to add CA cert")
         .into_inner();
 
-    let (host_machine_id, _dpu_machine_id) =
+    let (host_machine_id, _dpu_machine_id, _) =
         create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     env.run_machine_state_controller_iteration().await;
@@ -1156,7 +1149,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pending_bundle_to_ready(
     pool: sqlx::PgPool,
 ) {
@@ -1182,33 +1175,11 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     let host_config = &host_sim.config;
     let env = &env;
 
-    let bmc_machine_interface_id =
-        host_bmc_discover_dhcp(env, &host_config.bmc_mac_address.to_string()).await;
-    // Let's find the IP that we assign to the BMC
-    let mut txn = env.pool.begin().await.unwrap();
-    let bmc_interface =
-        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
-            .await
-            .unwrap();
-    let host_bmc_ip = bmc_interface.addresses[0];
-    txn.rollback().await.unwrap();
-
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
-
-    update_bmc_metadata(
-        env,
-        host_rpc_machine_id.clone(),
-        &host_bmc_ip.to_string(),
-        FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.bmc_mac_address,
-        FIXTURE_HOST_BMC_VERSION.to_owned(),
-        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
-    )
-    .await;
 
     // ---------------
     // now, since the CA has not been added, we should be stuck in the failed state
@@ -1428,7 +1399,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.attestation_enabled = true;
@@ -1444,7 +1415,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         .await
         .expect("Failed to add CA cert");
 
-    let (host_machine_id, _dpu_machine_id) =
+    let (host_machine_id, _dpu_machine_id, _) =
         create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     let mut txn = env.pool.begin().await.unwrap();

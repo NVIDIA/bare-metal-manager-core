@@ -10,22 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::model::machine::machine_id;
 use ::rpc::forge as rpc;
 use common::api_fixtures::{
-    create_test_env,
-    dpu::{create_dpu_machine, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION},
+    create_managed_host, create_test_env,
+    dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION},
 };
 
 use crate::tests::common;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        machine_id::try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await)
-            .unwrap();
+
+    let (_, dpu_machine_id) = create_managed_host(&env).await;
 
     let machine_result = env
         .find_machines(Some(dpu_machine_id.to_string().into()), None, true)

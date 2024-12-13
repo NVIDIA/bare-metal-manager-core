@@ -13,19 +13,14 @@
 //! Contains DPU related fixtures
 
 use std::{
-    collections::HashMap,
     net::IpAddr,
     sync::atomic::{AtomicU32, Ordering},
 };
 
 use crate::{
-    db::{
-        self,
-        machine::{Machine, MachineSearchConfig},
-    },
+    db::machine::{Machine, MachineSearchConfig},
     model::{
         hardware_info::HardwareInfo,
-        machine::{machine_id::try_parse_machine_id, DpuInitState, MachineState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager,
@@ -37,33 +32,17 @@ use forge_uuid::machine::MachineId;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use rpc::{
-    forge::{
-        forge_server::Forge,
-        machine_credentials_update_request::{CredentialPurpose, Credentials},
-        DhcpDiscovery, MachineCredentialsUpdateRequest,
-    },
+    forge::{forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
 
 use crate::tests::common::{
-    api_fixtures::{
-        discovery_completed, forge_agent_control, managed_host::ManagedHostConfig,
-        network_configured, update_bmc_metadata, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
-    },
+    api_fixtures::{managed_host::ManagedHostConfig, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS},
     mac_address_pool,
 };
 
-pub const FIXTURE_DPU_BMC_VERSION: &str = "2.1";
-pub const FIXTURE_DPU_BMC_FIRMWARE_VERSION: &str = "3.2";
-
-pub const FIXTURE_DPU_BMC_ADMIN_USER_NAME: &str = "forge_admin";
-
-pub const FIXTURE_DPU_SSH_USERNAME: &str = "forge";
-pub const FIXTURE_DPU_SSH_PASSWORD: &str = "asdhjkf";
-
-pub const FIXTURE_DPU_HBN_USERNAME: &str = "cumulus";
-pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
+use super::site_explorer;
 
 /// DPU firmware version that is reported by DPU objects created via `create_dpu_hardware_info`.
 pub const DEFAULT_DPU_FIRMWARE_VERSION: &str = "1.2.3";
@@ -247,127 +226,19 @@ impl From<DpuConfig> for EndpointExplorationReport {
 ///
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) -> rpc::MachineId {
-    let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(env, host_config).await;
-    let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
-
-    // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
-    assert_eq!(
-        agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Noop as i32
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
-        4,
-        &mut txn,
-        ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    DpuInitState::WaitingForNetworkConfig,
-                )]),
-            },
-        },
-    )
-    .await;
-    txn.commit().await.unwrap();
-
-    network_configured(env, &dpu_machine_id).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
-        4,
-        &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::EnableIpmiOverLan,
-        },
-    )
-    .await;
-    txn.commit().await.unwrap();
-
-    dpu_rpc_machine_id
+    let dpu_id = site_explorer::new_dpu(env, host_config.clone())
+        .await
+        .unwrap();
+    dpu_id.into()
 }
 
 pub async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
 ) -> (MachineId, MachineId) {
-    let primary_dpu = host_config.get_and_assert_single_dpu();
-    let bmc_machine_interface_id =
-        dpu_bmc_discover_dhcp(env, &primary_dpu.bmc_mac_address.to_string()).await;
-    // Let's find the IP that we assign to the BMC
-    let mut txn = env.pool.begin().await.unwrap();
-    let bmc_interface =
-        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
-            .await
-            .unwrap();
-    let dpu_bmc_ip = bmc_interface.addresses[0];
-    txn.rollback().await.unwrap();
-
-    let machine_interface_id =
-        dpu_discover_dhcp(env, &primary_dpu.oob_mac_address.to_string()).await;
-    let dpu_rpc_machine_id = dpu_discover_machine(env, primary_dpu, machine_interface_id).await;
-
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
-
-    tracing::debug!("Attempting to create machine inventory");
-    create_machine_inventory(env, &dpu_machine_id).await;
-
-    // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
-    assert_eq!(
-        agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Discovery as i32
-    );
-
-    update_dpu_machine_credentials(env, dpu_rpc_machine_id.clone()).await;
-
-    // TODO: This it not really happening in the current version of forge-scout.
-    // But it's in the test setup to verify reading back submitted credentials
-    // TODO: This IP is allocated by carbide. We need to use the right one
-    update_bmc_metadata(
-        env,
-        dpu_rpc_machine_id.clone(),
-        &dpu_bmc_ip.to_string(),
-        FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        primary_dpu.bmc_mac_address,
-        FIXTURE_DPU_BMC_VERSION.to_owned(),
-        FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_owned(),
-    )
-    .await;
-
-    discovery_completed(env, dpu_rpc_machine_id.clone()).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    site_explorer::new_dpu_in_network_install(env, host_config.clone())
         .await
         .unwrap()
-        .unwrap()
-        .id()
-        .clone();
-
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
-        4,
-        &mut txn,
-        ManagedHostState::DPUInit {
-            dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    DpuInitState::WaitingForNetworkConfig,
-                )]),
-            },
-        },
-    )
-    .await;
-
-    txn.commit().await.unwrap();
-
-    (dpu_machine_id, host_machine_id)
 }
 
 pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
@@ -395,28 +266,6 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
         .await
         .unwrap()
         .into_inner()
-}
-
-/// Uses the `discover_dhcp` API to discover a DPU BMC with a certain MAC address
-///
-/// Returns the created `machine_interface_id`
-pub async fn dpu_bmc_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
-    let response = env
-        .api
-        .discover_dhcp(Request::new(DhcpDiscovery {
-            mac_address: mac_address.to_string(),
-            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
-            vendor_string: Some("NVIDIA/BF/BMC".to_string()),
-            link_address: None,
-            circuit_id: None,
-            remote_id: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    response
-        .machine_interface_id
-        .expect("machine_interface_id must be set")
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
@@ -462,31 +311,6 @@ pub async fn dpu_discover_machine(
         .into_inner();
 
     response.machine_id.expect("machine_id must be set")
-}
-
-/// Emulates the `UpdateMachineCredentials` request of a DPU
-pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::MachineId) {
-    let _response = env
-        .api
-        .update_machine_credentials(Request::new(MachineCredentialsUpdateRequest {
-            machine_id: Some(dpu_machine_id),
-            mac_address: None,
-            credentials: vec![
-                Credentials {
-                    user: FIXTURE_DPU_SSH_USERNAME.to_string(),
-                    password: FIXTURE_DPU_SSH_PASSWORD.to_string(),
-                    credential_purpose: CredentialPurpose::LoginUser as i32,
-                },
-                Credentials {
-                    user: FIXTURE_DPU_HBN_USERNAME.to_string(),
-                    password: FIXTURE_DPU_HBN_PASSWORD.to_string(),
-                    credential_purpose: CredentialPurpose::Hbn as i32,
-                },
-            ],
-        }))
-        .await
-        .unwrap()
-        .into_inner();
 }
 
 // Convenience method for the tests to get a machine's loopback IP

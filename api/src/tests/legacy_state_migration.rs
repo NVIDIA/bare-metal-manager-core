@@ -25,7 +25,7 @@ use crate::{
     },
     model::machine::{DpuDiscoveringState, DpuInitState, ManagedHostState, ReprovisionState},
 };
-use common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
+use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 
@@ -79,7 +79,7 @@ async fn validate_all_machines(
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_1(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -139,7 +139,7 @@ async fn test_state_migration_1(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_2(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
@@ -198,7 +198,7 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_2_1(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
@@ -260,7 +260,7 @@ async fn test_state_migration_2_1(pool: sqlx::PgPool) {
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -308,7 +308,7 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_3(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -358,7 +358,7 @@ async fn test_state_migration_3(pool: sqlx::PgPool) {
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_4(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -379,7 +379,7 @@ async fn test_state_migration_4(pool: sqlx::PgPool) {
     validate_all_machines(&mut txn, host_machine_id, ManagedHostState::Ready).await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_5(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -425,7 +425,7 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_5_1(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -489,7 +489,7 @@ async fn test_state_migration_5_1(pool: sqlx::PgPool) {
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_6(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -532,7 +532,7 @@ async fn test_state_migration_6(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_state_migration_7(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;

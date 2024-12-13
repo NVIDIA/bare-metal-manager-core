@@ -85,6 +85,7 @@ pub async fn bootstrap(
 
     // Complete hack until we affirmatively disable the legacy flow
     // This is the host that gets its BMC updated
+
     let (_machine_interface_id, address) = crate::host::discover_dhcp(carbide_api_addr)?;
 
     let host_machine_id = crate::host::discover_machine(carbide_api_addr, address.as_str())?;
@@ -94,6 +95,7 @@ pub async fn bootstrap(
         "CreateCredential",
         Some(crate::host::BMC_CREDENTIALS55),
     )?;
+
     let data = crate::host::BMC_METADATA.replace("$HOST_MACHINE_ID", host_machine_id.as_str());
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 

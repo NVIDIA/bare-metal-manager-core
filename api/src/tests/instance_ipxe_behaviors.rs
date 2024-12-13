@@ -20,15 +20,15 @@ use crate::tests::common::api_fixtures::{
         create_instance_with_config, default_os_config, default_tenant_config,
         single_interface_network_config,
     },
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 
 use crate::tests::common;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -43,7 +43,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, false).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, false, segment_id).await;
     assert!(
         !env.find_instances(Some(instance_id.into()))
             .await
@@ -80,9 +80,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit");
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -97,7 +98,7 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, true).await;
+        create_instance(&env, &dpu_machine_id, &host_machine_id, true, segment_id).await;
     assert!(
         env.find_instances(Some(instance_id.into()))
             .await
@@ -163,6 +164,7 @@ pub async fn create_instance(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     run_provisioning_instructions_on_every_boot: bool,
+    segment_id: NetworkSegmentId,
 ) -> (InstanceId, rpc::Instance) {
     let mut os: rpc::forge::OperatingSystem = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
@@ -170,7 +172,7 @@ pub async fn create_instance(
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };

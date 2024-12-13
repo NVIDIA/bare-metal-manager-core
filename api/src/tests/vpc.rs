@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
-
 use crate::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::db::ObjectColumnFilter;
 use crate::model::metadata::Metadata;
@@ -20,8 +18,8 @@ use config_version::ConfigVersion;
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
-
-use crate::tests::common::api_fixtures::FIXTURE_VPC_ID;
+use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use crate::tests::common;
 
@@ -640,19 +638,20 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_vpc"))]
+#[crate::sqlx_test]
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
+    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
 
-    let some_vpc = Vpc::find_by(
-        &mut txn,
-        ObjectColumnFilter::One(vpc::IdColumn, &VpcId::from(FIXTURE_VPC_ID)),
-    )
-    .await?;
+    sqlx::query(r#"
+        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
+    "#).bind(vpc_id).execute(txn.deref_mut()).await?;
+
+    let some_vpc = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();
-    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_VPC_ID)));
+    assert!(matches!(first, Some(x) if x.id == vpc_id));
 
     Ok(())
 }

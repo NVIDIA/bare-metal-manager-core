@@ -25,36 +25,22 @@ use std::time::SystemTime;
 
 use crate::tests::common;
 use common::api_fixtures::{
-    create_test_env, create_test_env_with_overrides, forge_agent_control, get_config,
-    get_machine_validation_results, get_machine_validation_runs,
-    host::create_host_with_machine_validation,
+    create_host_with_machine_validation, create_test_env, create_test_env_with_overrides,
+    forge_agent_control, get_config, get_machine_validation_results, get_machine_validation_runs,
     instance::{create_instance, delete_instance, single_interface_network_config},
-    machine_validation_completed,
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    on_demand_machine_validation, reboot_completed, update_machine_validation_run,
-    TestEnvOverrides,
+    machine_validation_completed, on_demand_machine_validation, reboot_completed,
+    update_machine_validation_run, TestEnvOverrides,
 };
 use rpc::Timestamp;
 
-use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
-
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation_complete_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        None,
-        Some("Test Error".to_owned()),
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, None, Some("Test Error".to_owned())).await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -113,15 +99,11 @@ async fn test_machine_validation_complete_with_error(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -138,14 +120,9 @@ async fn test_machine_validation_with_error(
         test_id: Some("test1".to_string()),
     };
 
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -250,13 +227,9 @@ async fn test_machine_validation_with_error(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -273,14 +246,9 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         test_id: Some("test1".to_string()),
     };
 
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -347,16 +315,12 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation_get_results(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
@@ -372,21 +336,16 @@ async fn test_machine_validation_get_results(
         test_id: Some("test1".to_string()),
     };
 
-    let host_remote_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_remote_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let host_machine_id = try_parse_machine_id(&host_remote_id).unwrap();
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -537,15 +496,11 @@ async fn test_create_update_external_config(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation_test_on_demand_filter(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -562,14 +517,9 @@ async fn test_machine_validation_test_on_demand_filter(
         test_id: Some("test1".to_string()),
     };
 
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -651,7 +601,7 @@ async fn test_machine_validation_test_on_demand_filter(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_machine_validation_disabled(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -661,13 +611,7 @@ async fn test_machine_validation_disabled(
         create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
     };
 
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-
-    let host_machine_id =
-        create_host_with_machine_validation(&env, &host_sim.config, &dpu_machine_id, None, None)
-            .await;
+    let (host_machine_id, _) = create_host_with_machine_validation(&env, None, None).await;
 
     let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
     let skipped_state_int =
@@ -1104,15 +1048,11 @@ async fn test_machine_validation_test_disabled(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_on_demant_un_verified_machine_validation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -1129,14 +1069,9 @@ async fn test_on_demant_un_verified_machine_validation(
         test_id: Some("test1".to_string()),
     };
 
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -1264,15 +1199,11 @@ async fn test_machine_validation_get_unverified_tests(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_on_demant_machine_validation_all_contexts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let mut machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -1289,14 +1220,9 @@ async fn test_on_demant_machine_validation_all_contexts(
         test_id: Some("test1".to_string()),
     };
 
-    let host_machine_id = create_host_with_machine_validation(
-        &env,
-        &host_sim.config,
-        &dpu_machine_id,
-        Some(machine_validation_result.clone()),
-        None,
-    )
-    .await;
+    let (host_machine_id, dpu_machine_id) =
+        create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
+            .await;
 
     let mut txn = env.pool.begin().await?;
 

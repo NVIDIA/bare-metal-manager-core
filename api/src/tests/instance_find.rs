@@ -10,22 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::db::network_segment::NetworkSegment;
 use crate::tests::common::api_fixtures::{
     create_managed_host, create_test_env,
     instance::{
         create_instance, create_instance_with_labels, default_tenant_config,
         single_interface_network_config,
     },
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
-    FIXTURE_VPC_ID,
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     for i in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -34,7 +33,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(segment_id)),
                 None,
                 None,
                 vec![],
@@ -45,7 +44,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(segment_id)),
                 None,
                 None,
                 vec![],
@@ -61,6 +60,12 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             .await;
         }
     }
+    let mut txn = env.pool.begin().await.unwrap();
+    let vpc_id = NetworkSegment::find_by_name(&mut txn, "TENANT")
+        .await
+        .unwrap()
+        .vpc_id
+        .unwrap();
 
     // test_data contains a bunch of standard inputs thanks to the fact all
     // we need to do is call `find_instance_ids` over and over with different
@@ -177,7 +182,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             tonic::Request::new(rpc::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: None,
-                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+                vpc_id: Some(vpc_id.to_string()),
             }),
             10,
         ),
@@ -190,7 +195,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                     value: None,
                 }),
                 tenant_org_id: None,
-                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+                vpc_id: Some(vpc_id.to_string()),
             }),
             5,
         ),
@@ -203,7 +208,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                     value: Some("label_value_1".to_string()),
                 }),
                 tenant_org_id: None,
-                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+                vpc_id: Some(vpc_id.to_string()),
             }),
             1,
         ),
@@ -213,7 +218,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             tonic::Request::new(rpc::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
-                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+                vpc_id: Some(vpc_id.to_string()),
             }),
             10,
         ),
@@ -227,7 +232,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                     value: None,
                 }),
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
-                vpc_id: Some(FIXTURE_VPC_ID.to_string()),
+                vpc_id: Some(vpc_id.to_string()),
             }),
             5,
         ),
@@ -250,10 +255,10 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     for i in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -262,7 +267,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(segment_id)),
                 None,
                 None,
                 vec![],
@@ -273,7 +278,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(segment_id)),
                 None,
                 None,
                 vec![],
@@ -376,7 +381,7 @@ async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;

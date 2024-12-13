@@ -22,14 +22,9 @@ use rpc::{
     InstanceReleaseRequest, Timestamp,
 };
 
-use crate::tests::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
-
 use super::{
     forge_agent_control, inject_machine_measurements, persist_machine_validation_result, TestEnv,
 };
-
-pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
-pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
 
 pub async fn create_instance(
     env: &TestEnv,
@@ -116,8 +111,9 @@ pub async fn create_instance_with_ib_config(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     ib_config: rpc::forge::InstanceInfinibandConfig,
+    network_segment_id: NetworkSegmentId,
 ) -> (InstanceId, rpc::forge::Instance) {
-    let config = config_for_ib_config(ib_config);
+    let config = config_for_ib_config(ib_config, network_segment_id);
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
@@ -172,11 +168,12 @@ pub fn default_tenant_config() -> rpc::TenantConfig {
 
 pub fn config_for_ib_config(
     ib_config: rpc::forge::InstanceInfinibandConfig,
+    network_segment_id: NetworkSegmentId,
 ) -> rpc::forge::InstanceConfig {
     rpc::forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
         storage: None,
     }

@@ -16,12 +16,9 @@ use crate::db::{
 use crate::model::machine::machine_id::from_hardware_info;
 use crate::CarbideError;
 
-use crate::tests::common;
-use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
-
 use crate::tests::common::api_fixtures::create_test_env;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -33,7 +30,7 @@ async fn prevent_duplicate_mac_addresses(
 
     let network_segment = NetworkSegment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &FIXTURE_NETWORK_SEGMENT_ID),
+        ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         crate::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?

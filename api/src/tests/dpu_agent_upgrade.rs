@@ -12,20 +12,18 @@
 
 use std::time::SystemTime;
 
-use crate::model::machine::machine_id;
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+use crate::tests::common::api_fixtures::create_managed_host;
+use common::api_fixtures::create_test_env;
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        machine_id::try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await)
-            .unwrap();
+
+    let (_, dpu_machine_id) = create_managed_host(&env).await;
 
     // Set the upgrade policy
     let response = env

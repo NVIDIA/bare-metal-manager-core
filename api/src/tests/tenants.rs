@@ -14,7 +14,6 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     create_managed_host,
     instance::{create_instance, single_interface_network_config},
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
@@ -662,9 +661,10 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let _keyset = create_keyset(
         &env,
         "Tenant1".to_string(),
@@ -735,7 +735,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
@@ -812,15 +812,16 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         .is_err());
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],

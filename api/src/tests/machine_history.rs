@@ -19,13 +19,19 @@ use rpc::forge::forge_server::Forge;
 use crate::tests::common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let expected_initial_states = vec![
         "{\"state\": \"created\"}".to_string(), 
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"initializing\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"configuring\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"enablershim\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"count\": 0, \"dpudiscoverystate\": \"disablesecureboot\", \"disable_secure_boot_state\": {{\"disablesecurebootstate\": \"checksecurebootstatus\"}}}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"setuefihttpboot\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"rebootalldpus\"}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
         format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
@@ -167,7 +173,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 /// Check that we can handle old / unknown states in the history.
 /// This allows us to change MachineState enum.
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_old_machine_state_history(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -206,6 +212,12 @@ async fn test_old_machine_state_history(
         states,
         vec![
             "{\"state\": \"created\"}", 
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"initializing\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"configuring\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"enablershim\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"count\": 0, \"dpudiscoverystate\": \"disablesecureboot\", \"disable_secure_boot_state\": {{\"disablesecurebootstate\": \"checksecurebootstatus\"}}}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"setuefihttpboot\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"rebootalldpus\"}}}}}}}}", dpu_machine_id),
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
             &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),

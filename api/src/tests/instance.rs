@@ -53,18 +53,13 @@ use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, create_test_env_with_overrides, dpu, forge_agent_control,
-    get_config,
-    host::create_managed_host_with_ek,
-    inject_machine_measurements,
+    get_config, inject_machine_measurements,
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
         single_interface_network_config, single_interface_network_config_with_vpc_prefix,
-        FIXTURE_CIRCUIT_ID,
     },
-    network_configured, network_configured_with_health,
-    network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
-    persist_machine_validation_result,
+    network_configured, network_configured_with_health, persist_machine_validation_result,
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
     TestEnvOverrides,
 };
@@ -78,18 +73,21 @@ use rpc::{
     InstanceReleaseRequest, Timestamp,
 };
 
+use crate::tests::common;
+use crate::tests::common::api_fixtures::instance::create_instance_with_config;
+use crate::tests::common::api_fixtures::{
+    create_managed_host_with_ek, update_time_params, TestEnv,
+};
+use forge_uuid::vpc::VpcPrefixId;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::PgPool;
 use std::ops::DerefMut;
 
-use crate::tests::common::api_fixtures::instance::create_instance_with_config;
-use crate::tests::common::api_fixtures::update_time_params;
-
-use crate::tests::common;
-
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
@@ -103,7 +101,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .unwrap()
         .is_none());
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -122,7 +120,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -179,7 +177,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         });
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         1
@@ -197,7 +195,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceNetworkConfig::for_segment_id(segment_id)
     );
 
     assert!(fetched_instance.observations.network.is_some());
@@ -218,12 +216,15 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
 
+    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
+        .await
+        .unwrap();
     // TODO: The MAC here doesn't matter. It's not used for lookup
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
     let record = InstanceDhcpRecord::find_for_instance(
         &mut txn,
         parsed_mac,
-        FIXTURE_CIRCUIT_ID.to_string(),
+        format!("vlan{}", segment.vlan_id.unwrap()),
         fetched_instance,
     )
     .await
@@ -231,7 +232,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().to_string(), "192.0.2.3");
+    assert_eq!(record.address().to_string(), "192.0.4.3");
     assert_eq!(
         &record.address(),
         network_config.interfaces[0]
@@ -283,7 +284,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -291,7 +292,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[crate::sqlx_test]
 async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_failed_to_ready(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -301,6 +302,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let mut config = get_config();
     config.attestation_enabled = true;
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {
         ca_cert: CA_CERT_SERIALIZED.to_vec(),
@@ -313,7 +315,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Failed to add CA cert")
         .into_inner();
 
-    let (host_machine_id, dpu_machine_id) =
+    let (host_machine_id, dpu_machine_id, _) =
         create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     let mut txn = env
@@ -327,7 +329,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .unwrap()
         .is_none());
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -346,7 +348,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -403,7 +405,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         });
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         1
@@ -421,7 +423,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceNetworkConfig::for_segment_id(segment_id)
     );
 
     assert!(fetched_instance.observations.network.is_some());
@@ -444,10 +446,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // TODO: The MAC here doesn't matter. It's not used for lookup
     let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
+    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
+        .await
+        .unwrap();
     let record = InstanceDhcpRecord::find_for_instance(
         &mut txn,
         parsed_mac,
-        FIXTURE_CIRCUIT_ID.to_string(),
+        format!("vlan{}", segment.vlan_id.unwrap()),
         fetched_instance,
     )
     .await
@@ -455,7 +460,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().to_string(), "192.0.2.3");
+    assert_eq!(record.address().to_string(), "192.0.4.3");
     assert_eq!(
         &record.address(),
         network_config.interfaces[0]
@@ -767,7 +772,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -775,10 +780,11 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let txn = env
@@ -807,7 +813,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -894,10 +900,11 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let txn = env
@@ -962,7 +969,7 @@ async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: P
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -987,13 +994,14 @@ async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: P
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_allocate_instance_with_invalid_long_labels(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let txn = env
@@ -1019,7 +1027,7 @@ async fn test_allocate_instance_with_invalid_long_labels(
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -1102,10 +1110,11 @@ async fn test_allocate_instance_with_invalid_long_labels(
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let txn = env
@@ -1121,7 +1130,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1161,7 +1170,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         &env,
         &new_dpu_machine_id,
         &new_host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1171,22 +1180,23 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
     .await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+                network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+                network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
             },
         ],
@@ -1221,7 +1231,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let dns_record = env
         .api
         .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
+            q_name: Some("192-0-4-3.dwrt1.com.".to_string()),
             q_type: Some(1),
             q_class: Some(1),
         }))
@@ -1229,7 +1239,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .unwrap()
         .into_inner();
 
-    assert_eq!("192.0.2.3", &dns_record.rrs[0].rdata.clone().unwrap());
+    assert_eq!("192.0.4.3", &dns_record.rrs[0].rdata.clone().unwrap());
 
     //DHCP response uses hostname set during allocation
     assert_eq!(
@@ -1238,10 +1248,11 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     //Create instance with no hostname set
@@ -1250,7 +1261,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     let instance_config = rpc::InstanceConfig {
         tenant: Some(tenant_config),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -1279,7 +1290,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     let dns_record = env
         .api
         .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
+            q_name: Some("192-0-4-3.dwrt1.com.".to_string()),
             q_type: Some(1),
             q_class: Some(1),
         }))
@@ -1287,16 +1298,16 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .unwrap()
         .into_inner();
 
-    assert_eq!("192.0.2.3", &dns_record.rrs[0].rdata.clone().unwrap());
+    assert_eq!("192.0.4.3", &dns_record.rrs[0].rdata.clone().unwrap());
 
     //DHCP response uses dashed IP
-    assert_eq!("192-0-2-3.dwrt1.com", response.tenant_interfaces[0].fqdn);
+    assert_eq!("192-0-4-3.dwrt1.com", response.tenant_interfaces[0].fqdn);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     for i in 0..=9 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -1304,7 +1315,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
             &env,
             &dpu_machine_id,
             &host_machine_id,
-            Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+            Some(single_interface_network_config(segment_id)),
             None,
             None,
             vec![],
@@ -1399,16 +1410,17 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -1444,20 +1456,21 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_deletion_before_provisioning_finishes(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Create an instance in non-ready state
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: Default::default(),
         storage: None,
     };
@@ -1546,17 +1559,18 @@ async fn test_instance_deletion_before_provisioning_finishes(
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1610,17 +1624,18 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -1668,13 +1683,14 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
     assert!(err.message().contains("Database Error: error returned from database: duplicate key value violates unique constraint \"instances_pkey\""));
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_cloud_init_metadata(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) -> eyre::Result<()> {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
@@ -1703,7 +1719,7 @@ async fn test_instance_cloud_init_metadata(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -1728,10 +1744,11 @@ async fn test_instance_cloud_init_metadata(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // TODO: The test is broken from here. This method already moves the instance
@@ -1741,7 +1758,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -2036,11 +2053,11 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
@@ -2050,7 +2067,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
-            network: InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID),
+            network: InstanceNetworkConfig::for_segment_id(segment_id),
             infiniband: InstanceInfinibandConfig::default(),
             storage: InstanceStorageConfig::default(),
         },
@@ -2080,10 +2097,11 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
@@ -2093,13 +2111,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id_1)
             .await
             .unwrap(),
         0
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID_1)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id_2)
             .await
             .unwrap(),
         0
@@ -2110,12 +2128,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+                network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+                network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
             },
         ],
@@ -2139,48 +2157,41 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id_1)
             .await
             .unwrap(),
         1
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID_1)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id_2)
             .await
             .unwrap(),
         1
     );
 
-    // The create_network_segment fixture creates two network segments, backed by
-    // FIXTURE_NETWORK_SEGMENT_ID (91609f10-c91d-470d-a260-6293ea0c1200, 192.0.2.0/24)
-    // and FIXTURE_NETWORK_SEGMENT_ID_1 (4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9, 192.0.3.0/24),
-    // so after the instance is allocated with an InstanceNetworkConfig containing
-    // interfaces in both segments, lets check the allocaitons to make sure it worked as
-    // expected.
-    //
     // TODO(chet): This will be where I also drop prefix allocation testing!
 
     // Check the allocated IP for the PF/primary interface.
     let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
-        segment_id: *FIXTURE_NETWORK_SEGMENT_ID,
+        segment_id: segment_id_1,
     };
     let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
-    assert_eq!("192.0.2.3", used_ips[0].to_string());
-    assert_eq!("192.0.2.3/32", used_prefixes[0].to_string());
+    assert_eq!("192.0.4.3", used_ips[0].to_string());
+    assert_eq!("192.0.4.3/32", used_prefixes[0].to_string());
 
     // Check the allocated VF.
     let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
-        segment_id: *FIXTURE_NETWORK_SEGMENT_ID_1,
+        segment_id: segment_id_2,
     };
     let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
-    assert_eq!("192.0.3.3", used_ips[0].to_string());
-    assert_eq!("192.0.3.3/32", used_prefixes[0].to_string());
+    assert_eq!("192.0.5.3", used_ips[0].to_string());
+    assert_eq!("192.0.5.3/32", used_prefixes[0].to_string());
 
     // And make sure find_by_prefix works -- just leverage
     // the last used_prefixes prefix and make sure it matches
@@ -2209,12 +2220,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .into_inner();
     assert!(!network_config.use_admin_network);
     assert_eq!(network_config.tenant_interfaces.len(), 2);
-    assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.2.3");
-    assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.3.3");
+    assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.4.3");
+    assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.5.3");
     assert_eq!(network_config.dpu_network_pinger_type, None);
     // Ensure the VPC prefixes (which in this case are the two network segment
     // IDs referenced above) are both associated with both interfaces.
-    let expected_vpc_prefixes = vec!["192.0.2.0/24".to_string(), "192.0.3.0/24".to_string()];
+    let expected_vpc_prefixes = vec!["192.0.4.0/24".to_string(), "192.0.5.0/24".to_string()];
     assert_eq!(
         network_config.tenant_interfaces[0].vpc_prefixes,
         expected_vpc_prefixes
@@ -2225,13 +2236,14 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_cannot_create_instance_on_unhealthy_dpu(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) -> eyre::Result<()> {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Report an unhealthy DPU
@@ -2268,7 +2280,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
             config: Some(rpc::InstanceConfig {
                 os: Some(default_os_config()),
                 tenant: Some(default_tenant_config()),
-                network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+                network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 storage: None,
             }),
@@ -2292,10 +2304,11 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut os = default_os_config();
@@ -2303,7 +2316,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let instance_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -2347,17 +2360,18 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     assert_eq!(instance.status.unwrap().tenant.unwrap().state, 1);
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(segment_id)),
         None,
         None,
         vec![],
@@ -2442,10 +2456,11 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
@@ -2464,7 +2479,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
             ],
             hostname: Some("test-instance".to_string()),
         }),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -2493,10 +2508,11 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
     assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: bad_id");
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
@@ -2522,7 +2538,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
             ],
             hostname: Some("test-hostname".to_string()),
         }),
-        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
     };
@@ -2554,13 +2570,14 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     );
 }
 
-#[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[crate::sqlx_test]
 async fn test_allocate_instance_with_old_network_segemnt(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let txn = env
@@ -2576,7 +2593,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         labels: vec![],
     };
 
-    let mut nw_config = single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID);
+    let mut nw_config = single_interface_network_config(segment_id);
     for interface in &mut nw_config.interfaces {
         interface.network_details = None;
     }
@@ -2635,22 +2652,26 @@ async fn test_allocate_instance_with_old_network_segemnt(
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
     }
-    let mut expected_nw_config = InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID);
+    let mut expected_nw_config = InstanceNetworkConfig::for_segment_id(segment_id);
     for interface in &mut expected_nw_config.interfaces {
         interface.network_details = None;
     }
     assert_eq!(network_config_no_addresses, expected_nw_config);
 }
 
-#[crate::sqlx_test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_vpc_prefix",
-    "create_network_segment"
-))]
+#[crate::sqlx_test]
 async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc = Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
 
     let x = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -2658,9 +2679,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             network_segment_id: None,
             network_details: Some(
                 rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                    rpc::common::Uuid {
-                        value: "63fd2e18-5fff-400e-8861-1e7a6c862b7c".to_string(),
-                    },
+                    vpc_prefix_id.into(),
                 ),
             ),
         }],
@@ -2735,18 +2754,14 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     }
 }
 
-#[crate::sqlx_test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_vpc_prefix",
-    "create_network_segment"
-))]
+#[crate::sqlx_test]
 async fn test_allocate_and_release_instance_vpc_prefix_id(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env
@@ -2760,7 +2775,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .unwrap()
         .is_none());
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
             .unwrap(),
         0
@@ -2782,10 +2797,10 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
     };
     update_vpc.update(&mut txn).await.unwrap();
-
     txn.commit().await.unwrap();
 
-    let vpc_prefix_id = uuid::Uuid::from_str("63fd2e18-5fff-400e-8861-1e7a6c862b7c").unwrap();
+    let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
+
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
@@ -2873,7 +2888,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id)
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into())
     );
 
     assert!(fetched_instance.observations.network.is_some());
@@ -3006,15 +3021,34 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 }
 
-#[crate::sqlx_test(fixtures(
-    "create_domain",
-    "create_vpc",
-    "create_vpc_prefix",
-    "create_network_segment"
-))]
-async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
-    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
+#[crate::sqlx_test]
+async fn test_vpc_prefix_handling(pool: PgPool) {
+    // This test requires there to be no default network segments created
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Make a VPC and prefix
+    let vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc 1".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let vpc_id: forge_uuid::vpc::VpcId = vpc.id.as_ref().unwrap().clone().try_into().unwrap();
+    let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
     let mut txn = env
         .pool
@@ -3022,22 +3056,16 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let vpc_prefix_id = uuid::uuid!("63fd2e18-5fff-400e-8861-1e7a6c862b7c");
-
     let allocator = Ipv4PrefixAllocator::new(
         // 15 IPs
-        vpc_prefix_id.into(),
+        vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(
-            &mut txn,
-            &env.api,
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-        )
+        .allocate_network_segment(&mut txn, &env.api, vpc_id)
         .await
         .unwrap();
 
@@ -3063,18 +3091,14 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id.into(),
+        vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(
-            &mut txn,
-            &env.api,
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-        )
+        .allocate_network_segment(&mut txn, &env.api, vpc_id)
         .await
         .unwrap();
 
@@ -3100,18 +3124,14 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id.into(),
+        vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         None,
         31,
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(
-            &mut txn,
-            &env.api,
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-        )
+        .allocate_network_segment(&mut txn, &env.api, vpc_id)
         .await
         .unwrap();
 
@@ -3144,18 +3164,14 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
         .expect("Unable to create transaction on database pool");
 
     let allocator = Ipv4PrefixAllocator::new(
-        vpc_prefix_id.into(),
+        vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
         Some(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 234), 31).unwrap()),
         31,
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(
-            &mut txn,
-            &env.api,
-            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-        )
+        .allocate_network_segment(&mut txn, &env.api, vpc_id)
         .await
         .unwrap();
 
@@ -3175,4 +3191,23 @@ async fn test_vpc_prefix_handling(_: PgPoolOptions, options: PgConnectOptions) {
     txn.commit().await.unwrap();
 
     assert_eq!(Ipv4Addr::new(10, 217, 5, 236), address4);
+}
+
+async fn create_tenant_overlay_prefix(
+    env: &TestEnv,
+    vpc_id: forge_uuid::vpc::VpcId,
+) -> VpcPrefixId {
+    let mut txn = env.pool.begin().await.unwrap();
+    let vpc_prefix_id = crate::db::vpc_prefix::NewVpcPrefix {
+        id: uuid::Uuid::new_v4().into(),
+        prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+        name: "vpc_prefix_1".to_string(),
+        vpc_id,
+    }
+    .persist(&mut txn)
+    .await
+    .unwrap()
+    .id;
+    txn.commit().await.unwrap();
+    vpc_prefix_id
 }
