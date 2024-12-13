@@ -17,6 +17,7 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
+    machine::infiniband::MachineInfinibandStatusObservation,
     machine::{ManagedHostState, ReprovisionRequest},
     metadata::Metadata,
 };
@@ -77,6 +78,7 @@ impl InstanceSnapshot {
         &self,
         managed_host_state: ManagedHostState,
         reprovision_request: Option<ReprovisionRequest>,
+        ib_status: Option<&MachineInfinibandStatusObservation>,
     ) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
             Versioned::new(&self.config, self.config_version),
@@ -87,6 +89,7 @@ impl InstanceSnapshot {
             managed_host_state,
             self.deleted.is_some(),
             reprovision_request,
+            ib_status,
         )
     }
 }

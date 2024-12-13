@@ -136,6 +136,7 @@ pub struct TestEnvOverrides {
     pub allow_zero_dpu_hosts: Option<bool>,
     pub site_prefixes: Option<Vec<IpNetwork>>,
     pub config: Option<CarbideConfig>,
+    pub ibports: Option<HashMap<String, crate::ib::types::IBPort>>,
 }
 
 impl TestEnvOverrides {
@@ -634,6 +635,7 @@ pub async fn create_test_env_with_overrides(
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
+            ports: overrides.ibports,
         },
     )
     .unwrap();

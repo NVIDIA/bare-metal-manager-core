@@ -357,6 +357,34 @@ impl MachineStateHandler {
             .is_some();
     }
 
+    async fn record_infiniband_status(
+        &self,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) {
+        if mh_snapshot.host_snapshot.hardware_info.is_some() {
+            match mh_snapshot.managed_state {
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::Discovered { .. },
+                }
+                | ManagedHostState::Ready { .. }
+                | ManagedHostState::Assigned { .. } => {
+                    if let Err(e) = ib::record_machine_infiniband_status_observation(
+                        ctx.services,
+                        txn,
+                        mh_snapshot,
+                    )
+                    .await
+                    {
+                        tracing::error!("Failure on updating machine infiniband status: {e}");
+                    }
+                }
+                _ => {}
+            };
+        };
+    }
+
     async fn attempt_state_transition(
         &self,
         host_machine_id: &MachineId,
@@ -1828,6 +1856,7 @@ impl StateHandler for MachineStateHandler {
             )));
         }
         self.record_metrics(mh_snapshot, ctx);
+        self.record_infiniband_status(mh_snapshot, txn, ctx).await;
         self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
             .await
     }
@@ -4542,14 +4571,6 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
-                    ib::record_infiniband_status_observation(
-                        ctx.services,
-                        txn,
-                        instance,
-                        instance.config.infiniband.ib_interfaces.clone(),
-                    )
-                    .await?;
-
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
@@ -4659,13 +4680,6 @@ impl StateHandler for InstanceStateHandler {
                         };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
-                        ib::record_infiniband_status_observation(
-                            ctx.services,
-                            txn,
-                            instance,
-                            instance.config.infiniband.ib_interfaces.clone(),
-                        )
-                        .await?;
                         Ok(StateHandlerOutcome::DoNothing)
                     }
                 }

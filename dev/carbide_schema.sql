@@ -1117,7 +1117,6 @@ CREATE TABLE public.instances (
     deleted timestamp with time zone,
     ib_config_version character varying(64) DEFAULT 'V1-T1666644937952267'::character varying NOT NULL,
     ib_config jsonb DEFAULT '{"ib_interfaces": []}'::jsonb NOT NULL,
-    ib_status_observation jsonb DEFAULT '{"observed_at": "2023-01-01T00:00:00.000000000Z", "config_version": "V1-T1666644937952267"}'::jsonb NOT NULL,
     keyset_ids text[] DEFAULT '{}'::text[] NOT NULL,
     os_always_boot_with_ipxe boolean DEFAULT false,
     os_phone_home_enabled boolean DEFAULT false NOT NULL,
@@ -1328,6 +1327,7 @@ CREATE TABLE public.machines (
     cleanup_machine_validation_id uuid
     on_demand_machine_validation_id uuid
     on_demand_machine_validation_request: BOOLEAN,
+    infiniband_status_observation jsonb,
 );
 
 

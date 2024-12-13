@@ -18,6 +18,7 @@ use crate::model::{
         infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         storage::InstanceStorageConfig, InstanceConfig,
     },
+    machine::infiniband::MachineInfinibandStatusObservation,
     machine::{InstanceState, ManagedHostState, ReprovisionRequest},
 };
 use ::rpc::errors::RpcDataConversionError;
@@ -148,6 +149,7 @@ impl InstanceStatus {
         machine_state: ManagedHostState,
         delete_requested: bool,
         reprovision_request: Option<ReprovisionRequest>,
+        ib_status: Option<&MachineInfinibandStatusObservation>,
     ) -> Result<Self, RpcDataConversionError> {
         let instance_config_synced = match observations.network {
             Some(ref network_obs) => match network_obs.instance_config_version {
@@ -171,10 +173,8 @@ impl InstanceStatus {
             network_config,
             observations.network.as_ref(),
         );
-        let infiniband = infiniband::InstanceInfinibandStatus::from_config_and_observation(
-            ib_config,
-            observations.infiniband.as_ref(),
-        );
+        let infiniband =
+            infiniband::InstanceInfinibandStatus::from_config_and_observation(ib_config, ib_status);
         let storage = storage::InstanceStorageStatus::from_config_and_observation(
             storage_config,
             observations.storage.as_ref(),
@@ -251,9 +251,6 @@ impl TryFrom<SyncState> for rpc::SyncState {
 pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
     pub network: Option<network::InstanceNetworkStatusObservation>,
-
-    /// Observed status of the infiniband subsystem
-    pub infiniband: Option<infiniband::InstanceInfinibandStatusObservation>,
 
     pub storage: Option<storage::InstanceStorageStatusObservation>,
 

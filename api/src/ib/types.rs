@@ -46,6 +46,8 @@ pub struct IBNetwork {
 pub enum IBPortState {
     Active,
     Down,
+    Initialize,
+    Armed,
 }
 
 #[derive(Clone, Debug)]
@@ -54,11 +56,13 @@ pub enum IBPortMembership {
     Limited,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IBPort {
     pub name: String,
     pub guid: String,
     pub lid: i32,
+    /// Logical state is used.
+    /// Possible states reported by device: 'Down', 'Initialize', 'Armed', 'Active'
     pub state: Option<IBPortState>,
 }
 
@@ -70,6 +74,31 @@ pub struct IBRateLimit(pub i32);
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct IBServiceLevel(pub i32);
+
+impl TryFrom<String> for IBPortState {
+    type Error = CarbideError;
+
+    fn try_from(state: String) -> Result<Self, Self::Error> {
+        match state.to_lowercase().as_str().trim() {
+            "active" => Ok(IBPortState::Active),
+            "down" => Ok(IBPortState::Down),
+            "initialize" => Ok(IBPortState::Initialize),
+            "armed" => Ok(IBPortState::Armed),
+            _ => Err(CarbideError::InvalidArgument(format!(
+                "{0} is an invalid IBPortState",
+                state
+            ))),
+        }
+    }
+}
+
+impl TryFrom<&str> for IBPortState {
+    type Error = CarbideError;
+
+    fn try_from(state: &str) -> Result<Self, Self::Error> {
+        IBPortState::try_from(state.to_string())
+    }
+}
 
 impl Default for IBMtu {
     fn default() -> IBMtu {

@@ -1752,6 +1752,9 @@ message Machine {
   optional bool firmware_autoupdate = 28;
 
   optional string failure_details = 30;
+
+  // Infiniband devices information attached to the machine.
+  optional InfinibandStatusObservation ib_status = 32;
 }
 
 message DpuAgentInventoryReport {
@@ -1853,6 +1856,30 @@ message MachineInterface {
   optional google.protobuf.Timestamp last_dhcp = 12;
 
   optional bool is_bmc = 13;
+}
+
+// Infiniband interface status description
+message InfinibandStatusObservation {
+  // The GUID of the hardware device that this interface is attached to
+  repeated MachineIbInterface ib_interfaces = 1;
+}
+
+// Infiniband interface description on a machine
+message MachineIbInterface {
+  // The GUID of the hardware device that this interface is attached to
+  optional string pf_guid = 1;
+
+  // The GUID which has been assigned to this interface
+  // In case the interface is a PF interface, the GUID will be equivalent to
+  // `pf_guid` - which is the GUID that is stored on the hardware device.
+  // For a VF interface, this is a GUID that has been allocated by Forge in order
+  // be used for the VF.
+  // Tenants have to configure the VF device on their instances to use this GUID.
+  optional string guid = 2;
+
+  // The local id of this IB interface; if interface configuration has not been completed, the value is 0.
+  // This value is 0xffff for devices in non active state.
+  optional uint32 lid = 11;
 }
 
 message DhcpDiscovery {

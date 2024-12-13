@@ -18,104 +18,83 @@ use chrono::Utc;
 
 use crate::db::ObjectColumnFilter;
 use crate::{
-    db::{ib_partition, instance::Instance},
+    db::{ib_partition, machine::Machine},
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
-    model::instance::{
-        config::infiniband::InstanceIbInterfaceConfig,
-        snapshot::InstanceSnapshot,
-        status::infiniband::{
-            InstanceIbInterfaceStatusObservation, InstanceInfinibandStatusObservation,
-        },
+    model::instance::config::infiniband::InstanceIbInterfaceConfig,
+    model::machine::{
+        infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+        ManagedHostStateSnapshot,
     },
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
 };
 use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
-pub(crate) async fn record_infiniband_status_observation(
+pub(crate) async fn record_machine_infiniband_status_observation(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    instance: &InstanceSnapshot,
-    ib_interfaces: Vec<InstanceIbInterfaceConfig>,
+    mh_snapshot: &mut ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<IBPartitionId, Vec<String>>::new();
-
-    for ib in &ib_interfaces {
-        let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
-            object_id: instance.id.to_string(),
-            missing: "GUID of IB Port",
-        })?;
-
-        ibconf.entry(ib.ib_partition_id).or_default().push(guid);
-    }
-
-    if ibconf.is_empty() {
-        // Update an empty record for ib.
-        let status = InstanceInfinibandStatusObservation {
-            config_version: instance.ib_config_version,
-            ib_interfaces: vec![],
-            observed_at: Utc::now(),
-        };
-        Instance::update_infiniband_status_observation(txn, instance.id, &status).await?;
-
+    if mh_snapshot.host_snapshot.hardware_info.is_none() {
+        // Skip status update during DPU initialization
         return Ok(());
     }
 
-    let ib_fabric = services
-        .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME)
-        .await
-        .map_err(|e| StateHandlerError::IBFabricError {
-            operation: "connect".to_string(),
-            error: e.into(),
-        })?;
+    let machine_id = &mh_snapshot.host_snapshot.machine_id;
+    let ib_hw_info = &mh_snapshot
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .unwrap()
+        .infiniband_interfaces;
 
-    let mut ib_interfaces_status: Vec<InstanceIbInterfaceStatusObservation> =
-        Vec::with_capacity(ib_interfaces.len());
-    for iter_if in ib_interfaces.iter() {
-        ib_interfaces_status.push(InstanceIbInterfaceStatusObservation {
-            guid: iter_if.clone().guid,
-            lid: 0xffff_u32,
-            addresses: vec![],
-        })
+    // Form list of requested guids
+    let mut guids: Vec<String> = Vec::new();
+    for ib_interface in ib_hw_info.iter() {
+        guids.push(ib_interface.guid.clone());
     }
 
-    for (k, guids) in ibconf {
-        let ib_partitions = ib_partition::IBPartition::find_by(
-            txn,
-            ObjectColumnFilter::One(ib_partition::IdColumn, &k),
-            ib_partition::IBPartitionSearchConfig {
-                include_history: false,
-            },
-        )
-        .await?;
+    let mut prev = mh_snapshot
+        .host_snapshot
+        .infiniband_status_observation
+        .clone()
+        .unwrap_or_default();
 
-        let ibpartition = ib_partitions
-            .first()
-            .ok_or(StateHandlerError::MissingData {
-                object_id: k.to_string(),
-                missing: "ib_partition not found",
+    let cur = if guids.is_empty() {
+        // Create empty infiniband statuses record.
+        if mh_snapshot
+            .host_snapshot
+            .infiniband_status_observation
+            .is_none()
+        {
+            MachineInfinibandStatusObservation {
+                observed_at: Utc::now(),
+                ib_interfaces: vec![],
+            }
+        } else {
+            // This allows to update an empty record once.
+            prev.clone()
+        }
+    } else {
+        // Collect actual infiniband statuses.
+        let ib_fabric = services
+            .ib_fabric_manager
+            .connect(DEFAULT_IB_FABRIC_NAME)
+            .await
+            .map_err(|e| StateHandlerError::IBFabricError {
+                operation: "connect".to_string(),
+                error: e.into(),
             })?;
 
         // Get the status of ports from UFM, and persist it as observed status.
+        // Not filter by pkey and check port status directly.
         let filter = ib::Filter {
             guids: Some(guids.clone()),
-            pkey: ibpartition.config.pkey,
+            pkey: None,
         };
         let ports = ib_fabric
             .find_ib_port(Some(filter))
             .await
             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-
-        for port in ports.iter() {
-            for iter_status in ib_interfaces_status.iter_mut() {
-                if port.guid == iter_status.guid.clone().unwrap_or_default() {
-                    let status = InstanceIbInterfaceStatusObservation::from(port);
-                    iter_status.lid = status.lid;
-                    iter_status.addresses = status.addresses;
-                    break;
-                }
-            }
-        }
 
         if ports.len() != guids.len() {
             let mut expected_guids = HashSet::new();
@@ -136,14 +115,42 @@ pub(crate) async fn record_infiniband_status_observation(
             };
             tracing::error!("Detected invalid infiniband confiuration {e}");
         }
-    }
 
-    let status = InstanceInfinibandStatusObservation {
-        config_version: instance.ib_config_version,
-        ib_interfaces: ib_interfaces_status,
-        observed_at: Utc::now(),
+        let mut ib_interfaces_status: Vec<MachineIbInterfaceStatusObservation> =
+            Vec::with_capacity(guids.len());
+        for iter_if in guids.iter() {
+            ib_interfaces_status.push(MachineIbInterfaceStatusObservation {
+                guid: iter_if.clone(),
+                lid: 0xffff_u16,
+            })
+        }
+
+        for port in ports.iter() {
+            for iter_status in ib_interfaces_status.iter_mut() {
+                if port.guid == iter_status.guid.clone() {
+                    let status = MachineIbInterfaceStatusObservation::from(port);
+                    iter_status.lid = status.lid;
+                    break;
+                }
+            }
+        }
+
+        let cur = MachineInfinibandStatusObservation {
+            observed_at: Utc::now(),
+            ib_interfaces: ib_interfaces_status,
+        };
+        // This allows to update a record just in case any changes.
+        prev.observed_at = cur.observed_at;
+        cur
     };
-    Instance::update_infiniband_status_observation(txn, instance.id, &status).await?;
+
+    // Update Machine infiniband status in case any changes only
+    // Vector of statuses is based on guids vector that is formed
+    // from hardware_info.infiniband_interfaces[]
+    // So it guarantees stable order between function calls
+    if prev != cur {
+        Machine::update_infiniband_status_observation(txn, machine_id, &cur).await?;
+    }
 
     Ok(())
 }
