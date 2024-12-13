@@ -461,7 +461,7 @@ Infiniband typically expresses `Pkeys` in hex; the available range is `“0x0 ~ 
 ```toml
 [ib_fabrics.default]
 endpoints = ["https://10.217.161.194:443/"]
-pkeys = [{ start = "200", end = "500" }]
+pkeys = [{ start = "256", end = "2303" }]
 ```
 
 Note that currently Forge only supports only a single IB fabric. Therefore only
