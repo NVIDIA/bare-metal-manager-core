@@ -629,6 +629,20 @@ pub(crate) async fn add_machine_validation_test(
             e,
         ))
     })?;
+    let tests = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest {
+            test_id: Some(
+                machine_validation_suites::MachineValidationTest::generate_test_id(&req.name),
+            ),
+            ..rpc::MachineValidationTestsGetRequest::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+    if !tests.is_empty() {
+        return Err(Status::invalid_argument("Name already exists"));
+    }
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::MachineValidationTest::save(&mut txn, req, version)
         .await

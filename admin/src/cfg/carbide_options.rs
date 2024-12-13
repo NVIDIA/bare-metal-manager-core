@@ -1809,7 +1809,7 @@ pub enum MachineValidationCommand {
     )]
     Runs(MachineValidationRunsCommand),
     #[clap(about = "Supported Tests ", subcommand, visible_alias = "mvs")]
-    Tests(MachineValidationTestsCommand),
+    Tests(Box<MachineValidationTestsCommand>),
 }
 #[derive(Parser, Debug)]
 pub enum MachineValidationExternalConfigCommand {
@@ -1929,8 +1929,14 @@ pub enum MachineValidationTestsCommand {
     Show(ShowMachineValidationTestOptions),
     #[clap(about = "Verify a given test")]
     Verify(MachineValidationVerifyTestOptions),
-    #[clap(about = "Enabled disable a test")]
-    EnabledDisable(MachineValidationEnableDisableTestOptions),
+    #[clap(about = "Add new test case")]
+    Add(MachineValidationAddTestOptions),
+    #[clap(about = "Update existing test case")]
+    Update(MachineValidationUpdateTestOptions),
+    #[clap(about = "Enabled a test")]
+    Enable(MachineValidationEnableDisableTestOptions),
+    #[clap(about = "Disable a test")]
+    Disable(MachineValidationEnableDisableTestOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1960,12 +1966,118 @@ pub struct MachineValidationEnableDisableTestOptions {
 
     #[clap(short, long, help = "Version to be verify")]
     pub version: String,
+}
 
-    #[clap(
-        short,
-        long,
-        default_value = "true",
-        help = "flag for enable and disable. True for enable and false for disable"
-    )]
-    pub is_enable: bool,
+#[derive(Parser, Debug)]
+pub struct MachineValidationUpdateTestOptions {
+    #[clap(long, help = "Unique identification of the test")]
+    pub test_id: String,
+
+    #[clap(long, help = "Version to be verify")]
+    pub version: String,
+
+    #[clap(long, help = "List of contexts")]
+    pub contexts: Vec<String>,
+
+    #[clap(long, help = "Container image name")]
+    pub img_name: Option<String>,
+
+    #[clap(long, help = "Run command using chroot in case of container")]
+    pub execute_in_host: Option<bool>,
+
+    #[clap(long, help = "Container args")]
+    pub container_arg: Option<String>,
+
+    #[clap(long, help = "Description")]
+    pub description: Option<String>,
+
+    #[clap(long, help = "Command ")]
+    pub command: Option<String>,
+
+    #[clap(long, help = "Command args ")]
+    pub args: Option<String>,
+
+    #[clap(long, help = "Command output error file ")]
+    pub extra_err_file: Option<String>,
+
+    #[clap(long, help = "Command output file ")]
+    pub extra_output_file: Option<String>,
+
+    #[clap(long, help = "External file")]
+    pub external_config_file: Option<String>,
+
+    #[clap(long, help = "Pre condition")]
+    pub pre_condition: Option<String>,
+
+    #[clap(long, help = "Command Timeout")]
+    pub timeout: Option<i64>,
+
+    #[clap(long, help = "List of supported platforms")]
+    pub supported_platforms: Vec<String>,
+
+    #[clap(long, help = "List of custom tags")]
+    pub custom_tags: Vec<String>,
+
+    #[clap(long, help = "List of system components")]
+    pub components: Vec<String>,
+
+    #[clap(long, help = "Enable the test")]
+    pub is_enabled: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineValidationAddTestOptions {
+    #[clap(long, help = "Name of the test case")]
+    pub name: String,
+
+    #[clap(long, help = "Command of the test case")]
+    pub command: String,
+
+    #[clap(long, help = "Args for command")]
+    pub args: String,
+
+    #[clap(long, help = "List of contexts")]
+    pub contexts: Vec<String>,
+
+    #[clap(long, help = "Container image name")]
+    pub img_name: Option<String>,
+
+    #[clap(long, help = "Run command using chroot in case of container")]
+    pub execute_in_host: Option<bool>,
+
+    #[clap(long, help = "Container args")]
+    pub container_arg: Option<String>,
+
+    #[clap(long, help = "Description")]
+    pub description: Option<String>,
+
+    #[clap(long, help = "Command output error file ")]
+    pub extra_err_file: Option<String>,
+
+    #[clap(long, help = "Command output file ")]
+    pub extra_output_file: Option<String>,
+
+    #[clap(long, help = "External file")]
+    pub external_config_file: Option<String>,
+
+    #[clap(long, help = "Pre condition")]
+    pub pre_condition: Option<String>,
+
+    #[clap(long, help = "Command Timeout")]
+    pub timeout: Option<i64>,
+
+    #[clap(long, help = "List of supported platforms")]
+    pub supported_platforms: Vec<String>,
+
+    #[clap(long, help = "List of custom tags")]
+    pub custom_tags: Vec<String>,
+
+    #[clap(long, help = "List of system components")]
+    pub components: Vec<String>,
+
+    #[clap(long, help = "Enable the test")]
+    pub is_enabled: Option<bool>,
+
+    #[clap(long, help = "Is read-only")]
+    pub read_only: Option<bool>,
 }

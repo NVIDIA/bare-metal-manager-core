@@ -9,7 +9,8 @@
  */
 use super::rpc;
 use crate::cfg::carbide_options::{
-    MachineValidationEnableDisableTestOptions, MachineValidationOnDemandOptions,
+    MachineValidationAddTestOptions, MachineValidationEnableDisableTestOptions,
+    MachineValidationOnDemandOptions, MachineValidationUpdateTestOptions,
     MachineValidationVerifyTestOptions, ShowMachineValidationResultsOptions,
     ShowMachineValidationRunsOptions, ShowMachineValidationTestOptions,
 };
@@ -523,7 +524,16 @@ pub async fn machine_validation_test_verfied(
     Ok(())
 }
 
-pub async fn machine_validation_test_enable_disable(
+pub async fn machine_validation_test_enable(
+    api_config: &ApiConfig<'_>,
+    options: MachineValidationEnableDisableTestOptions,
+) -> CarbideCliResult<()> {
+    rpc::machine_validation_test_enable_disable(api_config, options.test_id, options.version, true)
+        .await?;
+    Ok(())
+}
+
+pub async fn machine_validation_test_disable(
     api_config: &ApiConfig<'_>,
     options: MachineValidationEnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
@@ -531,8 +541,78 @@ pub async fn machine_validation_test_enable_disable(
         api_config,
         options.test_id,
         options.version,
-        options.is_enable,
+        false,
     )
     .await?;
+    Ok(())
+}
+
+pub async fn machine_validation_test_update(
+    api_config: &ApiConfig<'_>,
+    options: MachineValidationUpdateTestOptions,
+) -> CarbideCliResult<()> {
+    let payload = forgerpc::machine_validation_test_update_request::Payload {
+        contexts: options.contexts,
+        img_name: options.img_name,
+        execute_in_host: options.execute_in_host,
+        container_arg: options.container_arg,
+        command: options.command,
+        args: options.args,
+        extra_err_file: options.extra_err_file,
+        external_config_file: options.external_config_file,
+        pre_condition: options.pre_condition,
+        timeout: options.timeout,
+        extra_output_file: options.extra_output_file,
+        supported_platforms: options.supported_platforms,
+        custom_tags: options.custom_tags,
+        components: options.components,
+        is_enabled: options.is_enabled,
+        description: options.description,
+        verified: None,
+        name: None,
+    };
+    rpc::machine_validation_test_update(api_config, options.test_id, options.version, payload)
+        .await?;
+    Ok(())
+}
+
+pub async fn machine_validation_test_add(
+    api_config: &ApiConfig<'_>,
+    options: MachineValidationAddTestOptions,
+) -> CarbideCliResult<()> {
+    let mut contexts = vec!["OnDemand".to_string()];
+    if !options.contexts.is_empty() {
+        contexts = options.contexts;
+    }
+
+    let mut supported_platforms = vec!["New_Sku".to_string()];
+    if !options.supported_platforms.is_empty() {
+        supported_platforms = options.supported_platforms;
+    }
+    let mut description = Some("new test case".to_string());
+    if options.description.is_some() {
+        description = options.description;
+    }
+    let request = forgerpc::MachineValidationTestAddRequest {
+        name: options.name,
+        description,
+        contexts,
+        img_name: options.img_name,
+        execute_in_host: options.execute_in_host,
+        container_arg: options.container_arg,
+        command: options.command,
+        args: options.args,
+        extra_err_file: options.extra_err_file,
+        external_config_file: options.external_config_file,
+        pre_condition: options.pre_condition,
+        timeout: options.timeout,
+        extra_output_file: options.extra_output_file,
+        supported_platforms,
+        read_only: options.read_only,
+        custom_tags: options.custom_tags,
+        components: options.components,
+        is_enabled: options.is_enabled,
+    };
+    rpc::machine_validation_test_add(api_config, request).await?;
     Ok(())
 }
