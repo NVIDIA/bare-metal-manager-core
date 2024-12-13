@@ -246,7 +246,7 @@ mod tests {
         metadata::Metadata,
     };
 
-    #[sqlx::test]
+    #[crate::sqlx_test]
     async fn instance_type_crud(pool: sqlx::PgPool) {
         let mut txn = pool
             .begin()

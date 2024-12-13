@@ -482,7 +482,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     );
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
