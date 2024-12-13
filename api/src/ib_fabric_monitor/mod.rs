@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 use tracing::Instrument;
 
 use crate::{
-    cfg::file::IbFabricMonitorConfig,
-    ib::{IBFabricManager, IBFabricManagerType, DEFAULT_IB_FABRIC_NAME},
+    cfg::file::{IbFabricDefinition, IbFabricMonitorConfig},
+    ib::{IBFabricManager, IBFabricManagerType},
     CarbideError, CarbideResult,
 };
 
@@ -28,6 +28,7 @@ use self::metrics::FabricMetrics;
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {
     config: IbFabricMonitorConfig,
+    fabrics: HashMap<String, IbFabricDefinition>,
     metric_holder: Arc<metrics::MetricHolder>,
     /// API for interaction with Forge IBFabricManager
     fabric_manager: Arc<dyn IBFabricManager>,
@@ -37,6 +38,7 @@ impl IbFabricMonitor {
     /// Create a IbFabricMonitor
     pub fn new(
         config: IbFabricMonitorConfig,
+        fabrics: HashMap<String, IbFabricDefinition>,
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
     ) -> Self {
@@ -52,6 +54,7 @@ impl IbFabricMonitor {
 
         IbFabricMonitor {
             config,
+            fabrics,
             metric_holder,
             fabric_manager,
         }
@@ -136,13 +139,18 @@ impl IbFabricMonitor {
             return Ok(());
         }
 
-        for fabric in &[DEFAULT_IB_FABRIC_NAME] {
+        for (fabric, fabric_definition) in self.fabrics.iter() {
             metrics.num_fabrics += 1;
             let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
-            if let Err(e) =
-                check_ib_fabric(self.fabric_manager.as_ref(), fabric, fabric_metrics).await
+            if let Err(e) = check_ib_fabric(
+                self.fabric_manager.as_ref(),
+                fabric,
+                fabric_definition,
+                fabric_metrics,
+            )
+            .await
             {
-                tracing::error!(fabric, error = %e, "IB fabric health check failed");
+                tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "IB fabric health check failed");
                 fabric_metrics.fabric_error = error_as_metric_label(e);
             }
         }
@@ -155,8 +163,10 @@ impl IbFabricMonitor {
 async fn check_ib_fabric(
     fabric_manager: &dyn IBFabricManager,
     fabric: &str,
+    fabric_definition: &IbFabricDefinition,
     metrics: &mut FabricMetrics,
 ) -> Result<(), CarbideError> {
+    metrics.endpoints = fabric_definition.endpoints.clone();
     let conn = fabric_manager.connect(fabric).await?;
 
     let mut result = Ok(());

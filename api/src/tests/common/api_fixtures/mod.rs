@@ -35,8 +35,8 @@ use crate::{
     api::Api,
     cfg::file::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
-        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig, IbFabricMonitorConfig,
-        IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig, IbFabricDefinition,
+        IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
@@ -514,7 +514,19 @@ pub fn get_config() -> CarbideConfig {
         nvue_enabled: true,
         attestation_enabled: false,
         ib_config: None,
-        ib_fabrics: HashMap::new(),
+        ib_fabrics: [(
+            "default".to_string(),
+            IbFabricDefinition {
+                // The actual IP is not used and thereby does not matter
+                endpoints: vec!["https://127.0.0.1:443".to_string()],
+                pkeys: vec![resource_pool::Range {
+                    start: "1".to_string(),
+                    end: "100".to_string(),
+                }],
+            },
+        )]
+        .into_iter()
+        .collect(),
         machine_state_controller: MachineStateControllerConfig {
             dpu_wait_time: Duration::seconds(1),
             power_down_wait: Duration::seconds(1),
@@ -602,13 +614,17 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_provider.clone(),
         ib::IBFabricManagerConfig {
-            // The actual IP is not used and thereby does not matter
-            endpoints: [(
-                "default".to_string(),
-                vec!["https://127.0.0.1:443".to_string()],
-            )]
-            .into_iter()
-            .collect(),
+            endpoints: if ib_config.enabled {
+                config
+                    .ib_fabrics
+                    .iter()
+                    .map(|(fabric_id, fabric_definition)| {
+                        (fabric_id.clone(), fabric_definition.endpoints.clone())
+                    })
+                    .collect()
+            } else {
+                Default::default()
+            },
             manager_type: IBFabricManagerType::Mock,
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             mtu: ib_config.mtu,

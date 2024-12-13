@@ -33,6 +33,8 @@ pub struct IbFabricMonitorMetrics {
 /// Metrics collected for a single fabric
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct FabricMetrics {
+    /// The endpoint that we use to interact with the fabric
+    pub endpoints: Vec<String>,
     /// Error when trying to connect to the fabric
     pub fabric_error: String,
     /// UFM version

@@ -402,6 +402,11 @@ pub async fn start_api(
 
     let ib_fabric_monitor = IbFabricMonitor::new(
         carbide_config.ib_fabric_monitor.clone(),
+        if ib_config.enabled {
+            carbide_config.ib_fabrics.clone()
+        } else {
+            Default::default()
+        },
         meter.clone(),
         ib_fabric_manager.clone(),
     );
