@@ -45,10 +45,6 @@ ranges = [{ start = "1024500", end = "1024550" }]
 type = "integer"
 ranges = [{ start = "2024500", end = "2024550" }]
 
-[pools.pkey]
-type = "integer"
-ranges = [{ start = "1", end = "10" }]
-
 [networks.admin]
 type = "admin"
 prefix = "172.20.0.0/24"

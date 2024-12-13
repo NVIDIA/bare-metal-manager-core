@@ -174,7 +174,7 @@ impl TestEnv {
             nvmesh_client_pool: self.nvmesh_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             meter: Some(self.test_meter.meter()),
-            pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
+            ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),
         }
@@ -515,6 +515,7 @@ pub fn get_config() -> CarbideConfig {
         nvue_enabled: true,
         attestation_enabled: false,
         ib_config: None,
+        ib_fabrics: HashMap::new(),
         machine_state_controller: MachineStateControllerConfig {
             dpu_wait_time: Duration::seconds(1),
             power_down_wait: Duration::seconds(1),
@@ -602,13 +603,21 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_provider.clone(),
         ib::IBFabricManagerConfig {
+            // The actual IP is not used and thereby does not matter
+            endpoints: [(
+                "default".to_string(),
+                vec!["https://127.0.0.1:443".to_string()],
+            )]
+            .into_iter()
+            .collect(),
             manager_type: IBFabricManagerType::Mock,
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
         },
-    );
+    )
+    .unwrap();
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
@@ -637,7 +646,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap();
     txn.commit().await.unwrap();
 
-    let common_pools = CommonPools::create(db_pool.clone())
+    let common_pools = CommonPools::create(db_pool.clone(), ["default".to_string()].into())
         .await
         .expect("Creating pools should work");
 
@@ -702,6 +711,7 @@ pub async fn create_test_env_with_overrides(
         .redfish_client_pool(redfish_sim.clone())
         .nvmesh_client_pool(nvmesh_sim.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
+        .ib_pools(common_pools.infiniband.clone())
         .forge_api(api.clone())
         .ipmi_tool(ipmi_tool.clone())
         .site_config(config.clone())
@@ -722,6 +732,7 @@ pub async fn create_test_env_with_overrides(
         .redfish_client_pool(redfish_sim.clone())
         .nvmesh_client_pool(nvmesh_sim.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
+        .ib_pools(common_pools.infiniband.clone())
         .forge_api(api.clone())
         .ipmi_tool(ipmi_tool.clone())
         .site_config(config.clone())
@@ -778,7 +789,7 @@ pub async fn create_test_env_with_overrides(
         test_meter.meter(),
         Arc::new(fake_endpoint_explorer.clone()),
         Arc::new(config.get_firmware_config()),
-        CommonPools::create(db_pool.clone()).await.unwrap(),
+        common_pools.clone(),
     );
 
     TestEnv {
@@ -844,7 +855,7 @@ async fn populate_default_credentials(credential_provider: &dyn CredentialProvid
 fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
     let mut defs = HashMap::new();
     defs.insert(
-        resource_pool::common::PKEY.to_string(),
+        resource_pool::common::DEFAULT_FABRIC_PKEY.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {

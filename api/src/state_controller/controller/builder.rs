@@ -16,12 +16,12 @@ use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
 use crate::cfg::file::CarbideConfig;
+use crate::resource_pool::common::IbPools;
 use crate::storage::NvmeshClientPool;
 use crate::{
     ib::IBFabricManager,
     ipmitool::IPMITool,
     redfish::RedfishClientPool,
-    resource_pool::DbResourcePool,
     state_controller::{
         config::IterationConfig,
         controller::{StateController, StateControllerHandle},
@@ -68,7 +68,7 @@ pub struct Builder<IO: StateControllerIO> {
         >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    pool_pkey: Option<Arc<DbResourcePool<u16>>>,
+    ib_pools: Option<IbPools>,
     ipmi_tool: Option<Arc<dyn IPMITool>>,
     site_config: Option<Arc<CarbideConfig>>,
 }
@@ -92,7 +92,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             meter: None,
             object_type_for_metrics: None,
             forge_api: None,
-            pool_pkey: None,
+            ib_pools: None,
             ipmi_tool: None,
             site_config: None,
         }
@@ -185,7 +185,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             redfish_client_pool,
             nvmesh_client_pool,
             meter: meter.clone(),
-            pool_pkey: self.pool_pkey.take(),
+            ib_pools: self.ib_pools.unwrap_or_default(),
             ipmi_tool,
             site_config,
         });
@@ -272,9 +272,9 @@ impl<IO: StateControllerIO> Builder<IO> {
         self
     }
 
-    /// Configures the resource pool for allocation / release pkey
-    pub fn pool_pkey(mut self, pool_pkey: Arc<DbResourcePool<u16>>) -> Self {
-        self.pool_pkey = Some(pool_pkey);
+    /// Configures the resource pools for allocating / releasing pkey
+    pub fn ib_pools(mut self, ib_pools: IbPools) -> Self {
+        self.ib_pools = Some(ib_pools);
         self
     }
 

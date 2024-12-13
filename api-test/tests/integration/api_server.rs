@@ -98,13 +98,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         permissive_mode = true
         casbin_policy_file = "{root_dir}/api/casbin-policy.csv"
 
-        [pools.pkey]
-        type = "integer"
-
-        [[pools.pkey.ranges]]
-        start = "1"
-        end = "10"
-
         [pools.vpc-vni]
         type = "integer"
 

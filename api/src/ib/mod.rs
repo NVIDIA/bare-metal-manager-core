@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -50,6 +51,8 @@ pub struct IBFabricManagerImpl {
 
 #[derive(Clone)]
 pub struct IBFabricManagerConfig {
+    /// List of endpoint per fabric
+    pub endpoints: HashMap<String, Vec<String>>,
     pub manager_type: IBFabricManagerType,
     pub max_partition_per_tenant: i32,
     pub mtu: IBMtu,
@@ -60,6 +63,7 @@ pub struct IBFabricManagerConfig {
 impl Default for IBFabricManagerConfig {
     fn default() -> Self {
         IBFabricManagerConfig {
+            endpoints: HashMap::default(),
             manager_type: IBFabricManagerType::default(),
             max_partition_per_tenant: cfg::file::IBFabricConfig::default_max_partition_per_tenant(),
             mtu: IBMtu::default(),
@@ -72,7 +76,19 @@ impl Default for IBFabricManagerConfig {
 pub fn create_ib_fabric_manager(
     credential_provider: Arc<dyn CredentialProvider>,
     config: IBFabricManagerConfig,
-) -> IBFabricManagerImpl {
+) -> Result<IBFabricManagerImpl, eyre::Report> {
+    for (fabric_id, endpoints) in config.endpoints.iter() {
+        if endpoints.len() != 1 {
+            return Err(eyre::eyre!("Exactly 1 endpoint can be specified for each IB fabric. Fabric \"{fabric_id}\" specifies endpoints: {}", endpoints.clone().join(",")));
+        }
+
+        for ep in endpoints.iter() {
+            if ep.parse::<http::Uri>().is_err() {
+                return Err(eyre::eyre!("Endpoint \"{ep}\" for fabric \"{fabric_id}\" is not a valid HTTP(S) URI. Expected format is https://1.2.3.4:443 ?"));
+            }
+        }
+    }
+
     #[cfg(test)]
     let mock_fabric = Arc::new(mock::MockIBFabric {
         ibsubnets: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -81,13 +97,13 @@ pub fn create_ib_fabric_manager(
 
     let disable_fabric = Arc::new(disable::DisableIBFabric {});
 
-    IBFabricManagerImpl {
+    Ok(IBFabricManagerImpl {
         credential_provider,
         config,
         #[cfg(test)]
         mock_fabric,
         disable_fabric,
-    }
+    })
 }
 
 #[async_trait]
@@ -121,11 +137,22 @@ impl IBFabricManager for IBFabricManagerImpl {
                             err
                         )),
                     })?;
-                let (address, token) = match credentials {
+
+                let endpoint = self
+                    .config
+                    .endpoints
+                    .get(fabric_name)
+                    .and_then(|fabric_endpoints| fabric_endpoints.first())
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "ib_fabric_endpoint",
+                        id: fabric_name.to_string(),
+                    })?;
+
+                let (_deprecated_address, token) = match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 };
 
-                rest::connect(&address, &token).await
+                rest::connect(endpoint, &token).await
             }
         }
     }

@@ -453,15 +453,19 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 
 #### carbide-api-site-config
 
-Update the configmap `forge-system/carbide-api-site-config-files` to define the pkey range as follows.
+Update the configmap `forge-system/carbide-api-site-config-files` to configure
+the UFM address/endpoint and the pkey range that is used per fabric as follows.
 
 Infiniband typically expresses `Pkeys` in hex; the available range is `“0x0 ~ 0x7FFF”`.
 
 ```toml
-[pools.pkey]
-type = "integer"
-ranges = [{ start = "200", end = "500" }]
+[ib_fabrics.default]
+endpoints = ["https://10.217.161.194:443/"]
+pkeys = [{ start = "200", end = "500" }]
 ```
+
+Note that currently Forge only supports only a single IB fabric. Therefore only
+the fabric ID `default` will be accepted here.
 
 **NOTES**: The Forge will generate pkey for all partitions that are managed by Forge; please make sure the range does not conflict with existing pkey in UFM if any.
 

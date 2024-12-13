@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use eyre::WrapErr;
 use figment::{
@@ -20,8 +20,8 @@ use figment::{
 use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
-use crate::legacy;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
+use crate::{ib::DEFAULT_IB_FABRIC_NAME, legacy};
 
 use crate::{
     api::Api,
@@ -173,24 +173,78 @@ pub async fn start_api(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
 
-    let common_pools = CommonPools::create(db_pool.clone()).await?;
-
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
         true => ib::IBFabricManagerType::Rest,
         false => ib::IBFabricManagerType::Disable,
     };
 
+    let ib_fabric_ids = match ib_config.enabled {
+        false => HashSet::new(),
+        true => carbide_config.ib_fabrics.keys().cloned().collect(),
+    };
+
+    let common_pools = CommonPools::create(db_pool.clone(), ib_fabric_ids).await?;
+
+    if ib_config.enabled {
+        // These are some sanity checks until full multi-fabric support is available
+        // Right now there is only one fabric supported, and it needs to be called `default`
+        if carbide_config.ib_fabrics.len() > 1 {
+            return Err(eyre::eyre!(
+                "Only a single IB fabric definition is allowed at the moment"
+            ));
+        }
+
+        if !carbide_config.ib_fabrics.is_empty() {
+            let fabric_id = carbide_config.ib_fabrics.iter().next().unwrap().0;
+            return Err(eyre::eyre!("ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"));
+        }
+
+        // Populate IB specific resource pools
+        let mut txn = db_pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "begin define resource pools", e))?;
+
+        for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
+            resource_pool::define::define(
+                &mut txn,
+                &resource_pool::common::ib_pkey_pool_name(fabric_id),
+                &resource_pool::ResourcePoolDef {
+                    pool_type: resource_pool::define::ResourcePoolType::Integer,
+                    ranges: x.pkeys.clone(),
+                    prefix: None,
+                },
+            )
+            .await?;
+        }
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
+    }
+
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         vault_client.clone(),
         ib::IBFabricManagerConfig {
+            endpoints: if ib_config.enabled {
+                carbide_config
+                    .ib_fabrics
+                    .iter()
+                    .map(|(fabric_id, fabric_definition)| {
+                        (fabric_id.clone(), fabric_definition.endpoints.clone())
+                    })
+                    .collect()
+            } else {
+                Default::default()
+            },
             manager_type: fabric_manager_type,
             max_partition_per_tenant: ib_config.max_partition_per_tenant,
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
         },
-    );
+    )?;
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
@@ -335,7 +389,7 @@ pub async fn start_api(
             .redfish_client_pool(shared_redfish_pool.clone())
             .nvmesh_client_pool(shared_nvmesh_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
-            .pool_pkey(common_pools.infiniband.pool_pkey.clone())
+            .ib_pools(common_pools.infiniband.clone())
             .forge_api(api_service.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))

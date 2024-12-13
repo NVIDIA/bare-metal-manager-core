@@ -29,7 +29,10 @@ use utils::HostPortPair;
 use crate::ib::types::{IBMtu, IBRateLimit, IBServiceLevel};
 use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use crate::state_controller::config::IterationConfig;
-use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
+use crate::{
+    model::network_segment::NetworkDefinition,
+    resource_pool::{self, ResourcePoolDef},
+};
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
@@ -100,6 +103,11 @@ pub struct CarbideConfig {
 
     // The number of retries to perform if ipmi returns an error
     pub dpu_ipmi_reboot_attempts: Option<u32>,
+
+    /// Infiniband fabrics managed by the site
+    /// Note: At the moment, only a single fabric is supported
+    #[serde(default)]
+    pub ib_fabrics: HashMap<String, IbFabricDefinition>,
 
     /// Domain to create if there are no domains.
     ///
@@ -1268,6 +1276,21 @@ impl MeasuredBootMetricsCollectorConfig {
     }
 }
 
+/// Settings related to an IB fabric
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct IbFabricDefinition {
+    /// UFM endpoint address
+    /// These need to be fully qualified, e.g. https://1.2.3.4:443
+    ///
+    /// Note: Currently only a single endpoint is accepted.
+    /// This limitation might be lifted in the future
+    pub endpoints: Vec<String>,
+    /// pkey ranges used for the fabric
+    /// Note that editing the pkey ranges will never shrink the currently defined
+    /// ranges. It can only be used to expand the range
+    pub pkeys: Vec<resource_pool::define::Range>,
+}
+
 /// MachineValidation related configuration
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct MachineValidationConfig {
@@ -1529,6 +1552,7 @@ mod tests {
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
+        assert!(config.ib_fabrics.is_empty());
         assert_eq!(config.ib_fabric_monitor, {
             IbFabricMonitorConfig {
                 enabled: false,
@@ -1736,16 +1760,21 @@ mod tests {
             }
         );
         assert_eq!(
-            pools.get("pkey").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    start: "1".to_string(),
-                    end: "10".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer
-            }
+            config.ib_fabrics,
+            [(
+                "default".to_string(),
+                IbFabricDefinition {
+                    endpoints: vec!["https://1.2.3.4".to_string()],
+                    pkeys: vec![resource_pool::Range {
+                        start: "1".to_string(),
+                        end: "10".to_string()
+                    }]
+                }
+            )]
+            .into_iter()
+            .collect()
         );
+
         assert_eq!(
             config.ib_fabric_monitor,
             IbFabricMonitorConfig {
@@ -1933,15 +1962,19 @@ mod tests {
             }
         );
         assert_eq!(
-            pools.get("pkey").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    start: "1".to_string(),
-                    end: "10".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer
-            }
+            config.ib_fabrics,
+            [(
+                "default".to_string(),
+                IbFabricDefinition {
+                    endpoints: vec!["https://1.2.3.4".to_string()],
+                    pkeys: vec![resource_pool::Range {
+                        start: "1".to_string(),
+                        end: "10".to_string()
+                    }]
+                }
+            )]
+            .into_iter()
+            .collect()
         );
         assert_eq!(
             config.ib_fabric_monitor,

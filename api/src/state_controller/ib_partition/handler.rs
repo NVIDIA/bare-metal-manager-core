@@ -83,9 +83,18 @@ impl StateHandler for IBPartitionStateHandler {
                                 CarbideError::NotFoundError { .. } => {
                                     IBPartition::final_delete(*partition_id, txn).await?;
                                     // Release pkey after ib_partition deleted.
-                                    if let Some(pool_pkey) = ctx.services.pool_pkey.as_ref() {
-                                        pool_pkey.release(txn, pkey).await?;
-                                    }
+                                    let pkey_pool = ctx
+                                        .services
+                                        .ib_pools
+                                        .pkey_pools
+                                        .get(DEFAULT_IB_FABRIC_NAME)
+                                        .ok_or_else(|| StateHandlerError::IBFabricError {
+                                            operation: "release_pkey".to_string(),
+                                            error: eyre::eyre!(
+                                            "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
+                                        )})?;
+
+                                    pkey_pool.release(txn, pkey).await?;
                                     Ok(StateHandlerOutcome::Deleted)
                                 }
                                 _ => Err(StateHandlerError::IBFabricError {
