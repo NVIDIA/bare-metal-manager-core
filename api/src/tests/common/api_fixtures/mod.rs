@@ -855,7 +855,7 @@ async fn populate_default_credentials(credential_provider: &dyn CredentialProvid
 fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
     let mut defs = HashMap::new();
     defs.insert(
-        resource_pool::common::DEFAULT_FABRIC_PKEY.to_string(),
+        "ib_fabrics.default.pkey".to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {

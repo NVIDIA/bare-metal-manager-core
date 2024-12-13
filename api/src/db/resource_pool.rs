@@ -44,6 +44,10 @@ where
         }
     }
 
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
     /// Put some resources into the pool, so they can be allocated later.
     /// This needs to be called before `allocate` can return anything.
     pub async fn populate(
