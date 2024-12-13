@@ -30,6 +30,7 @@ use common::api_fixtures::{
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
 use rpc::forge::{forge_server::Forge, IbPartitionSearchConfig, IbPartitionStatus, TenantState};
+use std::collections::HashMap;
 use tonic::Request;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
@@ -95,6 +96,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
 
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
+    env.run_machine_state_controller_iteration().await;
+
     let mut txn = env
         .pool
         .clone()
@@ -102,17 +105,32 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
+    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
     txn.commit().await.unwrap();
 
+    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert!(!machine.has_instance());
+    assert!(!machine.is_dpu());
+    assert!(machine.hardware_info().is_some());
+    assert_eq!(
+        machine.hardware_info().unwrap().infiniband_interfaces.len(),
+        6
+    );
+    assert!(machine.infiniband_status_observation().is_some());
+    assert_eq!(
+        machine
+            .infiniband_status_observation()
+            .unwrap()
+            .ib_interfaces
+            .len(),
+        6
+    );
+
     env.run_ib_partition_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
     assert_eq!(
@@ -145,7 +163,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ],
     };
 
-    let (instance_id, _instance) =
+    let (instance_id, instance) =
         create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config.clone())
             .await;
 
@@ -155,7 +173,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    assert!(matches!(
+    assert_eq!(
         Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
@@ -164,10 +182,11 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
-    ));
+    );
     txn.commit().await.unwrap();
 
     env.run_ib_partition_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
     assert_eq!(
@@ -182,7 +201,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         crate::ib::IBServiceLevel::default().0
     );
 
-    let instance = env
+    let check_instance = env
         .find_instances(Some(instance_id.into()))
         .await
         .instances
@@ -202,23 +221,26 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             .state(),
         rpc::TenantState::Ready
     );
+    assert_eq!(instance, check_instance);
 
-    let ib_config = instance
+    let ib_config = check_instance
         .config
         .as_ref()
         .unwrap()
         .infiniband
         .as_ref()
         .unwrap();
-    let ib_status = instance
+    assert_eq!(ib_config.ib_interfaces.len(), 2);
+
+    let ib_status = check_instance
         .status
         .as_ref()
         .unwrap()
         .infiniband
         .as_ref()
         .unwrap();
+    assert_eq!(ib_status.ib_interfaces.len(), 2);
 
-    assert_eq!(ib_config.ib_interfaces.len(), 2);
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
     // |       device               |    slot    |        guid       |   index |
     // MT2910 Family [ConnectX-7]    0000:b1:00.0    946dae03002ac103      0
@@ -450,6 +472,103 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     assert!(
         error.contains("instance inconsistent with the tenant"),
         "Error message should contain 'instance inconsistent with the tenant', but is {}",
+        error
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(100),
+        max_partition_per_tenant: 8,
+        ..Default::default()
+    });
+
+    // Configure fabric based json data
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/model/hardware_info/test_data/x86_info.json"
+    )
+    .to_string();
+
+    let data = std::fs::read(path).unwrap();
+    let hw_info =
+        serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
+    assert!(!hw_info.infiniband_interfaces.is_empty());
+
+    let mut ibports: HashMap<String, crate::ib::types::IBPort> = HashMap::new();
+    for ib in hw_info.infiniband_interfaces {
+        if !ibports.contains_key(&ib.guid) {
+            ibports.insert(
+                ib.guid.clone(),
+                crate::ib::types::IBPort {
+                    name: ib.guid.clone(),
+                    guid: ib.guid.clone(),
+                    lid: (ibports.len() + 1) as i32,
+                    state: Some(crate::ib::types::IBPortState::Active),
+                },
+            );
+        }
+    }
+    // Set one of two later allocated port in 'Down' state
+    let value = ibports.get_mut("946dae03002ac752").unwrap();
+    value.state = Some(crate::ib::types::IBPortState::Down);
+
+    // Pass user specified fabric configuration
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.ibports = Some(ibports);
+
+    let env = common::api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+
+    env.run_ib_partition_controller_iteration().await;
+
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let result = try_allocate_instance(
+        &env,
+        &host_machine_id,
+        rpc::forge::InstanceInfinibandConfig {
+            ib_interfaces: vec![
+                // guid: 946dae03002ac102
+                rpc::forge::InstanceIbInterfaceConfig {
+                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                    virtual_function_id: None,
+                    ib_partition_id: Some(ib_partition_id.into()),
+                    device: "MT2910 Family [ConnectX-7]".to_string(),
+                    vendor: None,
+                    device_instance: 1,
+                },
+                // guid: 946dae03002ac752
+                rpc::forge::InstanceIbInterfaceConfig {
+                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                    virtual_function_id: None,
+                    ib_partition_id: Some(ib_partition_id.into()),
+                    device: "MT27800 Family [ConnectX-5]".to_string(),
+                    vendor: None,
+                    device_instance: 0,
+                },
+            ],
+        },
+    )
+    .await;
+
+    assert!(result.is_err());
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("UFM detected inactive state for GUID: 946dae03002ac752"),
+        "Error message should contain 'detected inactive state for GUID', but is {}",
         error
     );
 }

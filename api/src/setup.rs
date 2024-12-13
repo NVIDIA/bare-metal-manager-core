@@ -245,6 +245,8 @@ pub async fn start_api(
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
+            #[cfg(test)]
+            ports: None,
         },
     )?;
 

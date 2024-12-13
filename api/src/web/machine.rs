@@ -338,6 +338,7 @@ struct MachineIbInterfaceDisplay {
     device: String,
     vendor: String,
     slot: String,
+    lid: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail {
@@ -407,6 +408,16 @@ impl From<forgerpc::Machine> for MachineDetail {
                     iface_display.vendor = props.vendor.clone();
                     iface_display.slot = props.slot.clone().unwrap_or_default();
                 }
+                if let Some(ib_status) = m.ib_status.as_ref() {
+                    for iter_status in ib_status.ib_interfaces.iter() {
+                        if Some(iface_display.guid.clone()) == iter_status.guid {
+                            iface_display.lid =
+                                format!("0x{:x}", iter_status.lid.unwrap_or_default());
+                            break;
+                        }
+                    }
+                }
+
                 ib_interfaces.push(iface_display);
             }
         }

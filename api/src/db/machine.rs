@@ -35,6 +35,7 @@ use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{HardwareInfo, MachineInventory};
 use crate::model::machine::health_override::HealthReportOverrides;
+use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
@@ -104,6 +105,9 @@ pub struct Machine {
     /// The most recent status forge-dpu-agent observed. Tells us if network_config has been
     /// applied yet, and other useful things.
     network_status_observation: Option<MachineNetworkStatusObservation>,
+
+    /// The most recent status of infiniband interfaces.
+    infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
 
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
@@ -210,6 +214,11 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             row.try_get("network_status_observation")?;
         let network_status_observation = network_status_observation.map(|n| n.0);
 
+        let infiniband_status_observation: Option<
+            sqlx::types::Json<MachineInfinibandStatusObservation>,
+        > = row.try_get("infiniband_status_observation")?;
+        let infiniband_status_observation = infiniband_status_observation.map(|n| n.0);
+
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
         let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
             row.try_get("reprovisioning_requested")?;
@@ -261,6 +270,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
                 row.try_get("network_config_version")?,
             ),
             network_status_observation,
+            infiniband_status_observation,
             history: Vec::new(),
             interfaces: Vec::new(),
             hardware_info: None,
@@ -311,6 +321,7 @@ impl From<Machine> for MachineSnapshot {
             network_config: machine.network_config().clone(),
             interfaces: machine.interfaces().clone(),
             network_status_observation: machine.network_status_observation().cloned(),
+            infiniband_status_observation: machine.infiniband_status_observation().cloned(),
             current: CurrentMachineState {
                 state: machine.current_state(),
                 version: machine.current_version(),
@@ -417,6 +428,11 @@ impl Machine {
     /// Actual network info from machine
     pub fn network_status_observation(&self) -> Option<&MachineNetworkStatusObservation> {
         self.network_status_observation.as_ref()
+    }
+
+    /// Actual infiniband info from machine
+    pub fn infiniband_status_observation(&self) -> Option<&MachineInfinibandStatusObservation> {
+        self.infiniband_status_observation.as_ref()
     }
 
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
@@ -1143,6 +1159,28 @@ impl Machine {
             "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
              (network_status_observation IS NULL
                 OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
+            ) RETURNING id";
+        let _id: (MachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(&observation))
+            .bind(machine_id.to_string())
+            .bind(observation.observed_at.to_rfc3339())
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    /// Only does the update if the passed observation is newer than any existing one
+    pub async fn update_infiniband_status_observation(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        observation: &MachineInfinibandStatusObservation,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET infiniband_status_observation = $1::json WHERE id = $2 AND
+             (infiniband_status_observation IS NULL
+                OR (infiniband_status_observation ? 'observed_at' AND infiniband_status_observation->>'observed_at' <= $3)
             ) RETURNING id";
         let _id: (MachineId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(&observation))

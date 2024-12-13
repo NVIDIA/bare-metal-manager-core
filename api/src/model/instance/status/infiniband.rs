@@ -11,14 +11,14 @@
  */
 
 use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
+use config_version::Versioned;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     ib::types::IBPort,
     model::instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
-    model::StatusValidationError,
+    model::machine::infiniband::MachineInfinibandStatusObservation,
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -76,7 +76,7 @@ impl TryFrom<InstanceInfinibandStatus> for rpc::InstanceInfinibandStatus {
 }
 
 impl InstanceInfinibandStatus {
-    /// Derives an Instances network status from the users desired config
+    /// Derives an Instances infiniband status from the users desired config
     /// and status that we observed from the infiniband subsystem.
     ///
     /// This mechanism guarantees that the status we return to the user always
@@ -86,16 +86,16 @@ impl InstanceInfinibandStatus {
     /// and the interfaces therefore won't match.
     pub fn from_config_and_observation(
         config: Versioned<&InstanceInfinibandConfig>,
-        observations: Option<&InstanceInfinibandStatusObservation>,
+        observations: Option<&MachineInfinibandStatusObservation>,
     ) -> Self {
+        // Config version check is not used fo Infiniband Instance configuration.
+        // There is no asynchronous process. It's actually the state handler itself which checks the
+        // desired config, applies it against UFM, and then observes the status reports from UFM.
+        // No discrepancy between instance configuration and observed statuses.
         let observations = match observations {
             Some(observations) => observations,
             None => return Self::unsynchronized_for_config(&config),
         };
-
-        if observations.config_version != config.version {
-            return Self::unsynchronized_for_config(&config);
-        }
 
         let ib_interfaces = config
             .ib_interfaces
@@ -108,12 +108,12 @@ impl InstanceInfinibandStatus {
                 let observation = observations
                     .ib_interfaces
                     .iter()
-                    .find(|iface| iface.guid == config.guid);
+                    .find(|iface| Some(iface.guid.clone()) == config.guid);
                 match observation {
                     Some(observation) => InstanceIbInterfaceStatus {
                         pf_guid: config.pf_guid.clone(),
-                        guid: observation.guid.clone(),
-                        lid: observation.lid,
+                        guid: Some(observation.guid.clone()),
+                        lid: observation.lid as u32,
                     },
                     None => {
                         tracing::error!(
@@ -165,27 +165,12 @@ impl InstanceInfinibandStatus {
 /// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceInfinibandStatusObservation {
-    /// The version of the config that is applied on the networking subsystem
-    /// Only if the version is equivalent to the latest desired version we
-    /// can actually interpret the results. If the version is outdated, then the
-    /// list of interfaces might actually relate to a different interfaces than
-    /// the ones that are currently required by the infiniband config.
-    pub config_version: ConfigVersion,
-
     /// Observed status for each configured interface
     #[serde(default)]
     pub ib_interfaces: Vec<InstanceIbInterfaceStatusObservation>,
 
     /// When this status was observed
     pub observed_at: DateTime<Utc>,
-}
-
-impl InstanceInfinibandStatusObservation {
-    /// Validates that a report about an observed network status has a valid
-    /// format
-    pub fn validate(&self) -> Result<(), StatusValidationError> {
-        Ok(())
-    }
 }
 
 /// The network status that was last reported by the infiniband subsystem
@@ -232,7 +217,6 @@ impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
 pub struct InstanceIbInterfaceStatusObservation {
     pub guid: Option<String>,
     pub lid: u32,
-    pub addresses: Vec<String>,
 }
 
 impl From<&IBPort> for InstanceIbInterfaceStatusObservation {
@@ -240,7 +224,6 @@ impl From<&IBPort> for InstanceIbInterfaceStatusObservation {
         Self {
             guid: Some(p.guid.clone()),
             lid: p.lid as u32,
-            addresses: vec![],
         }
     }
 }

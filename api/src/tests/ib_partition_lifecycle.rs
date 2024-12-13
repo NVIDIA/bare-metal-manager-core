@@ -270,6 +270,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 mtu: IBMtu::default(),
                 rate_limit: IBRateLimit::default(),
                 service_level: IBServiceLevel::default(),
+                ..Default::default()
             },
         )
         .await?;

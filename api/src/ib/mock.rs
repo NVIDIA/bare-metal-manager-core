@@ -10,10 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-
-use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
@@ -23,6 +22,7 @@ use crate::CarbideError;
 pub struct MockIBFabric {
     pub ibsubnets: Arc<Mutex<HashMap<String, IBNetwork>>>,
     pub ibports: Arc<Mutex<HashMap<String, IBPort>>>,
+    pub ibdesc: HashMap<String, IBPort>,
 }
 
 #[async_trait]
@@ -99,18 +99,35 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Find IBPort
-    async fn find_ib_port(&self, _: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
-        let ibports = self
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
+        let ibports_pkey = self
             .ibports
             .lock()
             .map_err(|_| CarbideError::IBFabricError("find_ib_port mutex lock".to_string()))?;
 
-        let mut ibs = vec![];
-        for ib in ibports.values() {
-            ibs.push(ib.clone());
+        let mut ports = vec![];
+        for ib in self.ibdesc.values() {
+            ports.push(ib.clone());
         }
 
-        Ok(ibs)
+        let f = filter.unwrap_or_default();
+        let pkey_guids = match &f.pkey {
+            Some(pkey) => {
+                let ibsubnets = self.ibsubnets.lock().map_err(|_| {
+                    CarbideError::IBFabricError("find_ib_port mutex lock".to_string())
+                })?;
+                let mut pkey_guids = vec![];
+                if ibsubnets.contains_key(&pkey.to_string()) {
+                    for ib in ibports_pkey.values() {
+                        pkey_guids.push(ib.guid.clone());
+                    }
+                }
+                Some(pkey_guids)
+            }
+            None => None,
+        };
+
+        Ok(filter_ports(ports, pkey_guids, f.guids))
     }
 
     /// Delete IBPort
@@ -139,5 +156,78 @@ impl IBFabric for MockIBFabric {
         let ufm_version = "mock_ufm_1.0".to_string();
 
         Ok(IBFabricVersions { ufm_version })
+    }
+}
+
+#[cfg(test)]
+pub fn mock_ibfabric_desc(ibports: Option<HashMap<String, IBPort>>) -> HashMap<String, IBPort> {
+    match ibports {
+        Some(ibports) => {
+            assert!(!ibports.is_empty());
+            ibports
+        }
+        None => {
+            let path = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/model/hardware_info/test_data/x86_info.json"
+            )
+            .to_string();
+
+            let data = std::fs::read(path).unwrap();
+            let hw_info =
+                serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
+            assert!(!hw_info.infiniband_interfaces.is_empty());
+
+            let mut ibports: HashMap<String, IBPort> = HashMap::new();
+            for ib in hw_info.infiniband_interfaces {
+                if !ibports.contains_key(&ib.guid) {
+                    ibports.insert(
+                        ib.guid.clone(),
+                        IBPort {
+                            name: ib.guid.clone(),
+                            guid: ib.guid.clone(),
+                            lid: (ibports.len() + 1) as i32,
+                            state: Some(IBPortState::Active),
+                        },
+                    );
+                }
+            }
+            assert!(!ibports.is_empty());
+            ibports
+        }
+    }
+}
+
+fn filter_ports(
+    ports: Vec<IBPort>,
+    pkey_guids: Option<Vec<String>>,
+    guids: Option<Vec<String>>,
+) -> Vec<IBPort> {
+    let filter = match (pkey_guids, guids) {
+        // If both are None, means no filter, return all ports.
+        (None, None) => None,
+        // If just one is None, filter ports by the other guids set.
+        (Some(pkey_guids), None) => Some(pkey_guids),
+        (None, Some(guids)) => Some(guids),
+        // If both are Some, filter ports by the intersection.
+        (Some(pkey_guids), Some(guids)) => Some(
+            pkey_guids
+                .into_iter()
+                .filter(|g| guids.contains(g))
+                .collect(),
+        ),
+    };
+
+    match filter {
+        // If no filter, return all ports;
+        None => ports
+            .into_iter()
+            .filter(|v| v.state == Some(IBPortState::Active))
+            .collect(),
+        // otherwise, filter ports accordingly.
+        Some(filter) => ports
+            .into_iter()
+            .filter(|p: &IBPort| filter.contains(&p.guid) && p.state == Some(IBPortState::Active))
+            .collect(),
     }
 }

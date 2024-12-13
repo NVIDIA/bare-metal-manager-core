@@ -16,7 +16,7 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{
-    IBMtu, IBNetwork, IBPort, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
+    IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
     IBNETWORK_DEFAULT_MEMBERSHIP,
 };
 use super::ufmclient::{
@@ -126,7 +126,12 @@ impl IBFabric for RestIBFabric {
         self.ufm
             .list_port(filter)
             .await
-            .map(|p| p.iter().map(IBPort::from).collect())
+            .map(|p| {
+                p.iter()
+                    .map(IBPort::from)
+                    .filter(|v| v.state == Some(IBPortState::Active))
+                    .collect()
+            })
             .map_err(CarbideError::from)
     }
 
@@ -243,7 +248,7 @@ impl From<&Port> for IBPort {
             name: p.name.clone(),
             guid: p.guid.clone(),
             lid: p.lid,
-            state: None,
+            state: IBPortState::try_from(p.logical_state.clone()).ok(),
         }
     }
 }
@@ -393,5 +398,174 @@ mod tests {
         let result = Partition::try_from(value.unwrap());
         assert!(result.is_ok(), "Partition::try_from() failure");
         assert_eq!(expected_partition.clone(), result.unwrap());
+
+        // Check IBPortState
+        assert_eq!(
+            Some(IBPortState::Active),
+            IBPortState::try_from("active".to_string()).ok()
+        );
+        assert_eq!(
+            Some(IBPortState::Active),
+            IBPortState::try_from("Active".to_string()).ok()
+        );
+        assert_eq!(
+            Some(IBPortState::Active),
+            IBPortState::try_from(" Active".to_string()).ok()
+        );
+        assert_eq!(
+            Some(IBPortState::Active),
+            IBPortState::try_from(" Active ".to_string()).ok()
+        );
+
+        assert_eq!(
+            Some(IBPortState::Down),
+            IBPortState::try_from("Down".to_string()).ok()
+        );
+        assert_eq!(
+            Some(IBPortState::Armed),
+            IBPortState::try_from("Armed".to_string()).ok()
+        );
+        assert_eq!(
+            Some(IBPortState::Initialize),
+            IBPortState::try_from("Initialize".to_string()).ok()
+        );
+
+        assert_eq!(None, IBPortState::try_from("".to_string()).ok());
+        assert_eq!(None, IBPortState::try_from("Actived".to_string()).ok());
+        assert_eq!(None, IBPortState::try_from("Polling".to_string()).ok());
+
+        // Port <-> IBPort
+        let expected_port = Port {
+            guid: "1070fd0300176625".to_string(),
+            name: "1070fd0300176625_2".to_string(),
+            system_id: "1070fd0300176624".to_string(),
+            lid: 4,
+            dname: "2".to_string(),
+            system_name: "MT4119 ConnectX5   Mellanox Technologies".to_string(),
+            physical_state: "Link Up".to_string(),
+            logical_state: "Active".to_string(),
+        };
+        let value = IBPort::from(expected_port.clone());
+        assert_eq!(
+            value,
+            IBPort {
+                name: "1070fd0300176625_2".to_string(),
+                guid: "1070fd0300176625".to_string(),
+                lid: 4,
+                state: Some(IBPortState::Active),
+            }
+        );
+
+        let expected_port = Port {
+            guid: "1070fd0300176374".to_string(),
+            name: "1070fd0300176374_1".to_string(),
+            system_id: "1070fd0300176374".to_string(),
+            lid: 1,
+            dname: "HCA-1/1".to_string(),
+            system_name: "ufm02".to_string(),
+            physical_state: "Link Up".to_string(),
+            logical_state: "Active".to_string(),
+        };
+        let value = IBPort::from(expected_port.clone());
+        assert_eq!(
+            value,
+            IBPort {
+                name: "1070fd0300176374_1".to_string(),
+                guid: "1070fd0300176374".to_string(),
+                lid: 1,
+                state: Some(IBPortState::Active),
+            }
+        );
+
+        // Port <-> IBPort (Logical state is invalid)
+        let expected_port = Port {
+            guid: "1070fd0300176625".to_string(),
+            name: "1070fd0300176625_2".to_string(),
+            system_id: "1070fd0300176624".to_string(),
+            lid: 4,
+            dname: "2".to_string(),
+            system_name: "MT4119 ConnectX5   Mellanox Technologies".to_string(),
+            physical_state: "Link Up".to_string(),
+            logical_state: "Unknown".to_string(),
+        };
+        let value = IBPort::from(expected_port.clone());
+        assert_eq!(
+            value,
+            IBPort {
+                name: "1070fd0300176625_2".to_string(),
+                guid: "1070fd0300176625".to_string(),
+                lid: 4,
+                state: None,
+            }
+        );
+    }
+
+    #[test]
+    fn check_find_ib_port() {
+        let ports: Vec<Port> = vec![
+            Port {
+                guid: "1070fd0300176374".to_string(),
+                name: "1070fd0300176374_1".to_string(),
+                system_id: "1070fd0300176374".to_string(),
+                lid: 1,
+                dname: "HCA-1/1".to_string(),
+                system_name: "ufm02".to_string(),
+                physical_state: "Link Up".to_string(),
+                logical_state: "Active".to_string(),
+            },
+            Port {
+                guid: "1070fd0300176624".to_string(),
+                name: "1070fd0300176624_1".to_string(),
+                system_id: "1070fd0300176624".to_string(),
+                lid: 3,
+                dname: "1".to_string(),
+                system_name: "MT4119 ConnectX5   Mellanox Technologies".to_string(),
+                physical_state: "Link Up".to_string(),
+                logical_state: "Down".to_string(),
+            },
+            Port {
+                guid: "1070fd0300176625".to_string(),
+                name: "1070fd0300176625_2".to_string(),
+                system_id: "1070fd0300176624".to_string(),
+                lid: 4,
+                dname: "2".to_string(),
+                system_name: "MT4119 ConnectX5   Mellanox Technologies".to_string(),
+                physical_state: "Link Up".to_string(),
+                logical_state: "".to_string(),
+            },
+        ];
+        assert_eq!(ports.len(), 3);
+
+        // No filter by state
+        let result_ports: Result<Vec<Port>, UFMError> = Ok(ports.clone());
+        let result: Result<Vec<IBPort>, CarbideError> = result_ports
+            .map(|p| p.iter().map(IBPort::from).collect())
+            .map_err(CarbideError::from);
+        assert!(result.is_ok());
+        let ibports = result.unwrap();
+        assert_eq!(ibports.len(), 3);
+
+        // Filter devices in Active state
+        let result_ports: Result<Vec<Port>, UFMError> = Ok(ports.clone());
+        let result: Result<Vec<IBPort>, CarbideError> = result_ports
+            .map(|p| {
+                p.iter()
+                    .map(IBPort::from)
+                    .filter(|v| v.state == Some(IBPortState::Active))
+                    .collect()
+            })
+            .map_err(CarbideError::from);
+        assert!(result.is_ok());
+        let ibports = result.unwrap();
+        assert_eq!(ibports.len(), 1);
+        assert_eq!(
+            ibports[0],
+            IBPort {
+                name: "1070fd0300176374_1".to_string(),
+                guid: "1070fd0300176374".to_string(),
+                lid: 1,
+                state: Some(IBPortState::Active),
+            }
+        );
     }
 }

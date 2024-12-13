@@ -23,6 +23,7 @@ use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
 
+use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
@@ -43,6 +44,7 @@ use forge_uuid::{
 mod slas;
 
 pub mod health_override;
+pub mod infiniband;
 pub mod machine_id;
 pub mod network;
 pub mod storage;
@@ -357,7 +359,14 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             }
         }
 
-        let status = instance.derive_status(snapshot.managed_state.clone(), reprovision_request)?;
+        let status = instance.derive_status(
+            snapshot.managed_state.clone(),
+            reprovision_request,
+            snapshot
+                .host_snapshot
+                .infiniband_status_observation
+                .as_ref(),
+        )?;
 
         Ok(Some(rpc::Instance {
             id: Some(instance.id.into()),
@@ -431,6 +440,8 @@ pub struct MachineSnapshot {
     pub network_config: Versioned<ManagedHostNetworkConfig>,
     /// The actual network configuration, as reported by forge-dpu-agent
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
+    /// The actual infiniband configuration
+    pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
     /// BMC related information
     pub bmc_info: BmcInfo,
     pub bmc_vendor: bmc_vendor::BMCVendor,
@@ -666,6 +677,13 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             } else {
                 None
             },
+            ib_status: Some(
+                machine
+                    .infiniband_status_observation
+                    .as_ref()
+                    .map(|status: &MachineInfinibandStatusObservation| status.clone().into())
+                    .unwrap_or_default(),
+            ),
         }
     }
 }

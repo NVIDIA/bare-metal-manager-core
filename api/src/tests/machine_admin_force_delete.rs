@@ -11,22 +11,28 @@
  */
 
 use crate::{
+    api::Api,
     db::{
         self,
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
     },
-    ib::DEFAULT_IB_FABRIC_NAME,
+    ib::{self, DEFAULT_IB_FABRIC_NAME},
     model::{
         hardware_info::TpmEkCertificate,
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
     },
 };
-use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest, InstancesByIdsRequest};
+use ::rpc::forge::{
+    forge_server::Forge, AdminForceDeleteMachineRequest, IbPartitionSearchConfig,
+    IbPartitionStatus, InstancesByIdsRequest, TenantState,
+};
+use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::{MachineId, MachineType};
 use sqlx::Row;
 use std::{collections::HashSet, net::IpAddr, str::FromStr};
+use tonic::Request;
 
 use crate::attestation as attest;
 use crate::tests::common;
@@ -41,6 +47,23 @@ use common::api_fixtures::{
     tpm_attestation::EK_CERT_SERIALIZED,
     TestEnv,
 };
+
+async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
+    let segment = api
+        .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
+            id: Some(ib_partition_id.into()),
+            search_config: Some(IbPartitionSearchConfig {
+                include_history: false,
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions
+        .remove(0);
+
+    segment.status.unwrap()
+}
 
 #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
@@ -375,13 +398,36 @@ async fn validate_machine_deletion(
 #[crate::sqlx_test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (ib_partition_id, _ib_partition) = create_ib_partition(
+    let (ib_partition_id, ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
         DEFAULT_TENANT.to_string(),
     )
     .await;
+
+    env.run_ib_partition_controller_iteration().await;
+
+    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
+    assert_eq!(
+        TenantState::try_from(ib_partition_status.state).unwrap(),
+        TenantState::Ready
+    );
+    assert_eq!(
+        ib_partition.status.clone().unwrap().state,
+        ib_partition_status.state
+    );
+    assert_eq!(
+        ib_partition.status.clone().unwrap().pkey,
+        ib_partition_status.pkey
+    );
+    assert!(ib_partition_status.pkey.is_some());
+    assert!(ib_partition_status.mtu.is_none());
+    assert!(ib_partition_status.rate_limit.is_none());
+    assert!(ib_partition_status.service_level.is_none());
+
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env
         .pool
@@ -389,15 +435,37 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
+
+    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
     txn.commit().await.unwrap();
+
+    let ib_fabric = env
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME)
+        .await
+        .unwrap();
+
+    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert!(!machine.has_instance());
+    assert!(!machine.is_dpu());
+    assert!(machine.hardware_info().is_some());
+    assert_eq!(
+        machine.hardware_info().unwrap().infiniband_interfaces.len(),
+        6
+    );
+    assert!(machine.infiniband_status_observation().is_some());
+    assert_eq!(
+        machine
+            .infiniband_status_observation()
+            .unwrap()
+            .ib_interfaces
+            .len(),
+        6
+    );
+    assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 6);
 
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
@@ -410,7 +478,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         }],
     };
 
-    let (instance_id, _instance) =
+    let (instance_id, instance) =
         create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
 
     let mut txn = env
@@ -431,17 +499,17 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let instance = env
+    let check_instance = env
         .find_instances(Some(instance_id.into()))
         .await
         .instances
         .remove(0);
     assert_eq!(
-        instance.machine_id.clone().unwrap().id,
+        check_instance.machine_id.clone().unwrap().id,
         host_machine_id.to_string()
     );
     assert_eq!(
-        instance
+        check_instance
             .status
             .as_ref()
             .unwrap()
@@ -451,31 +519,51 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
             .state(),
         rpc::TenantState::Ready
     );
+    assert_eq!(instance, check_instance);
 
-    let ib_config = instance
+    let ib_config = check_instance
         .config
         .as_ref()
         .unwrap()
         .infiniband
         .as_ref()
         .unwrap();
-
     assert_eq!(ib_config.ib_interfaces.len(), 1);
 
-    let ib_fabric = env
-        .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME)
-        .await
+    let ib_status = check_instance
+        .status
+        .as_ref()
+        .unwrap()
+        .infiniband
+        .clone()
         .unwrap();
+    assert_eq!(ib_status.ib_interfaces.len(), 1);
 
     // one ib port in UFM
-    assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 1);
+    let pkey: u16 = ib_partition
+        .status
+        .clone()
+        .unwrap()
+        .pkey
+        .unwrap()
+        .parse()
+        .expect("Failed to parse string to integer");
+    let guids = vec![ib_status.ib_interfaces[0].guid.clone().unwrap().clone()];
+    let filter = ib::Filter {
+        guids: Some(guids.clone()),
+        pkey: Some(pkey),
+    };
+    assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
 
     let response = force_delete(&env, &host_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
 
     // after host deleted, ib port should be removed from UFM
-    assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 0);
+    let filter = ib::Filter {
+        guids: Some(guids.clone()),
+        pkey: Some(pkey),
+    };
+    assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 
     assert!(env
         .find_machines(Some(host_machine_id.to_string().into()), None, true)

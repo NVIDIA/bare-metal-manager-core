@@ -58,6 +58,8 @@ pub struct IBFabricManagerConfig {
     pub mtu: IBMtu,
     pub rate_limit: IBRateLimit,
     pub service_level: IBServiceLevel,
+    #[cfg(test)]
+    pub ports: Option<std::collections::HashMap<String, self::types::IBPort>>,
 }
 
 impl Default for IBFabricManagerConfig {
@@ -69,6 +71,8 @@ impl Default for IBFabricManagerConfig {
             mtu: IBMtu::default(),
             rate_limit: IBRateLimit::default(),
             service_level: IBServiceLevel::default(),
+            #[cfg(test)]
+            ports: None,
         }
     }
 }
@@ -93,6 +97,7 @@ pub fn create_ib_fabric_manager(
     let mock_fabric = Arc::new(mock::MockIBFabric {
         ibsubnets: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         ibports: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        ibdesc: mock::mock_ibfabric_desc(config.ports.clone()),
     });
 
     let disable_fabric = Arc::new(disable::DisableIBFabric {});

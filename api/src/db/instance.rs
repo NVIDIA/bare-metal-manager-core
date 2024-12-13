@@ -25,7 +25,6 @@ use crate::{
             },
             snapshot::InstanceSnapshot,
             status::{
-                infiniband::InstanceInfinibandStatusObservation,
                 network::InstanceNetworkStatusObservation,
                 storage::InstanceStorageStatusObservation, InstanceStatusObservations,
             },
@@ -87,8 +86,6 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         #[derive(serde::Deserialize)]
         struct OptionalNetworkStatusObservation(Option<InstanceNetworkStatusObservation>);
         #[derive(serde::Deserialize)]
-        struct OptionalIbStatusObservation(Option<InstanceInfinibandStatusObservation>);
-        #[derive(serde::Deserialize)]
         struct OptionalStorageStatusObservation(Option<InstanceStorageStatusObservation>);
 
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
@@ -124,8 +121,6 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             row.try_get("network_status_observation")?;
 
         let ib_config: sqlx::types::Json<InstanceInfinibandConfig> = row.try_get("ib_config")?;
-        let ib_status_observation: sqlx::types::Json<OptionalIbStatusObservation> =
-            row.try_get("ib_status_observation")?;
 
         let storage_config: sqlx::types::Json<InstanceStorageConfig> =
             row.try_get("storage_config")?;
@@ -163,7 +158,6 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             storage_config_version: row.try_get("storage_config_version")?,
             observations: InstanceStatusObservations {
                 network: network_status_observation.0 .0,
-                infiniband: ib_status_observation.0 .0,
                 storage: storage_status_observation.0 .0,
                 phone_home_last_contact: row.try_get("phone_home_last_contact")?,
             },
@@ -698,38 +692,6 @@ WHERE s.network_config->>'loopback_ip'=$1";
         Ok(())
     }
 
-    /// Updates the latest infiniband status observation for an instance
-    pub async fn update_infiniband_status_observation(
-        txn: &mut Transaction<'_, Postgres>,
-        instance_id: InstanceId,
-        status: &InstanceInfinibandStatusObservation,
-    ) -> Result<(), DatabaseError> {
-        // TODO: This might rather belong into the API layer
-        // We will move move it there once that code is in place
-        status.validate().map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "ioerror",
-                sqlx::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                )),
-            )
-        })?;
-
-        let query =
-            "UPDATE instances SET ib_status_observation=$1::json where id = $2::uuid returning id";
-        let (_,): (InstanceId,) = sqlx::query_as(query)
-            .bind(sqlx::types::Json(status))
-            .bind(instance_id)
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
-    }
-
     pub async fn update_storage_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: InstanceId,
@@ -771,9 +733,6 @@ impl<'a> NewInstance<'a> {
         // The first report from the agent will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
-        // None means we haven't registered the Host at UFM yet
-        let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
-
         let mut os_ipxe_script = String::new();
         let os_user_data = self.config.os.user_data.clone();
         let mut os_image_id = None;
@@ -800,7 +759,6 @@ impl<'a> NewInstance<'a> {
                         network_status_observation,
                         ib_config,
                         ib_config_version,
-                        ib_status_observation,
                         keyset_ids,
                         os_phone_home_enabled,
                         name,
@@ -812,7 +770,7 @@ impl<'a> NewInstance<'a> {
                         storage_config_version,
                         storage_status_observation
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14, $15, $16, $17, $18::json, $19, $20, $21::json, $22, $23::json)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json, $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
@@ -827,7 +785,6 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(network_status_observation))
             .bind(sqlx::types::Json(&self.config.infiniband))
             .bind(self.ib_config_version)
-            .bind(sqlx::types::Json(ib_status_observation))
             .bind(&self.config.tenant.tenant_keyset_ids)
             .bind(self.config.os.phone_home_enabled)
             .bind(&self.metadata.name)

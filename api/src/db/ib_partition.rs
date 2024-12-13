@@ -544,6 +544,8 @@ pub async fn allocate_port_guid(
     // the key of ib_hw_map is device name such as "MT28908 Family [ConnectX-6]".
     // the value of ib_hw_map is a sorted vector of InfinibandInterface by slot.
     let ib_hw_map = sort_ib_by_slot(ib_hw_info);
+
+    let mut guids: Vec<String> = Vec::new();
     for request in &mut updated_ib_config.ib_interfaces {
         tracing::debug!(
             "reqest IB device:{}, device_instance:{}",
@@ -563,6 +565,7 @@ pub async fn allocate_port_guid(
             if let Some(ib) = sorted_ibs.get(request.device_instance as usize) {
                 request.pf_guid = Some(ib.guid.clone());
                 request.guid = Some(ib.guid.clone());
+                guids.push(ib.guid.clone());
                 tracing::debug!("select IB device GUID {}", ib.guid.clone());
             } else {
                 return Err(CarbideError::InvalidArgument(format!(
@@ -578,11 +581,31 @@ pub async fn allocate_port_guid(
         }
     }
 
+    // Do additional ib ports verification
+    if !guids.is_empty() {
+        if let Some(ib_interfaces_status) = &machine.infiniband_status_observation {
+            for guid in guids.iter() {
+                for ib_status in ib_interfaces_status.ib_interfaces.iter() {
+                    if *guid == ib_status.guid && ib_status.lid == 0xffff_u16 {
+                        return Err(CarbideError::InvalidArgument(format!(
+                            "UFM detected inactive state for GUID: {}",
+                            guid
+                        )));
+                    }
+                }
+            }
+        } else {
+            return Err(CarbideError::InvalidArgument(
+                "Infiniband status information is not found".to_string(),
+            ));
+        }
+    }
+
     Ok(updated_ib_config)
 }
 
 /// sort ib device by slot and add devices with the same name are added to hashmap
-fn sort_ib_by_slot(
+pub fn sort_ib_by_slot(
     ib_hw_info_vec: &[InfinibandInterface],
 ) -> HashMap<String, Vec<InfinibandInterface>> {
     let mut ib_hw_map = HashMap::new();
@@ -604,4 +627,27 @@ fn sort_ib_by_slot(
     }
 
     ib_hw_map
+}
+
+#[cfg(test)]
+#[test]
+fn test_sort_ib_by_slot() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/model/hardware_info/test_data/x86_info.json"
+    )
+    .to_string();
+
+    let data = std::fs::read(path).unwrap();
+    let hw_info =
+        serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
+    assert!(!hw_info.infiniband_interfaces.is_empty());
+
+    let prev = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());
+    for _ in 0..10 {
+        let cur = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());
+        for (key, value) in cur.into_iter() {
+            assert_eq!(*prev.get(&key).unwrap(), value);
+        }
+    }
 }
