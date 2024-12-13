@@ -15,7 +15,7 @@ use rpc::forge::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -138,7 +138,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -366,7 +366,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[sqlx::test]
+#[crate::sqlx_test]
 async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
