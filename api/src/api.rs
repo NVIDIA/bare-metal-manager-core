@@ -4310,7 +4310,48 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
         update_machine_validation_run(self, request).await
     }
-
+    async fn create_instance_type(
+        &self,
+        request: tonic::Request<rpc::CreateInstanceTypeRequest>,
+    ) -> Result<tonic::Response<rpc::CreateInstanceTypeResponse>, Status> {
+        crate::handlers::instance_type::create(self, request).await
+    }
+    async fn find_instance_type_ids(
+        &self,
+        request: tonic::Request<rpc::FindInstanceTypeIdsRequest>,
+    ) -> Result<tonic::Response<rpc::FindInstanceTypeIdsResponse>, Status> {
+        crate::handlers::instance_type::find_ids(self, request).await
+    }
+    async fn find_instance_types_by_ids(
+        &self,
+        request: tonic::Request<rpc::FindInstanceTypesByIdsRequest>,
+    ) -> Result<tonic::Response<rpc::FindInstanceTypesByIdsResponse>, Status> {
+        crate::handlers::instance_type::find_by_ids(self, request).await
+    }
+    async fn delete_instance_type(
+        &self,
+        request: tonic::Request<rpc::DeleteInstanceTypeRequest>,
+    ) -> Result<tonic::Response<rpc::DeleteInstanceTypeResponse>, Status> {
+        crate::handlers::instance_type::delete(self, request).await
+    }
+    async fn update_instance_type(
+        &self,
+        request: tonic::Request<rpc::UpdateInstanceTypeRequest>,
+    ) -> Result<tonic::Response<rpc::UpdateInstanceTypeResponse>, Status> {
+        crate::handlers::instance_type::update(self, request).await
+    }
+    async fn associate_machines_with_instance_type(
+        &self,
+        request: tonic::Request<rpc::AssociateMachinesWithInstanceTypeRequest>,
+    ) -> Result<tonic::Response<rpc::AssociateMachinesWithInstanceTypeResponse>, Status> {
+        crate::handlers::instance_type::associate_machines(self, request).await
+    }
+    async fn remove_machine_instance_type_association(
+        &self,
+        request: tonic::Request<rpc::RemoveMachineInstanceTypeAssociationRequest>,
+    ) -> Result<tonic::Response<rpc::RemoveMachineInstanceTypeAssociationResponse>, Status> {
+        crate::handlers::instance_type::remove_machine_association(self, request).await
+    }
     async fn redfish_browse(
         &self,
         request: tonic::Request<rpc::RedfishBrowseRequest>,

@@ -20,6 +20,7 @@ use std::str::FromStr;
 use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::instance_type::InstanceTypeId;
 use health_report::{HealthReport, OverrideMode};
 use mac_address::MacAddress;
 use serde::Serialize;
@@ -809,6 +810,71 @@ impl Machine {
         bmc_ip: &IpAddr,
     ) -> Result<Option<MachineId>, DatabaseError> {
         MachineTopology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
+    }
+
+    /// Finds machines associated with a specified instance type
+    ///
+    /// * `txn`              - A reference to an active DB transaction
+    /// * `instance_type_id` - An reference to an InstanceTypeId to query for
+    /// * `for_update`       - A boolean flag to acquire DB locks for synchronization
+    pub async fn find_ids_by_instance_type_id(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_type_id: &InstanceTypeId,
+        for_update: bool,
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM machines WHERE");
+
+        builder.push(" instance_type_id = ");
+        builder.push_bind(instance_type_id);
+
+        if for_update {
+            builder.push(" FOR UPDATE ");
+        }
+
+        builder
+            .build_query_as()
+            .bind(instance_type_id)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
+    }
+
+    /// Associates machines with an InstanceType.
+    ///
+    /// * `txn`              - A reference to an active DB transaction
+    /// * `instance_type_id` - An reference to an InstanceTypeId to associate with a set of machines
+    /// * `machine_ids`      - A list of machine IDs to associate to the desired instance type
+    pub async fn associate_machines_with_instance_type(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_type_id: &InstanceTypeId,
+        machine_ids: &[MachineId],
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let query =
+            "UPDATE machines SET instance_type_id=$1::varchar WHERE id = ANY($2) RETURNING id";
+
+        sqlx::query_as(query)
+            .bind(instance_type_id)
+            .bind(machine_ids)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    /// Removes a machine's association with an InstanceType.
+    ///
+    /// * `txn`        - A reference to an active DB transaction
+    /// * `machine_id` - A reference to a machine ID to update
+    pub async fn remove_instance_type_association(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<MachineId, DatabaseError> {
+        let query = "UPDATE machines SET instance_type_id=NULL WHERE id = $1::varchar RETURNING id";
+
+        sqlx::query_as(query)
+            .bind(machine_id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_hostname(

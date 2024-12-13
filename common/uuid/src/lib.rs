@@ -4,6 +4,7 @@ use std::fmt;
 pub mod domain;
 pub mod infiniband;
 pub mod instance;
+pub mod instance_type;
 pub mod machine;
 pub mod measured_boot;
 pub mod network;

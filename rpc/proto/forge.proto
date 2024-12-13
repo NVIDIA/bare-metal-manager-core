@@ -284,7 +284,18 @@ service Forge {
   // Perform Attestation Procedure for Measured Boot
   rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
 
-    ////////////////////////////////////////////////////////////////////////////////
+  //
+  // InstanceType
+  //
+  rpc CreateInstanceType(CreateInstanceTypeRequest) returns (CreateInstanceTypeResponse);
+  rpc FindInstanceTypeIds(FindInstanceTypeIdsRequest) returns (FindInstanceTypeIdsResponse);
+  rpc FindInstanceTypesByIds(FindInstanceTypesByIdsRequest) returns (FindInstanceTypesByIdsResponse);
+  rpc UpdateInstanceType(UpdateInstanceTypeRequest) returns (UpdateInstanceTypeResponse);
+  rpc DeleteInstanceType(DeleteInstanceTypeRequest) returns (DeleteInstanceTypeResponse);
+  rpc AssociateMachinesWithInstanceType(AssociateMachinesWithInstanceTypeRequest) returns (AssociateMachinesWithInstanceTypeResponse);
+  rpc RemoveMachineInstanceTypeAssociation(RemoveMachineInstanceTypeAssociationRequest) returns (RemoveMachineInstanceTypeAssociationResponse);
+
+  ////////////////////////////////////////////////////////////////////////////////
   // Begin Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
 
@@ -3662,6 +3673,118 @@ message MachineValidationRunRequest {
 }
 message MachineValidationRunResponse {
   string message = 1;
+}
+
+message InstanceTypeAttributes {
+  // The minimum set of capabilities that a machine
+  // must have before it can be link with the specified
+  // instance type.
+  repeated InstanceTypeMachineCapabilityAttributes desired_capabilities = 1;
+}
+
+// An InstanceType describes a desired set of 
+// machine capabilities.
+// It's probably easiest to just think of InstanceType
+// as a pool, and the desired capabilities of an InstanceType
+// define which machines are allowed in the pool.
+message InstanceType {
+  string id                         = 1;
+  InstanceTypeAttributes attributes = 2;
+  string version                    = 3;
+  Metadata metadata                 = 4;
+  optional string created_at        = 5;
+}
+
+// These match the current set of distinct
+// active types in Forge Cloud.
+enum InstanceTypeMachineCapabilityType {
+  CAP_TYPE_INVALID    = 0;
+  CAP_TYPE_CPU        = 1;
+  CAP_TYPE_GPU        = 2;
+  CAP_TYPE_MEMORY     = 3;
+  CAP_TYPE_STORAGE    = 4;
+  CAP_TYPE_NETWORK    = 5;
+  CAP_TYPE_INFINIBAND = 6;
+  CAP_TYPE_DPU        = 7;
+}
+
+// InstanceTypeMachineCapabilityAttributes are the specific
+// properties of ONE capability. For example, a InstanceType
+// might have a CPU capability.  The attributes of that single
+// capability might be type=CPU, name="Intel Xeon", cores=12,
+// threads=24. For a machine to be allowed in to the pool for
+// an InstanceType with that capability, the machine must also
+// have a capability that matches those properties.
+message InstanceTypeMachineCapabilityAttributes {
+  InstanceTypeMachineCapabilityType capability_type   = 1;
+  optional string name                                = 2; // Intel Xeon, Samsung SSD, etc.
+  optional string frequency                           = 3; // E.g., 2.4GHz, 1024MHz, etc
+  optional string capacity                            = 4; // E.g., 10GB, 256 MB, etc
+  optional string vendor                              = 5;
+  optional uint32 count                               = 6;
+  optional string hardware_revision                   = 7;
+  optional uint32 cores                               = 8;
+  optional uint32 threads                             = 9;
+}
+
+
+message CreateInstanceTypeRequest {
+  optional string id                              = 1;
+  Metadata metadata                               = 2;
+  InstanceTypeAttributes instance_type_attributes = 3;
+}
+
+message CreateInstanceTypeResponse {
+  InstanceType instance_type = 1;
+}
+
+message FindInstanceTypeIdsRequest {
+};
+
+message FindInstanceTypeIdsResponse {
+    repeated string instance_type_ids = 1;
+}
+
+message FindInstanceTypesByIdsRequest {
+  repeated string instance_type_ids = 1;
+}
+
+message FindInstanceTypesByIdsResponse {
+  repeated InstanceType instance_types = 1;
+}
+
+message DeleteInstanceTypeRequest {
+  string id = 1;
+}
+
+message DeleteInstanceTypeResponse {
+}
+
+message UpdateInstanceTypeResponse {
+  InstanceType instance_type = 1;
+}
+
+message UpdateInstanceTypeRequest {
+  string id                                       = 1;
+  Metadata metadata                               = 2;
+  InstanceTypeAttributes instance_type_attributes = 3;
+  optional string if_version_match                = 4;
+}
+
+message AssociateMachinesWithInstanceTypeRequest {
+  string instance_type_id     = 1;
+  repeated string machine_ids = 2;
+}
+
+message AssociateMachinesWithInstanceTypeResponse {
+}
+
+
+message RemoveMachineInstanceTypeAssociationRequest {
+  string machine_id = 1;
+}
+
+message RemoveMachineInstanceTypeAssociationResponse {
 }
 
 message RedfishBrowseRequest {

@@ -26,6 +26,8 @@ pub enum RpcDataConversionError {
     InvalidConfigVersion(String),
     #[error("Machine ID {0} is not valid")]
     InvalidMachineId(String),
+    #[error("Instance Type ID {0} is not valid")]
+    InvalidInstanceTypeId(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
     #[error("Tenant Org {0} is not valid")]

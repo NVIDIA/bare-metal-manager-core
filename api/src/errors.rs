@@ -201,6 +201,9 @@ pub enum CarbideError {
         /// The actual BMC MAC address found associated with the endpoint IP
         found_mac: String,
     },
+
+    #[error("{0}")]
+    FailedPrecondition(String),
 }
 
 impl CarbideError {
@@ -272,6 +275,9 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::UnhealthyHost => Status::failed_precondition(from.to_string()),
             CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
             error @ CarbideError::ConcurrentModificationError(_, _) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::FailedPrecondition(_) => {
                 Status::failed_precondition(error.to_string())
             }
             other => Status::internal(other.to_string()),
