@@ -398,12 +398,16 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .await
         .unwrap()
         .expect("expect DPU to be found");
-    assert!(!dpu_machine
-        .dpu_agent_health_report()
-        .as_ref()
-        .unwrap()
-        .alerts
-        .is_empty());
+    assert!(
+        !dpu_machine
+            .dpu_agent_health_report()
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty(),
+        "DPU is not healthy: {:?}",
+        dpu_machine.dpu_agent_health_report().as_ref().unwrap()
+    );
 
     // The up count reflects the heartbeat timeout.
     assert_eq!(
