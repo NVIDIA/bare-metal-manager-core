@@ -5,6 +5,22 @@
 
 ### Changed
 
+- The InfiniBand UFM IP is now configured within the carbide site-config files
+  instead of being hidden in a Vault entry. The configuration is forward-compatible
+  to supporting multiple InfiniBand fabric.  
+  **It requires the following entry in the
+  site-config file:**
+  ```
+  [ib_fabrics.default]
+  endpoints = ["https://1.2.3.4"] # The UFM endpoint
+  pkeys = [{ start = "256", end = "2303" }] # List of pkeys used by Forge
+  ```
+  **The previously added `[pools.pkey]` sections needs to be removed from the site-config files, since the setting is now controlled within the `ib_fabrics` block. Carbide will reject the old configuration syntax.**
+- The InfiniBand fabric monitor task will now print the endpoint address of the UFM it checks in each iteration. Example results:
+  ```
+  level=SPAN span_id=0x9509d58bfaa0173d span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.217.161.194:443\"],\"fabric_error\":\"\",\"ufm_version\":\"6.14.1-5\",\"subnet_prefix\":\"\",\"m_key\":\"\",\"sm_key\":\"\",\"sa_key\":\"\",\"m_key_per_port\":false}}" num_fabrics=1 otel_status_code=ok timing_busy_ns=2158292 timing_elapsed_us=33074 timing_end_time=2024-12-13T19:28:50.230282096Z timing_idle_ns=30835294 timing_start_time=2024-12-13T19:28:50.197207484Z
+  ```
+
 ### Fixed
 
 ### Removed
