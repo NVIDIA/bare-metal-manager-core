@@ -190,7 +190,7 @@ async fn test_integration() -> eyre::Result<()> {
     let instance_id = instance::create(
         carbide_api_addr,
         &host_machine_id,
-        &segment_id,
+        Some(&segment_id),
         Some("test"),
         true,
         true,
@@ -314,8 +314,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
     let managed_segment_id = subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 10, false)?;
-    let host_inband_segment_id =
-        subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 11, true)?;
+    subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 11, true)?;
 
     // Run several tests in parallel.
     let all_tests = join_all([
@@ -330,7 +329,6 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         test_machine_a_tron_zerodpu(
             &test_env,
             &bmc_address_registry,
-            &host_inband_segment_id,
             // Relay IP in host-inband net
             Ipv4Addr::new(10, 10, 11, 2),
         )
@@ -338,7 +336,6 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         test_machine_a_tron_singledpu_nic_mode(
             &test_env,
             &bmc_address_registry,
-            &host_inband_segment_id,
             // Relay IP in host-inband  net
             Ipv4Addr::new(10, 10, 11, 2),
         )
@@ -387,7 +384,7 @@ async fn test_machine_a_tron_multidpu(
                 let instance_id = instance::create(
                     carbide_api_addr,
                     &machine_id,
-                    &segment_id,
+                    Some(&segment_id),
                     None,
                     false,
                     false,
@@ -441,7 +438,6 @@ async fn test_machine_a_tron_multidpu(
 async fn test_machine_a_tron_zerodpu(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    segment_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
@@ -466,7 +462,7 @@ async fn test_machine_a_tron_zerodpu(
                 let instance_id = instance::create(
                     carbide_api_addr,
                     &machine_id,
-                    segment_id,
+                    None, // Do not specify a segment ID, let the API server pick one
                     None,
                     false,
                     false,
@@ -526,7 +522,6 @@ async fn test_machine_a_tron_zerodpu(
 async fn test_machine_a_tron_singledpu_nic_mode(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    segment_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
@@ -537,7 +532,6 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_actor| {
-            let segment_id = segment_id.to_string();
             let carbide_api_addr = test_env.carbide_api_addr;
             async move {
                 machine_actor
@@ -552,7 +546,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                 let instance_id = instance::create(
                     carbide_api_addr,
                     &machine_id,
-                    &segment_id,
+                    None, // Do not specify a segment ID, let the API server pick one
                     None,
                     false,
                     false,

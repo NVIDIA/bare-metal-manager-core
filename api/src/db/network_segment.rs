@@ -554,6 +554,37 @@ impl NetworkSegment {
         .collect::<HashMap<_, _>>())
     }
 
+    /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
+    pub async fn find_ids_by_machine_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &forge_uuid::machine::MachineId,
+        network_segment_type: Option<NetworkSegmentType>,
+    ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
+        let mut query = sqlx::QueryBuilder::new(
+            r#"SELECT ns.id FROM machines m
+                LEFT JOIN machine_interfaces mi ON (mi.machine_id = m.id)
+                INNER JOIN network_segments ns ON (ns.id = mi.segment_id)
+                WHERE mi.machine_id =
+            "#,
+        );
+
+        query.push_bind(machine_id);
+
+        if let Some(network_segment_type) = network_segment_type {
+            query
+                .push(" AND ns.network_segment_type = ")
+                .push_bind(network_segment_type);
+        }
+
+        let network_segment_ids = query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+
+        Ok(network_segment_ids)
+    }
+
     async fn update_prefix_into_network_segment_list(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         search_config: NetworkSegmentSearchConfig,
@@ -799,11 +830,17 @@ WHERE network_prefixes.circuit_id=$1";
         name: &str,
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from network_segments WHERE name = $1";
-        sqlx::query_as(query)
+        let segment: Self = sqlx::query_as(query)
             .bind(name)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        // Wrap the result in a vec so we can call update_prefix_into_network_segment_list
+        let mut segments = vec![segment];
+        Self::update_prefix_into_network_segment_list(txn, Default::default(), &mut segments)
+            .await?;
+        Ok(segments.remove(0))
     }
 
     /// This method returns Admin network segment.

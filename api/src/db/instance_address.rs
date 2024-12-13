@@ -182,11 +182,9 @@ WHERE network_prefixes.segment_id = $1::uuid";
     pub async fn allocate(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: InstanceId,
-        instance_network: &InstanceNetworkConfig,
+        mut updated_config: InstanceNetworkConfig,
         machine_snapshot: &MachineSnapshot,
     ) -> CarbideResult<InstanceNetworkConfig> {
-        let mut updated_config = instance_network.clone();
-
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
         // We're potentially about to insert a couple rows, so create a savepoint.
         let mut inner_txn = txn

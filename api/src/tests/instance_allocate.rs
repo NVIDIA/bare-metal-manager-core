@@ -1,0 +1,543 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use forge::forge_server::Forge;
+use ipnetwork::IpNetwork;
+use rpc::forge;
+
+use crate::{
+    db,
+    model::machine::ManagedHostStateSnapshot,
+    tests::{
+        common,
+        common::{
+            api_fixtures,
+            api_fixtures::{
+                managed_host::ManagedHostConfig,
+                network_segment::{
+                    create_admin_network_segment, create_host_inband_network_segment,
+                    create_network_segment, create_tenant_network_segment,
+                    create_underlay_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2,
+                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+                },
+                TestEnv, TestEnvOverrides,
+            },
+            mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL,
+        },
+    },
+};
+
+/// Create a test_env for tests in this file, with:
+/// - An admin network
+/// - A DPU underlay network segment
+/// - 2 tenant overlay networks
+/// - 2 tenant HostInband networks
+/// - 2 VPC's
+async fn create_test_env_for_instance_allocation(pool: sqlx::PgPool) -> TestEnv {
+    let site_prefixes = vec![
+        IpNetwork::new(
+            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+        )
+        .unwrap(),
+    ];
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            allow_zero_dpu_hosts: Some(true),
+            site_prefixes: Some(site_prefixes),
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let vpc_1 = env
+        .api
+        .create_vpc(tonic::Request::new(forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc 1".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let vpc_2 = env
+        .api
+        .create_vpc(tonic::Request::new(forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc 2".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    create_underlay_network_segment(&env.api).await;
+    create_admin_network_segment(&env.api).await;
+
+    create_tenant_network_segment(
+        &env.api,
+        vpc_1.id.clone(),
+        *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+        "TENANT",
+        true,
+    )
+    .await;
+
+    create_tenant_network_segment(
+        &env.api,
+        vpc_2.id.clone(),
+        *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+        "TENANT_2",
+        true,
+    )
+    .await;
+
+    create_host_inband_network_segment(&env.api, vpc_1.id.clone()).await;
+    // Make sure second host_inband network segment has the same VPC ID
+    create_network_segment(
+        &env.api,
+        "HOST_INBAND_2",
+        &format!(
+            "{}/{}",
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.prefix()
+        ),
+        &FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2
+            .ip()
+            .to_string(), // 192.0.5.1
+        forge::NetworkSegmentType::HostInband,
+        vpc_1.id.clone(),
+        true,
+    )
+    .await;
+
+    // Get the tenant segment into ready state
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    env
+}
+
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_allocation_explicit_network_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone()).await;
+    let config = ManagedHostConfig::with_dpus(vec![]);
+
+    // Ingest zero DPU host
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
+        &mut env.pool.begin().await?,
+        "HOST_INBAND",
+    )
+    .await?;
+
+    // Allocate an instance by explicitly specifying an interface that is on the HOST_INBAND network
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: Some(host_inband_segment.id.0.into()),
+                        network_details: None,
+                    }],
+                }),
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await
+    .expect("Instance allocation with no network config should have been successful")
+    .into_inner();
+
+    let interfaces = instance.config.unwrap().network.unwrap().interfaces;
+    assert_eq!(
+        interfaces.len(),
+        1,
+        "New instance should have one interface"
+    );
+    assert_eq!(
+        interfaces[0].network_segment_id,
+        Some(host_inband_segment.id.into()),
+        "New instance should have an interface on the HOST_INBAND network"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_allocation_no_network_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone()).await;
+    let config = ManagedHostConfig::with_dpus(vec![]);
+
+    // Ingest zero DPU host
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
+        &mut env.pool.begin().await?,
+        "HOST_INBAND",
+    )
+    .await?;
+
+    // Allocate an instance without specifying a network config
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: None, // code under test: Network config is None
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await
+    .expect("Instance allocation with no network config should have been successful")
+    .into_inner();
+
+    let interfaces = instance.config.unwrap().network.unwrap().interfaces;
+    assert_eq!(
+        interfaces.len(),
+        1,
+        "New instance should have one interface"
+    );
+    assert_eq!(
+        interfaces[0].network_segment_id,
+        Some(host_inband_segment.id.into()),
+        "New instance should have an interface on the HOST_INBAND network"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone()).await;
+    let config = ManagedHostConfig {
+        dpus: vec![],
+        non_dpu_macs: vec![
+            HOST_NON_DPU_MAC_ADDRESS_POOL.allocate(),
+            HOST_NON_DPU_MAC_ADDRESS_POOL.allocate(),
+        ],
+        ..Default::default()
+    };
+
+    // Ingest zero DPU host with custom behavior in the finish callback...
+    let zero_dpu_host = api_fixtures::site_explorer::new_mock_host(&env, config)
+        .await?
+        .discover_dhcp_host_secondary_iface(
+            1,
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2
+                .ip()
+                .to_string(),
+            |result, _| {
+                assert!(result.is_ok());
+                Ok(())
+            },
+        )
+        .await?
+        .finish(|mock| async move {
+            let machine_id = mock.discovered_machine_id().unwrap();
+
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.pool.begin().await?,
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: None, // code under test: Network config is None
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await
+    .expect("Instance allocation with no network config should have been successful")
+    .into_inner();
+
+    let (host_inband_segment_1, host_inband_segment_2) = (
+        db::network_segment::NetworkSegment::find_by_name(
+            &mut env.pool.begin().await?,
+            "HOST_INBAND",
+        )
+        .await?,
+        db::network_segment::NetworkSegment::find_by_name(
+            &mut env.pool.begin().await?,
+            "HOST_INBAND_2",
+        )
+        .await?,
+    );
+
+    let interfaces = instance.config.unwrap().network.unwrap().interfaces;
+    assert_eq!(
+        interfaces.len(),
+        2,
+        "New instance should have two interface"
+    );
+
+    let host_snapshot_after_allocate = db::managed_host::load_snapshot(
+        &mut env.pool.begin().await?,
+        &zero_dpu_host.host_snapshot.machine_id,
+        Default::default(),
+    )
+    .await
+    .transpose()
+    .unwrap()?;
+
+    let instance_snapshot = host_snapshot_after_allocate
+        .instance
+        .expect("zero-dpu host snapshot should have an assigned instance");
+
+    assert_eq!(
+        instance_snapshot.config.network.interfaces.len(),
+        2,
+        "Instance should have 2 interfaces"
+    );
+
+    let interface_in_segment_1 = instance_snapshot
+        .config
+        .network
+        .interfaces
+        .iter()
+        .find(|i| i.network_segment_id == Some(host_inband_segment_1.id))
+        .expect("One of the instance interfaces should have been in the HOST_INBAND segment");
+    let interface_in_segment_2 = instance_snapshot
+        .config
+        .network
+        .interfaces
+        .iter()
+        .find(|i| i.network_segment_id == Some(host_inband_segment_2.id))
+        .expect("One of the instance interfaces should have been in the HOST_INBAND_2 segment");
+
+    assert!(
+        !interface_in_segment_1.ip_addrs.is_empty(),
+        "Instance interface in segment 1 should have IP addresses assigned"
+    );
+    assert!(
+        !interface_in_segment_2.ip_addrs.is_empty(),
+        "Instance interface in segment 2 should have IP addresses assigned"
+    );
+
+    assert!(interface_in_segment_1
+        .ip_addrs
+        .iter()
+        .all(
+            |(prefix_id, addr)| host_inband_segment_1.prefixes[0].prefix.contains(*addr)
+                && prefix_id.0.eq(&host_inband_segment_1.prefixes[0].id)
+        ));
+
+    assert!(interface_in_segment_2
+        .ip_addrs
+        .iter()
+        .all(
+            |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
+                && prefix_id.0.eq(&host_inband_segment_2.prefixes[0].id)
+        ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_reject_single_dpu_instance_allocation_no_network_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone()).await;
+
+    // Create single DPU host
+    let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
+
+    // Create an instance on a host with DPUs, without specifying a network config, which is not allowed
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(single_dpu_host.host_snapshot.machine_id.into()),
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: None,
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await;
+
+    match result {
+        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        _ => panic!("Creating an instance on a dpu host without specifying a network segment should throw an error, got {:?}", result),
+    };
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone()).await;
+
+    // Create single DPU host
+    let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
+
+    let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
+        &mut env.pool.begin().await?,
+        "HOST_INBAND",
+    )
+    .await?;
+
+    // Create an instance on a host with DPUs, but try to configure it on a host_inband network,
+    // which is not allowed
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(single_dpu_host.host_snapshot.machine_id.into()),
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: Some(host_inband_segment.id.into()),
+                        network_details: None,
+                    }],
+                }),
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await;
+
+    match result {
+        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        _ => panic!("Creating an instance on a dpu host while specifying a host_inband network segment should throw an error, got {:?}", result),
+    };
+
+    Ok(())
+}

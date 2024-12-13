@@ -16,8 +16,13 @@ use std::{
     str::FromStr,
 };
 
+use crate::db::instance_address::InstanceAddress;
+use crate::db::network_segment::{NetworkSegment, NetworkSegmentType};
+use crate::errors::{CarbideError, CarbideResult};
+use crate::model::machine::MachineSnapshot;
 use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::instance::InstanceId;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -231,6 +236,55 @@ impl InstanceNetworkConfig {
     pub fn is_host_inband(&self) -> bool {
         self.interfaces.iter().all(|i| i.is_host_inband())
     }
+
+    /// Allocate IP's for this network config, filling the InstanceInterfaceConfigs with the newly
+    /// allocated IP's.
+    pub async fn with_allocated_ips(
+        self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        instance_id: InstanceId,
+        machine_snapshot: &MachineSnapshot,
+    ) -> CarbideResult<InstanceNetworkConfig> {
+        InstanceAddress::allocate(txn, instance_id, self, machine_snapshot).await
+    }
+
+    /// Find any host_inband segments on the given machine, and replicate them into this instance
+    /// network config. This is because allocation requests do not need to explicitly enumerate
+    /// a host's in-band (non-dpu) network segments: they cannot be configured through carbide.
+    pub async fn with_inband_interfaces_from_machine(
+        mut self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        machine_id: &forge_uuid::machine::MachineId,
+    ) -> CarbideResult<InstanceNetworkConfig> {
+        let host_inband_segment_ids = NetworkSegment::find_ids_by_machine_id(
+            txn,
+            machine_id,
+            Some(NetworkSegmentType::HostInband),
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
+        for host_inband_segment_id in host_inband_segment_ids {
+            // Only add it to the instance config if there isn't already an interface in this segment
+            if !self
+                .interfaces
+                .iter()
+                .any(|i| i.network_segment_id == Some(host_inband_segment_id))
+            {
+                self.interfaces.push(InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Physical {},
+                    network_segment_id: Some(host_inband_segment_id),
+                    network_details: None,
+                    ip_addrs: Default::default(),
+                    interface_prefixes: Default::default(),
+                    network_segment_gateways: Default::default(),
+                    host_inband_mac_address: None,
+                })
+            }
+        }
+
+        Ok(self)
+    }
 }
 
 impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
@@ -332,7 +386,9 @@ pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
     get_function_id: F,
 ) -> Result<(), String> {
     if container.is_empty() {
-        return Err("InstanceNetworkConfig.interfaces is empty".to_string());
+        // Empty interfaces can be filled via host's host_inband interfaces later. If it's still
+        // empty then, we throw an error later.
+        return Ok(());
     }
 
     // We need 1 physical interface, virtual interfaces must start at VFID 1,
