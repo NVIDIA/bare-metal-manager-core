@@ -50,10 +50,6 @@ ranges = [{ start = "1024500", end = "1024550" }]
 type = "integer"
 ranges = [{ start = "2024500", end = "2024550" }]
 
-[pools.pkey]
-type = "integer"
-ranges = [{ start = "1", end = "10" }]
-
 [networks.admin]
 type = "admin"
 prefix = "172.20.0.0/24"
@@ -67,6 +63,10 @@ prefix = "172.99.0.0/26"
 gateway = "172.99.0.1"
 mtu = 1500
 reserve_first = 5
+
+[ib_fabrics.default]
+endpoints = ["https://1.2.3.4"]
+pkeys = [{ start = "1", end = "10" }]
 
 [ib_fabric_monitor]
 enabled = false

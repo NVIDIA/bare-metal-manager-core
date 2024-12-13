@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
@@ -36,17 +36,22 @@ pub const VPC_VNI: &str = "vpc-vni";
 
 /// IB Fabric partition key (pkey) pool
 /// Must match a pool defined in dev/resource_pools.toml
-pub const PKEY: &str = "pkey";
+pub const DEFAULT_FABRIC_PKEY: &str = "ib_fabrics.default.pkey";
 
 /// All the pools carbide-api needs.
 /// We will validate they exist and monitor metrics for them.
-const ALL_POOLS: [&str; 5] = [LOOPBACK_IP, VLANID, VNI, VPC_VNI, PKEY];
+const ALL_POOLS: [&str; 5] = [LOOPBACK_IP, VLANID, VNI, VPC_VNI, DEFAULT_FABRIC_PKEY];
 
 /// Pools that are not necessarily needed at startup
-const OPTIONAL_POOLS: [&str; 1] = [PKEY];
+const OPTIONAL_POOLS: [&str; 1] = [DEFAULT_FABRIC_PKEY];
 
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Returns the name of the resource pool used for a certain IB fabric
+pub fn ib_pkey_pool_name(fabric: &str) -> String {
+    format!("ib_fabrics.{fabric}.pkey")
+}
 
 /// ResourcePools that are used throughout the application
 #[derive(Debug)]
@@ -69,13 +74,16 @@ pub struct EthernetPools {
 }
 
 /// ResourcePools that are used for infiniband
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct IbPools {
-    pub pool_pkey: Arc<DbResourcePool<u16>>,
+    pub pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>>,
 }
 
 impl CommonPools {
-    pub async fn create(db: sqlx::PgPool) -> eyre::Result<Arc<Self>> {
+    pub async fn create(
+        db: sqlx::PgPool,
+        ib_fabric_ids: HashSet<String>,
+    ) -> eyre::Result<Arc<Self>> {
         let pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(DbResourcePool::new(
             LOOPBACK_IP.to_string(),
             ValueType::Ipv4,
@@ -86,8 +94,18 @@ impl CommonPools {
             Arc::new(DbResourcePool::new(VNI.to_string(), ValueType::Integer));
         let pool_vpc_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
-        let pool_pkey: Arc<DbResourcePool<u16>> =
-            Arc::new(DbResourcePool::new(PKEY.to_string(), ValueType::Integer));
+
+        let pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>> = Arc::new(
+            ib_fabric_ids
+                .into_iter()
+                .map(|fabric_id| {
+                    (
+                        fabric_id.clone(),
+                        DbResourcePool::new(ib_pkey_pool_name(&fabric_id), ValueType::Integer),
+                    )
+                })
+                .collect(),
+        );
 
         // We can't run if any of the mandatory pools are missing
         for name in ALL_POOLS {
@@ -108,6 +126,8 @@ impl CommonPools {
             .spawn(async move {
                 loop {
                     let mut next_stats = HashMap::with_capacity(ALL_POOLS.len());
+                    // TODO: This would not work for multi-fabric support, where theres
+                    // more pkey pools for other fabrics
                     for name in ALL_POOLS {
                         if let Ok(st) = stats(&db, name).await {
                             next_stats.insert(name.to_string(), st);
@@ -132,7 +152,7 @@ impl CommonPools {
                 pool_vni,
                 pool_vpc_vni,
             },
-            infiniband: IbPools { pool_pkey },
+            infiniband: IbPools { pkey_pools },
             pool_stats,
             _stop_sender: stop_sender,
         }))

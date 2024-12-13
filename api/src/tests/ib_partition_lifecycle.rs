@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use crate::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
@@ -262,6 +264,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         .create(
             &mut txn,
             &IBFabricManagerConfig {
+                endpoints: HashMap::new(),
                 manager_type: IBFabricManagerType::Disable,
                 max_partition_per_tenant: 10,
                 mtu: IBMtu::default(),

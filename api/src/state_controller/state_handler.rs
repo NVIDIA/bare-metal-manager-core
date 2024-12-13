@@ -16,6 +16,7 @@ use libredfish::RedfishError;
 use opentelemetry::metrics::Meter;
 
 use crate::cfg::file::CarbideConfig;
+use crate::resource_pool::common::IbPools;
 use crate::storage::StorageError;
 use crate::{
     db::DatabaseError,
@@ -23,7 +24,7 @@ use crate::{
     ipmitool::IPMITool,
     model::machine::ManagedHostState,
     redfish::{RedfishClientCreationError, RedfishClientPool},
-    resource_pool::{DbResourcePool, ResourcePoolError},
+    resource_pool::ResourcePoolError,
     storage::NvmeshClientPool,
 };
 use forge_uuid::machine::MachineId;
@@ -45,8 +46,8 @@ pub struct StateHandlerServices {
     /// API for interaction with NVMesh storage cluster
     pub nvmesh_client_pool: Arc<dyn NvmeshClientPool>,
 
-    /// Resource pool for ib pkey allocate/release.
-    pub pool_pkey: Option<Arc<DbResourcePool<u16>>>,
+    /// Resource pools for ib pkey allocation/release.
+    pub ib_pools: IbPools,
 
     /// An implementation of the IPMITool that understands how to reboot a machine
     pub ipmi_tool: Arc<dyn IPMITool>,

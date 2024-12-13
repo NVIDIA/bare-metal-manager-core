@@ -4540,8 +4540,9 @@ impl Api {
         match self
             .common_pools
             .infiniband
-            .pool_pkey
-            .as_ref()
+            .pkey_pools
+            .get(DEFAULT_IB_FABRIC_NAME)
+            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?
             .allocate(txn, resource_pool::OwnerType::IBPartition, owner_id)
             .await
         {

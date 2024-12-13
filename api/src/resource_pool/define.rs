@@ -49,11 +49,17 @@ pub async fn define_all_from(
     Ok(())
 }
 
-async fn define(
+pub async fn define(
     txn: &mut Transaction<'_, Postgres>,
     name: &str,
     def: &ResourcePoolDef,
 ) -> Result<(), DefineResourcePoolError> {
+    if name == "pkey" {
+        return Err(DefineResourcePoolError::InvalidArgument(
+            "pkey pool is deprecated. Use ib_fabrics.default.pkeys as replacement".to_string(),
+        ));
+    }
+
     match (&def.prefix, &def.ranges) {
         // Neither is given
         (None, ranges) if ranges.is_empty() => {
