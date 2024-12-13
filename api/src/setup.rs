@@ -197,7 +197,9 @@ pub async fn start_api(
 
         if !carbide_config.ib_fabrics.is_empty() {
             let fabric_id = carbide_config.ib_fabrics.iter().next().unwrap().0;
-            return Err(eyre::eyre!("ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"));
+            if fabric_id != DEFAULT_IB_FABRIC_NAME {
+                return Err(eyre::eyre!("ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"));
+            }
         }
 
         // Populate IB specific resource pools
