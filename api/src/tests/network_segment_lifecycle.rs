@@ -134,6 +134,7 @@ async fn test_network_segment_lifecycle_impl(
         .unwrap()
         .into_inner()
         .network_segments;
+    assert!(segments.is_empty(), "Found network segments {segments:?}");
 
     // After the segment is fully gone, deleting it again should return NotFound
     // Calling the API again in this state should be a noop
@@ -151,8 +152,6 @@ async fn test_network_segment_lifecycle_impl(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    assert!(segments.is_empty());
-
     let expected_history = ["provisioning", "ready", "drainallocatedips", "dbdelete"];
     let history = text_history(&mut txn, segment_id).await;
     for (i, state) in history.iter().enumerate() {
