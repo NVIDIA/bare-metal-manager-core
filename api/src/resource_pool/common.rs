@@ -34,17 +34,6 @@ pub const VLANID: &str = "vlan-id";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VPC_VNI: &str = "vpc-vni";
 
-/// IB Fabric partition key (pkey) pool
-/// Must match a pool defined in dev/resource_pools.toml
-pub const DEFAULT_FABRIC_PKEY: &str = "ib_fabrics.default.pkey";
-
-/// All the pools carbide-api needs.
-/// We will validate they exist and monitor metrics for them.
-const ALL_POOLS: [&str; 5] = [LOOPBACK_IP, VLANID, VNI, VPC_VNI, DEFAULT_FABRIC_PKEY];
-
-/// Pools that are not necessarily needed at startup
-const OPTIONAL_POOLS: [&str; 1] = [DEFAULT_FABRIC_PKEY];
-
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -84,17 +73,33 @@ impl CommonPools {
         db: sqlx::PgPool,
         ib_fabric_ids: HashSet<String>,
     ) -> eyre::Result<Arc<Self>> {
+        let mut pool_names = Vec::new();
+
         let pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(DbResourcePool::new(
             LOOPBACK_IP.to_string(),
             ValueType::Ipv4,
         ));
+        pool_names.push(pool_loopback_ip.name().to_string());
         let pool_vlan_id: Arc<DbResourcePool<i16>> =
             Arc::new(DbResourcePool::new(VLANID.to_string(), ValueType::Integer));
+        pool_names.push(pool_vlan_id.name().to_string());
         let pool_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VNI.to_string(), ValueType::Integer));
+        pool_names.push(pool_vni.name().to_string());
         let pool_vpc_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
+        pool_names.push(pool_vpc_vni.name().to_string());
 
+        // We can't run if any of the mandatory pools are missing
+        for name in &pool_names {
+            if stats(&db, name).await?.free == 0 {
+                eyre::bail!(
+                    "Resource pool '{name}' missing or full. Edit config file and restart."
+                );
+            }
+        }
+
+        // It's ok for IB partition pools to be missing or full - as long as nobody tries to use partitions
         let pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>> = Arc::new(
             ib_fabric_ids
                 .into_iter()
@@ -106,15 +111,11 @@ impl CommonPools {
                 })
                 .collect(),
         );
-
-        // We can't run if any of the mandatory pools are missing
-        for name in ALL_POOLS {
-            if !OPTIONAL_POOLS.contains(&name) && stats(&db, name).await?.free == 0 {
-                eyre::bail!(
-                    "Resource pool '{name}' missing or full. Edit config file and restart."
-                );
-            }
-        }
+        pool_names.extend(
+            pkey_pools
+                .iter()
+                .map(|(_fabric_id, pool)| pool.name().to_string()),
+        );
 
         // Gather resource pool stats. A different thread sends them to Prometheus.
         let (stop_sender, mut stop_receiver) = oneshot::channel();
@@ -125,10 +126,8 @@ impl CommonPools {
             .name("resource_pool metrics")
             .spawn(async move {
                 loop {
-                    let mut next_stats = HashMap::with_capacity(ALL_POOLS.len());
-                    // TODO: This would not work for multi-fabric support, where theres
-                    // more pkey pools for other fabrics
-                    for name in ALL_POOLS {
+                    let mut next_stats = HashMap::with_capacity(pool_names.len());
+                    for name in &pool_names {
                         if let Ok(st) = stats(&db, name).await {
                             next_stats.insert(name.to_string(), st);
                         }
