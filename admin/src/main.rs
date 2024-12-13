@@ -1300,7 +1300,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             cfg::carbide_options::MachineValidationCommand::Tests(
                 machine_validation_tests_command,
-            ) => match machine_validation_tests_command {
+            ) => match *machine_validation_tests_command {
                 cfg::carbide_options::MachineValidationTestsCommand::Show(options) => {
                     machine_validation::show_tests(
                         api_config,
@@ -1314,9 +1314,18 @@ async fn main() -> color_eyre::Result<()> {
                     machine_validation::machine_validation_test_verfied(api_config, options)
                         .await?;
                 }
-                cfg::carbide_options::MachineValidationTestsCommand::EnabledDisable(options) => {
-                    machine_validation::machine_validation_test_enable_disable(api_config, options)
+                cfg::carbide_options::MachineValidationTestsCommand::Enable(options) => {
+                    machine_validation::machine_validation_test_enable(api_config, options).await?;
+                }
+                cfg::carbide_options::MachineValidationTestsCommand::Disable(options) => {
+                    machine_validation::machine_validation_test_disable(api_config, options)
                         .await?;
+                }
+                cfg::carbide_options::MachineValidationTestsCommand::Add(options) => {
+                    machine_validation::machine_validation_test_add(api_config, options).await?;
+                }
+                cfg::carbide_options::MachineValidationTestsCommand::Update(options) => {
+                    machine_validation::machine_validation_test_update(api_config, options).await?;
                 }
             },
         },

@@ -2949,3 +2949,40 @@ pub async fn redfish_browse(
     })
     .await
 }
+
+pub async fn machine_validation_test_update(
+    api_config: &ApiConfig<'_>,
+    test_id: String,
+    version: String,
+    payload: rpc::machine_validation_test_update_request::Payload,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineValidationTestUpdateRequest {
+            test_id,
+            version,
+            payload: Some(payload),
+        });
+        client
+            .update_machine_validation_test(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn machine_validation_test_add(
+    api_config: &ApiConfig<'_>,
+    request: rpc::MachineValidationTestAddRequest,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        client
+            .add_machine_validation_test(tonic::Request::new(request))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
