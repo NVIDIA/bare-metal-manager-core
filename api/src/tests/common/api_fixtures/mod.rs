@@ -19,7 +19,6 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::Arc,
-    time::SystemTime,
 };
 
 use crate::tests::common::{
@@ -1050,7 +1049,7 @@ pub async fn network_configured_with_health(
     let status = rpc::forge::DpuNetworkStatus {
         dpu_machine_id: Some(dpu_machine_id.to_string().into()),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
-        observed_at: Some(SystemTime::now().into()),
+        observed_at: None,
         dpu_health: Some(dpu_health),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
         instance_id: network_config.instance_id.clone(),
