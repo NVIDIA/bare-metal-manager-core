@@ -32,6 +32,7 @@ pub mod controller_outcome;
 pub mod hardware_info;
 pub mod ib_partition;
 pub mod instance;
+pub mod instance_type;
 pub mod machine;
 pub mod metadata;
 pub mod network_devices;

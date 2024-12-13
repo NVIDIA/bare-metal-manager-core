@@ -349,6 +349,19 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent, Scout],
         );
         x.perm("UpdateMachineValidationRun", vec![Scout, SiteAgent]);
+        x.perm("FindInstanceTypeIds", vec![SiteAgent, ForgeAdminCLI]);
+        x.perm("FindInstanceTypesByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateInstanceType", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateInstanceType", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteInstanceType", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "AssociateMachinesWithInstanceType",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "RemoveMachineInstanceTypeAssociation",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
 
         x

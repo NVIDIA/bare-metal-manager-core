@@ -23,6 +23,7 @@ mod instance_config_update;
 mod instance_find;
 mod instance_ipxe_behaviors;
 mod instance_os;
+mod instance_type;
 mod ipxe;
 mod legacy_state_migration;
 mod level_filter;

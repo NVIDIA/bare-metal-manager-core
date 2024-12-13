@@ -25,6 +25,7 @@ pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;
+pub mod instance_type;
 pub mod machine;
 pub mod machine_boot_override;
 pub mod machine_interface;

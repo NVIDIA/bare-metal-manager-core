@@ -40,14 +40,18 @@ use crate::{
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
-    db::machine::Machine,
+    db::{instance_type::create as create_instance_type, machine::Machine},
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
     ib::{self, IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
-    model::machine::{
-        machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
-        ManagedHostState,
+    model::{
+        instance_type,
+        machine::{
+            machine_id::try_parse_machine_id, FailureDetails, MachineLastRebootRequested,
+            ManagedHostState,
+        },
+        metadata::Metadata,
     },
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
@@ -81,7 +85,7 @@ use chrono::{DateTime, Duration, Utc};
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
-use forge_uuid::machine::MachineId;
+use forge_uuid::{instance_type::InstanceTypeId, machine::MachineId};
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -806,6 +810,40 @@ pub async fn create_test_env_with_overrides(
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
     );
+
+    // Create some instance types
+    let mut txn = api.database_connection.begin().await.unwrap();
+
+    for _ in 0..3 {
+        let uid = uuid::Uuid::new_v4();
+
+        // Prepare some attributes for creation and comparison later
+        let desired_capabilities = vec![instance_type::InstanceTypeMachineCapability {
+            capability_type: instance_type::InstanceTypeMachineCapabilityType::Cpu,
+            name: Some("pentium 4 HT".to_string()),
+            frequency: Some("1.3 GHz".to_string()),
+            capacity: None,
+            vendor: Some("intel".to_string()),
+            count: Some(1),
+            hardware_revision: None,
+            cores: Some(1),
+            threads: Some(2),
+        }];
+
+        let metadata = Metadata {
+            name: format!("the best type {}", uid),
+            description: "".to_string(),
+            labels: HashMap::new(),
+        };
+
+        let id = InstanceTypeId::from(uid);
+
+        let _it = create_instance_type(&mut txn, &id, &metadata, &desired_capabilities)
+            .await
+            .unwrap();
+    }
+
+    txn.commit().await.unwrap();
 
     TestEnv {
         api,
