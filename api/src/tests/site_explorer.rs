@@ -2521,19 +2521,19 @@ async fn test_site_explorer_new_host_fixture(
     )
     .await;
 
-    create_host_inband_network_segment(&env.api).await;
+    create_host_inband_network_segment(&env.api, None).await;
 
     let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(Vec::new()), 0)
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(Vec::new()))
             .await?;
     assert_eq!(zero_dpu_host.dpu_snapshots.len(), 0);
 
     let single_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default(), 1).await?;
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default()).await?;
     assert_eq!(single_dpu_host.dpu_snapshots.len(), 1);
 
     let config = ManagedHostConfig::with_dpus((0..2).map(|_| DpuConfig::default()).collect());
-    let two_dpu_host = api_fixtures::site_explorer::new_host(&env, config, 2).await?;
+    let two_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
     assert_eq!(two_dpu_host.dpu_snapshots.len(), 2);
 
     Ok(())
@@ -2712,7 +2712,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
     )
     .await;
 
-    create_host_inband_network_segment(&env.api).await;
+    create_host_inband_network_segment(&env.api, None).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],
@@ -2803,7 +2803,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     )
     .await;
 
-    create_host_inband_network_segment(&env.api).await;
+    create_host_inband_network_segment(&env.api, None).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],

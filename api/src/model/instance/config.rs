@@ -83,21 +83,26 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             RpcDataConversionError::MissingArgument("InstanceConfig::tenant"),
         )?)?;
 
-        let network = InstanceNetworkConfig::try_from(config.network.ok_or(
-            RpcDataConversionError::MissingArgument("InstanceConfig::network"),
-        )?)?;
+        // Network config is optional (for zero-dpu hosts).
+        let network = config
+            .network
+            .map(InstanceNetworkConfig::try_from)
+            .transpose()?
+            .unwrap_or(InstanceNetworkConfig::default());
 
+        // Infiniband config is optional
         let infiniband = config
             .infiniband
             .map(InstanceInfinibandConfig::try_from)
             .transpose()?
             .unwrap_or(InstanceInfinibandConfig::default());
 
-        // it should always be okay to create an instance without any storage volumes specified
-        let storage = match config.storage {
-            Some(storage) => InstanceStorageConfig::try_from(storage)?,
-            None => InstanceStorageConfig::default(),
-        };
+        // Storage config is optional
+        let storage = config
+            .storage
+            .map(InstanceStorageConfig::try_from)
+            .transpose()?
+            .unwrap_or(InstanceStorageConfig::default());
 
         Ok(InstanceConfig {
             tenant,

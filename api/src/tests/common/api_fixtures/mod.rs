@@ -745,14 +745,13 @@ pub async fn create_test_env_with_overrides(
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
-    let site_fabric_prefixes = {
-        let prefixes: Vec<IpNetwork> = overrides
-            .site_prefixes
-            .as_ref()
-            .unwrap_or(&TEST_SITE_PREFIXES)
-            .to_vec();
-        SiteFabricPrefixList::from_ipnetwork_vec(prefixes)
-    };
+    let site_fabric_networks = overrides
+        .site_prefixes
+        .as_ref()
+        .unwrap_or(&TEST_SITE_PREFIXES)
+        .to_vec();
+    let site_fabric_count = site_fabric_networks.len() as u8;
+    let site_fabric_prefixes = { SiteFabricPrefixList::from_ipnetwork_vec(site_fabric_networks) };
 
     let eth_virt_data = EthVirtData {
         asn: 65535,
@@ -763,9 +762,11 @@ pub async fn create_test_env_with_overrides(
         site_fabric_prefixes,
     };
 
-    // Populate resource pools
+    // Populate resource pools, leaving room for at least 5 networks, more if there are lots of
+    // configured site prefixes
+    let pool_size = site_fabric_count.max(5);
     let mut txn = db_pool.begin().await.unwrap();
-    resource_pool::define_all_from(&mut txn, &pool_defs())
+    resource_pool::define_all_from(&mut txn, &pool_defs(pool_size))
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -1046,7 +1047,7 @@ async fn populate_default_credentials(credential_provider: &dyn CredentialProvid
         .unwrap();
 }
 
-fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
+fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> {
     let mut defs = HashMap::new();
     defs.insert(
         "ib_fabrics.default.pkey".to_string(),
@@ -1073,8 +1074,8 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
-                start: "10001".to_string(),
-                end: "10005".to_string(),
+                start: 10_001.to_string(),
+                end: (10_001 + fabric_len as u16 - 1).to_string(),
             }],
             prefix: None,
         },
@@ -1084,8 +1085,8 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
-                start: "1".to_string(),
-                end: "5".to_string(),
+                start: 1.to_string(),
+                end: (1 + fabric_len as u16 - 1).to_string(),
             }],
             prefix: None,
         },
@@ -1095,8 +1096,8 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
             ranges: vec![resource_pool::Range {
-                start: "20001".to_string(),
-                end: "20005".to_string(),
+                start: 20001.to_string(),
+                end: (20001 + fabric_len as u16 - 1).to_string(),
             }],
             prefix: None,
         },
@@ -1302,7 +1303,7 @@ pub async fn forge_agent_control(
 
 /// Create a managed host with 1 DPU (default config)
 pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
-    let mh = site_explorer::new_host(env, ManagedHostConfig::default(), 1)
+    let mh = site_explorer::new_host(env, ManagedHostConfig::default())
         .await
         .expect("Failed to create a new host");
     (
@@ -1333,9 +1334,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let config =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
-    let mh = site_explorer::new_host(env, config, dpu_count.try_into().unwrap())
-        .await
-        .unwrap();
+    let mh = site_explorer::new_host(env, config).await.unwrap();
 
     mh.host_snapshot.machine_id
 }
@@ -1345,8 +1344,8 @@ pub async fn create_managed_host_with_config(
     env: &TestEnv,
     config: ManagedHostConfig,
 ) -> (MachineId, Vec<MachineId>) {
-    let dpu_count: usize = config.dpus.len();
-    let mh = site_explorer::new_host(env, config, dpu_count.try_into().unwrap())
+    let dpu_count = config.dpus.len();
+    let mh = site_explorer::new_host(env, config)
         .await
         .expect("Failed to create a new host");
 

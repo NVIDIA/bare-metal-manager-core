@@ -20,13 +20,14 @@ use std::net::SocketAddr;
 pub fn create(
     addr: SocketAddr,
     host_machine_id: &str,
-    segment_id: &str,
+    segment_id: Option<&str>,
     hostname: Option<&str>,
     phone_home_enable: bool,
     wait_until_ready: bool,
 ) -> eyre::Result<String> {
     tracing::info!(
-        "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
+        "Creating instance with machine: {host_machine_id}, with network segment: {}",
+        segment_id.unwrap_or("<none>")
     );
 
     let tenant = match hostname {
@@ -45,9 +46,8 @@ pub fn create(
         }),
     };
 
-    let data = serde_json::json!({
-        "machine_id": {"id": host_machine_id},
-        "config": {
+    let instance_config = match segment_id {
+        Some(segment_id) => serde_json::json!({
             "tenant": tenant,
             "network": {
                 "interfaces": [{
@@ -55,7 +55,16 @@ pub fn create(
                     "network_segment_id": {"value": segment_id}
                 }]
             }
-        },
+        }),
+        // omit network from config if we're not specifying a segment
+        None => serde_json::json!({
+            "tenant": tenant,
+        }),
+    };
+
+    let data = serde_json::json!({
+        "machine_id": {"id": host_machine_id},
+        "config": instance_config,
         "metadata": {
              "name": "test_instance",
              "description": "tests/integration/instance"

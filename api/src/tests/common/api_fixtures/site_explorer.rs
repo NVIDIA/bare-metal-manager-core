@@ -1,5 +1,3 @@
-use std::{collections::HashMap, future::Future, iter, net::IpAddr};
-
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use super::{
     discovery_completed, dpu::create_machine_inventory, inject_machine_measurements,
@@ -42,6 +40,8 @@ use rpc::{
     forge_agent_control_response::Action,
     DiscoveryData, DiscoveryInfo,
 };
+use std::str::FromStr;
+use std::{collections::HashMap, future::Future, iter, net::IpAddr};
 use tonic::Request;
 
 /// MockExploredHost presents a fluent interface for declaring a mock host and running it through
@@ -55,6 +55,15 @@ pub struct MockExploredHost<'a> {
     pub host_dhcp_response: Option<forge::DhcpRecord>,
     pub machine_discovery_response: Option<forge::MachineDiscoveryResult>,
     pub dpu_machine_ids: HashMap<u8, MachineId>,
+}
+
+impl MockExploredHost<'_> {
+    pub fn discovered_machine_id(&self) -> Option<MachineId> {
+        self.machine_discovery_response
+            .as_ref()
+            .and_then(|r| r.machine_id.as_ref())
+            .map(|id| MachineId::from_str(&id.id).unwrap())
+    }
 }
 
 impl<'a> MockExploredHost<'a> {
@@ -218,6 +227,35 @@ impl<'a> MockExploredHost<'a> {
             .await;
 
         self
+    }
+
+    /// Run DHCP on the specified non-dpu host index ID, if available, from the given relay address.
+    pub async fn discover_dhcp_host_secondary_iface<
+        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+    >(
+        mut self,
+        iface_index: u8,
+        relay_address: String,
+        f: F,
+    ) -> eyre::Result<Self> {
+        let mac_address = self.managed_host.non_dpu_macs[iface_index as usize].to_string();
+        let result = self
+            .test_env
+            .api
+            .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
+                mac_address,
+                relay_address,
+                vendor_string: Some("Bluefield".to_string()),
+                link_address: None,
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await;
+        if let Ok(ref response) = result {
+            self.host_dhcp_response = Some(response.get_ref().clone());
+        }
+        f(result, &mut self)?;
+        Ok(self)
     }
 
     /// Simulates scout running machine discovery on the managed host.
@@ -898,12 +936,12 @@ impl<'a> MockExploredHost<'a> {
 }
 
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
-/// to ingest it into the database.
-pub async fn new_host(
+/// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
+/// before finishing.
+pub async fn new_mock_host(
     env: &TestEnv,
     config: ManagedHostConfig,
-    dpu_count: u8,
-) -> eyre::Result<ManagedHostStateSnapshot> {
+) -> eyre::Result<MockExploredHost> {
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
         .into_iter()
@@ -923,6 +961,7 @@ pub async fn new_host(
             .await?;
     }
 
+    let dpu_count = config.dpus.len() as u8;
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     // Run BMC DHCP. DPUs first...
@@ -939,7 +978,7 @@ pub async fn new_host(
             .await;
     }
 
-    mock_explored_host
+    Ok(mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .await?
@@ -960,7 +999,17 @@ pub async fn new_host(
         .run_site_explorer_iteration()
         .await
         .host_state_controller_iterations()
-        .await
+        .await)
+}
+
+/// Use this function to make a new managed host with a given number of DPUs, using site-explorer
+/// to ingest it into the database. Returns the ManagedHostStateSnapshot of what was created
+pub async fn new_host(
+    env: &TestEnv,
+    config: ManagedHostConfig,
+) -> eyre::Result<ManagedHostStateSnapshot> {
+    new_mock_host(env, config)
+        .await?
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();

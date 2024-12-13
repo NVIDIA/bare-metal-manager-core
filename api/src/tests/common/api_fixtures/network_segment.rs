@@ -47,6 +47,11 @@ lazy_static! {
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap();
 }
 
+lazy_static! {
+    pub static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 6, 1)), 24).unwrap();
+}
+
 pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
@@ -89,7 +94,10 @@ pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
     .await
 }
 
-pub async fn create_host_inband_network_segment(api: &Api) -> NetworkSegmentId {
+pub async fn create_host_inband_network_segment(
+    api: &Api,
+    vpc_id: Option<rpc::Uuid>,
+) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
         FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
@@ -104,7 +112,7 @@ pub async fn create_host_inband_network_segment(api: &Api) -> NetworkSegmentId {
         &prefix,  // 192.0.3.0/24
         &gateway, // 192.0.3.1
         rpc::forge::NetworkSegmentType::HostInband,
-        None,
+        vpc_id,
         true,
     )
     .await

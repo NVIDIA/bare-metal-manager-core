@@ -30,7 +30,6 @@ use crate::{
         self,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
-        instance_address::InstanceAddress,
         managed_host::LoadSnapshotOptions,
         network_segment::NetworkSegment,
         DatabaseError,
@@ -323,14 +322,26 @@ pub async fn allocate_instance(
     // TODO: Should we check that the network segment actually belongs to the
     // tenant?
 
-    // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
-    let updated_network_config = InstanceAddress::allocate(
-        &mut txn,
-        instance.id,
-        &request.config.network,
-        &mh_snapshot.host_snapshot,
-    )
-    .await?;
+    let updated_network_config = request
+        .config
+        .network
+        .clone()
+        // Add any host-inband network segments to the network config. This allows tenants to omit
+        // explicit interface config for HostInband networks, because those NICs cannot be
+        // configured through carbide in the first place.
+        .with_inband_interfaces_from_machine(&mut txn, &mh_snapshot.host_snapshot.machine_id)
+        .await?
+        // Allocate IPs and add them to the network config
+        .with_allocated_ips(&mut txn, instance.id, &mh_snapshot.host_snapshot)
+        .await?;
+
+    if updated_network_config.interfaces.is_empty() {
+        return Err(CarbideError::InvalidConfiguration(
+            ConfigValidationError::InvalidValue(
+                "InstanceNetworkConfig.interfaces is empty".to_string(),
+            ),
+        ));
+    }
 
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1
