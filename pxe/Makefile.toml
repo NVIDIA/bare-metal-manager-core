@@ -33,13 +33,13 @@ BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
 # BF2-24.10-9
-BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.10-9/OPN/bf2-bmc-ota-24.10-9-opn.tar"
+BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.07-14/OPN/bf2-bmc-ota-24.07-14-opn.tar"
 BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
 
 # https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release
 # BF3-24.10-9
-BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.10-9/OPN/bf3-bmc-24.10-9_opn.fwpkg"
-BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0195.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0195.0000-n02-rel-prod.fwpkg"
+BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.07-14/OPN/bf3-bmc-24.07-14_opn.fwpkg"
+BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
 
 BFB_FW_BUNDLE = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/doca_2.9.0/20241109/custom-images/bf-fwbundle-2.9.0-90_24.10-prod.bfb"
 
