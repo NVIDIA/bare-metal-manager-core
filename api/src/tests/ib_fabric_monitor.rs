@@ -19,6 +19,7 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let env = common::api_fixtures::create_test_env(pool).await;
     let monitor = IbFabricMonitor::new(
         env.config.ib_fabric_monitor.clone(),
+        env.config.ib_fabrics.clone(),
         env.test_meter.meter(),
         env.ib_fabric_manager.clone(),
     );
