@@ -148,9 +148,9 @@ impl InternalRBACRules {
         x.perm("GetPxeInstructions", vec![Pxe, Machineatron]);
         x.perm("GetCloudInitInstructions", vec![Pxe]);
         x.perm("Echo", vec![]);
-        x.perm("CreateTenant", vec![]);
-        x.perm("FindTenant", vec![ForgeAdminCLI]);
-        x.perm("UpdateTenant", vec![]);
+        x.perm("CreateTenant", vec![SiteAgent]);
+        x.perm("FindTenant", vec![SiteAgent, ForgeAdminCLI]);
+        x.perm("UpdateTenant", vec![SiteAgent]);
         x.perm("CreateTenantKeyset", vec![SiteAgent]);
         x.perm("FindTenantKeysetIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindTenantKeysetsByIds", vec![ForgeAdminCLI, SiteAgent]);
