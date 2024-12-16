@@ -24,7 +24,7 @@ pub struct StartArgs {
     pub db_url: String,
     pub vault_token: String,
     pub bmc_proxy: Option<HostPortPair>,
-    pub site_explorer_create_machines: bool,
+    pub use_site_explorer: bool,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
 }
@@ -36,7 +36,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         db_url,
         vault_token,
         bmc_proxy,
-        site_explorer_create_machines,
+        use_site_explorer,
         stop_channel,
         ready_channel,
     } = start_args;
@@ -45,16 +45,19 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
     dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
 
     let carbide_config_str = {
-        let site_explorer_create_machines = if site_explorer_create_machines {
-            "true"
-        } else {
-            "false"
-        };
+        let site_explorer_create_machines = if use_site_explorer { "true" } else { "false" };
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
             format!(r#"bmc_proxy = "{bmc_proxy}""#)
         } else {
             // None is encoded by omitting the option altogether... just drop a comment
             String::from("# no bmc_proxy set")
+        };
+        let allow_proxy_to_unknown_host = if use_site_explorer {
+            // Simulate this flag not being present and getting the default,
+            // which is the case in all other carbide configs
+            "# allow_proxy_to_unknown_host is default false"
+        } else {
+            "allow_proxy_to_unknown_host = true"
         };
         format!(
             r#"
@@ -160,6 +163,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         create_machines = {site_explorer_create_machines}
         machines_created_per_run = 1
         allow_zero_dpu_hosts = true
+        {allow_proxy_to_unknown_host}
         {bmc_proxy_cfg}
         reset_rate_limit = "3600s"
 
@@ -225,7 +229,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
     carbide::run(
         0,
         carbide_config_str,
-        None,
         None,
         true,
         stop_channel,

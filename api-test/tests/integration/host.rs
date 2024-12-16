@@ -28,31 +28,11 @@ const BMC_CREDENTIALS66: &str = r#"{
   "mac_address": "00:11:22:33:44:66"
 }"#;
 
-pub const BMC_METADATA: &str = r#"{
-    "machine_id": {
-      "id": "$HOST_MACHINE_ID"
-    },
-    "bmc_info": {
-      "ip": "127.0.0.1",
-      "port": 1266
-    },
-    "data": [
-      {
-        "user": "forge_admin",
-        "password": "notforprod",
-        "role": 1
-      }
-    ],
-    "request_type": 1
-}"#;
-
 pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     let (machine_interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Using Machine Interface ID {machine_interface_id} on address {ip_address}");
 
     let host_machine_id = discover_machine(addr, &ip_address)?;
-    let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &host_machine_id);
-    grpcurl(addr, "UpdateBMCMetaData", Some(data))?;
     grpcurl(addr, "CreateCredential", Some(BMC_CREDENTIALS55))?;
     grpcurl(addr, "CreateCredential", Some(BMC_CREDENTIALS66))?;
     tracing::info!("Created HOST Machine with ID {host_machine_id}. Starting discovery.");

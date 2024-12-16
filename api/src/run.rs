@@ -16,7 +16,7 @@ use crate::logging::{
     setup::create_metrics,
     setup::setup_logging,
 };
-use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
+use crate::redfish::RedfishClientPoolImpl;
 use crate::{dynamic_settings, setup, CarbideError};
 use eyre::WrapErr;
 use forge_secrets::forge_vault;
@@ -30,7 +30,6 @@ pub async fn run(
     debug: u8,
     config_str: String,
     site_config_str: Option<String>,
-    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
     skip_logging_setup: bool,
     stop_channel: Receiver<()>,
     ready_channel: Sender<()>,
@@ -100,57 +99,52 @@ pub async fn run(
     );
 
     let vault_client = forge_vault::create_vault_client(metrics.meter.clone()).await?;
-    let redfish_pool = match override_redfish_pool {
-        Some(pool) => {
-            tracing::info!("Using override redfish client pool");
-            pool
-        }
-        None => {
-            let rf_pool = libredfish::RedfishClientPool::builder()
-                .build()
-                .map_err(CarbideError::from)?;
+    let redfish_pool = {
+        let rf_pool = libredfish::RedfishClientPool::builder()
+            .build()
+            .map_err(CarbideError::from)?;
 
-            // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
-            match (
-                &carbide_config.site_explorer.override_target_ip,
-                carbide_config.site_explorer.override_target_port,
-                carbide_config.site_explorer.bmc_proxy.load().as_ref(),
-            ) {
-                (Some(_), _, Some(_)) => {
-                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config.");
-                }
-                (Some(ip), maybe_target_port, None) => {
-                    tracing::warn!("Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
-                    if let Some(port) = maybe_target_port {
-                        carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
-                            HostPortPair::HostAndPort(ip.to_string(), port),
-                        )));
-                    } else {
-                        carbide_config
-                            .site_explorer
-                            .bmc_proxy
-                            .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
-                    }
-                }
-                (None, Some(port), None) => {
-                    tracing::warn!("Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+        // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
+        match (
+            &carbide_config.site_explorer.override_target_ip,
+            carbide_config.site_explorer.override_target_port,
+            carbide_config.site_explorer.bmc_proxy.load().as_ref(),
+        ) {
+            (Some(_), _, Some(_)) => {
+                tracing::warn!("Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config.");
+            }
+            (Some(ip), maybe_target_port, None) => {
+                tracing::warn!("Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                if let Some(port) = maybe_target_port {
+                    carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
+                        HostPortPair::HostAndPort(ip.to_string(), port),
+                    )));
+                } else {
                     carbide_config
                         .site_explorer
                         .bmc_proxy
-                        .store(Arc::new(Some(HostPortPair::PortOnly(port))));
+                        .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
                 }
-                (None, Some(_), Some(_)) => {
-                    tracing::warn!("Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config.");
-                }
-                (None, None, _) => {} // leave bmc_proxy untouched
             }
-            let redfish_pool = RedfishClientPoolImpl::new(
-                vault_client.clone(),
-                rf_pool,
-                carbide_config.site_explorer.bmc_proxy.clone(),
-            );
-            Arc::new(redfish_pool)
+            (None, Some(port), None) => {
+                tracing::warn!("Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                carbide_config
+                    .site_explorer
+                    .bmc_proxy
+                    .store(Arc::new(Some(HostPortPair::PortOnly(port))));
+            }
+            (None, Some(_), Some(_)) => {
+                tracing::warn!("Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config.");
+            }
+            (None, None, _) => {} // leave bmc_proxy untouched
         }
+        let redfish_pool = RedfishClientPoolImpl::new(
+            vault_client.clone(),
+            rf_pool,
+            carbide_config.site_explorer.bmc_proxy.clone(),
+            carbide_config.site_explorer.allow_proxy_to_unknown_host,
+        );
+        Arc::new(redfish_pool)
     };
 
     // Split stop_channel into a task which will stop both the API server and metrics server

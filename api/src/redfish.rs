@@ -10,15 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::Path,
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -40,6 +31,14 @@ use libredfish::{
     RedfishError, Resource, SystemPowerControl,
 };
 use mac_address::MacAddress;
+use std::net::IpAddr;
+use std::{
+    collections::HashMap,
+    path::Path,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::time;
 use utils::HostPortPair;
 
@@ -100,49 +99,66 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
     // MARK: - Default (helper) methods
 
+    fn allow_proxy_to_unknown_host(&self) -> bool {
+        false
+    }
+
     async fn create_client_from_machine_snapshot(
         &self,
         target: &MachineSnapshot,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let machine_id = &target.machine_id;
+        let Some(addr) = target.bmc_addr() else {
+            return if self.allow_proxy_to_unknown_host() {
+                // test_integration relies on this because it doesn't use site_explorer and thus
+                // can't inform carbide of what the BMC address is for a host. It only runs one
+                // instance of bmc_mock so it can accept requests for any host.
+                tracing::info!("BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP", target.machine_id);
+                self.create_client("", None, RedfishAuth::Anonymous, true)
+                    .await
+            } else {
+                Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
+                    "BMC Endpoint Information (bmc_info.ip) is missing for {}",
+                    target.machine_id,
+                )))
+            };
+        };
 
-        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
-            RedfishClientCreationError::MissingBmcEndpoint(format!(
-                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                machine_id
-            ))
-        })?;
+        self.create_client_for_ingested_host(addr.ip(), Some(addr.port()), txn)
+            .await
+    }
 
-        let ip = maybe_ip.parse().map_err(|_| {
-            RedfishClientCreationError::InvalidArgument(
-                format!("Invalid IP address for {}", machine_id),
-                maybe_ip.into(),
-            )
-        })?;
-
-        let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
+    /// Create a redfish client using auth credentials we already have in machine_interfaces for a
+    /// given IP.
+    ///
+    /// For testing purposes, if no credentials are found for the IP, and if self.proxy_address is
+    /// set, will use anonymous auth.
+    async fn create_client_for_ingested_host(
+        &self,
+        ip: IpAddr,
+        port: Option<u16>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let auth_key = db::machine_interface::find_by_ip(txn, ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
                     "Machine Interface for IP address: {}",
                     ip
                 ))
+            })
+            .map(|machine_interface| {
+                RedfishAuth::Key(CredentialKey::BmcCredentials {
+                    // TODO(ajf): Change this to Forge Admin user once site explorer
+                    // ensures it exist, credentials are done by mac address
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: machine_interface.mac_address,
+                    },
+                })
             })?;
 
-        self.create_client(
-            ip.to_string().as_str(),
-            target.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                // TODO(ajf): Change this to Forge Admin user once site explorer
-                // ensures it exist, credentials are done by mac address
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: machine_interface_target.mac_address,
-                },
-            }),
-            true,
-        )
-        .await
+        self.create_client(&ip.to_string(), port, auth_key, true)
+            .await
     }
 
     // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string
@@ -277,6 +293,7 @@ pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_provider: Arc<dyn CredentialProvider>,
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+    allow_proxy_to_unknown_host: bool,
 }
 
 impl RedfishClientPoolImpl {
@@ -284,11 +301,13 @@ impl RedfishClientPoolImpl {
         credential_provider: Arc<dyn CredentialProvider>,
         pool: libredfish::RedfishClientPool,
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+        allow_proxy_to_unknown_host: bool,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
             proxy_address,
+            allow_proxy_to_unknown_host,
         }
     }
 }
@@ -381,6 +400,10 @@ impl RedfishClientPool for RedfishClientPoolImpl {
 
     fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
         self.credential_provider.clone()
+    }
+
+    fn allow_proxy_to_unknown_host(&self) -> bool {
+        self.allow_proxy_to_unknown_host
     }
 }
 
@@ -1109,9 +1132,10 @@ impl RedfishClientPool for RedfishSim {
         Arc::new(TestCredentialProvider::default())
     }
 
-    async fn create_client_from_machine_snapshot(
+    async fn create_client_for_ingested_host(
         &self,
-        _target: &MachineSnapshot,
+        _ip: IpAddr,
+        _port: Option<u16>,
         _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.create_client(
@@ -1267,44 +1291,6 @@ pub async fn poll_redfish_job(
     }
 
     Ok(true)
-}
-
-pub async fn build_redfish_client_from_bmc_ip(
-    bmc_addr: Option<SocketAddr>,
-    pool: &Arc<dyn RedfishClientPool>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-    if bmc_addr.is_none() {
-        return Err(RedfishClientCreationError::MissingBmcEndpoint(
-            "No IP address for BMC".to_string(),
-        ));
-    }
-
-    let addr = bmc_addr.unwrap();
-    let machine_interface_target = db::machine_interface::find_by_ip(txn, addr.ip())
-        .await?
-        .ok_or_else(|| {
-            RedfishClientCreationError::MissingArgument(format!(
-                "Machine Interface for IP address: {}",
-                addr.ip()
-            ))
-        })?;
-
-    (*pool)
-        .clone()
-        .create_client(
-            addr.ip().to_string().as_str(),
-            Some(addr.port()),
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                // TODO(ajf): Change this to Forge Admin user once site explorer
-                // ensures it exist, credentials are done by mac address
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: machine_interface_target.mac_address,
-                },
-            }),
-            true,
-        )
-        .await
 }
 
 const LAST_OEM_STATE_OS_IS_RUNNING: &str = "OsIsRunning";

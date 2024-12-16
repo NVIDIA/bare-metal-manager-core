@@ -64,10 +64,7 @@ use crate::{
         },
         site_explorer::ExploredEndpoint,
     },
-    redfish::{
-        build_redfish_client_from_bmc_ip, host_power_control, poll_redfish_job,
-        set_host_uefi_password,
-    },
+    redfish::{host_power_control, poll_redfish_job, set_host_uefi_password},
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -1668,12 +1665,10 @@ impl MachineStateHandler {
                 "Upgrade task has completed for {} but needs BMC reboot, initiating one",
                 &endpoint.address
             );
-            let redfish_client = build_redfish_client_from_bmc_ip(
-                state.host_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await?;
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .await?;
 
             if let Err(e) = redfish_client.bmc_reset().await {
                 tracing::warn!("Failed to reboot {}: {e}", &endpoint.address);
@@ -1683,12 +1678,10 @@ impl MachineStateHandler {
 
         if *firmware_type == FirmwareComponentType::HGXBmc {
             // Needs a host power reset
-            let redfish_client = build_redfish_client_from_bmc_ip(
-                state.host_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await?;
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .await?;
             if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(None);
@@ -2232,12 +2225,10 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
     match substate {
         BmcFirmwareUpgradeSubstate::Failed { .. } => Ok(StateHandlerOutcome::DoNothing),
         BmcFirmwareUpgradeSubstate::CheckFwVersion => {
-            let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                dpu_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await;
+            let dpu_redfish_client_result = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .await;
 
             let dpu_redfish_client = match dpu_redfish_client_result {
                 Ok(redfish_client) => redfish_client,
@@ -2331,12 +2322,10 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             firmware_type,
             task_id,
         } => {
-            let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-                dpu_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await?;
+            let dpu_redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                .await?;
 
             let task = dpu_redfish_client.get_task(task_id).await.map_err(|e| {
                 StateHandlerError::RedfishError {
@@ -2454,12 +2443,10 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             }
 
             handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
-            let redfish_client = build_redfish_client_from_bmc_ip(
-                state.host_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await?;
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .await?;
             let power_state = host_power_state(redfish_client.as_ref()).await?;
             // Host is not powered-off yet. Try again.
             if power_state != libredfish::PowerState::Off {
@@ -2587,12 +2574,10 @@ async fn handle_dpu_reprovision(
                 return Ok(StateHandlerOutcome::DoNothing);
             }
 
-            let redfish_client = build_redfish_client_from_bmc_ip(
-                state.host_snapshot.bmc_addr(),
-                &services.redfish_client_pool,
-                txn,
-            )
-            .await?;
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .await?;
             let power_state = host_power_state(redfish_client.as_ref()).await?;
 
             // Host is not powered-off yet. Try again.
@@ -2923,12 +2908,11 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuDiscoveringState::EnableRshim => {
-                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await;
+                let dpu_redfish_client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                    .await;
 
                 let dpu_redfish_client = match dpu_redfish_client_result {
                     Ok(redfish_client) => redfish_client,
@@ -2965,12 +2949,11 @@ impl DpuMachineStateHandler {
                 let time_since_state_change =
                     state.host_snapshot.current.version.since_state_change();
 
-                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await;
+                let dpu_redfish_client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                    .await;
 
                 let dpu_redfish_client = match dpu_redfish_client_result {
                     Ok(redfish_client) => redfish_client,
@@ -3169,12 +3152,11 @@ impl DpuMachineStateHandler {
             }
 
             DpuDiscoveringState::SetUefiHttpBoot => {
-                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await;
+                let dpu_redfish_client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                    .await;
 
                 let dpu_redfish_client = match dpu_redfish_client_result {
                     Ok(redfish_client) => redfish_client,
@@ -3337,12 +3319,11 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuInitState::WaitingForPlatformConfiguration => {
-                let dpu_redfish_client = match build_redfish_client_from_bmc_ip(
-                    dpu_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await
+                let dpu_redfish_client = match ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                    .await
                 {
                     Ok(client) => client,
                     Err(e) => {
@@ -3580,9 +3561,10 @@ async fn trigger_reboot_if_needed(
             });
         }
 
-        let redfish_client =
-            build_redfish_client_from_bmc_ip(host.bmc_addr(), &services.redfish_client_pool, txn)
-                .await?;
+        let redfish_client = services
+            .redfish_client_pool
+            .create_client_from_machine_snapshot(host, txn)
+            .await?;
 
         let power_state = host_power_state(redfish_client.as_ref()).await?;
 
@@ -3841,12 +3823,11 @@ async fn handle_host_uefi_setup(
     state: &mut ManagedHostStateSnapshot,
     uefi_setup_info: UefiSetupInfo,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let redfish_client = build_redfish_client_from_bmc_ip(
-        state.host_snapshot.bmc_addr(),
-        &ctx.services.redfish_client_pool,
-        txn,
-    )
-    .await?;
+    let redfish_client = ctx
+        .services
+        .redfish_client_pool
+        .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+        .await?;
 
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
@@ -3971,12 +3952,11 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobCompletion => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
-                let redfish_client = build_redfish_client_from_bmc_ip(
-                    state.host_snapshot.bmc_addr(),
-                    &ctx.services.redfish_client_pool,
-                    txn,
-                )
-                .await?;
+                let redfish_client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                    .await?;
                 if !poll_redfish_job(
                     redfish_client.as_ref(),
                     job_id.clone(),
@@ -4043,12 +4023,11 @@ impl StateHandler for HostMachineStateHandler {
                     Box::new(mh_snapshot.managed_state.clone()),
                 )),
                 MachineState::EnableIpmiOverLan => {
-                    let host_redfish_client = build_redfish_client_from_bmc_ip(
-                        mh_snapshot.host_snapshot.bmc_addr(),
-                        &ctx.services.redfish_client_pool,
-                        txn,
-                    )
-                    .await?;
+                    let host_redfish_client = ctx
+                        .services
+                        .redfish_client_pool
+                        .create_client_from_machine_snapshot(&mh_snapshot.host_snapshot, txn)
+                        .await?;
 
                     if !host_redfish_client
                         .is_ipmi_over_lan_enabled()
@@ -4094,12 +4073,11 @@ impl StateHandler for HostMachineStateHandler {
                         machine_id = %host_machine_id,
                         "Starting UEFI / BMC setup");
 
-                    let redfish_client = build_redfish_client_from_bmc_ip(
-                        mh_snapshot.host_snapshot.bmc_addr(),
-                        &ctx.services.redfish_client_pool,
-                        txn,
-                    )
-                    .await?;
+                    let redfish_client = ctx
+                        .services
+                        .redfish_client_pool
+                        .create_client_from_machine_snapshot(&mh_snapshot.host_snapshot, txn)
+                        .await?;
 
                     let boot_interface_mac = if mh_snapshot.dpu_snapshots.len() > 1 {
                         // Multi DPU case. Reason it is kept separate is that forge_setup/setting
@@ -4963,12 +4941,10 @@ pub async fn handler_host_power_control(
     action: SystemPowerControl,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let redfish_client = build_redfish_client_from_bmc_ip(
-        managedhost_snapshot.host_snapshot.bmc_addr(),
-        &services.redfish_client_pool,
-        txn,
-    )
-    .await?;
+    let redfish_client = services
+        .redfish_client_pool
+        .create_client_from_machine_snapshot(&managedhost_snapshot.host_snapshot, txn)
+        .await?;
 
     let power_state = host_power_state(redfish_client.as_ref()).await?;
 
@@ -5009,12 +4985,10 @@ async fn restart_dpu(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-        machine_snapshot.bmc_addr(),
-        &services.redfish_client_pool,
-        txn,
-    )
-    .await?;
+    let dpu_redfish_client = services
+        .redfish_client_pool
+        .create_client_from_machine_snapshot(machine_snapshot, txn)
+        .await?;
 
     if let Err(e) = dpu_redfish_client
         .power(SystemPowerControl::ForceRestart)
@@ -5037,12 +5011,10 @@ async fn lockdown_host(
     services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
     let host_snapshot = &state.host_snapshot;
-    let redfish_client = build_redfish_client_from_bmc_ip(
-        host_snapshot.bmc_addr(),
-        &services.redfish_client_pool,
-        txn,
-    )
-    .await?;
+    let redfish_client = services
+        .redfish_client_pool
+        .create_client_from_machine_snapshot(host_snapshot, txn)
+        .await?;
 
     // the forge_setup call includes the equivalent of these calls internally in libredfish
     // - serial setup (bios, bmc)

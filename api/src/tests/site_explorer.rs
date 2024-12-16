@@ -681,6 +681,7 @@ async fn test_site_explorer_audit_exploration_results(
         allow_changing_bmc_proxy: None,
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
+        allow_proxy_to_unknown_host: false,
     };
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(

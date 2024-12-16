@@ -48,24 +48,6 @@ discovery-retry-secs = 1
 discovery-retries-max = 1000
 "#;
 
-const BMC_METADATA: &str = r#"{
-    "machine_id": {
-      "id": "$HOST_MACHINE_ID"
-    },
-    "bmc_info": {
-      "ip": "127.0.0.1",
-      "port": 1266
-    },
-    "data": [
-      {
-        "user": "forge_admin",
-        "password": "notforprod",
-        "role": 1
-      }
-    ],
-    "request_type": 1
-  }"#;
-
 pub struct Info {
     pub hbn_root: path::PathBuf,
     pub machine_id: String,
@@ -80,24 +62,11 @@ pub async fn bootstrap(
     let (_interface_id, dpu_machine_id, _ip_address) =
         discover(carbide_api_addr, Some("1.1.1".to_owned()))?;
 
-    let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
-    grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
-
-    // Complete hack until we affirmatively disable the legacy flow
-    // This is the host that gets its BMC updated
-
-    let (_machine_interface_id, address) = crate::host::discover_dhcp(carbide_api_addr)?;
-
-    let host_machine_id = crate::host::discover_machine(carbide_api_addr, address.as_str())?;
-
     grpcurl(
         carbide_api_addr,
         "CreateCredential",
         Some(crate::host::BMC_CREDENTIALS55),
     )?;
-
-    let data = crate::host::BMC_METADATA.replace("$HOST_MACHINE_ID", host_machine_id.as_str());
-    grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
     wait_for_state(
         carbide_api_addr,

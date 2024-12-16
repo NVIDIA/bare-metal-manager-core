@@ -28,7 +28,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::bmc_metadata::BmcMetaDataInfo;
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
 use crate::db::machine_topology::MachineTopology;
@@ -752,25 +751,26 @@ impl Machine {
                 if machine.bmc_info.ip.is_some() && machine.bmc_info.mac.is_none() {
                     // In older versions of Forge, host machines never had their BMC mac addresses set in machine_topologies
                     // Set the mac address of the host BMC in the machine_topologies table here
-                    let mut bmc_metadata = BmcMetaDataInfo {
-                        bmc_info: machine.bmc_info.clone(),
-                    };
 
                     // the conversion from carbide error to db error is not elegant.
                     // but, this code is to handle legacy hosts who did not have their mac address setup
                     // TODO (spyda): remove this once we've handled all the legacy hosts
-                    bmc_metadata
-                        .enrich_mac_address("Machine::find".to_string(), txn, &machine.id, true)
-                        .await
-                        .map_err(|e| {
-                            DatabaseError::new(
-                                file!(),
-                                line!(),
-                                "enrich_mac_address",
-                                sqlx::Error::Protocol(e.to_string()),
-                            )
-                        })?;
-                    machine.bmc_info = bmc_metadata.bmc_info;
+                    db::bmc_metadata::enrich_mac_address(
+                        &mut machine.bmc_info,
+                        "Machine::find".to_string(),
+                        txn,
+                        &machine.id,
+                        true,
+                    )
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "enrich_mac_address",
+                            sqlx::Error::Protocol(e.to_string()),
+                        )
+                    })?;
                 }
             }
 

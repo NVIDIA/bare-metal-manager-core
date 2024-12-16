@@ -112,7 +112,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
     bmc_proxy: Option<HostPortPair>,
-    site_explorer_create_machines: bool,
+    use_site_explorer: bool,
 ) -> eyre::Result<ApiServerHandle> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
     env::set_var("IGNORE_MGMT_VRF", "true");
@@ -167,7 +167,7 @@ pub async fn start_api_server(
             db_url,
             vault_token,
             bmc_proxy,
-            site_explorer_create_machines,
+            use_site_explorer,
             stop_channel: stop_rx,
             ready_channel: ready_tx,
         })

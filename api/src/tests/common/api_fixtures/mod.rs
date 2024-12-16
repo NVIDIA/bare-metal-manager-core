@@ -616,6 +616,7 @@ pub fn get_config() -> CarbideConfig {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: Arc::new(ArcSwap::new(Arc::new(false))),
+            allow_proxy_to_unknown_host: false,
             ..Default::default()
         },
         dpu_dhcp_server_enabled: false,
@@ -910,6 +911,7 @@ pub async fn create_test_env_with_overrides(
             bmc_proxy: Arc::new(Default::default()),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
+            allow_proxy_to_unknown_host: false,
         },
         test_meter.meter(),
         Arc::new(fake_endpoint_explorer.clone()),
