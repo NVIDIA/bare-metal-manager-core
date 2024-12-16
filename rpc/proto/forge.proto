@@ -76,7 +76,7 @@ service Forge {
   // Updates the configuration of a running instance.
   // Only the following configurations of an instance can be changed:
   // - Keyset IDs
-  // - Metadata (Name, Description, Tags)
+  // - Metadata (Name, Description, Labels)
   // - Operating System Details
   // The update will take effect asynchronously. Users should monitor `Instance.status.synced`
   // to determine whether all updates have been applied.
@@ -1912,53 +1912,6 @@ message DhcpRecord {
 
 message NetworkSegmentList {
   repeated NetworkSegment network_segments = 1;
-}
-
-message Tag {
-  string slug = 1;
-  optional string name = 3;  // Mandatory in case of CREATE action.
-}
-
-message TagCreate {
-  Tag tag = 1;
-}
-
-message TagDelete {
-  Tag tag = 1;
-}
-
-message TagResult {
-  bool result = 1;
-}
-
-message TagVoid {
-}
-
-message TagsList {
-  repeated string slugs = 1;
-  common.UUID target = 2;
-  TagTargetKind target_kind = 3;
-}
-
-message TagsListResult {
-  repeated Tag tags = 1;
-}
-
-enum TagTargetKind {
-  MACHINE = 0;
-  NETWORK_SEGMENT = 1;
-}
-
-message TagAssign {
-  string slug = 1;
-  common.UUID target = 2;
-  TagTargetKind target_kind = 3;
-}
-
-message TagRemove {
-  string slug = 1;
-  common.UUID target = 2;
-  TagTargetKind target_kind = 3;
 }
 
 message SSHKeyValidationRequest {
