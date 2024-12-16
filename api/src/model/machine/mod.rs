@@ -502,6 +502,8 @@ pub struct MachineSnapshot {
     pub on_demand_machine_validation_id: Option<uuid::Uuid>,
 
     pub on_demand_machine_validation_request: Option<bool>,
+
+    pub asn: Option<u32>,
 }
 
 impl MachineSnapshot {

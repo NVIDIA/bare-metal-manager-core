@@ -1454,7 +1454,7 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
                 .unwrap();
-        Machine::create(&mut txn, &machine_id, ManagedHostState::Ready)
+        Machine::create(&mut txn, None, &machine_id, ManagedHostState::Ready)
             .await
             .unwrap();
         MachineTopology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)

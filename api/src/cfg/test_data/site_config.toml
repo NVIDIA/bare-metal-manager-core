@@ -16,6 +16,10 @@ root_cafile_path = "/patched/path/to/ca"
 permissive_mode = true
 casbin_policy_file = "/patched/path/to/policy"
 
+[pools.fnn-asn]
+type = "integer"
+ranges = [{ start = "4268000000", end = "4268999999" }]
+
 [pools.lo-ip]
 type = "ipv4"
 prefix = "10.180.63.0/26"

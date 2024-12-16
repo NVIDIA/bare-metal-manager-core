@@ -51,7 +51,7 @@ async fn prevent_duplicate_mac_addresses(
     .await?;
 
     let machine_id = from_hardware_info(&dpu.into()).unwrap();
-    Machine::get_or_create(&mut txn, &machine_id, &new_interface).await?;
+    Machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
 
     let duplicate_interface = db::machine_interface::create(
         &mut txn,

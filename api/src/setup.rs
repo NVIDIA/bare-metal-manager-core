@@ -20,6 +20,7 @@ use figment::{
 use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
+use crate::db::machine::update_dpu_asns;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{ib::DEFAULT_IB_FABRIC_NAME, legacy};
 
@@ -319,6 +320,10 @@ pub async fn start_api(
         carbide_config.initial_dpu_agent_upgrade_policy,
     )
     .await?;
+
+    if let Err(e) = update_dpu_asns(&db_pool, &common_pools).await {
+        tracing::warn!("Failed to update ASN for DPUs: {e}");
+    }
 
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));

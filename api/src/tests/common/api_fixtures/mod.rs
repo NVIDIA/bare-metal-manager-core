@@ -962,6 +962,17 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
             prefix: None,
         },
     );
+    defs.insert(
+        resource_pool::common::FNN_ASN.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: "30001".to_string(),
+                end: "30035".to_string(),
+            }],
+            prefix: None,
+        },
+    );
     defs
 }
 

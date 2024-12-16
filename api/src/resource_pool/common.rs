@@ -34,6 +34,10 @@ pub const VLANID: &str = "vlan-id";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VPC_VNI: &str = "vpc-vni";
 
+/// DPU Specific ASN for use with FNN
+/// Must match a pool defined in dev/resource_pools.toml
+pub const FNN_ASN: &str = "fnn-asn";
+
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -60,6 +64,7 @@ pub struct EthernetPools {
     pub pool_vlan_id: Arc<DbResourcePool<i16>>,
     pub pool_vni: Arc<DbResourcePool<i32>>,
     pub pool_vpc_vni: Arc<DbResourcePool<i32>>,
+    pub pool_fnn_asn: Arc<DbResourcePool<u32>>,
 }
 
 /// ResourcePools that are used for infiniband
@@ -74,6 +79,7 @@ impl CommonPools {
         ib_fabric_ids: HashSet<String>,
     ) -> eyre::Result<Arc<Self>> {
         let mut pool_names = Vec::new();
+        let mut optional_pool_names = Vec::new();
 
         let pool_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(DbResourcePool::new(
             LOOPBACK_IP.to_string(),
@@ -89,6 +95,9 @@ impl CommonPools {
         let pool_vpc_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
         pool_names.push(pool_vpc_vni.name().to_string());
+        let pool_fnn_asn: Arc<DbResourcePool<u32>> =
+            Arc::new(DbResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
+        optional_pool_names.push(pool_fnn_asn.name().to_string());
 
         // We can't run if any of the mandatory pools are missing
         for name in &pool_names {
@@ -98,6 +107,8 @@ impl CommonPools {
                 );
             }
         }
+
+        pool_names.extend(optional_pool_names);
 
         // It's ok for IB partition pools to be missing or full - as long as nobody tries to use partitions
         let pkey_pools: Arc<HashMap<String, DbResourcePool<u16>>> = Arc::new(
@@ -150,6 +161,7 @@ impl CommonPools {
                 pool_vlan_id,
                 pool_vni,
                 pool_vpc_vni,
+                pool_fnn_asn,
             },
             infiniband: IbPools { pkey_pools },
             pool_stats,
