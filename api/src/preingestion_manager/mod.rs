@@ -12,7 +12,6 @@
 
 mod metrics;
 
-use std::net::SocketAddr;
 use std::{default::Default, sync::Arc, time::Duration};
 
 use libredfish::model::update_service::TransferProtocolType;
@@ -34,7 +33,7 @@ use crate::{
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
     model::site_explorer::{ExploredEndpoint, PreingestionState},
-    redfish::{self, RedfishClientCreationError, RedfishClientPool},
+    redfish::{RedfishClientCreationError, RedfishClientPool},
     CarbideError,
 };
 
@@ -519,16 +518,14 @@ impl PreingestionManagerStatic {
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
-        let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
-            Some(SocketAddr::new(endpoint.address, 443)),
-            &self.redfish_client_pool,
-            txn,
-        )
-        .await
-        .map_err(|e| match e {
-            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-            _ => CarbideError::internal(format!("{}", e)),
-        }) {
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .await
+            .map_err(|e| match e {
+                RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+                _ => CarbideError::internal(format!("{}", e)),
+            }) {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
                 tracing::warn!("Redfish connection to {} failed: {e}", endpoint.address);
@@ -650,16 +647,14 @@ impl PreingestionManagerStatic {
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
-        let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
-            Some(SocketAddr::new(endpoint.address, 443)),
-            &self.redfish_client_pool,
-            txn,
-        )
-        .await
-        .map_err(|e| match e {
-            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-            _ => CarbideError::internal(format!("{}", e)),
-        }) {
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .await
+            .map_err(|e| match e {
+                RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+                _ => CarbideError::internal(format!("{}", e)),
+            }) {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
                 tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
@@ -871,12 +866,9 @@ async fn initiate_update(
     }
 
     // Setup the Redfish connection
-    let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
-        Some(SocketAddr::new(endpoint_clone.address, 443)),
-        redfish_client_pool,
-        txn,
-    )
-    .await
+    let redfish_client = match redfish_client_pool
+        .create_client_for_ingested_host(endpoint_clone.address, None, txn)
+        .await
     {
         Ok(redfish_client) => redfish_client,
         Err(e) => {

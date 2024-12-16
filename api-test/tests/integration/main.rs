@@ -111,13 +111,23 @@ async fn test_integration() -> eyre::Result<()> {
         "".to_owned(),
         bmc_mock::default_host_tar_router(false, None),
     )]);
-    let mut bmc_mock_handle =
-        bmc_mock::run_combined_mock::<String>(Arc::new(RwLock::new(routers)), None, None).await?;
+    let mut bmc_mock_handle = bmc_mock::run_combined_mock::<String>(
+        Arc::new(RwLock::new(routers)),
+        None,
+        Some(ListenerOrAddress::Listener(TcpListener::bind(
+            "127.0.0.1:0",
+        )?)),
+    )
+    .await?;
 
     let server_handle = utils::start_api_server(
-        test_env, None,
+        test_env,
+        Some(HostPortPair::HostAndPort(
+            "127.0.0.1".to_string(),
+            bmc_mock_handle.address.port(),
+        )),
         // TODO: enabling create_machines in site explorer causes failures
-        // it appears parts of this test were written without create_machines in mind
+        // it appears this test was written without site-explorer in mind.
         false,
     )
     .await?;

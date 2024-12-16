@@ -30,7 +30,6 @@ use crate::{
     cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
     db::{
         self,
-        bmc_metadata::BmcMetaDataUpdateRequest,
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
@@ -1327,7 +1326,7 @@ impl SiteExplorer {
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
             let dpu_bmc_info = explored_dpu.bmc_info();
             let dpu_hw_info = explored_dpu.hardware_info()?;
-            self.update_machine_topology(txn, dpu_machine_id, &dpu_bmc_info, &dpu_hw_info)
+            self.update_machine_topology(txn, dpu_machine_id, dpu_bmc_info, dpu_hw_info)
                 .await?;
             return Ok(true);
         }
@@ -1675,8 +1674,8 @@ impl SiteExplorer {
         self.update_machine_topology(
             txn,
             &predicted_machine_id,
-            &host_bmc_info,
-            &host_hardware_info,
+            host_bmc_info,
+            host_hardware_info,
         )
         .await?;
 
@@ -1696,8 +1695,8 @@ impl SiteExplorer {
         self.update_machine_topology(
             txn,
             predicted_machine_id,
-            &managed_host.explored_host.bmc_info(),
-            &hardware_info,
+            managed_host.explored_host.bmc_info(),
+            hardware_info,
         )
         .await
     }
@@ -1706,17 +1705,25 @@ impl SiteExplorer {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        bmc_info: &BmcInfo,
-        hardware_info: &HardwareInfo,
+        mut bmc_info: BmcInfo,
+        hardware_info: HardwareInfo,
     ) -> CarbideResult<()> {
-        let _topology = MachineTopology::create_or_update(txn, machine_id, hardware_info).await?;
+        let _topology = MachineTopology::create_or_update(txn, machine_id, &hardware_info).await?;
 
         // Forge scout will update this topology with a full information.
         MachineTopology::set_topology_update_needed(txn, machine_id, true).await?;
 
-        BmcMetaDataUpdateRequest::new(machine_id.clone(), bmc_info.clone())
-            .update_bmc_meta_data(txn)
-            .await?;
+        // call enrich_mac_address to fill the MAC address info from the machine_interfaces table
+        db::bmc_metadata::enrich_mac_address(
+            &mut bmc_info,
+            "SiteExplorer::update_machine_topology".to_string(),
+            txn,
+            machine_id,
+            true,
+        )
+        .await?;
+
+        db::bmc_metadata::update_bmc_network_into_topologies(txn, machine_id, &bmc_info).await?;
 
         Ok(())
     }

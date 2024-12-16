@@ -146,7 +146,6 @@ service Forge {
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
-  rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
 
   // User Credential handling.
   rpc UpdateMachineCredentials(MachineCredentialsUpdateRequest) returns (MachineCredentialsUpdateResponse);
@@ -2321,21 +2320,6 @@ message BMCMetaDataGetResponse {
     string mac = 4;
     optional uint32 port = 5;
 }
-
-message BMCMetaDataUpdateRequest {
-    message DataItem {
-        string user = 2;
-        UserRoles role = 3;
-        string password = 4;
-    }
-
-    common.MachineId machine_id = 1;
-    repeated DataItem data = 2;
-    BMCRequestType request_type = 3;
-    BmcInfo bmc_info = 4;
-}
-
-message BMCMetaDataUpdateResponse {}
 
 message MachineCredentialsUpdateRequest {
    enum CredentialPurpose {

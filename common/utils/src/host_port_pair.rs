@@ -18,6 +18,22 @@ pub enum HostPortPair {
     HostAndPort(String, u16),
 }
 
+impl HostPortPair {
+    pub fn host(&self) -> Option<&str> {
+        match self {
+            HostPortPair::PortOnly(_) => None,
+            HostPortPair::HostOnly(h) | HostPortPair::HostAndPort(h, _) => Some(h.as_str()),
+        }
+    }
+
+    pub fn port(&self) -> Option<u16> {
+        match self {
+            HostPortPair::HostOnly(_) => None,
+            HostPortPair::PortOnly(p) | HostPortPair::HostAndPort(_, p) => Some(*p),
+        }
+    }
+}
+
 impl FromStr for HostPortPair {
     type Err = HostPortParseError;
 
