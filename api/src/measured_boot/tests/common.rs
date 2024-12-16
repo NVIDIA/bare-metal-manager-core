@@ -40,7 +40,7 @@ pub async fn create_test_machine(
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {
     let machine_id = MachineId::from_str(machine_id)?;
-    Machine::create(txn, &machine_id, ManagedHostState::Ready).await?;
+    Machine::create(txn, None, &machine_id, ManagedHostState::Ready).await?;
     MachineTopology::create_or_update(txn, &machine_id, topology).await?;
     let machine = db::machine::from_id_with_txn(txn, machine_id.clone()).await?;
     assert_eq!(machine_id, machine.machine_id);

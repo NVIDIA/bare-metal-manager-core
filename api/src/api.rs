@@ -709,7 +709,13 @@ impl Forge for Api {
             }
 
             let db_machine = if machine_discovery_info.create_machine {
-                Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
+                Machine::get_or_create(
+                    &mut txn,
+                    Some(&self.common_pools),
+                    &stable_machine_id,
+                    &interface,
+                )
+                .await?
             } else {
                 Machine::find_one(
                     &mut txn,
@@ -787,9 +793,13 @@ impl Forge for Api {
                         CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;
-                let proactive_machine =
-                    Machine::get_or_create(&mut txn, &predicted_machine_id, &machine_interface)
-                        .await?;
+                let proactive_machine = Machine::get_or_create(
+                    &mut txn,
+                    Some(&self.common_pools),
+                    &predicted_machine_id,
+                    &machine_interface,
+                )
+                .await?;
 
                 // Update host and DPUs state correctly.
                 Machine::update_state(
@@ -2217,6 +2227,14 @@ impl Forge for Api {
                 }
             }
 
+            if let Some(asn) = dpu_machine.asn() {
+                self.common_pools
+                    .ethernet
+                    .pool_fnn_asn
+                    .release(&mut txn, asn)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
             Machine::force_cleanup(&mut txn, dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?;

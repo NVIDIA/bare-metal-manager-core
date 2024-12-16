@@ -25,7 +25,7 @@ use health_report::{HealthReport, OverrideMode};
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::bmc_metadata::BmcMetaDataInfo;
@@ -196,6 +196,8 @@ pub struct Machine {
     on_demand_machine_validation_id: Option<uuid::Uuid>,
 
     on_demand_machine_validation_request: Option<bool>,
+
+    asn: Option<u32>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -260,6 +262,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome")?;
 
+        let asn: Option<u32> = row.try_get::<Option<i64>, _>("asn")?.map(|v| v as u32);
+
         Ok(Machine {
             id,
             created: row.try_get("created")?,
@@ -307,6 +311,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             on_demand_machine_validation_id: row.try_get("on_demand_machine_validation_id")?,
             on_demand_machine_validation_request: row
                 .try_get("on_demand_machine_validation_request")?,
+            asn,
         })
     }
 }
@@ -351,6 +356,7 @@ impl From<Machine> for MachineSnapshot {
             machine_validation_health_report: machine.machine_validation_health_report,
             history: machine.history.into_iter().map(Into::into).collect(),
             health_report_overrides: machine.health_report_overrides,
+            asn: machine.asn,
         }
     }
 }
@@ -452,6 +458,10 @@ impl Machine {
             .unwrap_or(false)
     }
 
+    pub fn asn(&self) -> Option<u32> {
+        self.asn
+    }
+
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -474,6 +484,7 @@ impl Machine {
     ///
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
+        common_pools: Option<&CommonPools>,
         stable_machine_id: &MachineId,
         interface: &MachineInterfaceSnapshot,
     ) -> CarbideResult<Self> {
@@ -516,7 +527,7 @@ impl Machine {
             // Host and DPU machines are created in same `discover_machine` call. Update same
             // state in both machines.
             let state = ManagedHostState::Created;
-            let machine = Self::create(txn, stable_machine_id, state).await?;
+            let machine = Self::create(txn, common_pools, stable_machine_id, state).await?;
             db::machine_interface::associate_interface_with_machine(
                 &interface.id,
                 &machine.id,
@@ -1591,6 +1602,7 @@ impl Machine {
 
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
+        common_pools: Option<&CommonPools>,
         stable_machine_id: &MachineId,
         state: ManagedHostState,
     ) -> CarbideResult<Self> {
@@ -1601,9 +1613,33 @@ impl Machine {
 
         let network_config_version = ConfigVersion::initial();
         let network_config = ManagedHostNetworkConfig::default();
+        let asn: Option<i64> = if stable_machine_id.machine_type() == MachineType::Dpu {
+            if let Some(common_pools) = common_pools {
+                match common_pools
+                    .ethernet
+                    .pool_fnn_asn
+                    .allocate(
+                        txn,
+                        resource_pool::OwnerType::Machine,
+                        &stable_machine_id_string,
+                    )
+                    .await
+                {
+                    Ok(asn) => Some(asn as i64),
+                    Err(e) => {
+                        tracing::info!("Failed to allocate asn for dpu {stable_machine_id}: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version) 
-                                VALUES($1, $2, $3, $4, $5, $6) RETURNING id"#;
+        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn) 
+                                VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING id"#;
         let machine_id: MachineId = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
             .bind(state_version)
@@ -1611,6 +1647,7 @@ impl Machine {
             .bind(network_config_version)
             .bind(sqlx::types::Json(&network_config))
             .bind(CURRENT_STATE_MODEL_VERSION)
+            .bind(asn)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
@@ -2193,6 +2230,68 @@ impl Machine {
     }
 }
 
+pub async fn update_dpu_asns(
+    db_pool: &Pool<Postgres>,
+    common_pools: &CommonPools,
+) -> Result<(), CarbideError> {
+    let mut txn = db_pool
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin agent upgrade policy", e))?;
+
+    if common_pools
+        .ethernet
+        .pool_fnn_asn
+        .stats(db_pool)
+        .await?
+        .free
+        == 0
+    {
+        tracing::info!(
+            "Skipping update of DPU ASNs.  FNN ASN pool not configured or fully allocated"
+        );
+        return Ok(());
+    }
+    // Get all DPU IP addresses except the requester DPU machine
+    let query = "SELECT id FROM machines WHERE starts_with(id, 'fm100d') AND asn IS NULL";
+
+    let dpu_ids: Vec<MachineId> = sqlx::query_as(query)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    if !dpu_ids.is_empty() {
+        tracing::info!(dpu_count = dpu_ids.len(), "Updating missing ASN of DPUs");
+    }
+
+    for dpu_machine_id in dpu_ids.iter() {
+        let asn: i64 = common_pools
+            .ethernet
+            .pool_fnn_asn
+            .allocate(
+                &mut txn,
+                resource_pool::OwnerType::Machine,
+                &dpu_machine_id.to_string(),
+            )
+            .await? as i64;
+
+        let query = "UPDATE machines set asn=$1 WHERE id=$2 and asn is null";
+
+        sqlx::query(query)
+            .bind(asn)
+            .bind(dpu_machine_id)
+            .execute(&mut *txn)
+            .await
+            .map_err(|e: sqlx::Error| DatabaseError::new(file!(), line!(), query, e))?;
+    }
+
+    txn.commit()
+        .await
+        .map_err(|e: sqlx::Error| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MaintenanceMode {
     Off,
@@ -2214,7 +2313,7 @@ mod test {
         let mut txn = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
-        Machine::create(&mut txn, &id, ManagedHostState::Ready).await?;
+        Machine::create(&mut txn, None, &id, ManagedHostState::Ready).await?;
         Machine::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
         Machine::set_firmware_autoupdate(&mut txn, &id, None).await?;
         Ok(())

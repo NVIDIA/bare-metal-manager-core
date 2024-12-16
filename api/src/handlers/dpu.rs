@@ -306,12 +306,26 @@ pub(crate) async fn get_managed_host_network_config(
         loopback_ip: loopback_ip.to_string(),
     };
 
+    let asn = if network_virtualization_type == VpcVirtualizationType::Fnn {
+        dpu_snapshot.asn.ok_or_else(|| {
+            let message = format!(
+                "FNN configured but DPU {} has not been assigned an ASN",
+                dpu_snapshot.machine_id
+            );
+
+            tracing::error!(message);
+            CarbideError::internal(message)
+        })?
+    } else {
+        api.eth_data.asn
+    };
+
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot
             .instance
             .as_ref()
             .map(|instance| instance.id.into()),
-        asn: api.eth_data.asn,
+        asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
         route_servers: api.eth_data.route_servers.clone(),
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback

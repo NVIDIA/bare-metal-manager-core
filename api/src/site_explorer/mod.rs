@@ -1517,7 +1517,14 @@ impl SiteExplorer {
         match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
-            None => match Machine::create(txn, dpu_machine_id, ManagedHostState::Created).await {
+            None => match Machine::create(
+                txn,
+                Some(&self.common_pools),
+                dpu_machine_id,
+                ManagedHostState::Created,
+            )
+            .await
+            {
                 Ok(machine) => {
                     tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
                     Ok(Some(machine))
@@ -1667,8 +1674,13 @@ impl SiteExplorer {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
-        let _host_machine =
-            Machine::create(txn, &predicted_machine_id, ManagedHostState::Created).await?;
+        let _host_machine = Machine::create(
+            txn,
+            Some(&self.common_pools),
+            &predicted_machine_id,
+            ManagedHostState::Created,
+        )
+        .await?;
 
         let host_bmc_info = explored_host.bmc_info();
         let host_hardware_info = HardwareInfo::default();
@@ -1691,7 +1703,13 @@ impl SiteExplorer {
         managed_host: &ManagedHost,
         predicted_machine_id: &MachineId,
     ) -> CarbideResult<()> {
-        _ = Machine::create(txn, predicted_machine_id, ManagedHostState::Created).await?;
+        _ = Machine::create(
+            txn,
+            Some(&self.common_pools),
+            predicted_machine_id,
+            ManagedHostState::Created,
+        )
+        .await?;
         let hardware_info = HardwareInfo::default();
         self.update_machine_topology(
             txn,

@@ -34,6 +34,10 @@ required_equals = {"IssuerO" = "NVIDIA Corporation", "IssuerCN" = "NVIDIA Forge 
 group_from = "SubjectOU"
 username_from = "SubjectCN"
 
+[pools.fnn-asn]
+type = "integer"
+ranges = [{ start = "4268000000", end = "4268999999" }]
+
 [pools.lo-ip]
 type = "ipv4"
 prefix = "10.180.62.1/26"

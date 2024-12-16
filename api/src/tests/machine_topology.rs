@@ -79,7 +79,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let hardware_info = HardwareInfo::from(&host_sim.config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
-    let machine = Machine::get_or_create(&mut txn, &machine_id, &iface)
+    let machine = Machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await
         .unwrap();
 
