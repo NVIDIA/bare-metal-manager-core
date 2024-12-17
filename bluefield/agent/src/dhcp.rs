@@ -16,6 +16,8 @@ use ::rpc::forge as rpc;
 use gtmpl_derive::Gtmpl;
 use utils::models::dhcp::HostConfig;
 
+use crate::HBNDeviceNames;
+
 /// The path we write in non-NVUE mode, when using dhcp-relay (versus dhcp-server)
 pub const RELAY_PATH: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
 
@@ -53,7 +55,7 @@ pub fn build_server_supervisord_config(
     conf: DhcpServerSupervisordConfig,
 ) -> Result<String, eyre::Report> {
     let params = TmplDHCServerConfigParameters {
-        VlanIDs: conf.vlan_ids,
+        Interfaces: conf.interfaces,
     };
     gtmpl::template(TMPL_SERVER, params).map_err(|e| e.into())
 }
@@ -81,8 +83,14 @@ pub fn build_server_config(
 
 pub fn build_server_host_config(
     conf: rpc::ManagedHostNetworkConfigResponse,
+    hbn_devic_names: &HBNDeviceNames,
 ) -> Result<String, eyre::Report> {
-    Ok(serde_yaml::to_string(&HostConfig::try_from(conf)?)?)
+    Ok(serde_yaml::to_string(&HostConfig::try_from(
+        conf,
+        hbn_devic_names.reps[0],
+        hbn_devic_names.virt_rep_begin,
+        hbn_devic_names.sf_id,
+    )?)?)
 }
 
 pub struct DhcpRelayConfig {
@@ -93,7 +101,7 @@ pub struct DhcpRelayConfig {
 }
 
 pub struct DhcpServerSupervisordConfig {
-    pub vlan_ids: Vec<String>,
+    pub interfaces: Vec<String>,
 }
 
 //
@@ -112,7 +120,7 @@ struct TmplDHCRelayConfigParameters {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl)]
 struct TmplDHCServerConfigParameters {
-    VlanIDs: Vec<String>,
+    Interfaces: Vec<String>,
 }
 
 #[cfg(test)]
