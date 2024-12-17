@@ -6,7 +6,7 @@ use std::{
 };
 
 use ipnetwork::Ipv4Network;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::{forge::ManagedHostNetworkConfigResponse, InterfaceFunctionType};
 use serde::{Deserialize, Serialize};
 
 /// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to
@@ -89,10 +89,15 @@ pub struct InterfaceInfo {
     pub booturl: Option<String>,
 }
 
-impl TryFrom<ManagedHostNetworkConfigResponse> for HostConfig {
-    type Error = DhcpDataError;
-    fn try_from(value: ManagedHostNetworkConfigResponse) -> Result<Self, Self::Error> {
+impl HostConfig {
+    pub fn try_from(
+        value: ManagedHostNetworkConfigResponse,
+        physical_rep: &str,
+        virt_rep_begin: &str,
+        sf_id: &str,
+    ) -> Result<Self, DhcpDataError> {
         let mut host_ip_addresses = BTreeMap::new();
+        let virtualization_type = value.network_virtualization_type();
 
         let interface_configs = if value.use_admin_network {
             let Some(interface_config) = value.admin_interface else {
@@ -104,10 +109,25 @@ impl TryFrom<ManagedHostNetworkConfigResponse> for HostConfig {
         };
 
         for interface in interface_configs {
-            host_ip_addresses.insert(
-                format!("vlan{}", interface.vlan_id),
-                InterfaceInfo::try_from(interface)?,
-            );
+            let interface_name = if virtualization_type == ::rpc::forge::VpcVirtualizationType::Fnn
+                && !interface.is_l2_segment
+            {
+                if interface.function_type() == InterfaceFunctionType::Physical {
+                    // pf0hpf_sf/if
+                    physical_rep.to_string()
+                } else {
+                    // pf0vf{0-15}_sf/if
+                    format!(
+                        "{}{}{}",
+                        virt_rep_begin,
+                        interface.virtual_function_id(),
+                        sf_id
+                    )
+                }
+            } else {
+                format!("vlan{}", interface.vlan_id)
+            };
+            host_ip_addresses.insert(interface_name, InterfaceInfo::try_from(interface)?);
         }
 
         Ok(HostConfig {

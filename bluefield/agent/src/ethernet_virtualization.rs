@@ -20,6 +20,7 @@ use std::time::Duration;
 use std::{fmt, fs, io, net::Ipv4Addr};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse};
+use ::rpc::InterfaceFunctionType;
 use eyre::WrapErr;
 use mac_address::MacAddress;
 use serde::Deserialize;
@@ -479,6 +480,7 @@ pub async fn update_dhcp(
             &paths_dhcp_server,
             network_config,
             service_addrs,
+            &hbn_device_names,
         ) {
             Ok(true) => PostAction {
                 path: paths_dhcp_server.server,
@@ -705,6 +707,7 @@ fn write_dhcp_server_config(
     dhcp_server_path: &DhcpServerPaths,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     service_addrs: &ServiceAddresses,
+    hbn_device_names: &HBNDeviceNames,
 ) -> eyre::Result<bool> {
     match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay") {
         Ok(true) => {
@@ -714,7 +717,7 @@ fn write_dhcp_server_config(
         Err(err) => tracing::warn!("Write blank DHCP relay {dhcp_relay_path}: {err:#}"),
     }
 
-    let vlan_ids = if nc.use_admin_network {
+    let interfaces = if nc.use_admin_network {
         let vlan_intf = nc
             .admin_interface
             .as_ref()
@@ -722,10 +725,31 @@ fn write_dhcp_server_config(
             .ok_or_else(|| eyre::eyre!("Admin interface missing on admin network."))?;
         vec![vlan_intf]
     } else {
-        nc.tenant_interfaces
-            .iter()
-            .map(|x| format!("vlan{}", x.vlan_id))
-            .collect()
+        let mut interfaces = Vec::with_capacity(nc.tenant_interfaces.len());
+        for interface in &nc.tenant_interfaces {
+            let interface_name = if nc.network_virtualization_type()
+                == ::rpc::forge::VpcVirtualizationType::Fnn
+                && !interface.is_l2_segment
+            {
+                if interface.function_type() == InterfaceFunctionType::Physical {
+                    // pf0hpf_sf/if
+                    hbn_device_names.reps[0].to_string()
+                } else {
+                    // pf0vf{0-15}_sf/if
+                    format!(
+                        "{}{}{}",
+                        hbn_device_names.virt_rep_begin,
+                        interface.virtual_function_id(),
+                        hbn_device_names.sf_id
+                    )
+                }
+            } else {
+                format!("vlan{}", interface.vlan_id)
+            };
+            interfaces.push(interface_name);
+        }
+
+        interfaces
     };
 
     let Some(mh_nc) = &nc.managed_host_config else {
@@ -748,7 +772,7 @@ fn write_dhcp_server_config(
     let mut has_changes = false;
 
     let next_contents =
-        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { vlan_ids })?;
+        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { interfaces })?;
     match write(next_contents, &dhcp_server_path.server, "DHCP server") {
         Ok(true) => {
             has_changes = true;
@@ -780,7 +804,7 @@ fn write_dhcp_server_config(
         ),
     }
 
-    let next_contents = dhcp::build_server_host_config(nc.clone())?;
+    let next_contents = dhcp::build_server_host_config(nc.clone(), hbn_device_names)?;
     match write(
         next_contents,
         &dhcp_server_path.host_config,
@@ -1992,6 +2016,7 @@ mod tests {
             },
             &network_config,
             &service_addrs,
+            &HBNDeviceNames::pre_23(),
         ) {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
@@ -2013,7 +2038,7 @@ mod tests {
         let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
         validate_host_config(
             dhcp_host_config,
-            HostConfig::try_from(network_config.clone())?,
+            HostConfig::try_from(network_config.clone(), "pf0hpf_sf", "pf0vf", "_sf")?,
         );
 
         // tenant host config.
@@ -2033,6 +2058,7 @@ mod tests {
             },
             &network_config,
             &service_addrs,
+            &HBNDeviceNames::pre_23(),
         ) {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
@@ -2065,7 +2091,7 @@ mod tests {
         let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
         validate_host_config(
             dhcp_host_config,
-            HostConfig::try_from(network_config.clone())?,
+            HostConfig::try_from(network_config.clone(), "pf0hpf_sf", "pf0vf", "_sf")?,
         );
 
         Ok(())
