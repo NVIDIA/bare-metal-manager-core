@@ -156,7 +156,11 @@ Missing BMC Data
 			<td>{{ interface.vendor }}</td>
 			<td>{{ interface.guid }}</td>
 			<td>{{ interface.slot }}</td>
+			{% if interface.lid == "0xffff" %}
+			<td style="background-color: red" title="GUID not found at UFM. Disconnected?">{{ interface.lid }}</td>
+			{% else %}
 			<td>{{ interface.lid }}</td>
+			{% endif %}
 		</tr>
 	{% endfor %}
 	</tbody>
