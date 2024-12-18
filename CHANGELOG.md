@@ -23,6 +23,9 @@
 
 ### Fixed
 
+- Fixed an issue where the Machine state handler could get stuck in case Maintenance
+  mode was enabled on a Machine as well as a Replace health override was present.
+
 ### Removed
 
 ## [v2024.12.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.06-rc3-0)
