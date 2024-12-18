@@ -433,10 +433,17 @@ impl MachineStateHandler {
         // Migrate from legacy maintenance mode to health alert
         if mh_snapshot.host_snapshot.is_maintenance_mode()
             && !mh_snapshot
-                .aggregate_health
-                .alerts
+                .host_snapshot
+                .health_report_overrides
+                .merges
                 .iter()
-                .any(|alert| alert.id == "Maintenance".parse().unwrap())
+                .any(|(source, report)| {
+                    source == "maintenance"
+                        && report
+                            .alerts
+                            .iter()
+                            .any(|alert| alert.id == "Maintenance".parse().unwrap())
+                })
         {
             let report = health_report::HealthReport {
                 source: "maintenance".to_string(),
