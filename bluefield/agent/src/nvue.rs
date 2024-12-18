@@ -77,7 +77,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             "cannot configure VrfLoopback; no address allocations",
         ));
     }
-    let vrf_loopback = port_configs[0].VrfLoopback.clone();
+    let vrf_loopback = port_configs
+        .first()
+        .map(|x| x.VrfLoopback.clone())
+        .unwrap_or("".to_string());
 
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
