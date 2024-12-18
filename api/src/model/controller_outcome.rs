@@ -12,7 +12,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::state_controller::state_handler::{StateHandlerError, StateHandlerOutcome};
+use crate::state_controller::state_handler::{
+    DoNothingDetails, StateHandlerError, StateHandlerOutcome,
+};
 
 /// DB storage of the result of a state handler iteration
 /// It is different from a StateHandlerOutcome in that it also stores the error message,
@@ -24,6 +26,7 @@ pub enum PersistentStateHandlerOutcome {
     Error { err: String },
     Transition,
     DoNothing,
+    DoNothingWithDetails(DoNothingDetails),
 }
 
 impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
@@ -39,6 +42,9 @@ impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
             Ok(StateHandlerOutcome::Transition(_)) => PersistentStateHandlerOutcome::Transition,
             Ok(StateHandlerOutcome::DoNothing) => PersistentStateHandlerOutcome::DoNothing,
             Ok(StateHandlerOutcome::Deleted) => unreachable!(),
+            Ok(StateHandlerOutcome::DoNothingWithDetails(x)) => {
+                PersistentStateHandlerOutcome::DoNothingWithDetails(x.clone())
+            }
             Err(err) => PersistentStateHandlerOutcome::Error {
                 err: err.to_string(),
             },
@@ -54,6 +60,7 @@ impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
             PersistentStateHandlerOutcome::Error { err } => (Error, Some(err)),
             PersistentStateHandlerOutcome::Transition => (Transition, None),
             PersistentStateHandlerOutcome::DoNothing => (DoNothing, None),
+            PersistentStateHandlerOutcome::DoNothingWithDetails(_) => (DoNothing, None),
         };
         rpc::forge::ControllerStateReason {
             outcome: outcome.into(), // into converts it to i32
