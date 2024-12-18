@@ -30,7 +30,7 @@ permissive_mode = false
 casbin_policy_file = "/path/to/policy"
 
 [auth.cli_certs]
-required_equals = {"IssuerO" = "NVIDIA Corporation", "IssuerCN" = "NVIDIA Forge Root Certificate Authority 2022"}
+required_equals = { "IssuerO" = "NVIDIA Corporation", "IssuerCN" = "NVIDIA Forge Root Certificate Authority 2022" }
 group_from = "SubjectOU"
 username_from = "SubjectCN"
 
@@ -141,7 +141,7 @@ ordering = ["bmc", "cec", "uefi", "nic"]
 preingest_upgrade_when_below = "23.10"
 current_version_reported_as = ".*"
 known_firmware = [
-  { version = "24.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-9-opn.tar", default = true },
+  { version = "24.10-8", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-9-opn.tar", default = true },
 ]
 
 [dpu_models.bluefield2.components.cec]
@@ -155,7 +155,7 @@ known_firmware = [
 preingest_upgrade_when_below = "24.10"
 current_version_reported_as = "BMC_Firmware"
 known_firmware = [
-  { version = "24.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-9_opn.fwpkg", default = true },
+  { version = "BF-24.10-8", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-9_opn.fwpkg", default = true },
 ]
 
 [dpu_models.bluefield3.components.cec]
