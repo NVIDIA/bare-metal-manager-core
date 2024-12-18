@@ -397,3 +397,111 @@ async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    // Create a machine
+    let (host_id, dpu_machine_id) = create_managed_host(&env).await;
+    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+
+    // Manually enable maintenance mode on the Machine
+    let mut txn = env.pool.begin().await.unwrap();
+    crate::db::machine::Machine::set_maintenance_mode(
+        &mut txn,
+        &host_id,
+        &MaintenanceMode::On {
+            reference: "Test".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // Check that maintenance mode is on, but the alert is missing
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert!(alerts.is_empty());
+
+    // Now run the state handler. The alert should show up
+    env.run_machine_state_controller_iteration().await;
+
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert_eq!(alerts.len(), 1);
+    let alert = &mut alerts[0];
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        *alert,
+        rpc::health::HealthProbeAlert {
+            id: "Maintenance".to_string(),
+            target: None,
+            in_alert_since: None,
+            message: "Test".to_string(),
+            tenant_message: None,
+            classifications: vec!["PreventAllocations".to_string()]
+        }
+    );
+
+    // Maintenance mode should not prevent state changes - even not if another
+    // Replace override marks the Machine as healthy. We shouldn't go into a loop
+    // that continues setting Maintenance mode.
+    // Enable DPU reprovisioning and see whether we can still enter that mode
+    env.api
+        .insert_health_report_override(tonic::Request::new(
+            rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(rpc_host_id.clone()),
+                r#override: Some(rpc::forge::HealthReportOverride {
+                    report: Some(
+                        health_report::HealthReport {
+                            source: "cli".to_string(),
+                            observed_at: None,
+                            successes: Vec::new(),
+                            alerts: Vec::new(),
+                        }
+                        .into(),
+                    ),
+                    mode: rpc::forge::OverrideMode::Replace.into(),
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    env.api
+        .trigger_dpu_reprovisioning(tonic::Request::new(rpc::forge::DpuReprovisioningRequest {
+            dpu_id: Some(dpu_machine_id.to_string().into()),
+            mode: rpc::forge::dpu_reprovisioning_request::Mode::Set.into(),
+            initiator: rpc::forge::UpdateInitiator::AdminCli.into(),
+            update_firmware: false,
+            machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    let host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_ne!(host_machine.state, "Ready");
+
+    Ok(())
+}
