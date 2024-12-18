@@ -101,7 +101,13 @@ pub enum StateHandlerOutcome<S> {
     Wait(String),  // String is reason we're waiting
     Transition(S), // S is the next state
     DoNothing,     // Nothing to do. Typically in Ready or Assigned/Ready
-    Deleted,       // The object was removed from the database
+    DoNothingWithDetails(DoNothingDetails),
+    Deleted, // The object was removed from the database
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+pub struct DoNothingDetails {
+    pub line: u32,
 }
 
 impl<S> std::fmt::Display for StateHandlerOutcome<S> {
@@ -112,6 +118,9 @@ impl<S> std::fmt::Display for StateHandlerOutcome<S> {
             Transition(_) => "Transition to next state",
             DoNothing => "Do nothing",
             Deleted => "Deleted",
+            DoNothingWithDetails(do_nothing_details) => {
+                &format!("Do nothing at {}", do_nothing_details.line)
+            }
         };
         write!(f, "{msg}")
     }

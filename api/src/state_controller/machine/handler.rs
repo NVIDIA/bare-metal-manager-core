@@ -24,6 +24,7 @@ use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::{
     get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
 };
+use crate::state_controller::state_handler::DoNothingDetails;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -421,7 +422,9 @@ impl MachineStateHandler {
                         last_seen = %observed_at,
                         "DPU is not sending network status observations, marking unhealthy");
                         // The next iteration will run with the now unhealthy network
-                        return Ok(StateHandlerOutcome::DoNothing);
+                        return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                            DoNothingDetails { line: line!() },
+                        ));
                     }
                 }
             }
@@ -464,7 +467,9 @@ impl MachineStateHandler {
             .await?;
 
             // The next iteration will have the alert applied
-            return Ok(StateHandlerOutcome::DoNothing);
+            return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                DoNothingDetails { line: line!() },
+            ));
         }
 
         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
@@ -536,7 +541,10 @@ impl MachineStateHandler {
                         },
                     ))
                 } else {
-                    let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+                    let mut state_handler_outcome =
+                        StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails {
+                            line: line!(),
+                        });
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots.clone() {
                         state_handler_outcome = self
                             .dpu_handler
@@ -577,7 +585,9 @@ impl MachineStateHandler {
                     {
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     } else {
-                        return Ok(StateHandlerOutcome::DoNothing);
+                        return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                            DoNothingDetails { line: line!() },
+                        ));
                     }
                 }
                 if is_machine_validation_requested(mh_snapshot).await {
@@ -607,7 +617,9 @@ impl MachineStateHandler {
                                     .map_err(StateHandlerError::from)?;
                                 // Health Alert ?
                                 // Rare screnario, if something googfed up in DB
-                                return Ok(StateHandlerOutcome::DoNothing);
+                                return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                    DoNothingDetails { line: line!() },
+                                ));
                             }
                         };
 
@@ -726,7 +738,9 @@ impl MachineStateHandler {
                         ));
                     }
 
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ))
                 }
             }
 
@@ -882,7 +896,9 @@ impl MachineStateHandler {
                             };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
-                            Ok(StateHandlerOutcome::DoNothing)
+                            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                DoNothingDetails { line: line!() },
+                            ))
                         }
                     }
                     FailureCause::NVMECleanFailed { .. } if machine_id.machine_type().is_host() => {
@@ -923,7 +939,9 @@ impl MachineStateHandler {
                             };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
-                            Ok(StateHandlerOutcome::DoNothing)
+                            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                DoNothingDetails { line: line!() },
+                            ))
                         }
                     }
                     FailureCause::MeasurementsRetired { .. }
@@ -969,7 +987,9 @@ impl MachineStateHandler {
                                     ))
                                 }
                         } else {
-                            Ok(StateHandlerOutcome::DoNothing)
+                            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                DoNothingDetails { line: line!() },
+                            ))
                         }
                     }
                     FailureCause::MachineValidation { .. }
@@ -1006,7 +1026,7 @@ impl MachineStateHandler {
                                         .map_err(StateHandlerError::from)?;
                                     // Health Alert ?
                                     // Rare screnario, if something googfed up in DB
-                                    return Ok(StateHandlerOutcome::DoNothing);
+                                    return Ok(StateHandlerOutcome::DoNothingWithDetails( DoNothingDetails { line: line!() }));
                                 }
                             };
 
@@ -1025,7 +1045,9 @@ impl MachineStateHandler {
                             };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
-                            Ok(StateHandlerOutcome::DoNothing)
+                            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                DoNothingDetails { line: line!() },
+                            ))
                         }
                     }
                     _ => {
@@ -1040,7 +1062,9 @@ impl MachineStateHandler {
                             details.failed_at,
                         );
                         // TODO: Should this be StateHandlerError::ManualInterventionRequired ?
-                        Ok(StateHandlerOutcome::DoNothing)
+                        Ok(StateHandlerOutcome::DoNothingWithDetails(
+                            DoNothingDetails { line: line!() },
+                        ))
                     }
                 }
             }
@@ -1060,7 +1084,9 @@ impl MachineStateHandler {
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
                 }
-                Ok(StateHandlerOutcome::DoNothing)
+                Ok(StateHandlerOutcome::DoNothingWithDetails(
+                    DoNothingDetails { line: line!() },
+                ))
             }
 
             ManagedHostState::HostReprovision { .. } => {
@@ -1070,7 +1096,9 @@ impl MachineStateHandler {
                 {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ))
                 }
             }
 
@@ -2223,7 +2251,9 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match substate {
-        BmcFirmwareUpgradeSubstate::Failed { .. } => Ok(StateHandlerOutcome::DoNothing),
+        BmcFirmwareUpgradeSubstate::Failed { .. } => Ok(StateHandlerOutcome::DoNothingWithDetails(
+            DoNothingDetails { line: line!() },
+        )),
         BmcFirmwareUpgradeSubstate::CheckFwVersion => {
             let dpu_redfish_client_result = services
                 .redfish_client_pool
@@ -2394,7 +2424,9 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 }
                 Some(_) => {
                     // TODO: Are any of these states an error? Or we're waiting for something
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ))
                 }
                 None => Err(StateHandlerError::GenericError(eyre!(
                     "No task state field in task: {:#?}",
@@ -2571,7 +2603,9 @@ async fn handle_dpu_reprovision(
                 .unwrap_or(state.host_snapshot.current.version.timestamp());
 
             if wait(&basetime, reachability_params.power_down_wait) {
-                return Ok(StateHandlerOutcome::DoNothing);
+                return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                    DoNothingDetails { line: line!() },
+                ));
             }
 
             let redfish_client = services
@@ -2625,7 +2659,9 @@ async fn handle_dpu_reprovision(
                 &state.host_snapshot.current.version.timestamp(),
                 reachability_params.dpu_wait_time,
             ) {
-                return Ok(StateHandlerOutcome::DoNothing);
+                return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                    DoNothingDetails { line: line!() },
+                ));
             }
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
@@ -2740,7 +2776,9 @@ async fn handle_dpu_reprovision(
                 next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
             ))
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::DoNothing),
+        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::DoNothingWithDetails(
+            DoNothingDetails { line: line!() },
+        )),
     }
 }
 
@@ -3467,7 +3505,8 @@ impl StateHandler for DpuMachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+        let mut state_handler_outcome =
+            StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails { line: line!() });
 
         if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
             let next_state = ManagedHostState::HostInit {
@@ -4269,7 +4308,9 @@ impl StateHandler for HostMachineStateHandler {
                                     Ok(StateHandlerOutcome::Transition(next_state))
                                 } else {
                                     // We have not implemented LockdownMode::Disabled. This is a kind of placeholder for it, but we never needed it.
-                                    Ok(StateHandlerOutcome::DoNothing)
+                                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                                        DoNothingDetails { line: line!() },
+                                    ))
                                 }
                             } else {
                                 Ok(StateHandlerOutcome::Wait("Waiting for DPU to report UP by sending a network status observation".to_string()))
@@ -4387,7 +4428,9 @@ impl StateHandler for HostMachineStateHandler {
                             }));
                         }
                     }
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ))
                 }
             }
         } else {
@@ -4658,7 +4701,9 @@ impl StateHandler for InstanceStateHandler {
                         };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
-                        Ok(StateHandlerOutcome::DoNothing)
+                        Ok(StateHandlerOutcome::DoNothingWithDetails(
+                            DoNothingDetails { line: line!() },
+                        ))
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
@@ -4878,7 +4923,9 @@ impl StateHandler for InstanceStateHandler {
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
                     }
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ))
                 }
                 InstanceState::Failed {
                     details,
@@ -4895,12 +4942,16 @@ impl StateHandler for InstanceStateHandler {
                         details,
                         machine_id
                     );
-                    return Ok(StateHandlerOutcome::DoNothing);
+                    return Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        DoNothingDetails { line: line!() },
+                    ));
                 }
             }
         } else {
             // We are not in Assigned state. Should this be Err(StateHandlerError::InvalidHostState)?
-            Ok(StateHandlerOutcome::DoNothing)
+            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                DoNothingDetails { line: line!() },
+            ))
         }
     }
 }
