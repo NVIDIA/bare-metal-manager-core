@@ -147,6 +147,7 @@ Missing BMC Data
 			<th>GUID</th>
 			<th>Slot</th>
 			<th>LID</th>
+			<th>Visible from UFM</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -156,11 +157,16 @@ Missing BMC Data
 			<td>{{ interface.vendor }}</td>
 			<td>{{ interface.guid }}</td>
 			<td>{{ interface.slot }}</td>
-			{% if interface.lid == "0xffff" %}
-			<td style="background-color: red" title="GUID not found at UFM. Disconnected?">{{ interface.lid }}</td>
-			{% else %}
 			<td>{{ interface.lid }}</td>
+			{% if interface.ufm_visible == "false" %}
+			<td style="background-color: red">
+			{% else if interface.ufm_visible == "unknown" %}
+			<td style="background-color: yellow">
+			{% else %}
+			<td>
 			{% endif %}
+			{{ interface.ufm_visible }}
+			</td>
 		</tr>
 	{% endfor %}
 	</tbody>
