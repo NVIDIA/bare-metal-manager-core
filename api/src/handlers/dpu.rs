@@ -95,6 +95,20 @@ pub(crate) async fn get_managed_host_network_config(
         }
     };
 
+    let primary_dpu_snapshot = snapshot
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|x| x.is_primary)
+        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
+
+    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+    let is_primary_dpu = primary_dpu
+        .attached_dpu_machine_id
+        .clone()
+        .map(|x| x == dpu_snapshot.machine_id)
+        .unwrap_or(false);
+
     let loopback_ip = match dpu_snapshot.loopback_ip() {
         Some(ip) => ip,
         None => {
@@ -127,6 +141,10 @@ pub(crate) async fn get_managed_host_network_config(
 
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
+        // We don't support secondary DPU yet.
+        Some(_instance) if !is_primary_dpu => {
+            vec![]
+        }
         Some(_instance)
             // If instance is waiting for network segment to come up in READY state, stay on admin
             // network.
@@ -284,15 +302,6 @@ pub(crate) async fn get_managed_host_network_config(
         }
     };
 
-    let primary_dpu_snapshot = snapshot
-        .host_snapshot
-        .interfaces
-        .iter()
-        .find(|x| x.is_primary)
-        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
-
-    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
-
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -365,11 +374,7 @@ pub(crate) async fn get_managed_host_network_config(
         vpc_vni: vpc_vni.map(|vni| vni as u32),
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),
-        is_primary_dpu: primary_dpu
-            .attached_dpu_machine_id
-            .clone()
-            .map(|x| x == dpu_snapshot.machine_id)
-            .unwrap_or(false),
+        is_primary_dpu,
         multidpu_enabled: api.runtime_config.multi_dpu.enabled,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),

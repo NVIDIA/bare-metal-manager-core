@@ -749,6 +749,12 @@ fn write_dhcp_server_config(
             interfaces.push(interface_name);
         }
 
+        if interfaces.is_empty() {
+            // In case of secondary DPU, tenant interface will be empty.
+            // To keep the dhcp-server alive, we need to pass a valid interface.
+            interfaces.push("lo".to_string());
+        }
+
         interfaces
     };
 
