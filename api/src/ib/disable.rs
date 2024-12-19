@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 
 use super::iface::Filter;
@@ -23,6 +25,12 @@ pub struct DisableIBFabric {}
 impl IBFabric for DisableIBFabric {
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, _: &str) -> Result<IBNetwork, CarbideError> {
+        Err(CarbideError::IBFabricError(
+            "ib fabric is disabled".to_string(),
+        ))
+    }
+
+    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

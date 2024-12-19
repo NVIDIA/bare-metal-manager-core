@@ -11,6 +11,7 @@
  */
 
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ib::types::{IBNetwork, IBPort};
@@ -52,6 +53,9 @@ pub trait IBFabricManager: Send + Sync {
 pub trait IBFabric: Send + Sync {
     /// Update IBNetwork, e.g. QoS
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
+
+    /// Get all IB Networks
+    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError>;
 
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError>;

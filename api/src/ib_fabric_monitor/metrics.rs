@@ -49,6 +49,8 @@ pub struct FabricMetrics {
     pub sa_key: String,
     /// The m_key_per_port of UFM
     pub m_key_per_port: bool,
+    /// The amount of partiitons visible at UFM
+    pub num_partitions: Option<usize>,
 }
 
 impl IbFabricMonitorMetrics {
@@ -67,6 +69,7 @@ pub struct IbFabricMonitorInstruments {
     pub num_fabrics: ObservableGauge<u64>,
     pub ufm_versions: ObservableGauge<u64>,
     pub fabric_errors: ObservableGauge<u64>,
+    pub num_partitions: ObservableGauge<u64>,
 }
 
 impl IbFabricMonitorInstruments {
@@ -85,6 +88,12 @@ impl IbFabricMonitorInstruments {
                 .u64_observable_gauge("forge_ib_monitor_fabric_error_count")
                 .with_description("The errors encountered while checking fabric states")
                 .init(),
+            num_partitions: meter
+                .u64_observable_gauge("forge_ib_monitor_ufm_partitions_count")
+                .with_description(
+                    "The amount partitions registered at UFM in total (incl non Forge partitions)",
+                )
+                .init(),
         }
     }
 
@@ -95,6 +104,7 @@ impl IbFabricMonitorInstruments {
             self.num_fabrics.as_any(),
             self.ufm_versions.as_any(),
             self.fabric_errors.as_any(),
+            self.num_partitions.as_any(),
         ]
     }
 
@@ -133,6 +143,10 @@ impl IbFabricMonitorInstruments {
                 attrs.push(error_attr);
                 observer.observe_u64(&self.fabric_errors, 1, &attrs);
                 attrs.pop();
+            }
+
+            if let Some(num_partitions) = metrics.num_partitions {
+                observer.observe_u64(&self.num_partitions, num_partitions as u64, &attrs);
             }
         }
     }

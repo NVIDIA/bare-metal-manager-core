@@ -27,6 +27,24 @@ pub struct MockIBFabric {
 
 #[async_trait]
 impl IBFabric for MockIBFabric {
+    /// Get all IB Networks
+    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+        let ibsubnets = self
+            .ibsubnets
+            .lock()
+            .map_err(|_| CarbideError::IBFabricError("get_ib_network mutex lock".to_string()))?;
+
+        let mut results = HashMap::new();
+        for (pkey, subnet) in &*ibsubnets {
+            let pkey: u16 = pkey
+                .parse()
+                .map_err(|_| CarbideError::IBFabricError("pkey is not a u16".to_string()))?;
+            results.insert(pkey, subnet.clone());
+        }
+
+        Ok(results)
+    }
+
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError> {
         let ibsubnets = self
