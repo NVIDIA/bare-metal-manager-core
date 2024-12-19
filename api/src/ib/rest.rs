@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
@@ -74,6 +75,24 @@ pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, Carbid
 
 #[async_trait]
 impl IBFabric for RestIBFabric {
+    /// Get all IB Networks
+    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+        let partitions = self
+            .ufm
+            .list_partitions()
+            .await
+            .map_err(CarbideError::from)?;
+
+        let mut results = HashMap::with_capacity(partitions.len());
+        for (pkey, partition) in partitions.into_iter() {
+            let pkey = pkey.into();
+            let network = IBNetwork::try_from(partition)?;
+            results.insert(pkey, network);
+        }
+
+        Ok(results)
+    }
+
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, pkey: &str) -> Result<IBNetwork, CarbideError> {
         let partition = self

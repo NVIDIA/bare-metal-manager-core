@@ -42,6 +42,12 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .formatted_metric("forge_ib_monitor_fabric_error_count"),
         None
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_ufm_partitions_count")
+            .unwrap(),
+        r#"{fabric="default"} 0"#
+    );
 
     Ok(())
 }

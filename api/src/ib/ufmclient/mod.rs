@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ pub struct PortConfig {
     pub membership: PortMembership,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PartitionKey(u16);
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -351,6 +351,32 @@ impl Ufm {
         self.client.post(&path, data).await?;
 
         Ok(())
+    }
+
+    pub async fn list_partitions(&self) -> Result<HashMap<PartitionKey, Partition>, UFMError> {
+        let path = "/resources/pkeys?qos_conf=true";
+
+        #[derive(Serialize, Deserialize, Debug)]
+        struct PartitionData {
+            partition: String,
+            ip_over_ib: bool,
+            qos_conf: PartitionQoS,
+        }
+        let partitions: HashMap<String, PartitionData> = self.client.get(path).await?;
+
+        let mut results = HashMap::with_capacity(partitions.len());
+        for (pkey, partition) in partitions.into_iter() {
+            let pkey = PartitionKey::try_from(pkey)?;
+            let partition = Partition {
+                name: partition.partition,
+                pkey: pkey.clone(),
+                ipoib: partition.ip_over_ib,
+                qos: partition.qos_conf,
+            };
+            results.insert(pkey, partition);
+        }
+
+        Ok(results)
     }
 
     pub async fn get_partition(&self, pkey: &str) -> Result<Partition, UFMError> {

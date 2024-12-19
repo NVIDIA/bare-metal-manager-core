@@ -177,6 +177,9 @@ async fn check_ib_fabric(
         }
     };
 
+    let networks = conn.get_ib_networks().await?;
+    metrics.num_partitions = Some(networks.len());
+
     result
 }
 
