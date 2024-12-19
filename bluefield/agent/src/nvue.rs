@@ -72,11 +72,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         });
     }
 
-    if port_configs.is_empty() {
-        return Err(eyre::eyre!(
-            "cannot configure VrfLoopback; no address allocations",
-        ));
-    }
     let vrf_loopback = port_configs
         .first()
         .map(|x| x.VrfLoopback.clone())
