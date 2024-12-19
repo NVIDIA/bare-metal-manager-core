@@ -118,7 +118,11 @@ pub(crate) async fn get_managed_host_network_config(
             )));
         }
     };
-    let use_admin_network = dpu_snapshot.use_admin_network();
+    let use_admin_network = if is_primary_dpu {
+        dpu_snapshot.use_admin_network()
+    } else {
+        true
+    };
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
