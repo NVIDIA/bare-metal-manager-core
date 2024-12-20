@@ -100,7 +100,7 @@ impl IbFabricMonitorInstruments {
             ports_by_state: meter
                 .u64_observable_gauge("forge_ib_monitor_ufm_ports_by_state_count")
                 .with_description(
-                    "The amount ports visible at UFM in total (incl non Forge managed ports)",
+                    "Total number of ports reported by UFM (incl non Forge managed ports)",
                 )
                 .init(),
         }
