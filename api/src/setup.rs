@@ -20,8 +20,8 @@ use figment::{
 use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
-use crate::db::machine::update_dpu_asns;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
+use crate::{db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
 use crate::{ib::DEFAULT_IB_FABRIC_NAME, legacy};
 
 use crate::{
@@ -169,7 +169,15 @@ pub async fn start_api(
         .begin()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin define resource pools", e))?;
-    resource_pool::define_all_from(&mut txn, carbide_config.pools.as_ref().unwrap()).await?;
+    resource_pool::define_all_from(
+        &mut txn,
+        carbide_config.pools.as_ref().ok_or_else(|| {
+            DefineResourcePoolError::InvalidArgument(String::from(
+                "resource pools are not defined in carbide config",
+            ))
+        })?,
+    )
+    .await?;
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
