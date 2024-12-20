@@ -49,8 +49,10 @@ pub struct FabricMetrics {
     pub sa_key: String,
     /// The m_key_per_port of UFM
     pub m_key_per_port: bool,
-    /// The amount of partiitons visible at UFM
+    /// The amount of partitions visible at UFM
     pub num_partitions: Option<usize>,
+    /// The amount of ports visible at UFM - indexed by state
+    pub ports_by_state: Option<HashMap<String, usize>>,
 }
 
 impl IbFabricMonitorMetrics {
@@ -70,6 +72,7 @@ pub struct IbFabricMonitorInstruments {
     pub ufm_versions: ObservableGauge<u64>,
     pub fabric_errors: ObservableGauge<u64>,
     pub num_partitions: ObservableGauge<u64>,
+    pub ports_by_state: ObservableGauge<u64>,
 }
 
 impl IbFabricMonitorInstruments {
@@ -94,6 +97,12 @@ impl IbFabricMonitorInstruments {
                     "The amount partitions registered at UFM in total (incl non Forge partitions)",
                 )
                 .init(),
+            ports_by_state: meter
+                .u64_observable_gauge("forge_ib_monitor_ufm_ports_by_state_count")
+                .with_description(
+                    "The amount ports visible at UFM in total (incl non Forge managed ports)",
+                )
+                .init(),
         }
     }
 
@@ -105,6 +114,7 @@ impl IbFabricMonitorInstruments {
             self.ufm_versions.as_any(),
             self.fabric_errors.as_any(),
             self.num_partitions.as_any(),
+            self.ports_by_state.as_any(),
         ]
     }
 
@@ -147,6 +157,15 @@ impl IbFabricMonitorInstruments {
 
             if let Some(num_partitions) = metrics.num_partitions {
                 observer.observe_u64(&self.num_partitions, num_partitions as u64, &attrs);
+            }
+            if let Some(num_ports_by_state) = metrics.ports_by_state.as_ref() {
+                let state_attr = KeyValue::new("port_state", "".to_string());
+                attrs.push(state_attr);
+                for (state, &count) in num_ports_by_state.iter() {
+                    attrs.last_mut().unwrap().value = state.clone().into();
+                    observer.observe_u64(&self.ports_by_state, count as u64, &attrs);
+                }
+                attrs.pop();
             }
         }
     }
