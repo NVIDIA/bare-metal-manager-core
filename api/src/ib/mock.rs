@@ -11,7 +11,7 @@
  */
 
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use super::iface::Filter;
@@ -134,10 +134,10 @@ impl IBFabric for MockIBFabric {
                 let ibsubnets = self.ibsubnets.lock().map_err(|_| {
                     CarbideError::IBFabricError("find_ib_port mutex lock".to_string())
                 })?;
-                let mut pkey_guids = vec![];
+                let mut pkey_guids = HashSet::new();
                 if ibsubnets.contains_key(&pkey.to_string()) {
                     for ib in ibports_pkey.values() {
-                        pkey_guids.push(ib.guid.clone());
+                        pkey_guids.insert(ib.guid.clone());
                     }
                 }
                 Some(pkey_guids)
@@ -218,8 +218,8 @@ pub fn mock_ibfabric_desc(ibports: Option<HashMap<String, IBPort>>) -> HashMap<S
 
 fn filter_ports(
     ports: Vec<IBPort>,
-    pkey_guids: Option<Vec<String>>,
-    guids: Option<Vec<String>>,
+    pkey_guids: Option<HashSet<String>>,
+    guids: Option<HashSet<String>>,
     state: Option<IBPortState>,
 ) -> Vec<IBPort> {
     let guid_filter = match (pkey_guids, guids) {
@@ -229,12 +229,7 @@ fn filter_ports(
         (Some(pkey_guids), None) => Some(pkey_guids),
         (None, Some(guids)) => Some(guids),
         // If both are Some, filter ports by the intersection.
-        (Some(pkey_guids), Some(guids)) => Some(
-            pkey_guids
-                .into_iter()
-                .filter(|g| guids.contains(g))
-                .collect(),
-        ),
+        (Some(pkey_guids), Some(guids)) => Some(pkey_guids.intersection(&guids).cloned().collect()),
     };
 
     let ports = match guid_filter {

@@ -553,7 +553,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .unwrap()
         .parse()
         .expect("Failed to parse string to integer");
-    let guids = vec![ib_status.ib_interfaces[0].guid.clone().unwrap().clone()];
+    let guids = HashSet::from_iter([ib_status.ib_interfaces[0].guid.clone().unwrap()]);
     let filter = ib::Filter {
         guids: Some(guids.clone()),
         pkey: Some(pkey),
@@ -566,7 +566,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     // after host deleted, ib port should be removed from UFM
     let filter = ib::Filter {
-        guids: Some(guids.clone()),
+        guids: Some(guids.iter().cloned().collect()),
         pkey: Some(pkey),
         state: Some(ib::types::IBPortState::Active),
     };

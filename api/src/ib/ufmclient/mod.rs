@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -98,7 +101,7 @@ pub struct Port {
 
 #[derive(Default)]
 pub struct Filter {
-    pub guids: Option<Vec<String>>,
+    pub guids: Option<HashSet<String>>,
     pub pkey: Option<PartitionKey>,
     pub logical_state: Option<String>,
 }
@@ -107,9 +110,9 @@ const HEX_PRE: &str = "0x";
 
 impl From<Vec<PortConfig>> for Filter {
     fn from(guids: Vec<PortConfig>) -> Self {
-        let mut v = Vec::new();
+        let mut v = HashSet::with_capacity(guids.len());
         for i in &guids {
-            v.push(i.guid.to_string());
+            v.insert(i.guid.to_string());
         }
 
         Self {
@@ -402,7 +405,7 @@ impl Ufm {
         })
     }
 
-    async fn list_partition_ports(&self, pkey: &PartitionKey) -> Result<Vec<String>, UFMError> {
+    async fn list_partition_ports(&self, pkey: &PartitionKey) -> Result<HashSet<String>, UFMError> {
         // get GUIDs from pkey
         #[derive(Serialize, Deserialize, Debug)]
         struct PkeyWithGUIDs {
@@ -416,7 +419,7 @@ impl Ufm {
 
         let filter = Filter::from(pkeywithguids.guids);
 
-        Ok(filter.guids.unwrap_or(vec![]))
+        Ok(filter.guids.unwrap_or(HashSet::new()))
     }
 
     pub async fn list_port(&self, filter: Option<Filter>) -> Result<Vec<Port>, UFMError> {
@@ -439,8 +442,8 @@ impl Ufm {
 
     fn filter_ports(
         ports: Vec<Port>,
-        pkey_guids: Option<Vec<String>>,
-        guids: Option<Vec<String>>,
+        pkey_guids: Option<HashSet<String>>,
+        guids: Option<HashSet<String>>,
         logical_state: Option<String>,
     ) -> Vec<Port> {
         let guid_filter = match (pkey_guids, guids) {
@@ -450,12 +453,9 @@ impl Ufm {
             (Some(pkey_guids), None) => Some(pkey_guids),
             (None, Some(guids)) => Some(guids),
             // If both are Some, filter ports by the intersection.
-            (Some(pkey_guids), Some(guids)) => Some(
-                pkey_guids
-                    .into_iter()
-                    .filter(|g| guids.contains(g))
-                    .collect(),
-            ),
+            (Some(pkey_guids), Some(guids)) => {
+                Some(pkey_guids.intersection(&guids).cloned().collect())
+            }
         };
 
         let ports = match guid_filter {
@@ -505,8 +505,8 @@ mod tests {
         struct TestCase {
             name: String,
             ports: Vec<Port>,
-            pkey_guids: Option<Vec<String>>,
-            guids: Option<Vec<String>>,
+            pkey_guids: Option<HashSet<String>>,
+            guids: Option<HashSet<String>>,
             port_state: Option<String>,
             expected: Vec<Port>,
         }
@@ -544,7 +544,7 @@ mod tests {
             TestCase {
                 name: String::from("filter by pkey guids"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(vec![p1_id.clone()]),
+                pkey_guids: Some(HashSet::from_iter([p1_id.clone()])),
                 guids: None,
                 port_state: None,
                 expected: vec![p1.clone()],
@@ -553,23 +553,23 @@ mod tests {
                 name: String::from("filter by guids"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: None,
-                guids: Some(vec![p1_id.clone()]),
+                guids: Some(HashSet::from_iter([p1_id.clone()])),
                 port_state: None,
                 expected: vec![p1.clone()],
             },
             TestCase {
                 name: String::from("filter by guids (1) and pkey guids (1,2)"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
-                guids: Some(vec![p1_id.clone()]),
+                pkey_guids: Some(HashSet::from_iter([p1_id.clone(), p2_id.clone()])),
+                guids: Some(HashSet::from_iter([p1_id.clone()])),
                 port_state: None,
                 expected: vec![p1.clone()],
             },
             TestCase {
                 name: String::from("filter by guids (2,3) and pkey guids (1,2)"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
-                guids: Some(vec![p2_id.clone(), p3_id.clone()]),
+                pkey_guids: Some(HashSet::from_iter([p1_id.clone(), p2_id.clone()])),
+                guids: Some(HashSet::from_iter([p2_id.clone(), p3_id.clone()])),
                 port_state: None,
                 expected: vec![p2.clone()],
             },
@@ -585,7 +585,7 @@ mod tests {
                 name: String::from("filter by guids and port state"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: None,
-                guids: Some(vec![p1_id.clone()]),
+                guids: Some(HashSet::from_iter([p1_id.clone()])),
                 port_state: Some("Disabled".to_string()),
                 expected: vec![],
             },
