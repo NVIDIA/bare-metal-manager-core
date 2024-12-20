@@ -11,7 +11,7 @@
  */
 
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ib::types::{IBNetwork, IBPort, IBPortState};
@@ -20,7 +20,7 @@ use crate::CarbideError;
 
 #[derive(Default)]
 pub struct Filter {
-    pub guids: Option<Vec<String>>,
+    pub guids: Option<HashSet<String>>,
     pub pkey: Option<u16>,
     pub state: Option<IBPortState>,
 }

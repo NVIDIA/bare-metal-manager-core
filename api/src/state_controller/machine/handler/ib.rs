@@ -92,7 +92,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
         // Get the status of ports from UFM, and persist it as observed status.
         // Not filter by pkey and check port status directly.
         let filter = ib::Filter {
-            guids: Some(guids.clone()),
+            guids: Some(guids.iter().cloned().collect()),
             pkey: None,
             state: Some(IBPortState::Active),
         };
@@ -118,7 +118,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
                         .join(", ")
                 )),
             };
-            tracing::error!("Detected invalid infiniband confiuration {e}");
+            tracing::error!("Detected invalid infiniband configuration {e}");
         }
 
         let mut ib_interfaces_status: Vec<MachineIbInterfaceStatusObservation> =
