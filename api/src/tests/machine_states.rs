@@ -1159,7 +1159,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // 1. create_dpu as usual
     // 2. start creating host until ca validation failure is encountered
-    // 3. add ca certificate - we should be recoved from failure and in Ready state
+    // 3. add ca certificate - we should recover from failure and go into Ready state
 
     let host_sim = ManagedHostSim {
         config: ManagedHostConfig {

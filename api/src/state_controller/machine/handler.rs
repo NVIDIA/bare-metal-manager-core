@@ -69,8 +69,8 @@ use crate::{
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-            StateHandlerServices,
+            MeasuringProblem, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, StateHandlerServices,
         },
     },
 };
@@ -4193,15 +4193,32 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
                 }
-                MachineState::Measuring { measuring_state } => handle_measuring_state(
-                    measuring_state,
-                    &mh_snapshot.host_snapshot.machine_id,
-                    txn,
-                )
-                .await
-                .map(|v| {
-                    map_host_init_measuring_outcome_to_state_handler_outcome(&v, measuring_state)
-                })?,
+                MachineState::Measuring { measuring_state } => {
+                    match handle_measuring_state(
+                        measuring_state,
+                        &mh_snapshot.host_snapshot.machine_id,
+                        txn,
+                    )
+                    .await
+                    {
+                        Ok(measuring_outcome) => {
+                            return map_host_init_measuring_outcome_to_state_handler_outcome(
+                                &measuring_outcome,
+                                measuring_state,
+                            )
+                        }
+                        Err(StateHandlerError::MeasuringError(measuring_problem)) => {
+                            match measuring_problem {
+                                MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                        "Waiting for DiscoverMachine to be called: {info}"
+                                    )))
+                                }
+                            }
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(
                         mh_snapshot.host_snapshot.current.version,

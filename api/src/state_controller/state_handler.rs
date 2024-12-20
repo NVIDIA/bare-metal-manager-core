@@ -126,6 +126,21 @@ impl<S> std::fmt::Display for StateHandlerOutcome<S> {
     }
 }
 
+#[derive(Debug)]
+pub enum MeasuringProblem {
+    NoEkCertVerificationStatusFound(String),
+}
+
+impl std::fmt::Display for MeasuringProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
+                write!(f, "NoEkCertVerificationStatusFound - {info}")
+            }
+        }
+    }
+}
+
 /// Error type for handling a Machine State
 #[derive(Debug, thiserror::Error)]
 pub enum StateHandlerError {
@@ -187,6 +202,9 @@ pub enum StateHandlerError {
 
     #[error("The object is in the state for longer than defined by the SLA. Handler outcome: {handler_outcome}")]
     TimeInStateAboveSla { handler_outcome: String },
+
+    #[error("Problem with measured boot: {0}")]
+    MeasuringError(MeasuringProblem),
 }
 
 impl StateHandlerError {
@@ -218,6 +236,11 @@ impl StateHandlerError {
             StateHandlerError::MissingDpuFromState(_) => "missing_dpu_from_managedhost_state",
             StateHandlerError::HealthProbeAlert => "health_probe_alert",
             StateHandlerError::TimeInStateAboveSla { .. } => "time_in_state_above_sla",
+            StateHandlerError::MeasuringError(problem) => match problem {
+                MeasuringProblem::NoEkCertVerificationStatusFound(_) => {
+                    "no_ek_cert_verification_status_found"
+                }
+            },
         }
     }
 }
