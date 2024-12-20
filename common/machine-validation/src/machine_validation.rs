@@ -45,13 +45,30 @@ impl MachineValidation {
     pub fn new(options: MachineValidationOptions) -> Self {
         MachineValidation { options }
     }
+    pub(crate) async fn get_container_auth_config(self) -> Result<(), MachineValidationError> {
+        let file_name = "/root/.docker/config.json".to_string();
+        match self
+            .get_external_config(file_name.clone(), Some("container_auth".to_string()))
+            .await
+        {
+            Ok(()) => trace!("Fetched {} config", file_name),
+            Err(e) => trace!("Error - {}", e.to_string()),
+        }
+        Ok(())
+    }
     pub(crate) async fn get_external_config(
         self,
         external_config_file: String,
+        external_config_name: Option<String>,
     ) -> Result<(), MachineValidationError> {
         tracing::info!("{}", external_config_file);
-        let path = Path::new(&external_config_file);
-        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+
+        let name = if let Some(name) = external_config_name {
+            name
+        } else {
+            let path = Path::new(&external_config_file);
+            path.file_name().unwrap().to_str().unwrap().to_string()
+        };
 
         let mut client = self.clone().create_forge_client().await?;
         let request =
@@ -201,7 +218,8 @@ impl MachineValidation {
 
     pub async fn pull_container(image_name: &str) {
         tracing::info!(image_name);
-        let command_string = format!(" ctr  image pull {}", image_name);
+        let command_string = format!(" nerdctl -n default pull {}", image_name);
+        tracing::info!(command_string);
         match TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(DEFAULT_TIMEOUT)
@@ -231,7 +249,7 @@ impl MachineValidation {
         };
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
-            match self.get_external_config(file_name.clone()).await {
+            match self.get_external_config(file_name.clone(), None).await {
                 Ok(()) => trace!("Fetched {} config", file_name),
                 Err(e) => {
                     mc_result.start_time = Some(Utc::now().into());
@@ -401,6 +419,7 @@ impl MachineValidation {
         execute_tests_sequentially: bool,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
+        self.clone().get_container_auth_config().await?;
         Self::get_container_images().await?;
         if execute_tests_sequentially {
             for test in tests {

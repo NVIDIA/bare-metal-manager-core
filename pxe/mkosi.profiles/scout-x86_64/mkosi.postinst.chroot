@@ -10,3 +10,10 @@ mkdir -p /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2024/02/23/59428/lnvgy_utl_lxce_onecli01t-4.4.0_linux_x86-64.tgz | tar -zxf - -C /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2020/06/11/22050/lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64.tgz | tar -zxf - --wildcards --no-anchored --strip-components=2 -C /opt/forge 64/mnv_cli
 chmod +x /opt/forge/mnv_cli
+
+
+mkdir -p /root/.docker/
+wget https://github.com/containerd/nerdctl/releases/download/v2.0.2/nerdctl-2.0.2-linux-amd64.tar.gz
+tar -zxf nerdctl-2.0.2-linux-amd64.tar.gz nerdctl
+mv nerdctl /usr/bin/nerdctl
+rm nerdctl-2.0.2-linux-amd64.tar.gz
