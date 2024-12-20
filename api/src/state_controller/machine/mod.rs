@@ -25,7 +25,7 @@ use forge_uuid::machine::MachineId;
 use eyre::eyre;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 
-use super::state_handler::StateHandlerError;
+use super::state_handler::{MeasuringProblem, StateHandlerError};
 
 pub mod context;
 pub mod handler;
@@ -114,10 +114,11 @@ async fn get_measuring_prerequisites(
                 ))
             })?
             .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {}",
-                    machine_id
-                ))
+                StateHandlerError::MeasuringError(
+                    MeasuringProblem::NoEkCertVerificationStatusFound(format!(
+                        "MachineId - {machine_id}"
+                    )),
+                )
             })?;
 
     Ok((machine_state, ek_cert_verification_status))
