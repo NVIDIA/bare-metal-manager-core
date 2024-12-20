@@ -19,7 +19,11 @@ use chrono::Utc;
 use crate::db::ObjectColumnFilter;
 use crate::{
     db::{ib_partition, machine::Machine},
-    ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
+    ib::{
+        self,
+        types::{IBNetwork, IBPortState},
+        DEFAULT_IB_FABRIC_NAME,
+    },
     model::instance::config::infiniband::InstanceIbInterfaceConfig,
     model::machine::{
         infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
@@ -90,6 +94,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
         let filter = ib::Filter {
             guids: Some(guids.clone()),
             pkey: None,
+            state: Some(IBPortState::Active),
         };
         let ports = ib_fabric
             .find_ib_port(Some(filter))
