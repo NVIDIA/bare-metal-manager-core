@@ -169,18 +169,24 @@ async fn check_ib_fabric(
     metrics.endpoints = fabric_definition.endpoints.clone();
     let conn = fabric_manager.connect(fabric).await?;
 
-    let mut result = Ok(());
-    match conn.versions().await {
-        Ok(version) => metrics.ufm_version = version.ufm_version,
-        Err(e) => {
-            result = Err(e);
-        }
-    };
+    let version = conn.versions().await?;
+    metrics.ufm_version = version.ufm_version;
 
     let networks = conn.get_ib_networks().await?;
     metrics.num_partitions = Some(networks.len());
 
-    result
+    let ports = conn.find_ib_port(None).await?;
+    let mut ports_by_state = HashMap::new();
+    for port in ports.iter() {
+        let state = match port.state.as_ref() {
+            Some(state) => format!("{:?}", state),
+            None => "unknown".to_string(),
+        };
+        *ports_by_state.entry(state).or_default() += 1;
+    }
+    metrics.ports_by_state = Some(ports_by_state);
+
+    Ok(())
 }
 
 fn error_as_metric_label(error: CarbideError) -> String {
