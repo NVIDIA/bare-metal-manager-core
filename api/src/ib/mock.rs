@@ -145,7 +145,7 @@ impl IBFabric for MockIBFabric {
             None => None,
         };
 
-        Ok(filter_ports(ports, pkey_guids, f.guids))
+        Ok(filter_ports(ports, pkey_guids, f.guids, f.state))
     }
 
     /// Delete IBPort
@@ -220,8 +220,9 @@ fn filter_ports(
     ports: Vec<IBPort>,
     pkey_guids: Option<Vec<String>>,
     guids: Option<Vec<String>>,
+    state: Option<IBPortState>,
 ) -> Vec<IBPort> {
-    let filter = match (pkey_guids, guids) {
+    let guid_filter = match (pkey_guids, guids) {
         // If both are None, means no filter, return all ports.
         (None, None) => None,
         // If just one is None, filter ports by the other guids set.
@@ -236,16 +237,23 @@ fn filter_ports(
         ),
     };
 
-    match filter {
+    let ports = match guid_filter {
         // If no filter, return all ports;
-        None => ports
-            .into_iter()
-            .filter(|v| v.state == Some(IBPortState::Active))
-            .collect(),
+        None => ports,
         // otherwise, filter ports accordingly.
         Some(filter) => ports
             .into_iter()
-            .filter(|p: &IBPort| filter.contains(&p.guid) && p.state == Some(IBPortState::Active))
+            .filter(|p: &IBPort| filter.contains(&p.guid))
             .collect(),
-    }
+    };
+
+    let ports = match state {
+        None => ports,
+        Some(state) => ports
+            .into_iter()
+            .filter(|v| v.state.as_ref() == Some(&state))
+            .collect(),
+    };
+
+    ports
 }

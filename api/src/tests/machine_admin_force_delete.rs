@@ -557,6 +557,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let filter = ib::Filter {
         guids: Some(guids.clone()),
         pkey: Some(pkey),
+        state: Some(ib::types::IBPortState::Active),
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
 
@@ -567,6 +568,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let filter = ib::Filter {
         guids: Some(guids.clone()),
         pkey: Some(pkey),
+        state: Some(ib::types::IBPortState::Active),
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 

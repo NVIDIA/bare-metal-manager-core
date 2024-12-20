@@ -145,12 +145,7 @@ impl IBFabric for RestIBFabric {
         self.ufm
             .list_port(filter)
             .await
-            .map(|p| {
-                p.iter()
-                    .map(IBPort::from)
-                    .filter(|v| v.state == Some(IBPortState::Active))
-                    .collect()
-            })
+            .map(|p| p.iter().map(IBPort::from).collect())
             .map_err(CarbideError::from)
     }
 
@@ -227,6 +222,7 @@ impl TryFrom<Filter> for ufmclient::Filter {
                 .pkey
                 .map(ufmclient::PartitionKey::try_from)
                 .transpose()?,
+            logical_state: filter.state.map(|state| format!("{:?}", state)),
         })
     }
 }

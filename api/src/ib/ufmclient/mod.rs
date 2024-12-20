@@ -100,6 +100,7 @@ pub struct Port {
 pub struct Filter {
     pub guids: Option<Vec<String>>,
     pub pkey: Option<PartitionKey>,
+    pub logical_state: Option<String>,
 }
 
 const HEX_PRE: &str = "0x";
@@ -114,6 +115,7 @@ impl From<Vec<PortConfig>> for Filter {
         Self {
             guids: Some(v),
             pkey: None,
+            logical_state: None,
         }
     }
 }
@@ -427,15 +429,21 @@ impl Ufm {
             None => None,
         };
 
-        Ok(Self::filter_ports(ports, pkey_guids, f.guids))
+        Ok(Self::filter_ports(
+            ports,
+            pkey_guids,
+            f.guids,
+            f.logical_state,
+        ))
     }
 
     fn filter_ports(
         ports: Vec<Port>,
         pkey_guids: Option<Vec<String>>,
         guids: Option<Vec<String>>,
+        logical_state: Option<String>,
     ) -> Vec<Port> {
-        let filter = match (pkey_guids, guids) {
+        let guid_filter = match (pkey_guids, guids) {
             // If both are None, means no filter, return all ports.
             (None, None) => None,
             // If just one is None, filter ports by the other guids set.
@@ -450,7 +458,7 @@ impl Ufm {
             ),
         };
 
-        match filter {
+        let ports = match guid_filter {
             // If no filter, return all ports;
             None => ports,
             // otherwise, filter ports accordingly.
@@ -458,7 +466,21 @@ impl Ufm {
                 .into_iter()
                 .filter(|p: &Port| filter.contains(&p.guid))
                 .collect(),
-        }
+        };
+
+        let ports = match logical_state {
+            None => ports,
+            Some(logical_state) => {
+                let logical_state = logical_state.to_lowercase();
+                let logical_state = logical_state.as_str().trim();
+                ports
+                    .into_iter()
+                    .filter(|p| p.logical_state.to_lowercase().as_str().trim() == logical_state)
+                    .collect()
+            }
+        };
+
+        ports
     }
 
     pub async fn version(&self) -> Result<String, UFMError> {
@@ -485,24 +507,28 @@ mod tests {
             ports: Vec<Port>,
             pkey_guids: Option<Vec<String>>,
             guids: Option<Vec<String>>,
+            port_state: Option<String>,
             expected: Vec<Port>,
         }
 
         let p1_id = String::from("p1");
         let p1 = Port {
             guid: p1_id.clone(),
+            logical_state: "Active".to_string(),
             ..Port::default()
         };
 
         let p2_id = String::from("p2");
         let p2 = Port {
             guid: p2_id.clone(),
+            logical_state: "Down".to_string(),
             ..Port::default()
         };
 
         let p3_id = String::from("p3");
         let p3 = Port {
             guid: p3_id.clone(),
+            logical_state: "Initialize".to_string(),
             ..Port::default()
         };
 
@@ -512,6 +538,7 @@ mod tests {
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: None,
                 guids: None,
+                port_state: None,
                 expected: vec![p1.clone(), p2.clone(), p3.clone()],
             },
             TestCase {
@@ -519,6 +546,7 @@ mod tests {
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: Some(vec![p1_id.clone()]),
                 guids: None,
+                port_state: None,
                 expected: vec![p1.clone()],
             },
             TestCase {
@@ -526,6 +554,7 @@ mod tests {
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: None,
                 guids: Some(vec![p1_id.clone()]),
+                port_state: None,
                 expected: vec![p1.clone()],
             },
             TestCase {
@@ -533,6 +562,7 @@ mod tests {
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
                 guids: Some(vec![p1_id.clone()]),
+                port_state: None,
                 expected: vec![p1.clone()],
             },
             TestCase {
@@ -540,12 +570,29 @@ mod tests {
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
                 guids: Some(vec![p2_id.clone(), p3_id.clone()]),
+                port_state: None,
                 expected: vec![p2.clone()],
+            },
+            TestCase {
+                name: String::from("filter by port statet"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: None,
+                guids: None,
+                port_state: Some("Active".to_string()),
+                expected: vec![p1.clone()],
+            },
+            TestCase {
+                name: String::from("filter by guids and port state"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: None,
+                guids: Some(vec![p1_id.clone()]),
+                port_state: Some("Disabled".to_string()),
+                expected: vec![],
             },
         ];
 
         for c in cases {
-            let got = Ufm::filter_ports(c.ports, c.pkey_guids, c.guids);
+            let got = Ufm::filter_ports(c.ports, c.pkey_guids, c.guids, c.port_state);
             assert_eq!(c.expected, got, "{}", c.name);
         }
     }
