@@ -99,7 +99,7 @@ pub(crate) async fn get_managed_host_network_config(
         .host_snapshot
         .interfaces
         .iter()
-        .find(|x| x.is_primary)
+        .find(|x| x.primary_interface)
         .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;

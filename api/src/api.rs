@@ -688,7 +688,7 @@ impl Forge for Api {
 
         let interface =
             db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
-        let machine = if hardware_info.is_dpu() {
+        let machine_id = if hardware_info.is_dpu() {
             // if site explorer is creating machine records and there isn't one for this machine return an error
             if **self.runtime_config.site_explorer.create_machines.load() {
                 Machine::find_one(
@@ -761,7 +761,7 @@ impl Forge for Api {
                 .await
                 .map_err(CarbideError::from)?;
             }
-            db_machine
+            db_machine.into_id()
         } else {
             // Now we know stable machine id for host. Let's update it in db.
             Machine::try_sync_stable_id_with_current_machine_id_for_host(
@@ -782,7 +782,7 @@ impl Forge for Api {
                 db::machine_interface::create_host_machine_dpu_interface_proactively(
                     &mut txn,
                     Some(&hardware_info),
-                    machine.id(),
+                    &machine_id,
                 )
                 .await?;
 
@@ -807,7 +807,7 @@ impl Forge for Api {
                     &predicted_machine_id,
                     ManagedHostState::DPUInit {
                         dpu_states: DpuInitStates {
-                            states: HashMap::from([(machine.id().clone(), DpuInitState::Init)]),
+                            states: HashMap::from([(machine_id, DpuInitState::Init)]),
                         },
                     },
                 )

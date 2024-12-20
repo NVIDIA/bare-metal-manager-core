@@ -10,9 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::{IpAddr, SocketAddr};
-use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
-
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_override::HealthReportOverrides;
@@ -22,6 +19,8 @@ use mac_address::MacAddress;
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr};
+use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
 
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -286,7 +285,7 @@ impl ManagedHostStateSnapshot {
             .interfaces
             .iter()
             .find_map(|x| {
-                if x.is_primary {
+                if x.primary_interface {
                     Some(x.attached_dpu_machine_id.clone())
                 } else {
                     None
@@ -1659,7 +1658,7 @@ impl ManagedHostState {
 pub struct MachineInterfaceSnapshot {
     pub id: MachineInterfaceId,
     pub hostname: String,
-    pub is_primary: bool,
+    pub primary_interface: bool,
     pub mac_address: MacAddress,
     pub attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<DomainId>,
@@ -1681,7 +1680,7 @@ impl MachineInterfaceSnapshot {
             segment_id: uuid::Uuid::nil().into(),
             mac_address,
             hostname: String::new(),
-            is_primary: true,
+            primary_interface: true,
             addresses: Vec::new(),
             vendors: Vec::new(),
             created: chrono::DateTime::default(),
@@ -1702,7 +1701,7 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
             hostname: machine_interface.hostname,
             domain_id: machine_interface.domain_id.map(|d| d.into()),
             mac_address: machine_interface.mac_address.to_string(),
-            primary_interface: machine_interface.is_primary,
+            primary_interface: machine_interface.primary_interface,
             address: machine_interface
                 .addresses
                 .iter()
@@ -1934,10 +1933,10 @@ impl ManagedHostState {
 }
 
 /// History of Machine states for a single Machine
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineStateHistory {
     /// The state that was entered
-    pub state: String,
+    pub state: serde_json::Value,
     // The version number associated with the state change
     pub state_version: ConfigVersion,
 }
@@ -1945,7 +1944,7 @@ pub struct MachineStateHistory {
 impl From<MachineStateHistory> for rpc::MachineEvent {
     fn from(value: MachineStateHistory) -> rpc::MachineEvent {
         rpc::MachineEvent {
-            event: value.state,
+            event: value.state.to_string(),
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
         }

@@ -24,22 +24,31 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let expected_initial_states = vec![
-        "{\"state\": \"created\"}".to_string(), 
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"initializing\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"configuring\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"enablershim\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"count\": 0, \"dpudiscoverystate\": \"disablesecureboot\", \"disable_secure_boot_state\": {{\"disablesecurebootstate\": \"checksecurebootstatus\"}}}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"setuefihttpboot\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"rebootalldpus\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
-        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"enableipmioverlan\"}}".to_string(),
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}".to_string(),
-        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}".to_string()];
+    let dpu_machine_id_string = dpu_machine_id.to_string();
+
+    let expected_initial_states_json = serde_json::json!([
+        {"state": "created"},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "initializing"}}}},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "configuring"}}}},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "enablershim"}}}},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"count": 0, "dpudiscoverystate": "disablesecureboot", "disable_secure_boot_state": {"disablesecurebootstate": "checksecurebootstatus"}}}}},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "setuefihttpboot"}}}},
+        {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "rebootalldpus"}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "init"}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "off"}}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "on"}}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingforplatformconfiguration"}}}},
+        {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingfornetworkconfig"}}}},
+        {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
+        {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration"}},
+        {"state": "hostinit", "machine_state": {"state": "waitingfordiscovery"}},
+    ]);
+    let expected_initial_states: Vec<serde_json::Value> =
+        expected_initial_states_json.as_array().unwrap().clone();
+    let expected_initial_states_as_strings = expected_initial_states
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>();
 
     for machine_id in &[host_machine_id.clone(), dpu_machine_id.clone()] {
         let mut txn = env.pool.begin().await?;
@@ -56,7 +65,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap();
 
         assert_eq!(
-            text_history(&machine.history()[..expected_initial_states.len()].to_vec()),
+            json_history(&machine.history()[..expected_initial_states.len()]),
             expected_initial_states
         );
 
@@ -81,7 +90,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states
+            expected_initial_states_as_strings,
         );
 
         let rpc_machine = env
@@ -104,7 +113,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states
+            expected_initial_states_as_strings
         );
 
         let rpc_machine = env
@@ -120,7 +129,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states
+            expected_initial_states_as_strings
         );
     }
 
@@ -204,34 +213,36 @@ async fn test_old_machine_state_history(
     .await?
     .unwrap();
 
-    let mut states: Vec<&str> = Vec::with_capacity(machine.history().len());
-    for e in machine.history() {
-        states.push(e.state.as_ref());
-    }
+    let states = machine
+        .into_history()
+        .into_iter()
+        .map(|m| m.state)
+        .collect::<Vec<_>>();
+    let dpu_machine_id = dpu_machine_id.to_string();
     assert_eq!(
-        states,
-        vec![
-            "{\"state\": \"created\"}", 
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"initializing\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"configuring\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"enablershim\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"count\": 0, \"dpudiscoverystate\": \"disablesecureboot\", \"disable_secure_boot_state\": {{\"disablesecurebootstate\": \"checksecurebootstatus\"}}}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"setuefihttpboot\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpudiscoveringstate\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpudiscoverystate\": \"rebootalldpus\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
-            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"enableipmioverlan\"}}",
-            "{\"state\": \"dpuinit\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
-        ],
+        serde_json::Value::Array(states),
+        serde_json::json!([
+            {"state": "created"},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "initializing"}}}},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "configuring"}}}},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "enablershim"}}}},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 0, "dpudiscoverystate": "disablesecureboot", "disable_secure_boot_state": {"disablesecurebootstate": "checksecurebootstatus"}}}}},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "setuefihttpboot"}}}},
+            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "rebootalldpus"}}}},
+            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "init"}}}},
+            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "off"}}}}},
+            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "on"}}}}},
+            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformconfiguration"}}}},
+            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingfornetworkconfig"}}}},
+            {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
+            {"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}},
+        ]),
     );
 
     Ok(())
 }
 
-fn text_history(history: &Vec<MachineStateHistory>) -> Vec<&str> {
+fn json_history(history: &[MachineStateHistory]) -> Vec<serde_json::Value> {
     // // Check that version numbers are always incrementing by 1
     if !history.is_empty() {
         let mut version = history[0].state_version.version_nr();
@@ -241,9 +252,5 @@ fn text_history(history: &Vec<MachineStateHistory>) -> Vec<&str> {
         }
     }
 
-    let mut states = Vec::with_capacity(history.len());
-    for e in history {
-        states.push(e.state.as_ref());
-    }
-    states
+    history.iter().map(|h| h.state.clone()).collect()
 }

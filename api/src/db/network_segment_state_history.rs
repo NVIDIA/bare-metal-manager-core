@@ -15,6 +15,7 @@ use std::ops::DerefMut;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
@@ -23,17 +24,18 @@ use forge_uuid::network::NetworkSegmentId;
 
 /// A record of a past state of a NetworkSegment
 ///
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkSegmentStateHistory {
     /// The numeric identifier of the state change. This is a global change number
     /// for all states, and therefore not important for consumers
+    #[serde(skip)]
     _id: i64,
 
     /// The UUID of the network segment that experienced the state change
     segment_id: NetworkSegmentId,
 
     /// The state that was entered
-    pub state: String,
+    pub state: serde_json::Value,
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
@@ -43,7 +45,7 @@ pub struct NetworkSegmentStateHistory {
 impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
     fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
         Ok(rpc::forge::NetworkSegmentStateHistory {
-            state: value.state,
+            state: value.state.to_string(),
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),
         })
@@ -79,7 +81,7 @@ impl NetworkSegmentStateHistory {
         segment_ids: &[NetworkSegmentId],
     ) -> Result<HashMap<NetworkSegmentId, Vec<Self>>, DatabaseError> {
         let query =
-            "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
+            "SELECT id, segment_id, state, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(segment_ids)
             .fetch_all(txn.deref_mut())
@@ -93,7 +95,7 @@ impl NetworkSegmentStateHistory {
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &NetworkSegmentId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
+        let query = "SELECT id, segment_id, state, state_version, timestamp
             FROM network_segment_state_history
             WHERE segment_id=$1
             ORDER BY ID asc";

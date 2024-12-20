@@ -141,10 +141,10 @@ pub async fn get_segments(
     .into_inner()
 }
 
-pub async fn text_history(
+pub async fn json_history(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     segment_id: NetworkSegmentId,
-) -> Vec<String> {
+) -> Vec<serde_json::Value> {
     let entries = NetworkSegmentStateHistory::for_segment(txn, &segment_id)
         .await
         .unwrap();
@@ -158,9 +158,5 @@ pub async fn text_history(
         }
     }
 
-    let mut states = Vec::with_capacity(entries.len());
-    for e in entries.into_iter() {
-        states.push(e.state);
-    }
-    states
+    entries.into_iter().map(|e| e.state).collect()
 }

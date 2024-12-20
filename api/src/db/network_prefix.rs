@@ -17,6 +17,7 @@ use std::{
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
@@ -25,16 +26,17 @@ use crate::CarbideError;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkPrefix {
     pub id: uuid::Uuid,
     pub segment_id: NetworkSegmentId,
-    pub vpc_prefix_id: Option<VpcPrefixId>,
-    pub vpc_prefix: Option<IpNetwork>,
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
     pub circuit_id: Option<String>,
+    pub vpc_prefix_id: Option<VpcPrefixId>,
+    pub vpc_prefix: Option<IpNetwork>,
+    #[serde(default)]
     pub num_free_ips: u32,
 }
 

@@ -11,9 +11,9 @@
  */
 use std::ops::DerefMut;
 
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres};
 
-use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
+use super::{ColumnInfo, DatabaseError};
 use forge_uuid::machine::MachineInterfaceId;
 
 ///
@@ -39,11 +39,13 @@ impl ColumnInfo<'_> for MachineInterfaceIdColumn {
 }
 
 impl DhcpEntry {
+    #[cfg(test)] // only used in tests
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = DhcpEntry>>(
-        txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectColumnFilter<'a, C>,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        filter: super::ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<DhcpEntry>, DatabaseError> {
-        let mut query = FilterableQueryBuilder::new("SELECT * FROM dhcp_entries").filter(&filter);
+        let mut query =
+            super::FilterableQueryBuilder::new("SELECT * FROM dhcp_entries").filter(&filter);
 
         query
             .build_query_as()

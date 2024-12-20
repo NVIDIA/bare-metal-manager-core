@@ -358,7 +358,7 @@ impl<'a> MockExploredHost<'a> {
                 .unwrap();
             let primary_interface = machine_interfaces
                 .iter()
-                .find(|interface| interface.is_primary)
+                .find(|interface| interface.primary_interface)
                 .unwrap();
             let _ = self
                 .test_env
@@ -467,7 +467,7 @@ impl<'a> MockExploredHost<'a> {
                 .unwrap();
             let primary_interface = machine_interfaces
                 .iter()
-                .find(|interface| interface.is_primary)
+                .find(|interface| interface.primary_interface)
                 .unwrap();
             let _ = self
                 .test_env
