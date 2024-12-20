@@ -3,6 +3,12 @@
 
 ### Added
 
+- The InfiniBand fabric monitor task will now emit 2 additional metrics:
+  1. `forge_ib_monitor_ufm_partitions_count`: The amount of partitions/pkeys visible at UFM. The number can be different from the amount of partitions created on Forge:
+    - Parititons created in Forge without associated GUID will not be registered at UFM
+    - Partitions created outside of Forge will be tracked by the number
+  2. `forge_ib_monitor_ufm_ports_by_state_count`: The total number of ports reported by UFM, aggregated by port state (e.g. `Active`).
+
 ### Changed
 
 - The InfiniBand UFM IP is now configured within the carbide site-config files
