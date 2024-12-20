@@ -1554,7 +1554,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         assert!(!response.address.is_empty());
         let oob_interface = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
-        assert!(oob_interface[0].is_primary);
+        assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
         let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
@@ -1713,10 +1713,22 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .remove(host_machine_id.clone().as_ref().unwrap())
         .unwrap();
     assert_eq!(interfaces.len(), NUM_DPUS);
-    assert!(interfaces[0].is_primary);
-    for interface in interfaces.iter().skip(1) {
-        assert!(!interface.is_primary);
-    }
+    assert_eq!(
+        interfaces
+            .iter()
+            .filter(|i| i.primary_interface)
+            .collect::<Vec<_>>()
+            .len(),
+        1
+    );
+    assert_eq!(
+        interfaces
+            .iter()
+            .filter(|i| !i.primary_interface)
+            .collect::<Vec<_>>()
+            .len(),
+        NUM_DPUS - 1
+    );
 
     // Try to discover machine with multiple DPUs
     for i in 0..NUM_DPUS {
@@ -2475,7 +2487,7 @@ async fn test_fetch_host_primary_interface_mac(
 
         assert!(!response.address.is_empty());
         let oob_interface = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
-        assert!(oob_interface[0].is_primary);
+        assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
         let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();

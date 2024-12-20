@@ -179,6 +179,7 @@ async fn find_all_interfaces_test_cases(
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
+        let mut txn = env.pool.begin().await?;
         let interface = db::machine_interface::create(
             &mut txn,
             &network_segment,
@@ -203,9 +204,9 @@ async fn find_all_interfaces_test_cases(
         .persist(&mut txn)
         .await?;
         interfaces.push(interface);
+        txn.commit().await.unwrap();
     }
 
-    txn.commit().await?;
     let response = env
         .api
         .find_interfaces(tonic::Request::new(InterfaceSearchQuery {
@@ -216,7 +217,7 @@ async fn find_all_interfaces_test_cases(
         .unwrap()
         .into_inner();
     // Assert members
-    for (idx, interface) in interfaces.iter().enumerate().take(2) {
+    for (idx, interface) in interfaces.into_iter().enumerate().take(2) {
         assert_eq!(response.interfaces[idx].hostname, interface.hostname);
         assert_eq!(
             response.interfaces[idx].mac_address,

@@ -12,7 +12,6 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
-use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 use std::str::FromStr;
@@ -22,14 +21,16 @@ use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use forge_uuid::instance_type::InstanceTypeId;
 use health_report::{HealthReport, OverrideMode};
+use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
+use sqlx::{Column, FromRow, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
+use crate::db::machine_state_history::DbMachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -263,6 +264,48 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 
         let asn: Option<u32> = row.try_get::<Option<i64>, _>("asn")?.map(|v| v as u32);
 
+        let topology_json: sqlx::types::Json<Vec<Option<MachineTopology>>> =
+            row.try_get("topology")?;
+        let (hardware_info, bmc_info) = if let Some(topology_data) = topology_json
+            .0
+            .into_iter()
+            .flatten()
+            .next()
+            .map(|m| m.into_topology())
+        {
+            (
+                Some(topology_data.discovery_data.info),
+                topology_data.bmc_info,
+            )
+        } else {
+            (None, BmcInfo::default())
+        };
+
+        let interfaces_json: sqlx::types::Json<Vec<Option<MachineInterfaceSnapshot>>> =
+            row.try_get("interfaces")?;
+        let interfaces = interfaces_json
+            .0
+            .into_iter()
+            .flatten()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+
+        // History is only brought in if the search config requested it
+        let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
+            let json: sqlx::types::Json<Vec<Option<DbMachineStateHistory>>> =
+                row.try_get(column.ordinal())?;
+            json.0
+                .into_iter()
+                .flatten()
+                .map(Into::into)
+                .sorted_by(|s1: &MachineStateHistory, s2: &MachineStateHistory| {
+                    Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
         Ok(Machine {
             id,
             created: row.try_get("created")?,
@@ -275,16 +318,10 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             ),
             network_status_observation,
             infiniband_status_observation,
-            history: Vec::new(),
-            interfaces: Vec::new(),
-            hardware_info: None,
-            bmc_info: BmcInfo {
-                ip: None,
-                port: None,
-                mac: None,
-                version: None,
-                firmware_version: None,
-            },
+            history,
+            interfaces,
+            hardware_info,
+            bmc_info,
             maintenance_reference: row.try_get("maintenance_reference")?,
             maintenance_start_time: row.try_get("maintenance_start_time")?,
             last_reboot_time: row.try_get("last_reboot_time")?,
@@ -583,6 +620,11 @@ impl Machine {
         &self.id
     }
 
+    /// Consumes self and returns the ID of the machine object
+    pub fn into_id(self) -> MachineId {
+        self.id
+    }
+
     /// Returns the std::time::SystemTime for when the machine was initially discovered
     pub fn created(&self) -> chrono::DateTime<Utc> {
         self.created
@@ -596,6 +638,11 @@ impl Machine {
     /// Returns the list of History Events the machine has experienced
     pub fn history(&self) -> &Vec<MachineStateHistory> {
         &self.history
+    }
+
+    /// Consumes self and returns the list of History Events the machine has experienced
+    pub fn into_history(self) -> Vec<MachineStateHistory> {
+        self.history
     }
 
     /// Returns the list of Interfaces this machine owns
@@ -661,8 +708,6 @@ impl Machine {
     /// Find machines given a set of criteria, right now just returns all machines because there's
     /// no way to filter the machines.
     ///
-    /// TODO(ajf): write a query language???
-    ///
     /// Arguments:
     ///
     /// * `txn` - A reference to a currently open database transaction
@@ -672,12 +717,16 @@ impl Machine {
         filter: ObjectFilter<'_, MachineId>,
         search_config: MachineSearchConfig,
     ) -> Result<Vec<Machine>, DatabaseError> {
-        let base_query = "SELECT * FROM machines m {where} GROUP BY m.id".to_owned();
+        let base_query = if search_config.include_history {
+            "SELECT * FROM machine_snapshots_with_history m {where}".to_owned()
+        } else {
+            "SELECT * FROM machine_snapshots m {where}".to_owned()
+        };
 
-        let mut all_machines: Vec<Machine> = match filter {
+        let all_machines: Vec<Machine> = match filter {
             ObjectFilter::All => {
                 let where_clause = if search_config.only_maintenance {
-                    "WHERE maintenance_reference IS NOT NULL"
+                    "WHERE m.maintenance_reference IS NOT NULL"
                 } else {
                     ""
                 };
@@ -689,7 +738,7 @@ impl Machine {
             ObjectFilter::One(id) => {
                 let mut where_clause = "WHERE m.id=$1".to_string();
                 if search_config.only_maintenance {
-                    where_clause += " AND maintenance_reference IS NOT NULL";
+                    where_clause += " AND m.maintenance_reference IS NOT NULL";
                 }
                 sqlx::query_as(&base_query.replace("{where}", &where_clause))
                     .bind(id.to_string())
@@ -700,7 +749,7 @@ impl Machine {
             ObjectFilter::List(list) => {
                 let mut where_clause = "WHERE m.id=ANY($1)".to_string();
                 if search_config.only_maintenance {
-                    where_clause += " AND maintenance_reference IS NOT NULL";
+                    where_clause += " AND m.maintenance_reference IS NOT NULL";
                 }
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
                 sqlx::query_as(&base_query.replace("{where}", &where_clause))
@@ -711,125 +760,24 @@ impl Machine {
             }
         };
 
-        // If we didn't find anything, we don't have to invest more queries for
-        // fetching related data
-        if all_machines.is_empty() {
-            return Ok(all_machines);
-        }
-
-        let all_ids = all_machines
-            .iter()
-            .map(|m| m.id.clone())
-            .collect::<Vec<MachineId>>();
-
-        let mut history_for_machine = if search_config.include_history {
-            db::machine_state_history::find_by_machine_ids(&mut *txn, &all_ids).await?
-        } else {
-            HashMap::new()
-        };
-
-        let mut interfaces_for_machine =
-            db::machine_interface::find_by_machine_ids(&mut *txn, &all_ids).await?;
-
-        let topologies_for_machine =
-            MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_ids).await?;
-
-        for machine in all_machines.iter_mut() {
-            if search_config.include_history {
-                if let Some(history) = history_for_machine.remove(&machine.id) {
-                    machine.history = history;
-                }
-            }
-
-            if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
-                machine.interfaces = interfaces;
-            }
-
-            if let Some(topo) = topologies_for_machine.get(&machine.id) {
-                machine.hardware_info = Some(topo.topology().discovery_data.info.clone());
-                machine.bmc_info = topo.topology().bmc_info.clone();
-                if machine.bmc_info.ip.is_some() && machine.bmc_info.mac.is_none() {
-                    // In older versions of Forge, host machines never had their BMC mac addresses set in machine_topologies
-                    // Set the mac address of the host BMC in the machine_topologies table here
-
-                    // the conversion from carbide error to db error is not elegant.
-                    // but, this code is to handle legacy hosts who did not have their mac address setup
-                    // TODO (spyda): remove this once we've handled all the legacy hosts
-                    db::bmc_metadata::enrich_mac_address(
-                        &mut machine.bmc_info,
-                        "Machine::find".to_string(),
-                        txn,
-                        &machine.id,
-                        true,
-                    )
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(
-                            file!(),
-                            line!(),
-                            "enrich_mac_address",
-                            sqlx::Error::Protocol(e.to_string()),
-                        )
-                    })?;
-                }
-            }
-
-            if !machine.id().machine_type().is_predicted_host() && machine.hardware_info.is_none() {
-                tracing::warn!(
-                    machine_id = %machine.id,
-                    "Machine has no associated discovery data",
-                );
-            }
-        }
-
         Ok(all_machines)
-    }
-
-    async fn load_related_data(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
-        let history = db::machine_state_history::for_machine(&mut *txn, &self.id).await?;
-        if !history.is_empty() {
-            self.history = history;
-        }
-
-        let mut interfaces =
-            db::machine_interface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
-        if let Some(interfaces) = interfaces.remove(&self.id) {
-            self.interfaces = interfaces;
-        }
-
-        let mut topologies =
-            MachineTopology::find_latest_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
-        if let Some(topology) = topologies.remove(&self.id) {
-            self.hardware_info = Some(topology.topology().discovery_data.info.clone());
-            self.bmc_info = topology.topology().bmc_info.clone();
-        }
-
-        Ok(())
     }
 
     pub async fn find_by_ip(
         txn: &mut Transaction<'_, Postgres>,
         ip: &Ipv4Addr,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machines m
+        let query = r#"SELECT m.* FROM machine_snapshots m
             JOIN machine_interfaces mi ON m.id = mi.machine_id
             INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
             WHERE mia.address = $1::inet"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+        let machine = sqlx::query_as(query)
             .bind(ip.to_string())
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
 
-        machine.load_related_data(txn).await?;
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     pub async fn find_id_by_bmc_ip(
@@ -908,62 +856,46 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         hostname: &str,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machines m
+        let query = r#"SELECT m.* FROM machine_snapshots m
             JOIN machine_interfaces mi ON m.id = mi.machine_id
             WHERE mi.hostname = $1"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+
+        let machine = sqlx::query_as(query)
             .bind(hostname)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
-
-        machine.load_related_data(txn).await?;
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         mac_address: &MacAddress,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machines m
+        let query = r#"SELECT m.* FROM machine_snapshots m
             JOIN machine_interfaces mi ON m.id = mi.machine_id
             WHERE mi.mac_address = $1::macaddr"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+        let machine = sqlx::query_as(query)
             .bind(mac_address)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
-
-        machine.load_related_data(txn).await?;
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     pub async fn find_by_loopback_ip(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         loopback_ip: &str,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM machines WHERE network_config->>'loopback_ip' = $1";
-        let machine: Option<Self> = sqlx::query_as(query)
+        let query = "SELECT * FROM machine_snapshots WHERE network_config->>'loopback_ip' = $1";
+        let machine = sqlx::query_as(query)
             .bind(loopback_ip)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
-        machine.load_related_data(txn).await?;
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     pub async fn find_id_by_fqdn(
@@ -1166,44 +1098,33 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* From machines m
+        let query = r#"SELECT m.* From machine_snapshots m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.machine_id
                 WHERE mi.attached_dpu_machine_id=$1
                     AND mi.attached_dpu_machine_id != mi.machine_id"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+        let machine = sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
-
-        machine.load_related_data(txn).await?;
-
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     pub async fn find_dpus_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = r#"SELECT m.* From machines m
+        let query = r#"SELECT m.* From machine_snapshots m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
                 WHERE mi.machine_id=$1"#;
-        let mut machines: Vec<Self> = sqlx::query_as(query)
+        let machines = sqlx::query_as(query)
             .bind(host_machine_id.to_string())
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        for m in &mut machines {
-            m.load_related_data(txn).await?;
-        }
 
         Ok(machines)
     }
@@ -1355,7 +1276,7 @@ impl Machine {
         let query = format!(
             "UPDATE machines SET {column_name} = jsonb_set(
                 coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-                '{{{}}}', 
+                '{{{}}}',
                 $1::jsonb
             ) WHERE id = $2
             RETURNING id",
@@ -1508,7 +1429,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         current_machine_id: &Option<MachineId>,
         stable_machine_id: &MachineId,
-    ) -> Result<Self, CarbideError> {
+    ) -> Result<MachineId, CarbideError> {
         let Some(current_machine_id) = current_machine_id else {
             return Err(CarbideError::NotFoundError {
                 kind: "machine_id",
@@ -1521,7 +1442,7 @@ impl Machine {
             return match Self::find_one(txn, current_machine_id, MachineSearchConfig::default())
                 .await?
             {
-                Some(machine) => Ok(machine),
+                Some(machine) => Ok(machine.id),
                 None => Err(CarbideError::NotFoundError {
                     kind: "machine",
                     id: current_machine_id.to_string(),
@@ -1535,13 +1456,13 @@ impl Machine {
 
         // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
         // also change.
-        let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING *";
-        Ok(sqlx::query_as(query)
+        let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING id";
+        sqlx::query_as(query)
             .bind(stable_machine_id.to_string())
             .bind(current_machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e).into())
     }
 
     pub async fn update_failure_details(
@@ -1638,7 +1559,7 @@ impl Machine {
             None
         };
 
-        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn) 
+        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn)
                                 VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING id"#;
         let machine_id: MachineId = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
@@ -1755,7 +1676,7 @@ impl Machine {
     pub async fn get_host_reprovisioning_machines(
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Machine>, DatabaseError> {
-        let query = "SELECT * FROM machines
+        let query = "SELECT * FROM machine_snapshots
             WHERE host_reprovisioning_requested IS NOT NULL";
         sqlx::query_as(query)
             .fetch_all(&mut **txn)
@@ -1808,7 +1729,7 @@ impl Machine {
             update_firmware,
             restart_reprovision_requested_at: chrono::Utc::now(),
         };
-        let query = r#"UPDATE machines 
+        let query = r#"UPDATE machines
                                 SET reprovisioning_requested=reprovisioning_requested || $1
                         WHERE id=ANY($2) RETURNING id"#
             .to_string();
@@ -1859,7 +1780,7 @@ impl Machine {
     pub async fn list_machines_requested_for_reprovisioning(
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machines WHERE reprovisioning_requested IS NOT NULL";
+        let query = "SELECT * FROM machine_snapshots WHERE reprovisioning_requested IS NOT NULL";
         sqlx::query_as(query)
             .fetch_all(txn.deref_mut())
             .await
@@ -1983,8 +1904,8 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         version: i16,
     ) -> Result<Vec<MachineId>, CarbideError> {
-        let query = r#"SELECT id FROM machines WHERE 
-                               (starts_with(id, 'fm100h') OR starts_with(id, 'fm100p')) 
+        let query = r#"SELECT id FROM machines WHERE
+                               (starts_with(id, 'fm100h') OR starts_with(id, 'fm100p'))
                                AND machine_state_model_version=$1"#;
         let machine_ids: Vec<MachineId> = sqlx::query_as(query)
             .bind(version)
@@ -2091,19 +2012,14 @@ impl Machine {
         validation_id: uuid::Uuid,
         context_column_name: String,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
-        let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING *".to_owned();
-        // let query = base_query.replace("{column}", context_column_name.as_str());
-        let _id = sqlx::query_as::<_, Self>(
-            &base_query.replace("{column}", context_column_name.as_str()),
-        )
-        .bind(validation_id)
-        .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "UPDATE machines ", e))?;
-
-        Ok(())
+    ) -> Result<MachineId, DatabaseError> {
+        let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING id".to_owned();
+        sqlx::query_as(&base_query.replace("{column}", context_column_name.as_str()))
+            .bind(validation_id)
+            .bind(machine_id.to_string())
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "UPDATE machines ", e))
     }
 
     pub async fn update_failure_details_by_machine_id(
@@ -2179,21 +2095,15 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         validation_id: &Uuid,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT * FROM machines 
+        let query = r#"SELECT * FROM machine_snapshots
             WHERE discovery_machine_validation_id = $1 OR cleanup_machine_validation_id = $1 OR on_demand_machine_validation_id = $1"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+        let machine = sqlx::query_as(query)
             .bind(validation_id)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
-
-        machine.load_related_data(txn).await?;
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     /// set_firmware_autoupdate flags a machine ID as explicitly having firmware upgrade enabled or disabled, or use config files if None.

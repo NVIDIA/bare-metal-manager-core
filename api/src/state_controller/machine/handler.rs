@@ -4133,7 +4133,7 @@ impl StateHandler for HostMachineStateHandler {
                             .host_snapshot
                             .interfaces
                             .iter()
-                            .find(|x| x.is_primary)
+                            .find(|x| x.primary_interface)
                             .ok_or_else(|| {
                                 StateHandlerError::GenericError(eyre::eyre!(
                                     "Missing primary interface from host: {}",
@@ -5084,7 +5084,7 @@ async fn lockdown_host(
             .host_snapshot
             .interfaces
             .iter()
-            .find(|x| x.is_primary)
+            .find(|x| x.primary_interface)
             .ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
                     "Missing primary interface from host: {}",

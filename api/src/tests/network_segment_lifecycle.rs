@@ -17,7 +17,7 @@ use crate::db::network_segment::NetworkSegment;
 use crate::tests::common;
 use common::{
     api_fixtures::{create_test_env, create_test_env_with_overrides, TestEnvOverrides},
-    network_segment::{create_network_segment_with_api, get_segment_state, text_history},
+    network_segment::{create_network_segment_with_api, get_segment_state, json_history},
 };
 use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
@@ -147,9 +147,9 @@ async fn test_network_segment_lifecycle_impl(
 
     let mut txn = env.pool.begin().await.unwrap();
     let expected_history = ["provisioning", "ready", "drainallocatedips", "dbdelete"];
-    let history = text_history(&mut txn, segment_id).await;
+    let history = json_history(&mut txn, segment_id).await;
     for (i, state) in history.iter().enumerate() {
-        assert!(state.contains(expected_history[i]));
+        assert!(state.to_string().contains(expected_history[i]));
     }
     txn.commit().await.unwrap();
 

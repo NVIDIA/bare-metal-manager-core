@@ -18,7 +18,7 @@ use std::str::FromStr;
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::instance_address::UsedOverlayNetworkIpResolver;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
-use crate::db::{network_prefix, ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{state_sla, NetworkDefinition, NetworkDefinitionSegmentType};
@@ -42,8 +42,9 @@ use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{Column, FromRow, Postgres, Row, Transaction};
 
 const DEFAULT_MTU_TENANT: i32 = 9000;
 const DEFAULT_MTU_OTHER: i32 = 1500;
@@ -109,8 +110,9 @@ impl NetworkSegment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "network_segment_type_t")]
 pub enum NetworkSegmentType {
     Tenant = 0,
@@ -194,6 +196,18 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome")?;
 
+        let prefixes_json: sqlx::types::Json<Vec<Option<NetworkPrefix>>> =
+            row.try_get("prefixes")?;
+        let prefixes = prefixes_json.0.into_iter().flatten().collect();
+
+        let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
+            let value: sqlx::types::Json<Vec<Option<NetworkSegmentStateHistory>>> =
+                row.try_get(column.ordinal())?;
+            value.0.into_iter().flatten().collect()
+        } else {
+            Vec::new()
+        };
+
         Ok(NetworkSegment {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
@@ -209,8 +223,8 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
             mtu: row.try_get("mtu")?,
-            prefixes: Vec::new(),
-            history: Vec::new(),
+            prefixes,
+            history,
             vlan_id: row.try_get("vlan_id").unwrap_or_default(),
             vni: row.try_get("vni_id").unwrap_or_default(),
             segment_type: row.try_get("network_segment_type")?,
@@ -386,8 +400,8 @@ impl NewNetworkSegment {
                 vni_id,
                 network_segment_type)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *";
-        let mut segment: NetworkSegment = sqlx::query_as(query)
+            RETURNING id";
+        let segment_id: NetworkSegmentId = sqlx::query_as(query)
             .bind(self.id)
             .bind(&self.name)
             .bind(self.subdomain_id)
@@ -402,12 +416,24 @@ impl NewNetworkSegment {
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        segment.prefixes =
-            NetworkPrefix::create_for(txn, &segment.id, self.vlan_id, &self.prefixes).await?;
+        NetworkPrefix::create_for(txn, &segment_id, self.vlan_id, &self.prefixes).await?;
+        NetworkSegmentStateHistory::persist(txn, segment_id, &initial_state, version).await?;
 
-        NetworkSegmentStateHistory::persist(txn, segment.id, &initial_state, version).await?;
-
-        Ok(segment)
+        NetworkSegment::find_by(
+            txn,
+            ObjectColumnFilter::One(IdColumn, &segment_id),
+            Default::default(),
+        )
+        .await?
+        .pop()
+        .ok_or_else(|| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "finding just-created network segment",
+                sqlx::Error::RowNotFound,
+            )
+        })
     }
 }
 
@@ -417,7 +443,7 @@ impl NetworkSegment {
         vpc_id: uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
         let results: Vec<NetworkSegment> = {
-            let query = "SELECT * FROM network_segments WHERE vpc_id=$1::uuid";
+            let query = "SELECT * FROM network_segment_snapshots WHERE vpc_id=$1::uuid";
             sqlx::query_as(query)
                 .bind(vpc_id)
                 .fetch_all(txn.deref_mut())
@@ -432,9 +458,9 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
-        let query = r#"SELECT network_segments.*
-            FROM network_segments
-            INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
+        let query = r#"SELECT ns.*
+            FROM network_segment_snapshots ns
+            INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
             WHERE $1::inet <<= network_prefixes.prefix"#;
         let mut results = sqlx::query_as(query)
             .bind(IpNetwork::from(relay))
@@ -443,20 +469,7 @@ impl NetworkSegment {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         match results.len() {
-            0 => Ok(None),
-            1 => {
-                let mut segment: NetworkSegment = results.remove(0);
-                let query = "SELECT * FROM network_prefixes WHERE segment_id=$1::uuid";
-                segment.prefixes = sqlx::query_as(query)
-                    .bind(segment.id())
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
-                    })?;
-
-                Ok(Some(segment))
-            }
+            0 | 1 => Ok(results.pop()),
             _ => Err(CarbideError::internal(format!(
                 "Multiple network segments defined for relay address {relay}"
             ))),
@@ -525,8 +538,12 @@ impl NetworkSegment {
         filter: ObjectColumnFilter<'a, C>,
         search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let mut query =
-            FilterableQueryBuilder::new("SELECT * FROM network_segments").filter(&filter);
+        let mut query = if search_config.include_history {
+            FilterableQueryBuilder::new("SELECT * FROM network_segment_snapshots_with_history")
+        } else {
+            FilterableQueryBuilder::new("SELECT * FROM network_segment_snapshots")
+        }
+        .filter(&filter);
 
         let mut all_records = query
             .build_query_as()
@@ -534,7 +551,9 @@ impl NetworkSegment {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
-        Self::update_prefix_into_network_segment_list(txn, search_config, &mut all_records).await?;
+        if search_config.include_num_free_ips {
+            Self::update_num_free_ips_into_prefix_list(txn, &mut all_records).await?;
+        }
         Ok(all_records)
     }
 
@@ -585,121 +604,74 @@ impl NetworkSegment {
         Ok(network_segment_ids)
     }
 
-    async fn update_prefix_into_network_segment_list(
+    async fn update_num_free_ips_into_prefix_list(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        search_config: NetworkSegmentSearchConfig,
-        all_records: &mut Vec<NetworkSegment>,
+        all_records: &mut [NetworkSegment],
     ) -> Result<(), DatabaseError> {
-        let all_uuids = all_records
-            .iter()
-            .map(|record| record.id)
-            .collect::<Vec<NetworkSegmentId>>();
-
-        // TODO(ajf): N+1 query alert.  Optimize later.
-
-        let mut grouped_prefixes = NetworkPrefix::find_by(
-            &mut *txn,
-            ObjectColumnFilter::List(network_prefix::SegmentIdColumn, &all_uuids),
-        )
-        .await?
-        .into_iter()
-        .into_group_map_by(|prefix| prefix.segment_id);
-
-        let mut state_history = if search_config.include_history {
-            NetworkSegmentStateHistory::find_by_segment_ids(&mut *txn, &all_uuids).await?
-        } else {
-            HashMap::new()
-        };
-
-        for record in all_records {
-            if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
-                record.prefixes = prefixes;
-
-                if search_config.include_num_free_ips && !record.prefixes.is_empty() {
-                    let dhcp_handler: Box<dyn UsedIpResolver + Send> =
-                        if record.segment_type.is_tenant() {
-                            // Note on UsedOverlayNetworkIpResolver:
-                            // In this case, the IpAllocator isn't being used to iterate to get
-                            // the next available prefix_length allocation -- it's actually just
-                            // being used to get the number of free IPs left in a given tenant
-                            // network segment, so just hard-code a /32 prefix_length. NOW.. on
-                            // one hand, you could say the prefix_length doesn't matter here,
-                            // because this is really just here to get the number of free IPs left
-                            // in a network segment. BUT, on the other hand, do we care about the
-                            // number of free IPs left, or the number of free instance allocations
-                            // left? For example, if we're allocating /30's, we might be more
-                            // interested in knowing we can allocate 4 more machines (and not 16
-                            // more IPs).
-                            Box::new(UsedOverlayNetworkIpResolver {
-                                segment_id: record.id,
-                            })
-                        } else {
-                            // Note on UsedAdminNetworkIpResolver:
-                            // In this case, the IpAllocator isn't being used to iterate to get
-                            // the next available prefix_length allocation -- it's actually just
-                            // being used to get the number of free IPs left in a given admin
-                            // network segment, so just hard-code a /32 prefix_length. Unlike the
-                            // tenant segments, the admin segments are always (at least for the
-                            // foreseeable future) just going to allocate a /32 for the machine
-                            // interface.
-                            Box::new(UsedAdminNetworkIpResolver {
-                                segment_id: record.id,
-                            })
-                        };
-
-                    let mut allocated_addresses = IpAllocator::new(
-                        txn,
-                        record,
-                        dhcp_handler,
-                        AddressSelectionStrategy::Automatic,
-                        32,
-                    )
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(
-                            file!(),
-                            line!(),
-                            "IpAllocator.new error",
-                            sqlx::Error::Io(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            )),
-                        )
-                    })?;
-
-                    let nfree = allocated_addresses.num_free().map_err(|e| {
-                        DatabaseError::new(
-                            file!(),
-                            line!(),
-                            "IpAllocator.num_free error",
-                            sqlx::Error::Io(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            )),
-                        )
-                    })?;
-
-                    record.prefixes[0].num_free_ips = nfree;
-                }
+        for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
+            let dhcp_handler: Box<dyn UsedIpResolver + Send> = if record.segment_type.is_tenant() {
+                // Note on UsedOverlayNetworkIpResolver:
+                // In this case, the IpAllocator isn't being used to iterate to get
+                // the next available prefix_length allocation -- it's actually just
+                // being used to get the number of free IPs left in a given tenant
+                // network segment, so just hard-code a /32 prefix_length. NOW.. on
+                // one hand, you could say the prefix_length doesn't matter here,
+                // because this is really just here to get the number of free IPs left
+                // in a network segment. BUT, on the other hand, do we care about the
+                // number of free IPs left, or the number of free instance allocations
+                // left? For example, if we're allocating /30's, we might be more
+                // interested in knowing we can allocate 4 more machines (and not 16
+                // more IPs).
+                Box::new(UsedOverlayNetworkIpResolver {
+                    segment_id: record.id,
+                })
             } else {
-                tracing::warn!(
-                    record_id = %record.id,
-                    record_name = record.name,
-                    "Network has no prefixes?",
-                );
-            }
+                // Note on UsedAdminNetworkIpResolver:
+                // In this case, the IpAllocator isn't being used to iterate to get
+                // the next available prefix_length allocation -- it's actually just
+                // being used to get the number of free IPs left in a given admin
+                // network segment, so just hard-code a /32 prefix_length. Unlike the
+                // tenant segments, the admin segments are always (at least for the
+                // foreseeable future) just going to allocate a /32 for the machine
+                // interface.
+                Box::new(UsedAdminNetworkIpResolver {
+                    segment_id: record.id,
+                })
+            };
 
-            if search_config.include_history {
-                if let Some(history) = state_history.remove(&record.id) {
-                    record.history = history;
-                } else {
-                    tracing::warn!(
-                        record_id = %record.id,
-                        record_name = record.name,
-                        "Network has no history yet.",
-                    );
-                }
-            }
+            let mut allocated_addresses = IpAllocator::new(
+                txn,
+                record,
+                dhcp_handler,
+                AddressSelectionStrategy::Automatic,
+                32,
+            )
+            .await
+            .map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "IpAllocator.new error",
+                    sqlx::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+            let nfree = allocated_addresses.num_free().map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "IpAllocator.num_free error",
+                    sqlx::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )),
+                )
+            })?;
+
+            record.prefixes[0].num_free_ips = nfree;
         }
 
         Ok(())
@@ -764,7 +736,7 @@ impl NetworkSegment {
     pub async fn mark_as_deleted(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<NetworkSegment> {
+    ) -> CarbideResult<NetworkSegmentId> {
         // This check is not strictly necessary here, since the segment state machine
         // will also wait until all allocated addresses have been freed before actually
         // deleting the segment. However it gives the user some early feedback for
@@ -784,14 +756,14 @@ impl NetworkSegment {
         }
 
         let query =
-            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
-        let segment: NetworkSegment = sqlx::query_as(query)
+            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING id";
+        let id = sqlx::query_as(query)
             .bind(self.id)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-        Ok(segment)
+        Ok(id)
     }
 
     pub async fn final_delete(
@@ -814,10 +786,10 @@ impl NetworkSegment {
         txn: &mut Transaction<'_, Postgres>,
         circuit_id: &str,
     ) -> Result<Self, DatabaseError> {
-        let query = "
-SELECT network_segments.* FROM network_segments
-INNER JOIN network_prefixes ON network_prefixes.segment_id = network_segments.id
-WHERE network_prefixes.circuit_id=$1";
+        let query = r#"
+            SELECT ns.* FROM network_segment_snapshots ns
+            INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
+            WHERE network_prefixes.circuit_id=$1"#;
         sqlx::query_as(query)
             .bind(circuit_id)
             .fetch_one(txn.deref_mut())
@@ -829,23 +801,18 @@ WHERE network_prefixes.circuit_id=$1";
         txn: &mut Transaction<'_, Postgres>,
         name: &str,
     ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * from network_segments WHERE name = $1";
+        let query = "SELECT * FROM network_segment_snapshots WHERE name = $1";
         let segment: Self = sqlx::query_as(query)
             .bind(name)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        // Wrap the result in a vec so we can call update_prefix_into_network_segment_list
-        let mut segments = vec![segment];
-        Self::update_prefix_into_network_segment_list(txn, Default::default(), &mut segments)
-            .await?;
-        Ok(segments.remove(0))
+        Ok(segment)
     }
 
     /// This method returns Admin network segment.
     pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM network_segments WHERE network_segment_type = 'admin'";
+        let query = "SELECT * FROM network_segment_snapshots WHERE network_segment_type = 'admin'";
         let mut segments: Vec<NetworkSegment> = sqlx::query_as(query)
             .fetch_all(txn.deref_mut())
             .await
@@ -859,13 +826,6 @@ WHERE network_prefixes.circuit_id=$1";
                 sqlx::Error::RowNotFound,
             ));
         }
-
-        Self::update_prefix_into_network_segment_list(
-            txn,
-            NetworkSegmentSearchConfig::default(),
-            &mut segments,
-        )
-        .await?;
 
         Ok(segments.remove(0))
     }
@@ -899,15 +859,14 @@ WHERE network_prefixes.circuit_id=$1";
     pub async fn mark_as_deleted_no_validation(
         txn: &mut Transaction<'_, Postgres>,
         network_segment_ids: &[NetworkSegmentId],
-    ) -> CarbideResult<NetworkSegment> {
-        let query =
-            "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=ANY($1) RETURNING *";
-        let segment: NetworkSegment = sqlx::query_as(query)
+    ) -> CarbideResult<NetworkSegmentId> {
+        let query = "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=ANY($1) RETURNING id";
+        let id = sqlx::query_as(query)
             .bind(network_segment_ids)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
-        Ok(segment)
+        Ok(id)
     }
 }

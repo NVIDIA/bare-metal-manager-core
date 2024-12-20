@@ -9,23 +9,17 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
-use itertools::Itertools;
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::{
-    network_segment::NetworkSegmentType, ColumnInfo, DatabaseError, FilterableQueryBuilder,
-    ObjectColumnFilter,
-};
+use super::{network_segment::NetworkSegmentType, ColumnInfo, DatabaseError};
 use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
-    pub interface_id: MachineInterfaceId,
     pub address: IpAddr,
 }
 
@@ -51,21 +45,6 @@ impl MachineInterfaceAddress {
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceAddress>>(
-        txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectColumnFilter<'a, C>,
-    ) -> Result<HashMap<MachineInterfaceId, Vec<MachineInterfaceAddress>>, DatabaseError> {
-        let mut query = FilterableQueryBuilder::new("SELECT * FROM machine_interface_addresses")
-            .filter(&filter);
-        Ok(query
-            .build_query_as()
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?
-            .into_iter()
-            .into_group_map_by(|address: &MachineInterfaceAddress| address.interface_id))
     }
 
     pub async fn find_by_address(

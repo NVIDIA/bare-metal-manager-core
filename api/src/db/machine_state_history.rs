@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use config_version::ConfigVersion;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 use std::ops::DerefMut;
-
-use config_version::ConfigVersion;
-use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
     db::DatabaseError,
@@ -22,16 +22,16 @@ use crate::{
 use forge_uuid::machine::MachineId;
 
 /// History of Machine states for a single Machine
-#[derive(Debug, Clone, FromRow)]
-struct DbMachineStateHistory {
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DbMachineStateHistory {
     /// The ID of the machine that experienced the state change
-    machine_id: MachineId,
+    pub machine_id: MachineId,
 
     /// The state that was entered
-    state: String,
+    pub state: serde_json::Value,
 
     /// Current version.
-    state_version: ConfigVersion,
+    pub state_version: ConfigVersion,
     // The timestamp of the state change, currently unused
     //timestamp: DateTime<Utc>,
 }
@@ -58,7 +58,7 @@ pub async fn find_by_machine_ids(
     txn: &mut Transaction<'_, Postgres>,
     ids: &[MachineId],
 ) -> Result<HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
-    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
+    let query = "SELECT machine_id, state, state_version, timestamp
         FROM machine_state_history
         WHERE machine_id=ANY($1)
         ORDER BY id ASC";
@@ -80,11 +80,12 @@ pub async fn find_by_machine_ids(
     Ok(histories)
 }
 
+#[cfg(test)] // only used in tests today
 pub async fn for_machine(
     txn: &mut Transaction<'_, Postgres>,
     id: &MachineId,
 ) -> Result<Vec<MachineStateHistory>, DatabaseError> {
-    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
+    let query = "SELECT machine_id, state, state_version, timestamp
         FROM machine_state_history
         WHERE machine_id=$1
         ORDER BY id ASC";
@@ -105,7 +106,7 @@ pub async fn persist(
 ) -> Result<MachineStateHistory, DatabaseError> {
     let query = "INSERT INTO machine_state_history (machine_id, state, state_version)
         VALUES ($1, $2, $3)
-        RETURNING machine_id, state::TEXT, state_version, timestamp";
+        RETURNING machine_id, state, state_version, timestamp";
     sqlx::query_as::<_, DbMachineStateHistory>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(state))

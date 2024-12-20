@@ -10,23 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
 use super::dhcp_entry::DhcpEntry;
-use super::{
-    dhcp_entry, machine_interface_address, ColumnInfo, DatabaseError, FilterableQueryBuilder,
-    ObjectColumnFilter,
-};
+use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
@@ -78,6 +73,11 @@ impl ColumnInfo<'_> for MachineIdColumn {
 
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        // Note: Make sure to use the machine_interface_snapshots view when querying, or these
+        // columns will not be present in the result.
+        let addrs_json: sqlx::types::Json<Vec<Option<IpAddr>>> = row.try_get("addresses")?;
+        let vendors_json: sqlx::types::Json<Vec<Option<String>>> = row.try_get("vendors")?;
+
         Ok(MachineInterfaceSnapshot {
             id: row.try_get("id")?,
             attached_dpu_machine_id: row.try_get("attached_dpu_machine_id")?,
@@ -86,11 +86,11 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
             mac_address: row.try_get("mac_address")?,
-            is_primary: row.try_get("primary_interface")?,
-            addresses: Vec::new(),
-            vendors: Vec::new(),
+            primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,
             last_dhcp: row.try_get("last_dhcp")?,
+            addresses: addrs_json.0.into_iter().flatten().collect(),
+            vendors: vendors_json.0.into_iter().flatten().collect(),
         })
     }
 }
@@ -100,8 +100,8 @@ pub async fn set_primary_interface(
     interface_id: &MachineInterfaceId,
     primary: bool,
     txn: &mut Transaction<'_, Postgres>,
-) -> Result<MachineInterfaceSnapshot, DatabaseError> {
-    let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
+) -> Result<MachineInterfaceId, DatabaseError> {
+    let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(primary)
         .bind(*interface_id)
@@ -114,9 +114,9 @@ pub async fn associate_interface_with_dpu_machine(
     interface_id: &MachineInterfaceId,
     dpu_machine_id: &MachineId,
     txn: &mut Transaction<'_, Postgres>,
-) -> Result<MachineInterfaceSnapshot, DatabaseError> {
+) -> Result<MachineInterfaceId, DatabaseError> {
     let query =
-        "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
+        "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(dpu_machine_id.to_string())
         .bind(*interface_id)
@@ -129,8 +129,8 @@ pub async fn associate_interface_with_machine(
     interface_id: &MachineInterfaceId,
     machine_id: &MachineId,
     txn: &mut Transaction<'_, Postgres>,
-) -> CarbideResult<MachineInterfaceSnapshot> {
-    let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
+) -> CarbideResult<MachineInterfaceId> {
+    let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(machine_id.to_string())
         .bind(*interface_id)
@@ -157,7 +157,7 @@ pub async fn find_by_ip(
     txn: &mut Transaction<'_, Postgres>,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-    let query = r#"SELECT mi.* FROM machine_interfaces mi
+    let query = r#"SELECT mi.* FROM machine_interface_snapshots mi
         INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
         WHERE mia.address = $1::inet"#;
     sqlx::query_as(query)
@@ -175,10 +175,12 @@ pub async fn find_all(
         .map_err(CarbideError::from)
 }
 
+#[cfg(test)] // only used in tests today
 pub async fn find_by_machine_ids(
     txn: &mut Transaction<'_, Postgres>,
     machine_ids: &[MachineId],
-) -> Result<HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
+) -> Result<std::collections::HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
+    use itertools::Itertools;
     // The .unwrap() in the `group_map_by` call is ok - because we are only
     // searching for Machines which have associated MachineIds
     Ok(
@@ -513,78 +515,14 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
     txn: &mut Transaction<'_, Postgres>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    let mut query = FilterableQueryBuilder::new("SELECT * FROM machine_interfaces").filter(&filter);
-    let mut interfaces = query
+    let query_str = "SELECT * FROM machine_interface_snapshots";
+    let mut query = FilterableQueryBuilder::new(query_str).filter(&filter);
+    let interfaces = query
         .build_query_as::<MachineInterfaceSnapshot>()
         .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
-
-    // Query for MachineInterfaceAddress and DhcpEntry, mirroring the same criteria as we are using.
-    // ObjectColumnFilters are of distinct types, and need to be constructed with the right column
-    // type, which is distinct from machine_interface::IdColumn.
-    let (mut addresses_for_interfaces, dhcp_entries) = match filter {
-        ObjectColumnFilter::All => (
-            MachineInterfaceAddress::find_by(
-                &mut *txn,
-                ObjectColumnFilter::<machine_interface_address::MachineInterfaceIdColumn>::All,
-            )
-            .await?,
-            DhcpEntry::find_by(
-                &mut *txn,
-                ObjectColumnFilter::<dhcp_entry::MachineInterfaceIdColumn>::All,
-            )
-            .await?,
-        ),
-        _ => {
-            let interface_ids = interfaces
-                .iter()
-                .map(|interface| interface.id)
-                .collect::<Vec<MachineInterfaceId>>();
-            (
-                MachineInterfaceAddress::find_by(
-                    &mut *txn,
-                    ObjectColumnFilter::List(
-                        machine_interface_address::MachineInterfaceIdColumn,
-                        interface_ids.as_slice(),
-                    ),
-                )
-                .await?,
-                DhcpEntry::find_by(
-                    &mut *txn,
-                    ObjectColumnFilter::List(
-                        dhcp_entry::MachineInterfaceIdColumn,
-                        interface_ids.as_slice(),
-                    ),
-                )
-                .await?,
-            )
-        }
-    };
-
-    let mut vendors_by_interface_id = HashMap::<MachineInterfaceId, Vec<String>>::new();
-    for entry in dhcp_entries.into_iter() {
-        let vendors = vendors_by_interface_id
-            .entry(entry.machine_interface_id)
-            .or_default();
-        vendors.push(entry.vendor_string);
-    }
-
-    interfaces.iter_mut().for_each(|interface| {
-        if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
-            interface.addresses = addresses.into_iter().map(|a| a.address).collect();
-        } else {
-            tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
-        }
-        interface.vendors = vendors_by_interface_id
-            .remove(&interface.id)
-            .unwrap_or_default();
-    });
-
-    Ok(interfaces
-        .into_iter()
-        .map(MachineInterfaceSnapshot::from)
-        .collect())
+    Ok(interfaces)
 }
 
 #[cfg(test)] // currently only used by tests
@@ -600,7 +538,7 @@ pub async fn get_machine_interface_primary(
             id: machine_id.to_string(),
         })?
         .into_iter()
-        .filter(|m_intf| m_intf.is_primary)
+        .filter(|m_intf| m_intf.primary_interface)
         .collect::<Vec<MachineInterfaceSnapshot>>()
         .pop()
         .ok_or_else(|| {
@@ -750,7 +688,8 @@ pub async fn find_by_machine_and_segment(
     machine_id: &MachineId,
     segment_id: NetworkSegmentId,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    let query = "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
+    let query =
+        "SELECT * FROM machine_interface_snapshots WHERE machine_id = $1 AND segment_id = $2::uuid";
     sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
         .bind(machine_id.to_string())
         .bind(segment_id)

@@ -149,8 +149,8 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
 
     let seg_request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: ids_list.network_segments_ids.clone(),
-        include_history: false,
-        include_num_free_ips: false,
+        include_history: true,
+        include_num_free_ips: true,
     });
 
     let seg_list = env
@@ -161,6 +161,12 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
         .unwrap();
 
     assert_eq!(seg_list.network_segments.len(), 2);
+
+    for segment in seg_list.network_segments {
+        assert!(!segment.prefixes.is_empty());
+        assert!(!segment.history.is_empty());
+        assert_ne!(!segment.prefixes[0].free_ip_count, 0);
+    }
 }
 
 #[crate::sqlx_test()]

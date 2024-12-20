@@ -24,13 +24,13 @@ use crate::model::hardware_info::HardwareInfo;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MachineTopology {
     machine_id: MachineId,
     /// Topology data that is stored in json format in the database column
     topology: TopologyData,
     created: DateTime<Utc>,
-    _updated: DateTime<Utc>,
+    updated: DateTime<Utc>,
     topology_update_needed: bool,
 }
 
@@ -44,7 +44,7 @@ impl<'r> FromRow<'r, PgRow> for MachineTopology {
             machine_id: row.try_get("machine_id")?,
             topology: topology.0,
             created: row.try_get("created")?,
-            _updated: row.try_get("updated")?,
+            updated: row.try_get("updated")?,
             topology_update_needed: row.try_get("topology_update_needed")?,
         })
     }
@@ -288,6 +288,10 @@ impl MachineTopology {
 
     pub fn topology(&self) -> &TopologyData {
         &self.topology
+    }
+
+    pub fn into_topology(self) -> TopologyData {
+        self.topology
     }
 
     pub fn created(&self) -> DateTime<Utc> {
