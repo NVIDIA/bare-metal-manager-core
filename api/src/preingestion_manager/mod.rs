@@ -766,7 +766,7 @@ impl PreingestionManagerStatic {
                     // Still not reporting the new version.
                     DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
                         .await?;
-                    tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
+                    tracing::info!("Upgrade task has completed for {} but still reports version {current_version} (expected version: {final_version})", &endpoint.address);
                     return Ok(());
                 }
                 tracing::info!(
