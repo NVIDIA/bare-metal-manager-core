@@ -25,7 +25,6 @@ use eyre::Result;
 use forge_tls::client_config::ClientCert;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
-use hyper::server::conn::http2;
 use hyper::{
     body,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
@@ -33,6 +32,7 @@ use hyper::{
     Method, Request, Response,
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto;
 
 use opentelemetry::logs::{LogError, Logger, LoggerProvider};
 use opentelemetry::metrics::{Histogram, MeterProvider};
@@ -256,15 +256,14 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), io::
 
         tokio::task::spawn(async move {
             let state = state.clone();
-            http2::Builder::new(TokioExecutor::new())
+            auto::Builder::new(TokioExecutor::new())
                 .serve_connection(
                     io,
                     service_fn(move |req: Request<body::Incoming>| {
                         serve_metrics(req, state.clone())
                     }),
                 )
-                .await?;
-            Ok::<(), hyper::Error>(())
+                .await
         });
     }
 }
