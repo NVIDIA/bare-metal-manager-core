@@ -241,6 +241,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
     handle_action(action, &machine_id, config.machine_interface_id, config).await?;
     Ok(())
 }
+
 async fn handle_action(
     controller_response: rpc_forge::ForgeAgentControlResponse,
     machine_id: &str,
@@ -271,7 +272,11 @@ async fn handle_action(
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
         Action::Measure => {
-            eprintln!("Action::Measure is no longer supported");
+            initial_setup(config).await.map_err(|e| {
+                CarbideClientError::GenericError(format!(
+                    "Could not perform attestation at the request of forge agent control: {e}"
+                ))
+            })?;
         }
         Action::MachineValidation => {
             tracing::info!("Machine validation");

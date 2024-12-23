@@ -70,7 +70,7 @@ use crate::model::machine::machine_id::{
 };
 use crate::model::machine::{
     get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, ManagedHostState, ManagedHostStateSnapshot,
+    FailureSource, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::tenant::Tenant;
@@ -1749,6 +1749,14 @@ impl Forge for Api {
                         },
                     ..
                 } => (Action::Discovery, None),
+                // If the API is configured with attestation_enabled, and
+                // the machine has been Discovered (and progressed on to the
+                // point where it is WaitingForMeasurements), then let Scout (or
+                // whoever the caller is) know that it's time for measurements
+                // to be sent.
+                ManagedHostState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                } => (Action::Measure, None),
                 ManagedHostState::WaitingForCleanup { .. }
                 | ManagedHostState::Failed {
                     details:
