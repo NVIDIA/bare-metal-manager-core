@@ -878,9 +878,11 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
                 details: Some(format!("url: {url};\nsource: {source};\nerror: {error}",)),
             }
         }
-        RedfishError::HTTPErrorCode { status_code, .. } if *status_code == NOT_FOUND => {
-            EndpointExplorationError::MissingRedfish
-        }
+        RedfishError::HTTPErrorCode {
+            url, status_code, ..
+        } if *status_code == NOT_FOUND => EndpointExplorationError::MissingRedfish {
+            uri: Some(url.clone()),
+        },
         RedfishError::HTTPErrorCode {
             status_code,
             response_body,

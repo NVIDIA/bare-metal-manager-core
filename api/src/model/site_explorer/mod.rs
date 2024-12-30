@@ -795,8 +795,8 @@ pub enum EndpointExplorationError {
     },
     #[error("Failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: String },
-    #[error("Endpoint is not a BMC with Redfish support")]
-    MissingRedfish,
+    #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
+    MissingRedfish { uri: Option<String> },
     #[error("BMC vendor field is not populated. Unsupported BMC.")]
     MissingVendor,
     #[error("Site explorer will not explore this endpoint to avoid lockout: it could not login previously")]
