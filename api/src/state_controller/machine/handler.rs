@@ -2147,8 +2147,7 @@ async fn component_update(
         .iter()
         .find(|i| i.contains(redfish_component_name))
         .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
-            "No inventory found that matches: {}",
-            redfish_component_name
+            "No inventory found that matches redfish component name: {redfish_component_name}; inventory list: {inventories:#?}",
         )))?;
 
     let inventory = match redfish.get_firmware(inventory_id).await {
