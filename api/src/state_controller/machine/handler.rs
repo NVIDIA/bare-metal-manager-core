@@ -2263,7 +2263,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
         BmcFirmwareUpgradeSubstate::CheckFwVersion => {
             let dpu_redfish_client_result = services
                 .redfish_client_pool
-                .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                .create_client_from_machine_snapshot(dpu_snapshot, txn)
                 .await;
 
             let dpu_redfish_client = match dpu_redfish_client_result {
