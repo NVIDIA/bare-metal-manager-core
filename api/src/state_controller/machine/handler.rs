@@ -2736,44 +2736,63 @@ async fn handle_dpu_reprovision(
             // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
             if state.host_snapshot.bmc_vendor.is_lenovo() {
                 tracing::info!(
-                    "Initiating BMC cold reset of lenovo machine {}",
+                    "Initiating BMC reset of lenovo machine {}",
                     state.host_snapshot.machine_id
                 );
 
-                let bmc_mac_address = state.host_snapshot.bmc_info.mac.ok_or_else(|| {
-                    StateHandlerError::MissingData {
-                        object_id: state.host_snapshot.machine_id.to_string(),
-                        missing: "bmc_mac",
-                    }
-                })?;
+                let redfish_client = services
+                    .redfish_client_pool
+                    .create_client_from_machine_snapshot(&state.host_snapshot, txn)
+                    .await?;
 
-                let bmc_ip_address = state
-                    .host_snapshot
-                    .bmc_info
-                    .ip
-                    .clone()
-                    .ok_or_else(|| StateHandlerError::MissingData {
-                        object_id: state.host_snapshot.machine_id.to_string(),
-                        missing: "bmc_ip",
-                    })?
-                    .parse()
-                    .map_err(|e| {
-                        StateHandlerError::GenericError(eyre!(
-                            "parsing the host's BMC IP address failed: {}",
-                            e
-                        ))
+                if let Err(redfish_error) = redfish_client.bmc_reset().await {
+                    tracing::warn!(
+                        "Failed to reboot BMC for {} through redfish, will try ipmitool: {redfish_error}",
+                        &state.host_snapshot.machine_id
+                    );
+
+                    let bmc_mac_address = state.host_snapshot.bmc_info.mac.ok_or_else(|| {
+                        StateHandlerError::MissingData {
+                            object_id: state.host_snapshot.machine_id.to_string(),
+                            missing: "bmc_mac",
+                        }
                     })?;
 
-                services
-                    .ipmi_tool
-                    .bmc_cold_reset(
-                        bmc_ip_address,
-                        CredentialKey::BmcCredentials {
-                            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                        },
-                    )
-                    .await
-                    .map_err(StateHandlerError::GenericError)?;
+                    let bmc_ip_address = state
+                        .host_snapshot
+                        .bmc_info
+                        .ip
+                        .clone()
+                        .ok_or_else(|| StateHandlerError::MissingData {
+                            object_id: state.host_snapshot.machine_id.to_string(),
+                            missing: "bmc_ip",
+                        })?
+                        .parse()
+                        .map_err(|e| {
+                            StateHandlerError::GenericError(eyre!(
+                                "parsing the host's BMC IP address failed: {}",
+                                e
+                            ))
+                        })?;
+
+                    if let Err(ipmitool_error) = services
+                        .ipmi_tool
+                        .bmc_cold_reset(
+                            bmc_ip_address,
+                            CredentialKey::BmcCredentials {
+                                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                            },
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to reset BMC for {} through IPMI tool: {ipmitool_error}",
+                            &state.host_snapshot.machine_id
+                        );
+
+                        return Err(StateHandlerError::GenericError(eyre!("Failed to reset BMC for {}; redfish error: {redfish_error}; ipmitool error: {ipmitool_error}", &state.host_snapshot.machine_id)));
+                    };
+                }
             }
 
             Ok(StateHandlerOutcome::Transition(
