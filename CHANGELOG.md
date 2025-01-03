@@ -1,5 +1,12 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc2-0...trunk)
+
+### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2024.12.20-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...v2024.12.20-rc2-0)
 
 ### Added
 
@@ -8,6 +15,23 @@
     - Parititons created in Forge without associated GUID will not be registered at UFM
     - Partitions created outside of Forge will be tracked by the number
   2. `forge_ib_monitor_ufm_ports_by_state_count`: The total number of ports reported by UFM, aggregated by port state (e.g. `Active`).
+- Added host direct-attach drive health status to admin-cli.
+- Updated DPU Agent to support Forge Native Networking.
+- Integrated VPC Prefix handling with Instance creation workflow.
+- Added information on how to obtain the UFM IP in the IB runbook.
+- Use status code FailedPrecondition when host is not available due to health.
+- Added Redfish Browser Support to admin-cli.
+- UFM IP can now be set and viewed in the carbide config file.
+- Added support for Lenovo 655v3 and 675 server models
+- Monitor pkey resource pools for additional fabrics.
+- UFM endpoints in IbFabricMonitor are loggewd.
+- Added InstanceType implementation and handlers for CRUD actions.
+- Updated IB status in MachineStateHandler.
+- Allow omitting network config when allocating zero-dpu instances.
+- Grant CreateTenant, FindTenant, and UpdateTenant to site agent.
+- Added unique ASN per DPU.
+- Provide a visual hint for disconnected IB interfaces.
+- Use redfish to reboot a Lenovo's BMC after upgrading the NIC fw on its DPU.
 
 ### Changed
 
@@ -26,13 +50,32 @@
   ```
   level=SPAN span_id=0x9509d58bfaa0173d span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.217.161.194:443\"],\"fabric_error\":\"\",\"ufm_version\":\"6.14.1-5\",\"subnet_prefix\":\"\",\"m_key\":\"\",\"sm_key\":\"\",\"sa_key\":\"\",\"m_key_per_port\":false}}" num_fabrics=1 otel_status_code=ok timing_busy_ns=2158292 timing_elapsed_us=33074 timing_end_time=2024-12-13T19:28:50.230282096Z timing_idle_ns=30835294 timing_start_time=2024-12-13T19:28:50.197207484Z
   ```
+- Updated the FNN template.
+- Replaced single-use errors with standardized ones.
+- Integrated site explorer into create_managed_host API.
+- Set strict BMC FW version in config.
+- Added line number from where machine state handler returning DoNothing.
+- Show UFM visibility more explicitly.
+- Will not return from seondary DPU is inetrfaces are empty.
+- Use admin netowrk for secondary DPU.
+- Include ports in non-active states with find_ib_port.
+- Enhanced debug statement in DPU preingestion to report expected BMC fw version.
 
 ### Fixed
 
 - Fixed an issue where the Machine state handler could get stuck in case Maintenance
   mode was enabled on a Machine as well as a Replace health override was present.
+- Reboot the DPU up to 10 times if the secure boot query is not returning the expected fields.
+- Added extra ubuntu modules so IB devices can get discovered.
+- Allocate VPC DPU loopback IP for FNN segment only and release it on instance release.
+- Delete all vpc loopback IPs, not just one.
+- Fix startup check for IB fabric ID.
 
 ### Removed
+
+- Removed predicted host in admin-cli measurement results.
+- Revert DPU BMC firmware until bfb/hbn is ready.
+- No longer send tenant interface info to secondary DPU.
 
 ## [v2024.12.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.06-rc3-0)
 
@@ -87,6 +130,12 @@
 ### Removed
 
 - Removed tss-esapi feature, which is no longer required to build forge-admin-cli on macOS.
+
+## [v2024.11.22-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc5-0...v2024.11.22-rc6-0)
+
+### Fixed
+
+- Change libredfish to treat the OEM field as optional instead of mandtory.
 
 ## [v2024.11.22-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc4-0...v2024.11.22-rc5-0)
 
