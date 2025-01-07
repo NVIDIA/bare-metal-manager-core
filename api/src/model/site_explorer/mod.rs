@@ -795,6 +795,8 @@ pub enum EndpointExplorationError {
     },
     #[error("Failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: String },
+    /// Deprecated. Replaced by `RedfishError`.
+    /// This field just exists here until site-explorer updates existing records
     #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
     MissingRedfish { uri: Option<String> },
     #[error("BMC vendor field is not populated. Unsupported BMC.")]
