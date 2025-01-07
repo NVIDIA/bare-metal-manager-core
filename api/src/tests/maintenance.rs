@@ -376,13 +376,15 @@ async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(
         }
     );
 
-    // disable maintenance
-    let req = tonic::Request::new(rpcf::MaintenanceRequest {
-        operation: rpcf::MaintenanceOperation::Disable.into(),
-        host_id: Some(rpc_host_id.clone()),
-        reference: None,
-    });
-    env.api.set_maintenance(req).await.unwrap();
+    // disable maintenance mode
+    txn = env.pool.begin().await.unwrap();
+    crate::db::machine::Machine::set_maintenance_mode(&mut txn, &host_id, &MaintenanceMode::Off)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Now run the state handler. The alert should disappear
+    env.run_machine_state_controller_iteration().await;
 
     // Maintenance reference is cleared and there's no alarm anymore
     let host_machine = env
