@@ -31,6 +31,7 @@ use eyre::eyre;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
+use health_report::HealthProbeId;
 use itertools::Itertools;
 use libredfish::{
     model::{
@@ -430,53 +431,8 @@ impl MachineStateHandler {
             }
         }
 
-        // Migrate from legacy maintenance mode to health alert
-        if mh_snapshot.host_snapshot.is_maintenance_mode()
-            && !mh_snapshot
-                .host_snapshot
-                .health_report_overrides
-                .merges
-                .iter()
-                .any(|(source, report)| {
-                    source == "maintenance"
-                        && report
-                            .alerts
-                            .iter()
-                            .any(|alert| alert.id == "Maintenance".parse().unwrap())
-                })
-        {
-            let report = health_report::HealthReport {
-                source: "maintenance".to_string(),
-                observed_at: Some(chrono::Utc::now()),
-                successes: Vec::new(),
-                alerts: vec![health_report::HealthProbeAlert {
-                    id: "Maintenance".parse().unwrap(),
-                    target: None,
-                    in_alert_since: Some(chrono::Utc::now()),
-                    message: mh_snapshot
-                        .host_snapshot
-                        .maintenance_reference()
-                        .unwrap()
-                        .to_string(),
-                    tenant_message: None,
-                    classifications: vec![
-                        health_report::HealthAlertClassification::prevent_allocations(),
-                    ],
-                }],
-            };
-
-            crate::db::machine::Machine::insert_health_report_override(
-                txn,
-                &mh_snapshot.host_snapshot.machine_id,
-                health_report::OverrideMode::Merge,
-                &report,
-            )
-            .await?;
-
-            // The next iteration will have the alert applied
-            return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                DoNothingDetails { line: line!() },
-            ));
+        if let Some(outcome) = handle_legacy_maintenance_mode(mh_snapshot, txn).await? {
+            return Ok(outcome);
         }
 
         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
@@ -1812,6 +1768,83 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[MachineSnapshot]) -> bool {
     dpu_snapshots
         .iter()
         .any(|x| x.reprovision_requested.is_some())
+}
+
+async fn handle_legacy_maintenance_mode(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
+    let health_alert_source_for_maintenance_mode = "maintenance".to_string();
+    let health_alert_id_for_maintenance_mode: HealthProbeId = "Maintenance".parse().unwrap();
+    let health_alert_mode_for_maintenance_mode = health_report::OverrideMode::Merge;
+
+    let is_host_in_maintenance_mode = mh_snapshot.host_snapshot.is_maintenance_mode();
+    let is_health_alert_raised_for_maintenance = mh_snapshot
+        .host_snapshot
+        .health_report_overrides
+        .merges
+        .iter()
+        .any(|(source, report)| {
+            *source == health_alert_source_for_maintenance_mode
+                && report
+                    .alerts
+                    .iter()
+                    .any(|alert| alert.id == health_alert_id_for_maintenance_mode)
+        });
+
+    let raise_health_alert = is_host_in_maintenance_mode && !is_health_alert_raised_for_maintenance;
+    let clear_health_alert = !is_host_in_maintenance_mode && is_health_alert_raised_for_maintenance;
+
+    // Migrate from legacy maintenance mode to health alert
+    if raise_health_alert {
+        let report = health_report::HealthReport {
+            source: health_alert_source_for_maintenance_mode.to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![health_report::HealthProbeAlert {
+                id: health_alert_id_for_maintenance_mode,
+                target: None,
+                in_alert_since: Some(chrono::Utc::now()),
+                message: mh_snapshot
+                    .host_snapshot
+                    .maintenance_reference()
+                    .unwrap()
+                    .to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            }],
+        };
+
+        crate::db::machine::Machine::insert_health_report_override(
+            txn,
+            &mh_snapshot.host_snapshot.machine_id,
+            health_alert_mode_for_maintenance_mode,
+            &report,
+        )
+        .await?;
+
+        // The next iteration will have the alert applied
+        return Ok(Some(StateHandlerOutcome::DoNothingWithDetails(
+            DoNothingDetails { line: line!() },
+        )));
+    } else if clear_health_alert {
+        crate::db::machine::Machine::remove_health_report_override(
+            txn,
+            &mh_snapshot.host_snapshot.machine_id,
+            health_alert_mode_for_maintenance_mode,
+            &health_alert_source_for_maintenance_mode,
+        )
+        .await?;
+
+        // The next iteration will have the alert removed
+        return Ok(Some(StateHandlerOutcome::DoNothingWithDetails(
+            DoNothingDetails { line: line!() },
+        )));
+    }
+
+    Ok(None)
 }
 
 // Function to wait for some time in state machine.
