@@ -1,0 +1,358 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::borrow::Cow;
+use std::str::FromStr;
+
+use ipnet::IpNet;
+use rpc::Uuid;
+use serde::Serialize;
+
+use crate::cfg::carbide_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
+use crate::rpc::with_forge_client;
+use forge_uuid::vpc::VpcPrefixId;
+use rpc::forge::{
+    PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
+    VpcPrefixDeletionResult, VpcPrefixSearchQuery,
+};
+use rpc::forge_tls_client::{ApiConfig, ForgeClientT};
+use utils::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult};
+use CarbideCliError::GenericError;
+
+pub async fn handle_show(
+    args: VpcPrefixShow,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+    batch_size: usize,
+) -> CarbideCliResult<()> {
+    let show_method = ShowMethod::from(args);
+    let output = with_forge_client(api_config, |mut forge_client| async move {
+        fetch(&mut forge_client, batch_size, show_method).await
+    })
+    .await?;
+
+    output
+        .write_output(output_format, utils::admin_cli::Destination::Stdout())
+        .map_err(CarbideCliError::from)
+}
+
+pub async fn handle_create(
+    args: VpcPrefixCreate,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    let output = with_forge_client(api_config, |mut forge_client| async move {
+        create(&mut forge_client, args).await
+    })
+    .await?;
+
+    output
+        .write_output(output_format, utils::admin_cli::Destination::Stdout())
+        .map_err(CarbideCliError::from)
+}
+
+pub async fn handle_delete(
+    args: VpcPrefixDelete,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut forge_client| async move {
+        delete(&mut forge_client, args).await
+    })
+    .await
+}
+
+#[derive(Debug)]
+enum ShowMethod {
+    Get(VpcPrefixSelector),
+    Search(VpcPrefixSearchQuery),
+}
+
+#[derive(Debug)]
+enum ShowOutput {
+    One(VpcPrefix),
+    Many(Vec<VpcPrefix>),
+}
+
+impl ShowOutput {
+    pub fn as_slice(&self) -> &[VpcPrefix] {
+        match self {
+            ShowOutput::One(vpc_prefix) => std::slice::from_ref(vpc_prefix),
+            ShowOutput::Many(vpc_prefixes) => vpc_prefixes.as_slice(),
+        }
+    }
+}
+
+impl From<VpcPrefixShow> for ShowMethod {
+    fn from(show_args: VpcPrefixShow) -> Self {
+        let VpcPrefixShow {
+            prefix_selector,
+            vpc_id,
+            contains,
+            contained_by,
+        } = show_args;
+        match prefix_selector {
+            Some(selector) => ShowMethod::Get(selector),
+            None => {
+                let mut search = match_all();
+                search.vpc_id = vpc_id.map(|vpc_id| vpc_id.into());
+                if let Some(prefix) = contains {
+                    search.prefix_match_type = Some(PrefixMatchType::PrefixContains as i32);
+                    search.prefix_match = Some(prefix.to_string());
+                };
+                if let Some(prefix) = contained_by {
+                    search.prefix_match_type = Some(PrefixMatchType::PrefixContainedBy as i32);
+                    search.prefix_match = Some(prefix.to_string());
+                };
+                ShowMethod::Search(search)
+            }
+        }
+    }
+}
+
+async fn create(
+    forge_client: &mut ForgeClientT,
+    create_args: VpcPrefixCreate,
+) -> Result<ShowOutput, CarbideCliError> {
+    let VpcPrefixCreate {
+        vpc_id,
+        prefix,
+        name,
+        vpc_prefix_id,
+    } = create_args;
+    let new_prefix = VpcPrefixCreationRequest {
+        id: vpc_prefix_id.map(|vpc_prefix_id| vpc_prefix_id.into()),
+        prefix: prefix.to_string(),
+        name,
+        vpc_id: Some(vpc_id.into()),
+    };
+    let request = tonic::Request::new(new_prefix);
+    forge_client
+        .create_vpc_prefix(request)
+        .await
+        .map(|response| ShowOutput::One(response.into_inner()))
+        .map_err(CarbideCliError::ApiInvocationError)
+}
+
+async fn delete(
+    forge_client: &mut ForgeClientT,
+    delete_args: VpcPrefixDelete,
+) -> Result<(), CarbideCliError> {
+    let VpcPrefixDelete { vpc_prefix_id } = delete_args;
+    let delete_prefix = VpcPrefixDeletionRequest {
+        id: Some(vpc_prefix_id.into()),
+    };
+    let request = tonic::Request::new(delete_prefix);
+    forge_client
+        .delete_vpc_prefix(request)
+        .await
+        .map(|response| {
+            let VpcPrefixDeletionResult {} = response.into_inner();
+        })
+        .map_err(CarbideCliError::ApiInvocationError)
+}
+
+async fn fetch(
+    forge_client: &mut ForgeClientT,
+    batch_size: usize,
+    show_method: ShowMethod,
+) -> Result<ShowOutput, CarbideCliError> {
+    match show_method {
+        ShowMethod::Get(get_one) => get_one.fetch(forge_client).await.map(ShowOutput::One),
+        ShowMethod::Search(query) => {
+            let vpc_prefix_ids = search(forge_client, query).await?;
+            get_by_ids(forge_client, batch_size, vpc_prefix_ids.as_slice())
+                .await
+                .map(ShowOutput::Many)
+        }
+    }
+}
+
+async fn search(
+    forge_client: &mut ForgeClientT,
+    query: VpcPrefixSearchQuery,
+) -> Result<Vec<Uuid>, CarbideCliError> {
+    let request = tonic::Request::new(query);
+    forge_client
+        .search_vpc_prefixes(request)
+        .await
+        .map(|response| response.into_inner().vpc_prefix_ids)
+        .map_err(CarbideCliError::ApiInvocationError)
+}
+
+async fn get_by_ids(
+    forge_client: &mut ForgeClientT,
+    batch_size: usize,
+    ids: &[Uuid],
+) -> Result<Vec<VpcPrefix>, CarbideCliError> {
+    let mut vpc_prefixes = Vec::with_capacity(ids.len());
+    for ids in ids.chunks(batch_size) {
+        let vpc_id_list = rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: ids.to_owned(),
+        };
+        let request = tonic::Request::new(vpc_id_list);
+        let prefixes_batch = forge_client
+            .get_vpc_prefixes(request)
+            .await
+            .map(|response| response.into_inner().vpc_prefixes)
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        vpc_prefixes.extend(prefixes_batch);
+    }
+    Ok(vpc_prefixes)
+}
+
+async fn get_one_by_id(
+    forge_client: &mut ForgeClientT,
+    id: VpcPrefixId,
+) -> Result<VpcPrefix, CarbideCliError> {
+    let mut prefixes = get_by_ids(forge_client, 1, &[id.into()]).await?;
+    match (prefixes.len(), prefixes.pop()) {
+        (1, Some(prefix)) => Ok(prefix),
+        (0, None) => Err(CarbideCliError::GenericError(format!(
+            "VPC prefix not found: {id}"
+        ))),
+        (n, _) => {
+            panic!(
+                "Requested a single VPC prefix ID ({id}) from the API but \
+                {n} were returned (this shouldn't happen, please file a bug)"
+            )
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum VpcPrefixSelector {
+    Id(VpcPrefixId),
+    Prefix(ipnet::IpNet),
+}
+
+impl VpcPrefixSelector {
+    pub async fn fetch(
+        self,
+        forge_client: &mut ForgeClientT,
+    ) -> Result<VpcPrefix, CarbideCliError> {
+        match self {
+            VpcPrefixSelector::Id(id) => get_one_by_id(forge_client, id).await,
+            VpcPrefixSelector::Prefix(prefix) => {
+                let id = {
+                    let uuids = search(forge_client, prefix_match_exact(&prefix)).await?;
+                    let uuid = match Quantity::from(uuids) {
+                        Quantity::One(uuid) => Ok(uuid),
+                        Quantity::Zero => Err(GenericError(format!(
+                            "No VPC prefix matched IP prefix {prefix} (either \
+                            such a prefix does not exist, or it's a different size)"
+                        ))),
+                        Quantity::Many(uuids) => Err(GenericError(format!(
+                            "Multiple VPC prefixes matched IP prefix {prefix}: {uuids:?}"
+                        ))),
+                    };
+                    uuid.and_then(|uuid| {
+                        VpcPrefixId::try_from(uuid).map_err(|e| {
+                            GenericError(format!("Cannot parse VpcPrefixId from API: {e}"))
+                        })
+                    })
+                }?;
+                get_one_by_id(forge_client, id).await
+            }
+        }
+    }
+}
+
+impl FromStr for VpcPrefixSelector {
+    type Err = CarbideCliError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parsed_vpc_prefix_id = VpcPrefixId::from_str(s);
+        let parsed_ip_prefix = ipnet::IpNet::from_str(s);
+        match (parsed_ip_prefix, parsed_vpc_prefix_id) {
+            (Ok(ip_prefix), _) => Ok(Self::Prefix(ip_prefix)),
+            (Err(_), Ok(vpc_prefix_id)) => Ok(Self::Id(vpc_prefix_id)),
+            (Err(prefix_parse_error), Err(id_parse_error)) => Err(GenericError(format!(
+                "Couldn't parse VPC prefix selector as VpcPrefixId ({id_parse_error}) or as IP prefix ({prefix_parse_error})"
+            ))),
+        }
+    }
+}
+
+fn prefix_match_exact(prefix: &IpNet) -> rpc::forge::VpcPrefixSearchQuery {
+    rpc::forge::VpcPrefixSearchQuery {
+        prefix_match: Some(prefix.to_string()),
+        prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
+        ..Default::default()
+    }
+}
+
+fn match_all() -> rpc::forge::VpcPrefixSearchQuery {
+    rpc::forge::VpcPrefixSearchQuery {
+        ..Default::default()
+    }
+}
+
+enum Quantity<T> {
+    Zero,
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> From<Vec<T>> for Quantity<T> {
+    fn from(value: Vec<T>) -> Self {
+        let mut items = value;
+        match items.len() {
+            0 => Quantity::Zero,
+            1 => Quantity::One(items.pop().unwrap()),
+            _ => Quantity::Many(items),
+        }
+    }
+}
+
+impl FormattedOutput for ShowOutput {}
+
+impl Serialize for ShowOutput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ShowOutput::One(vpc_prefix) => vpc_prefix.serialize(serializer),
+            ShowOutput::Many(vpc_prefixes) => vpc_prefixes.serialize(serializer),
+        }
+    }
+}
+
+impl IntoTable for ShowOutput {
+    type Row = VpcPrefix;
+
+    fn header(&self) -> &[&str] {
+        &["VpcPrefixId", "VpcId", "Prefix", "Name"]
+    }
+
+    fn all_rows(&self) -> &[Self::Row] {
+        self.as_slice()
+    }
+
+    fn row_values(row: &Self::Row) -> Vec<Cow<str>> {
+        let vpc_prefix_id = row.id.as_ref().map(|id| id.value.as_str()).unwrap_or("");
+        let vpc_id = row
+            .vpc_id
+            .as_ref()
+            .map(|id| id.value.as_str())
+            .unwrap_or("");
+        let prefix = row.prefix.as_str();
+        let name = row.name.as_str();
+        vec![
+            vpc_prefix_id.into(),
+            vpc_id.into(),
+            prefix.into(),
+            name.into(),
+        ]
+    }
+}

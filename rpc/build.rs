@@ -169,6 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.StorageClusterAttributes",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePoolAttributes", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePool", "#[derive(serde::Serialize)]")

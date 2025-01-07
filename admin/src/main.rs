@@ -53,6 +53,7 @@ use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::TenantKeySetOptions;
 use cfg::carbide_options::TpmCa;
+use cfg::carbide_options::VpcPrefixOptions;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
@@ -97,6 +98,7 @@ mod tpm;
 mod uefi;
 mod version;
 mod vpc;
+mod vpc_prefix;
 
 pub fn default_uuid() -> ::rpc::common::Uuid {
     ::rpc::common::Uuid {
@@ -954,6 +956,26 @@ async fn main() -> color_eyre::Result<()> {
                 vpc::set_network_virtualization_type(api_config, set_vpc_virt).await?
             }
         },
+        CarbideCommand::VpcPrefix(vpc_prefix_command) => {
+            use VpcPrefixOptions::*;
+            match vpc_prefix_command {
+                Create(create_options) => {
+                    vpc_prefix::handle_create(create_options, config.format, api_config).await?
+                }
+                Show(show_options) => {
+                    vpc_prefix::handle_show(
+                        show_options,
+                        config.format,
+                        api_config,
+                        config.internal_page_size,
+                    )
+                    .await?
+                }
+                Delete(delete_options) => {
+                    vpc_prefix::handle_delete(delete_options, api_config).await?
+                }
+            }
+        }
         CarbideCommand::IbPartition(ibp) => match ibp {
             IbPartitionOptions::Show(ibp) => {
                 ib_partition::handle_show(ibp, config.format, api_config, config.internal_page_size)
