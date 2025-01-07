@@ -7,17 +7,18 @@
 
 */
 
-use ::rpc::common::MachineId;
-use ::rpc::forge::MachineType;
-use clap::ValueEnum;
-use serde::Serialize;
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde::Serialize;
 #[cfg(feature = "sqlx")]
 use sqlx::{Pool, Postgres};
+
+use ::rpc::common::MachineId;
+use ::rpc::forge::MachineType;
+pub use output::{Destination, OutputFormat};
 
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
@@ -116,26 +117,12 @@ pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
 
 /// ToTable is a trait which is used alongside the cli_output command
 /// and being able to prettytable print results.
+//
+// Prefer implementing IntoTable instead of this.
 pub trait ToTable {
     fn to_table(&self) -> eyre::Result<String> {
         Ok("not implemented".to_string())
     }
-}
-
-/// Destination is an enum used to determine whether CLI output is going
-/// to a file path or stdout.
-pub enum Destination {
-    Path(String),
-    Stdout(),
-}
-
-#[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
-#[clap(rename_all = "kebab_case")]
-pub enum OutputFormat {
-    Json,
-    Csv,
-    AsciiTable,
-    Yaml,
 }
 
 /// convert_to_table leverages input instances which
@@ -175,4 +162,143 @@ pub fn cli_output<T: Serialize + ToTable>(
     }
 
     Ok(())
+}
+
+pub mod output {
+    use std::fs::File;
+    use std::io::{stdout, Write};
+
+    use clap::ValueEnum;
+    use serde::Serialize;
+
+    use table::{render_ascii_table, render_csv_table};
+
+    pub use table::IntoTable;
+
+    /// Destination is an enum used to determine whether CLI output is going
+    /// to a file path or stdout.
+    pub enum Destination {
+        Path(String),
+        Stdout(),
+    }
+
+    #[derive(Default, PartialEq, Eq, ValueEnum, Clone, Debug)]
+    #[clap(rename_all = "kebab_case")]
+    pub enum OutputFormat {
+        #[default]
+        AsciiTable,
+        Csv,
+        Json,
+        Yaml,
+    }
+
+    /// The FormattedOutput trait allows you to handle CLI output for a data
+    /// structure. It has no required methods, however you do need to implement
+    /// serde::Serialize and our own IntoTable trait, as this is a supertrait of
+    /// those two.
+    pub trait FormattedOutput: Serialize + IntoTable {
+        /// Format the output data as bytes (probably UTF-8 text).
+        fn format_output(&self, format: OutputFormat) -> Vec<u8> {
+            match format {
+                OutputFormat::Json => {
+                    serde_json::to_vec_pretty(self).expect("Could not serialize as JSON")
+                }
+                OutputFormat::Yaml => {
+                    let mut out = Vec::new();
+                    serde_yaml::to_writer(&mut out, self).expect("Could not serialize as YAML");
+                    out
+                }
+                OutputFormat::AsciiTable => render_ascii_table(self),
+                OutputFormat::Csv => render_csv_table(self),
+            }
+        }
+
+        /// Format the output data and write it to the specified destination.
+        fn write_output(
+            &self,
+            format: OutputFormat,
+            destination: Destination,
+        ) -> std::io::Result<()> {
+            let output = self.format_output(format);
+            match destination {
+                Destination::Stdout() => {
+                    let mut stdout_guard = stdout().lock();
+                    stdout_guard.write_all(output.as_slice())
+                }
+                Destination::Path(path) => {
+                    File::create(path).and_then(|mut file| file.write_all(output.as_slice()))
+                }
+            }
+        }
+    }
+
+    pub mod table {
+        use std::borrow::Cow;
+
+        use prettytable::{Row, Table};
+
+        /// The IntoTable trait is used to help the AsciiTable and CSV
+        /// formatters turn a data structure into tabular data.
+        pub trait IntoTable: Sized {
+            type Row;
+
+            /// Return the header with the titles for each column. These should
+            /// be ordered the same as in the `.row_values()` implementation.
+            fn header(&self) -> &[&str];
+
+            /// Return a slice spanning all of the rows.
+            fn all_rows(&self) -> &[Self::Row];
+
+            /// Return a Vec with the text values for this row, in the same
+            /// order as `.header()`. If the Row's internal fields contain
+            /// values represented as strings, these values can be returned as
+            /// Cow::Borrowed, and if not you will need to string-format them
+            /// and return these as Cow::Owned.
+            fn row_values(row: &Self::Row) -> Vec<Cow<str>>;
+
+            // fn render_text_table(&self) -> String {
+            //     let table = make_table(self);
+            //     format!("{table}")
+            // }
+        }
+
+        // This is not a trait method in order to keep the `prettytable` types
+        // out of the public API.
+        fn make_table<T>(data_source: &T) -> Table
+        where
+            T: IntoTable,
+        {
+            let mut table = Table::new();
+            let header = Row::from(data_source.header());
+            table.set_titles(header);
+            let rows = data_source.all_rows();
+            rows.iter().for_each(|row| {
+                let values = T::row_values(row);
+                let row = Row::from(values);
+                table.add_row(row);
+            });
+
+            table
+        }
+
+        pub fn render_ascii_table<T>(data_source: &T) -> Vec<u8>
+        where
+            T: IntoTable,
+        {
+            let mut out = Vec::new();
+            let table = make_table(data_source);
+            table.print(&mut out).expect("Couldn't render ASCII table");
+            out
+        }
+
+        pub fn render_csv_table<T>(data_source: &T) -> Vec<u8>
+        where
+            T: IntoTable,
+        {
+            let mut out = Vec::new();
+            let table = make_table(data_source);
+            table.to_csv(&mut out).expect("Couldn't render CSV table");
+            out
+        }
+    }
 }

@@ -39,6 +39,7 @@ rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
 forge_secrets = { path = "../common/secrets" }
 measured-boot = { path = "../common/measured-boot", features = ["cli"] }
+ipnet = "2.10.1"
 
 [build-dependencies]
 clap = { workspace = true }

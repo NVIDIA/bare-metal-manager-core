@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,15 +13,19 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, ValueEnum};
+use ipnet::IpNet;
+use mac_address::MacAddress;
+
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
-use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
 use crate::cfg::storage::{OsImageActions, StorageActions};
+use crate::vpc_prefix::VpcPrefixSelector;
 
 const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -167,6 +171,8 @@ pub enum CarbideCommand {
     ExpectedMachine(ExpectedMachineAction),
     #[clap(about = "VPC related handling", subcommand)]
     Vpc(VpcOptions),
+    #[clap(about = "VPC prefix handling", subcommand)]
+    VpcPrefix(VpcPrefixOptions),
     #[clap(
         about = "InfiniBand Partition related handling",
         subcommand,
@@ -1743,6 +1749,92 @@ pub struct SetVpcVirt {
     pub id: String,
     #[clap(help = "The virtualizer to use for this VPC")]
     pub virtualizer: VpcVirtualizationType,
+}
+
+#[derive(Parser, Debug)]
+pub enum VpcPrefixOptions {
+    #[clap(hide = true)]
+    Create(VpcPrefixCreate),
+    Show(VpcPrefixShow),
+    #[clap(hide = true)]
+    Delete(VpcPrefixDelete),
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPrefixCreate {
+    #[clap(
+        long,
+        name = "vpc-id",
+        value_name = "VpcId",
+        help = "The ID of the VPC to contain this prefix"
+    )]
+    pub vpc_id: VpcId,
+
+    #[clap(
+        long,
+        name = "prefix",
+        value_name = "CIDR-prefix",
+        help = "The IP prefix in CIDR notation"
+    )]
+    pub prefix: IpNet,
+
+    #[clap(
+        long,
+        name = "name",
+        value_name = "prefix-name",
+        help = "A short descriptive name for the prefix"
+    )]
+    pub name: String,
+
+    #[clap(
+        long,
+        name = "vpc-prefix-id",
+        value_name = "VpcPrefixId",
+        help = "Specify the VpcPrefixId for the API to use instead of it auto-generating one"
+    )]
+    pub vpc_prefix_id: Option<VpcPrefixId>,
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPrefixShow {
+    #[clap(
+        name = "VpcPrefixSelector",
+        help = "The VPC prefix (by ID or exact unique prefix) to show (omit for all)"
+    )]
+    pub prefix_selector: Option<VpcPrefixSelector>,
+
+    #[clap(
+        long,
+        name = "vpc-id",
+        value_name = "VpcId",
+        help = "Search by VPC ID",
+        conflicts_with = "VpcPrefixSelector"
+    )]
+    pub vpc_id: Option<VpcId>,
+
+    #[clap(
+        long,
+        name = "contains",
+        value_name = "address-or-prefix",
+        help = "Search by an address or prefix the VPC prefix contains",
+        conflicts_with_all = ["VpcPrefixSelector", "contained-by"],
+    )]
+    pub contains: Option<IpNet>,
+
+    #[clap(
+        long,
+        name = "contained-by",
+        value_name = "prefix",
+        help = "Search by a prefix containing the VPC prefix",
+        conflicts_with_all = ["VpcPrefixSelector", "contains"],
+    )]
+    pub contained_by: Option<IpNet>,
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPrefixDelete {
+    #[clap(value_name = "VpcPrefixId")]
+    pub vpc_prefix_id: VpcPrefixId,
 }
 
 #[derive(Parser, Debug)]
