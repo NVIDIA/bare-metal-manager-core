@@ -189,7 +189,14 @@ pub enum OsImageStatus {
 
 impl fmt::Display for OsImageStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        let string = match self {
+            OsImageStatus::Uninitialized => "uninitialized",
+            OsImageStatus::InProgress => "inprogress",
+            OsImageStatus::Failed => "failed",
+            OsImageStatus::Ready => "ready",
+            OsImageStatus::Disabled => "disabled",
+        };
+        write!(f, "{}", string)
     }
 }
 

@@ -563,7 +563,7 @@ impl OsImage {
     ) -> Result<Self, DatabaseError> {
         let query = "SELECT * from os_images l WHERE l.id = $1".to_string();
         sqlx::query_as(&query)
-            .bind(os_image_id.to_string())
+            .bind(os_image_id)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
@@ -590,7 +590,7 @@ impl OsImage {
     pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
         let query = "DELETE FROM os_images WHERE id = $1";
         sqlx::query(query)
-            .bind(self.attributes.id.to_string())
+            .bind(self.attributes.id)
             .execute(&mut **txn)
             .await
             .map(|_| ())
