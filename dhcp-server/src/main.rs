@@ -53,6 +53,8 @@ pub struct Server {
     socket: Arc<UdpSocket>,
 }
 
+const MAX_PARALLEL_PACKET_HANDLING_ALLOWED: usize = 128;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::builder()
@@ -74,7 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init()?;
 
     let args = Args::load();
-    let config = init(args.clone()).await?;
+    let config__ = init(args.clone()).await?;
 
     if let ServerMode::Controller = args.mode {
         if args.interfaces.len() != 1 {
@@ -93,14 +95,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
     )));
 
+    // Rate limiter limits the packet processing from all interfaces.
+    let rate_limiter_ = Arc::new(tokio::sync::Semaphore::new(
+        MAX_PARALLEL_PACKET_HANDLING_ALLOWED,
+    ));
+
     // Create a new socket for each interface.
     // In case of Controller, there will be only 1 interface.
     for interface in args.interfaces {
-        let config_clone = config.clone();
+        let config_ = config__.clone();
         let args_mode = args.mode.clone();
-        let dhcp_timestamps = dhcp_timestamps.clone();
+        let dhcp_timestamps_ = dhcp_timestamps.clone();
+        let rate_limiter = rate_limiter_.clone();
+
         let handle = tokio::spawn(async move {
-            let handler: Box<dyn DhcpMode> = get_mode(&args_mode);
+            let handler: Arc<Box<dyn DhcpMode>> = Arc::new(get_mode(&args_mode));
             let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
 
             // Create a socket2.socket. std and tokio sockets do not support advance options like
@@ -143,14 +152,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             // Machine cache is used only in Controller mode and Controller listens only on one
             // interface, so it is ok to initialize cache here.
-            let mut machine_cache =
-                LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+            let machine_cache_ = Arc::new(Mutex::new(LruCache::new(
+                std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+            )));
 
             // Listen on each interface and process it.
-
             loop {
                 let mut buf = [0; 1500];
                 let (len, addr) = server.socket.recv_from(&mut buf).await.unwrap();
+
+                // We never close this semaphore, so if an error is returned it should be
+                // TryAcquireError::NoPermits; Not checking explicitly.
+                let Ok(permit) = rate_limiter.clone().try_acquire_owned() else {
+                    // drop packet.
+                    tracing::error!("Dropping packet because of rate limiting.");
+                    continue;
+                };
 
                 // Not a valid packet.
                 if len < MINIMUM_DHCP_PKT_SIZE {
@@ -158,17 +175,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     continue;
                 }
 
-                process(
-                    addr,
-                    server.socket.clone(),
-                    &buf,
-                    config_clone.clone(),
-                    &*handler,
-                    &interface,
-                    &mut machine_cache,
-                    dhcp_timestamps.clone(),
-                )
-                .await;
+                let config = config_.clone();
+                let mut machine_cache = machine_cache_.clone();
+                let iface = interface.clone();
+                let handler_ = handler.clone();
+                let dhcp_timestamps = dhcp_timestamps_.clone();
+                let socket = server.socket.clone();
+
+                tokio::spawn(async move {
+                    process(
+                        addr,
+                        socket,
+                        &buf,
+                        config.clone(),
+                        &**handler_,
+                        &iface,
+                        &mut machine_cache,
+                        dhcp_timestamps,
+                    )
+                    .await;
+                    drop(permit);
+                });
             }
         });
 
@@ -250,7 +277,7 @@ impl DhcpMode for Test {
         &self,
         _discovery_request: DhcpDiscovery,
         _config: &Config,
-        _machine_cache: &mut LruCache<String, CacheEntry>,
+        _machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
     ) -> Result<DhcpRecord, DhcpError> {
         Ok(DhcpRecord {
             machine_id: Some(MachineId {
@@ -287,7 +314,7 @@ async fn process(
     config: Config,
     handler: &dyn DhcpMode,
     circuit_id: &str, // interface name
-    machine_cache: &mut LruCache<String, CacheEntry>,
+    machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
     dhcp_timestamps: Arc<Mutex<DhcpTimestamps>>,
 ) {
     if !addr.is_ipv4() {
@@ -407,8 +434,9 @@ mod test {
         ];
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
-        let mut machine_cache =
-            LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+        let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
+            std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+        )));
         assert!(packet_handler::process_packet(
             &byte_stream,
             &config,
@@ -456,8 +484,9 @@ mod test {
         ];
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
-        let mut machine_cache =
-            LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+        let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
+            std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+        )));
         let packet = packet_handler::process_packet(
             &byte_stream,
             &config,
@@ -513,8 +542,9 @@ mod test {
         ];
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
-        let mut machine_cache =
-            LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+        let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
+            std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+        )));
         let packet = packet_handler::process_packet(
             &byte_stream,
             &config,
@@ -571,8 +601,9 @@ mod test {
         ];
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
-        let mut machine_cache =
-            LruCache::new(std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap());
+        let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
+            std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+        )));
 
         let before_dhcp = Utc::now();
         let udp_socket_addr: SocketAddrV4 = "127.0.0.1:1236".parse().unwrap();

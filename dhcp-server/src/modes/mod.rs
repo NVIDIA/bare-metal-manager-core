@@ -9,10 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::net::SocketAddrV4;
+use std::{net::SocketAddrV4, sync::Arc};
 
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use crate::{
@@ -33,7 +34,7 @@ pub trait DhcpMode: Send + Sync + std::fmt::Debug {
         &self,
         discovery_request: DhcpDiscovery,
         config: &Config,
-        machine_cache: &mut LruCache<String, CacheEntry>,
+        machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
     ) -> Result<DhcpRecord, DhcpError>;
     /// And at what address?
     fn get_destination_address(&self, packet: &Packet) -> SocketAddrV4 {
