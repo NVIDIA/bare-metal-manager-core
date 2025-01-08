@@ -461,32 +461,24 @@ impl ForgeTlsClient {
                 .unwrap()
         };
 
-        let tls = if self.forge_client_config.enforce_tls {
-            let roots_clone = roots.clone();
-            let build_no_client_auth_config = || {
-                base_config_builder()
-                    .with_root_certificates(roots_clone)
-                    .with_no_client_auth()
+        let tls = {
+            let builder = || {
+                if self.forge_client_config.enforce_tls {
+                    base_config_builder().with_root_certificates(roots)
+                } else {
+                    base_config_builder()
+                        .dangerous()
+                        .with_custom_certificate_verifier(std::sync::Arc::new(
+                            DummyTlsVerifier::new(),
+                        ))
+                }
             };
 
             if let Some((certs, key)) = self.forge_client_config.read_client_cert().await {
-                if let Ok(config) = base_config_builder()
-                    .with_root_certificates(roots)
-                    .with_client_auth_cert(certs, key)
-                {
-                    config.clone() // happy path, full valid TLS client config with client cert
-                } else {
-                    build_no_client_auth_config() // error building client config from cert/key
-                }
+                builder().with_client_auth_cert(certs, key)?
             } else {
-                build_no_client_auth_config() // unable to parse client cert/key from file, or no client cert provided in tls config
+                builder().with_no_client_auth()
             }
-        } else {
-            // tls disabled by environment variable
-            base_config_builder()
-                .dangerous()
-                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
-                .with_no_client_auth()
         };
 
         let forge_resolv_config =
