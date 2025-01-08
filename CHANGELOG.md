@@ -1,12 +1,25 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc3-0...trunk)
 
 ### Added
 ### Changed
 ### Fixed
 ### Removed
 
-## [v2024.12.20-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...v2024.12.20-rc2-0)
+## [v2024.12.20-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.20-rc3-0)
+
+### Added
+
+- Added InstanceType implementation and handlers for CRUD actions
+- Added vpc-prefix subcommand in admin-cli
+
+### Fixed
+
+- Make the hardware health service accept both http1 and http2 connections again,
+  to stop the hardware health container from crashing every 15 minutes.
+- Remove health alert when machine moves out of maintenance mode.
+
+## [v2024.12.20-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc1-0...v2024.12.20-rc2-0)
 
 ### Added
 
@@ -76,6 +89,20 @@
 - Removed predicted host in admin-cli measurement results.
 - Revert DPU BMC firmware until bfb/hbn is ready.
 - No longer send tenant interface info to secondary DPU.
+
+## [v2024.12.06-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc4-0...v2024.12.06-rc5-0)
+
+### Fixed
+
+- Make the hardware health service accept both http1 and http2 connections again,
+  to stop the hardware health container from crashing every 15 minutes.
+- Remove health alert when machine moves out of maintenance mode.
+
+## [v2024.12.06-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...v2024.12.06-rc4-0)
+
+### Added
+
+- Reenabled attestation when in the Ready state.
 
 ## [v2024.12.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.06-rc3-0)
 
