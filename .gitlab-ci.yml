@@ -1340,6 +1340,7 @@ dev-env-test-with-carbide:
     - .gitlab/dev-env-test-with-carbide.sh
   after_script:
     - set -euo pipefail
+    - "doas chown -R gitlab-runner: $CI_PROJECT_DIR"
     - cp /tmp/argo_watch.log .
     - cp /tmp/argo_logs.log .
     - cd ../forged
