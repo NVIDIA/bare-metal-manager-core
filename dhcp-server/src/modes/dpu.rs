@@ -50,7 +50,7 @@ impl DhcpMode for Dpu {
         &self,
         discovery_request: DhcpDiscovery,
         config: &Config,
-        _machine_cache: &mut LruCache<String, CacheEntry>,
+        _machine_cache: &mut std::sync::Arc<tokio::sync::Mutex<LruCache<String, CacheEntry>>>,
     ) -> Result<DhcpRecord, DhcpError> {
         let Some(circuit_id) = discovery_request.circuit_id else {
             return Err(DhcpError::MissingArgument(

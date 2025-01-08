@@ -14,6 +14,7 @@ use std::{net::IpAddr, str::FromStr};
 use ::rpc::forge::DhcpDiscovery;
 use lru::LruCache;
 use rpc::forge::DhcpRecord;
+use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use super::DhcpMode;
@@ -34,7 +35,7 @@ impl DhcpMode for Controller {
         &self,
         discovery_request: DhcpDiscovery,
         config: &Config,
-        machine_cache: &mut LruCache<String, CacheEntry>,
+        machine_cache: &mut std::sync::Arc<Mutex<LruCache<String, CacheEntry>>>,
     ) -> Result<DhcpRecord, DhcpError> {
         // check if entry present in cache.
         let link_address = IpAddr::from_str(
@@ -57,15 +58,17 @@ impl DhcpMode for Controller {
             None => "",
         };
 
-        if let Some(cache_entry) = cache::get(
-            &discovery_request.mac_address,
-            link_address,
-            &discovery_request.circuit_id,
-            &discovery_request.remote_id,
-            vendor_id,
-            machine_cache,
-        ) {
-            tracing::info!(
+        {
+            let mut machine_cache = machine_cache.lock().await;
+            if let Some(cache_entry) = cache::get(
+                &discovery_request.mac_address,
+                link_address,
+                &discovery_request.circuit_id,
+                &discovery_request.remote_id,
+                vendor_id,
+                &mut machine_cache,
+            ) {
+                tracing::info!(
                 "returning cached response for (mac: {}, link(or relay)_address: {}, circuit_id: {:?}, remote: {:?}, vendor: {})",
                 discovery_request.mac_address,
                 link_address,
@@ -74,10 +77,12 @@ impl DhcpMode for Controller {
                 &vendor_id,
             );
 
-            return Ok(cache_entry.dhcp_record);
+                return Ok(cache_entry.dhcp_record);
+            }
         }
 
         let record = discover_dhcp(discovery_request.clone(), config).await?;
+        let mut machine_cache = machine_cache.lock().await;
         cache::put(
             &discovery_request.mac_address,
             link_address,
@@ -85,7 +90,7 @@ impl DhcpMode for Controller {
             discovery_request.remote_id,
             vendor_id,
             record.clone(),
-            machine_cache,
+            &mut machine_cache,
         );
 
         Ok(record)

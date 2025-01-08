@@ -25,7 +25,7 @@ use dhcproto::{
 use ipnetwork::IpNetwork;
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::Mutex};
 
 use crate::{
     cache::CacheEntry, errors::DhcpError, util, vendor_class::VendorClass, Config, DhcpMode,
@@ -235,7 +235,7 @@ pub async fn process_packet(
     config: &Config,
     circuit_id: &str,
     handler: &dyn DhcpMode,
-    machine_cache: &mut LruCache<String, CacheEntry>,
+    machine_cache: &mut Arc<Mutex<LruCache<String, CacheEntry>>>,
 ) -> Result<Packet, DhcpError> {
     if buf[0] != PKT_TYPE_OP_REQUEST {
         // Not valid packet. Drop it.
