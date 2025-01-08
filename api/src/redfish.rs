@@ -1177,60 +1177,88 @@ pub async fn host_power_control(
         "Host Power Control"
     );
 
-    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
-        // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-        // Supermicro will boot the users OS if we don't do this
-        redfish_client
-            .boot_once(libredfish::Boot::Pxe)
-            .await
-            .map_err(CarbideError::RedfishError)?;
-    }
+    match machine_snapshot.bmc_vendor {
+        bmc_vendor::BMCVendor::Lenovo => {
+            // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
+            redfish_client
+                .boot_once(libredfish::Boot::Pxe)
+                .await
+                .map_err(CarbideError::RedfishError)?;
 
-    let is_reboot = (action == SystemPowerControl::GracefulRestart)
-        || (action == SystemPowerControl::ForceRestart);
+            redfish_client
+                .power(action)
+                .await
+                .map_err(CarbideError::RedfishError)?;
+        }
+        bmc_vendor::BMCVendor::Supermicro => {
+            // We need to unlock BMC to perform boot modification, and relock it later
+            let lstatus = redfish_client.lockdown_status().await?;
+            if lstatus.is_fully_enabled() {
+                redfish_client.lockdown(EnabledDisabled::Disabled).await?;
+            }
+            // Supermicro will boot the users OS if we don't do this
+            let boot_result = redfish_client
+                .boot_once(libredfish::Boot::Pxe)
+                .await
+                .map_err(CarbideError::RedfishError);
+            if lstatus.is_fully_enabled() {
+                redfish_client.lockdown(EnabledDisabled::Enabled).await?;
+            }
 
-    // vikings reboot their DPU's if redfish reset is used. \
-    // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-    //
-    // TODO(ajf) none of this IPMI code should be in the redfish module, we've already constructed
-    // a redfish client and aren't going to use it, and constructing an IPMI requires duplicate
-    // work that we did in the calling function.
-    //
-    if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
-        let machine_id = &machine_snapshot.machine_id;
+            // We error only after lockdown is reinstaited
+            boot_result?;
 
-        let maybe_ip = machine_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
-            CarbideError::internal(format!("IP address is missing for {}", machine_id))
-        })?;
+            redfish_client
+                .power(action)
+                .await
+                .map_err(CarbideError::RedfishError)?;
+        }
 
-        let ip = maybe_ip.parse().map_err(|_| {
-            CarbideError::internal(format!("Invalid IP address for {}", machine_id))
-        })?;
+        bmc_vendor::BMCVendor::Nvidia
+            if (action == SystemPowerControl::GracefulRestart)
+                || (action == SystemPowerControl::ForceRestart) =>
+        {
+            // vikings reboot their DPU's if redfish reset is used. \
+            // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
+            //
+            // TODO(ajf) none of this IPMI code should be in the redfish module, we've already constructed
+            // a redfish client and aren't going to use it, and constructing an IPMI requires duplicate
+            // work that we did in the calling function.
+            //
+            let machine_id = &machine_snapshot.machine_id;
 
-        let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "MachineInterface by IP",
-                id: ip.to_string(),
+            let maybe_ip = machine_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+                CarbideError::internal(format!("IP address is missing for {}", machine_id))
             })?;
 
-        let credential_key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::BmcRoot {
-                bmc_mac_address: machine_interface_target.mac_address,
-            },
-        };
-
-        ipmi_tool
-            .restart(&machine_snapshot.machine_id, ip, false, credential_key)
-            .await
-            .map_err(|e: eyre::ErrReport| {
-                CarbideError::internal(format!("Failed to restart machine: {}", e))
+            let ip = maybe_ip.parse().map_err(|_| {
+                CarbideError::internal(format!("Invalid IP address for {}", machine_id))
             })?;
-    } else {
-        redfish_client
+
+            let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "MachineInterface by IP",
+                    id: ip.to_string(),
+                })?;
+
+            let credential_key = CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: machine_interface_target.mac_address,
+                },
+            };
+
+            ipmi_tool
+                .restart(&machine_snapshot.machine_id, ip, false, credential_key)
+                .await
+                .map_err(|e: eyre::ErrReport| {
+                    CarbideError::internal(format!("Failed to restart machine: {}", e))
+                })?;
+        }
+        _ => redfish_client
             .power(action)
             .await
-            .map_err(CarbideError::RedfishError)?;
+            .map_err(CarbideError::RedfishError)?,
     }
 
     Machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into()).await?;
