@@ -155,7 +155,7 @@ function get_serial_port() {
 	serial_port_num="0"
 	if [ -f "/sys/class/dmi/id/sys_vendor" ]; then
 		sys_vendor=$(</sys/class/dmi/id/sys_vendor)
-		if [[ "$sys_vendor" =~ Lenovo ]]; then
+		if [[ "$sys_vendor" =~ Lenovo || "$sys_vendor" =~ Supermicro ]]; then
 			serial_port="ttyS1"
 			serial_port_num="1"
 		fi

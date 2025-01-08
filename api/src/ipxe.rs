@@ -199,7 +199,7 @@ exit ||
 
         if let Some(hardware_info) = machine.hardware_info() {
             if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
-                if dmi_info.sys_vendor == "Lenovo" {
+                if dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro" {
                     console = "ttyS1";
                 }
             }
@@ -284,26 +284,26 @@ exit ||
                                 "exit".to_string()
                             } else {
                                 let mut qcow_imaging_ipxe = format!(
-                                    "{} console={} image_url={} image_sha={}",
+                                    "{} console={},115200 image_url={} image_sha={}",
                                     QCOW_IMAGER_IPXE,
                                     console,
                                     os_image.attributes.source_url,
                                     os_image.attributes.digest
                                 );
                                 if let Some(x) = os_image.attributes.auth_token {
-                                    qcow_imaging_ipxe += format!("image_auth_token={x}").as_str();
+                                    qcow_imaging_ipxe += format!(" image_auth_token={x}").as_str();
                                 }
                                 if let Some(x) = os_image.attributes.auth_type {
-                                    qcow_imaging_ipxe += format!("image_auth_type={x}").as_str();
+                                    qcow_imaging_ipxe += format!(" image_auth_type={x}").as_str();
                                 }
                                 if let Some(x) = os_image.attributes.rootfs_id {
-                                    qcow_imaging_ipxe += format!("rootfs_uuid={x}").as_str();
+                                    qcow_imaging_ipxe += format!(" rootfs_uuid={x}").as_str();
                                 }
                                 if let Some(x) = os_image.attributes.rootfs_label {
-                                    qcow_imaging_ipxe += format!("rootfs_label={x}").as_str();
+                                    qcow_imaging_ipxe += format!(" rootfs_label={x}").as_str();
                                 }
                                 if let Some(x) = os_image.attributes.boot_disk {
-                                    qcow_imaging_ipxe += format!("image_disk={x}").as_str();
+                                    qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
                                 }
                                 qcow_imaging_ipxe += "\r\nboot";
                                 qcow_imaging_ipxe
