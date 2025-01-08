@@ -1907,6 +1907,9 @@ message DhcpRecord {
   optional string gateway = 10;
 
   optional string booturl = 11;
+
+  // The last time any underlay or admin DHCP record managed by Forge got invalidated
+  optional google.protobuf.Timestamp last_invalidation_time = 12;
 }
 
 message NetworkSegmentList {

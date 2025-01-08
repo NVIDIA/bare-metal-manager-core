@@ -39,6 +39,7 @@ fn from_fnn_conf(value: &SubnetInfo, giaddr: &str) -> Result<DhcpRecord, DhcpErr
         prefix: value.prefix.clone(),
         gateway: Some(value.gateway.to_string()),
         booturl: None,
+        last_invalidation_time: None,
     })
 }
 

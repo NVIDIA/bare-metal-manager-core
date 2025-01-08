@@ -49,6 +49,8 @@ pub struct DhcpRecord {
 
     prefix: IpNetwork,
     gateway: Option<IpAddr>,
+
+    last_invalidation_time: chrono::DateTime<chrono::Utc>,
 }
 
 impl From<DhcpRecord> for rpc::DhcpRecord {
@@ -65,6 +67,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
             prefix: record.prefix.to_string(),
             gateway: record.gateway.map(|gw| gw.to_string()),
             booturl: None, // TODO(ajf): extend database, synthesize URL
+            last_invalidation_time: Some(record.last_invalidation_time.into()),
         }
     }
 }
@@ -154,6 +157,7 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
             prefix: record.prefix.to_string(),
             gateway: record.gateway.map(|gw| gw.to_string()),
             booturl: None,
+            last_invalidation_time: None,
         })
     }
 }

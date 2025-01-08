@@ -41,6 +41,7 @@ fn from_host_conf(value: &InterfaceInfo, interface_id: &str) -> DhcpRecord {
         prefix: value.prefix.clone(),
         gateway: Some(value.gateway.to_string()),
         booturl: value.booturl.clone(),
+        last_invalidation_time: None,
     }
 }
 

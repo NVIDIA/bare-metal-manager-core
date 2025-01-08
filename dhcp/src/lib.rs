@@ -51,6 +51,7 @@ pub struct CarbideDhcpContext {
     forge_client_key_path: String,
     metrics_endpoint: Option<SocketAddr>,
     metrics: Option<CarbideDhcpMetrics>,
+    startup_time: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +78,7 @@ impl Default for CarbideDhcpContext {
             provisioning_server_ipv4: None,
             metrics_endpoint: None,
             metrics: None,
+            startup_time: chrono::Utc::now(),
         }
     }
 }
