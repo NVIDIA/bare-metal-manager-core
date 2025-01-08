@@ -9,6 +9,7 @@ authors.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+chrono = "0.4.34"
 derive_builder = "*"
 eyre = "*"
 hyper = { workspace = true, features = ["http2"] }

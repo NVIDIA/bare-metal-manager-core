@@ -399,34 +399,76 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 #[crate::sqlx_test]
 async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+
+    let dhcp_response = env
+        .api
+        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let last_invalidation_time = dhcp_response
+        .last_invalidation_time
+        .expect("Last invalidation time should be set");
+
+    // Find the Machine Interface ID for our new record
+    let interface = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: None,
+            ip: Some(dhcp_response.address.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .interfaces
+        .remove(0);
+    let interface_id = interface.id.clone().unwrap();
+
+    env.api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: Some(rpc::Uuid {
+                value: interface_id.to_string(),
+            }),
+        }))
+        .await
+        .unwrap();
+
     let mut txn = env.pool.begin().await?;
-
-    let network_segment = NetworkSegment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
-        &mut txn,
-        &network_segment,
-        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(env.domain.into()),
-        true,
-        AddressSelectionStrategy::Automatic,
-    )
-    .await
-    .unwrap();
-
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    db::machine_interface::delete(&interface.id, &mut txn).await?;
-    txn.commit().await?;
-
-    let mut txn = env.pool.begin().await?;
-    let _interface = db::machine_interface::find_one(&mut txn, interface.id).await;
+    let _interface =
+        db::machine_interface::find_one(&mut txn, interface_id.clone().try_into().unwrap()).await;
     assert!(matches!(
-        CarbideError::FindOneReturnedNoResultsError(interface.id.0),
+        CarbideError::FindOneReturnedNoResultsError(interface_id.clone().try_into().unwrap()),
         _interface
     ));
 
     txn.commit().await?;
+
+    // The next discover_dhcp should return an updated timestamp
+    let dhcp_response = env
+        .api
+        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let new_invalidation_time = dhcp_response
+        .last_invalidation_time
+        .expect("Last invalidation time should be set");
+    assert!(new_invalidation_time > last_invalidation_time);
 
     Ok(())
 }

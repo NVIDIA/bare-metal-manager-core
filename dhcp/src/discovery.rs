@@ -391,6 +391,29 @@ unsafe fn discovery_fetch_machine_at(
             forge_client_config,
         )) {
             Ok(machine) => {
+                // If any DHCP record had been invalidated after the KEA process started,
+                // KEAs internal cache (not the Rust cache) might be in inconsistent state.
+                // Since we don't have any API to invalidate the KEA cache we restart
+                // the process. This will happen very rarely, since Interface deletions
+                // in Forge are not common.
+                // See https://nvbugspro.nvidia.com/bug/4792034 for details
+                if let Some(last_invalidation) = machine.inner.last_invalidation_time.as_ref() {
+                    let startup_time = CONFIG.read().unwrap().startup_time;
+
+                    if let Ok(last_invalidation) =
+                        chrono::DateTime::<chrono::Utc>::try_from(*last_invalidation)
+                    {
+                        if last_invalidation >= startup_time {
+                            log::error!(
+                                "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
+                                startup_time.to_rfc3339(),
+                                last_invalidation.to_rfc3339()
+                            );
+                            std::process::exit(99);
+                        }
+                    }
+                }
+
                 cache::put(
                     mac_address,
                     addr_for_dhcp,

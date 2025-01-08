@@ -272,6 +272,7 @@ impl DhcpMode for Test {
             prefix: "10.217.132.192/26".to_string(),
             gateway: Some("10.217.132.193".to_string()),
             booturl: None,
+            last_invalidation_time: None,
         })
     }
 }

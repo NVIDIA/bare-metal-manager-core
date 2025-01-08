@@ -736,6 +736,14 @@ pub async fn delete(
         .execute(txn.deref_mut())
         .await
         .map(|_| ())
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
+    sqlx::query(query)
+        .bind(*interface_id)
+        .execute(txn.deref_mut())
+        .await
+        .map(|_| ())
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
