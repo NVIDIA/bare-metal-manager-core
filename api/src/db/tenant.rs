@@ -395,3 +395,26 @@ pub async fn load_by_organization_ids(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[crate::sqlx_test]
+    async fn test_null_organization_name(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let result = sqlx::query(
+            r#"
+            INSERT INTO tenants (organization_id, version, organization_name)
+            VALUES
+            ('zqrrhxea4ktv', 'V1-T1733777281821769', NULL)
+            "#,
+        )
+        .execute(txn.deref_mut())
+        .await;
+        let Err(sqlx::Error::Database(e)) = result else {
+            panic!("Inserting a NULL should have failed");
+        };
+        assert!(matches!(e.kind(), sqlx::error::ErrorKind::NotNullViolation));
+    }
+}
