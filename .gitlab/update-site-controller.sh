@@ -75,6 +75,7 @@ argocd login "${ARGOCD_SITE_URL}" --username "${ARGOCD_SITE_USERNAME}" --passwor
 echo "Getting initial sync status of Argo CD"
 SYNC_STATUS_CMD="argocd app get --refresh argocd/site-controller | grep -P 'carbide-api|carbide-pxe|carbide-dns|carbide-dhcp|carbide-hardware-health|ssh-console'"
 INITIAL_SYNC_STATUS=$(eval "${SYNC_STATUS_CMD}")
+echo -e "Initial Argo CD sync status: \n${INITIAL_SYNC_STATUS}"
 
 # Clone and make edits to `forged`
 git clone "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git" && cd forged
@@ -87,7 +88,9 @@ kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvf
 
 # If git status is dirty, create MR then sync Argo CD. Else just sync Argo CD if needed.
 git_status="$(git status --porcelain)"
+echo -e "Git status: \n${git_status}"
 if [[ -n $git_status ]]; then
+  echo "Git status is dirty, proceeding to commit."
   update_forged
   if echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
     echo "Waiting 5 mins to be sure gitlab-master has synced to gitlab cloud..."
@@ -110,9 +113,11 @@ if [[ -n $git_status ]]; then
     done
   fi
 else
+  echo "Git status is clean so ${SITE_UNDER_TEST} is already configured with the latest carbide version in forged."
   if ! echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
-    echo "${SITE_UNDER_TEST} is already configured with the latest site-controller in forged and Argo CD is in-sync. Nothing to do."
+    echo "Argo CD is already in-sync. Nothing to do. Exiting..."
     exit 0
   fi
 fi
+echo "Performing Argo CD sync..."
 sync_argocd
