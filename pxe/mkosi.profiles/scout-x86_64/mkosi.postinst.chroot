@@ -17,3 +17,7 @@ wget https://github.com/containerd/nerdctl/releases/download/v2.0.2/nerdctl-2.0.
 tar -zxf nerdctl-2.0.2-linux-amd64.tar.gz nerdctl
 mv nerdctl /usr/bin/nerdctl
 rm nerdctl-2.0.2-linux-amd64.tar.gz
+
+cd /opt && git clone https://gitlab-master.nvidia.com/omniverse/saas/benchpress.git
+cd /opt/benchpress && git apply /opt/patches/benchpress.patch
+cd /opt/benchpress && python3 -m venv venv
