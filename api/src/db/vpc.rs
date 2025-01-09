@@ -509,7 +509,7 @@ impl UpdateVpc {
                 // So maybe this should be `ObjectNotFoundOrModifiedError`
                 Err(CarbideError::ConcurrentModificationError(
                     "vpc",
-                    current_version,
+                    current_version.to_string(),
                 ))
             }
             Err(e) => Err(CarbideError::from(DatabaseError::new(
@@ -560,7 +560,7 @@ impl UpdateVpcVirtualization {
                 // or similar.
                 Err(CarbideError::ConcurrentModificationError(
                     "vpc",
-                    current_version,
+                    current_version.to_string(),
                 ))
             }
             Err(e) => Err(CarbideError::from(DatabaseError::new(

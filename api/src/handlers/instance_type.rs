@@ -287,9 +287,11 @@ pub(crate) async fn update(
             .map_err(CarbideError::from)?;
 
         if current_instance_type.version != target_version {
-            return Err(
-                CarbideError::ConcurrentModificationError("InstanceType", target_version).into(),
-            );
+            return Err(CarbideError::ConcurrentModificationError(
+                "InstanceType",
+                target_version.to_string(),
+            )
+            .into());
         }
     };
 

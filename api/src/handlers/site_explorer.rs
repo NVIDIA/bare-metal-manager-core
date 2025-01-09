@@ -287,7 +287,7 @@ pub(crate) async fn re_explore_endpoint(
             Ok(false) => {
                 return Err(CarbideError::ConcurrentModificationError(
                     "explored_endpoint",
-                    expected_version,
+                    expected_version.to_string(),
                 )
                 .into());
             }

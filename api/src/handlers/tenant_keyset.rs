@@ -246,9 +246,16 @@ pub(crate) async fn delete(
     let keyset_identifier: TenantKeysetIdentifier =
         keyset_identifier.try_into().map_err(CarbideError::from)?;
 
-    TenantKeyset::delete(keyset_identifier, &mut txn)
+    if !TenantKeyset::delete(&keyset_identifier, &mut txn)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+    {
+        return Err(CarbideError::NotFoundError {
+            kind: "keyset",
+            id: format!("{:?}", keyset_identifier),
+        }
+        .into());
+    }
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
