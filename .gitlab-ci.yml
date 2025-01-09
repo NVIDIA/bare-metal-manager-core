@@ -1296,6 +1296,7 @@ dev-env-test-with-carbide:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $DEV_ENV_TEST == "true"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
+        - .gitlab/dev-env-test-with-carbide.sh
         - '.skaffold/**/*'
         - 'api/**/*'
         - 'bluefield/**/*'
