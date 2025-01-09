@@ -21,7 +21,7 @@ use crate::model::{
 };
 use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
-use config_version::{ConfigVersion, ConfigVersionParseError};
+use config_version::ConfigVersionParseError;
 use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use tonic::Status;
@@ -130,7 +130,7 @@ pub enum CarbideError {
     #[error(
         "An object of type {0} was intended to be modified did not have the expected version {1}"
     )]
-    ConcurrentModificationError(&'static str, ConfigVersion),
+    ConcurrentModificationError(&'static str, String),
 
     #[error("The function is not implemented")]
     NotImplemented,

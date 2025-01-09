@@ -479,7 +479,7 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
     )
     .await;
 
-    assert!(env
+    let err = env
         .api
         .delete_tenant_keyset(tonic::Request::new(rpc::forge::DeleteTenantKeysetRequest {
             keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
@@ -488,7 +488,8 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
             }),
         }))
         .await
-        .is_err());
+        .expect_err("Deletion should fail");
+    assert_eq!(err.code(), tonic::Code::NotFound);
 
     env.api
         .delete_tenant_keyset(tonic::Request::new(rpc::forge::DeleteTenantKeysetRequest {
@@ -546,7 +547,8 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
         .public_keys
         .is_empty());
 
-    assert!(env
+    // Update to invalid version fails
+    let err = env
         .api
         .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
             keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
@@ -569,8 +571,31 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
             if_version_match: Some("V1-T1691517639501900".to_string()),
         }))
         .await
-        .is_err());
+        .expect_err("Update should not be processed due to invalid version");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
 
+    // Update to valid version and invalid keyset ID returns NotFound
+    let err = env
+        .api
+        .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
+            keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {
+                organization_id: "Org1".to_string(),
+                keyset_id: "keyset2".to_string(),
+            }),
+            keyset_content: Some(rpc::forge::TenantKeysetContent {
+                public_keys: vec![rpc::forge::TenantPublicKey {
+                    public_key: "mypublickey1".to_string(),
+                    comment: Some("comment1".to_string()),
+                }],
+            }),
+            version: "V2-T1691517639501030".to_string(),
+            if_version_match: Some("V1-T1691517639501025".to_string()),
+        }))
+        .await
+        .expect_err("Keyset should not be found");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+
+    // Update to valid version succeeds
     env.api
         .update_tenant_keyset(tonic::Request::new(rpc::forge::UpdateTenantKeysetRequest {
             keyset_identifier: Some(rpc::forge::TenantKeysetIdentifier {

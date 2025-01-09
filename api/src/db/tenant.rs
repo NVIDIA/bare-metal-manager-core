@@ -98,7 +98,7 @@ impl Tenant {
             .await
             .map_err(|err| match err {
                 sqlx::Error::RowNotFound => {
-                    CarbideError::ConcurrentModificationError("tenant", current_version)
+                    CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
                 }
                 error => CarbideError::from(DatabaseError::new(file!(), line!(), query, error)),
             })
@@ -300,20 +300,27 @@ impl TenantKeyset {
         Ok(result)
     }
 
+    /// Deletes the Keyset
+    /// - Returns `Ok(true)` if the keyset existed and got deleted
+    /// - Returns `Ok(false)` if the keyset did not exist
+    /// - Returns `Err(_)` in case of other errors
     pub async fn delete(
-        keyset_identifier: TenantKeysetIdentifier,
+        keyset_identifier: &TenantKeysetIdentifier,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    ) -> Result<bool, DatabaseError> {
         let query =
             "DELETE FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2 RETURNING *";
 
-        sqlx::query_as::<_, TenantKeyset>(query)
-            .bind(keyset_identifier.organization_id.to_string())
+        match sqlx::query_as::<_, TenantKeyset>(query)
+            .bind(keyset_identifier.organization_id.as_str())
             .bind(&keyset_identifier.keyset_id)
             .fetch_one(txn.deref_mut())
             .await
-            .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        {
+            Ok(_) => Ok(true),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
     }
 }
 
@@ -321,7 +328,7 @@ impl UpdateTenantKeyset {
     pub async fn update(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    ) -> Result<(), CarbideError> {
         // Validate if sent version is same.
         let current_keyset = TenantKeyset::find(
             Some(self.keyset_identifier.organization_id.to_string()),
@@ -332,12 +339,10 @@ impl UpdateTenantKeyset {
         .await?;
 
         if current_keyset.is_empty() {
-            return Err(DatabaseError::new(
-                file!(),
-                line!(),
-                "No keyset found.",
-                sqlx::Error::RowNotFound,
-            ));
+            return Err(CarbideError::NotFoundError {
+                kind: "keyset",
+                id: format!("{:?}", self.keyset_identifier),
+            });
         }
 
         let expected_version = self
@@ -346,17 +351,22 @@ impl UpdateTenantKeyset {
             .unwrap_or(current_keyset[0].version.to_string());
 
         let query = "UPDATE tenant_keysets SET content=$1, version=$2 WHERE organization_id=$3 AND keyset_id=$4 AND version=$5 RETURNING *";
-        let _ = sqlx::query_as::<_, TenantKeyset>(query)
+        match sqlx::query_as::<_, TenantKeyset>(query)
             .bind(sqlx::types::Json(&self.keyset_content))
             .bind(self.version.to_string())
             .bind(self.keyset_identifier.organization_id.to_string())
             .bind(&self.keyset_identifier.keyset_id)
-            .bind(expected_version)
+            .bind(&expected_version)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+        {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::RowNotFound) => Err(CarbideError::ConcurrentModificationError(
+                "keyset",
+                expected_version,
+            )),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e).into()),
+        }
     }
 }
 

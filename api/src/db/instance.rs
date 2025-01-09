@@ -506,9 +506,10 @@ WHERE s.network_config->>'loopback_ip'=$1";
         match query_result {
             Ok((_instance_id,)) => Ok(()),
             Err(e) => Err(match e {
-                sqlx::Error::RowNotFound => {
-                    CarbideError::ConcurrentModificationError("instance", expected_version)
-                }
+                sqlx::Error::RowNotFound => CarbideError::ConcurrentModificationError(
+                    "instance",
+                    expected_version.to_string(),
+                ),
                 e => DatabaseError::new(file!(), line!(), query, e).into(),
             }),
         }
@@ -555,9 +556,10 @@ WHERE s.network_config->>'loopback_ip'=$1";
         match query_result {
             Ok((_instance_id,)) => Ok(()),
             Err(e) => Err(match e {
-                sqlx::Error::RowNotFound => {
-                    CarbideError::ConcurrentModificationError("instance", expected_version)
-                }
+                sqlx::Error::RowNotFound => CarbideError::ConcurrentModificationError(
+                    "instance",
+                    expected_version.to_string(),
+                ),
                 e => DatabaseError::new(file!(), line!(), query, e).into(),
             }),
         }
