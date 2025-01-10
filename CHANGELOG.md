@@ -10,14 +10,14 @@
 
 ### Added
 
-- Added InstanceType implementation and handlers for CRUD actions
-- Added vpc-prefix subcommand in admin-cli
+- Added vpc-prefix subcommand in forge-admin-cli
 
 ### Fixed
 
 - Make the hardware health service accept both http1 and http2 connections again,
   to stop the hardware health container from crashing every 15 minutes.
-- Remove health alert when machine moves out of maintenance mode.
+- When a machine gets moved out of maintenance mode for other reasons than the `SetMaintenance` API being called
+  (e.g. during firmware updates), the `Maintenance` health alert now will be properly removed.
 
 ## [v2024.12.20-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc1-0...v2024.12.20-rc2-0)
 
@@ -29,21 +29,18 @@
     - Partitions created outside of Forge will be tracked by the number
   2. `forge_ib_monitor_ufm_ports_by_state_count`: The total number of ports reported by UFM, aggregated by port state (e.g. `Active`).
 - Added host direct-attach drive health status to admin-cli.
-- Updated DPU Agent to support Forge Native Networking.
-- Integrated VPC Prefix handling with Instance creation workflow.
+- DPU Agent has been updated to support Forge Native Networking.
+- Integrated VPC Prefix handling (FNN) with Instance creation workflow.
 - Added information on how to obtain the UFM IP in the IB runbook.
-- Use status code FailedPrecondition when host is not available due to health.
-- Added Redfish Browser Support to admin-cli.
-- UFM IP can now be set and viewed in the carbide config file.
+- Added Redfish Browser Support to forge-admin-cli.
 - Added support for Lenovo 655v3 and 675 server models
-- Monitor pkey resource pools for additional fabrics.
-- UFM endpoints in IbFabricMonitor are loggewd.
-- Added InstanceType implementation and handlers for CRUD actions.
-- Updated IB status in MachineStateHandler.
-- Allow omitting network config when allocating zero-dpu instances.
-- Grant CreateTenant, FindTenant, and UpdateTenant to site agent.
-- Added unique ASN per DPU.
-- Provide a visual hint for disconnected IB interfaces.
+- The pkey resource pool metrics are now also emitted for additional IB fabrics besides `default`
+- UFM endpoint addresses are now logged as additional labels in the log lines produces by IbFabricMonitor
+- Added InstanceType related data database accessors and gRPC API handlers
+- When Instances are created on Zero-DPU hosts, the network config field of the created instance can be left empty by tenants.
+- CreateTenant, FindTenant, and UpdateTenant APIs are now accessible by site agent.
+- When FNN is used, a unique ASN will be assigned to each DPU.
+- The admin web UI now provides a visual hint for disconnected IB interfaces on the `machine` page
 - Use redfish to reboot a Lenovo's BMC after upgrading the NIC fw on its DPU.
 
 ### Changed
@@ -63,26 +60,27 @@
   ```
   level=SPAN span_id=0x9509d58bfaa0173d span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.217.161.194:443\"],\"fabric_error\":\"\",\"ufm_version\":\"6.14.1-5\",\"subnet_prefix\":\"\",\"m_key\":\"\",\"sm_key\":\"\",\"sa_key\":\"\",\"m_key_per_port\":false}}" num_fabrics=1 otel_status_code=ok timing_busy_ns=2158292 timing_elapsed_us=33074 timing_end_time=2024-12-13T19:28:50.230282096Z timing_idle_ns=30835294 timing_start_time=2024-12-13T19:28:50.197207484Z
   ```
-- Updated the FNN template.
-- Replaced single-use errors with standardized ones.
-- Integrated site explorer into create_managed_host API.
-- Set strict BMC FW version in config.
-- Added line number from where machine state handler returning DoNothing.
-- Show UFM visibility more explicitly.
-- Will not return from seondary DPU is inetrfaces are empty.
-- Use admin netowrk for secondary DPU.
-- Include ports in non-active states with find_ib_port.
+- Each hosts InfiniBand connection status is now updated every state controller iteration by querying UFM,
+  instead of querying the connection status only once at instance creation time. Thereby the most recent connection status can be queried using the `FindMachinesByIds` API and is observable on the Web UI.
+- If a Machines InfiniBand device is not connected and a tenant tries to use the device in the instance creation API, the instance creation will fail. This avoids Instances being stuck in provisioning due to the disconnected IB port.
+- The NVUE template for setting the FNN configuration has been updated.
+- When using the `AllocateInstance` API, the status code `FailedPrecondition` is now used when host is not available due to health.
+- The internal usage of error codes has been streamlined. A new error variant `Internal` has been introduced, which gets translated to gRPC status code `Internal`.
+- Unit tests now utilize the new ingestion workflow using Site Explorer instead of the legacy dpu-first ingestion workflow. They are thereby now better simulating the production environments.
+- Added line number from where machine state handler returns DoNothing. This allows to diagnose reasons for stuck machines.
+- Secondary DPUs are now always using the `admin` network.
 - Enhanced debug statement in DPU preingestion to report expected BMC fw version.
+- Release builds are used instead of debug builds for forge-dpu-agent and dhcp-server on DPUs
 
 ### Fixed
 
 - Fixed an issue where the Machine state handler could get stuck in case Maintenance
-  mode was enabled on a Machine as well as a Replace health override was present.
+  mode was enabled on a Machine and a `Replace` health override was present.
 - Reboot the DPU up to 10 times if the secure boot query is not returning the expected fields.
-- Added extra ubuntu modules so IB devices can get discovered.
+- Fixed the discovery of IB devices by adding the "extra ubuntu modules" which contain
+  the required drivers for the ubdated Ubuntu version.
 - Allocate VPC DPU loopback IP for FNN segment only and release it on instance release.
-- Delete all vpc loopback IPs, not just one.
-- Fix startup check for IB fabric ID.
+- When VPCs are deleted, all associated Loopback IPs are released - not just the first.
 
 ### Removed
 
@@ -106,9 +104,10 @@
 
 ## [v2024.12.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.06-rc3-0)
 
-### Added
+### Fixed
 
-- Added ubuntu modules to enable discovery of IB devices.
+- Fixed the discovery of IB devices by adding the "extra ubuntu modules" which contain
+  the required drivers for the ubdated Ubuntu version.
 
 ## [v2024.12.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc2-0...v2024.12.06-rc2-0)
 
@@ -166,9 +165,10 @@
 
 ## [v2024.11.22-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc4-0...v2024.11.22-rc5-0)
 
-### Added
+### Fixed
 
-- Added ubuntu modules to enable discovery of IB devices.
+- Fixed the discovery of IB devices by adding the "extra ubuntu modules" which contain
+  the required drivers for the ubdated Ubuntu version.
 
 ## [v2024.11.22-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.11.22-rc3-0...v2024.11.22-rc4-0)
 
