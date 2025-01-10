@@ -35,7 +35,7 @@ pub struct NetworkSegmentStateHistory {
     segment_id: NetworkSegmentId,
 
     /// The state that was entered
-    pub state: serde_json::Value,
+    pub state: String,
     pub state_version: ConfigVersion,
 
     /// The timestamp of the state change
@@ -45,7 +45,7 @@ pub struct NetworkSegmentStateHistory {
 impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
     fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
         Ok(rpc::forge::NetworkSegmentStateHistory {
-            state: value.state.to_string(),
+            state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),
         })
@@ -81,7 +81,7 @@ impl NetworkSegmentStateHistory {
         segment_ids: &[NetworkSegmentId],
     ) -> Result<HashMap<NetworkSegmentId, Vec<Self>>, DatabaseError> {
         let query =
-            "SELECT id, segment_id, state, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
+            "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(segment_ids)
             .fetch_all(txn.deref_mut())
@@ -95,7 +95,7 @@ impl NetworkSegmentStateHistory {
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &NetworkSegmentId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT id, segment_id, state, state_version, timestamp
+        let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
             FROM network_segment_state_history
             WHERE segment_id=$1
             ORDER BY ID asc";

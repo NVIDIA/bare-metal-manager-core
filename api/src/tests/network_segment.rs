@@ -25,7 +25,7 @@ use crate::model::network_segment::{
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use common::network_segment::{
-    create_network_segment_with_api, get_segment_state, get_segments, json_history,
+    create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
 };
 use forge_uuid::network::NetworkSegmentId;
@@ -322,12 +322,12 @@ async fn test_network_segment_max_history_length(
     }
 
     let mut txn = env.pool.begin().await.unwrap();
-    let history = json_history(&mut txn, segment_id).await;
+    let history = text_history(&mut txn, segment_id).await;
     assert_eq!(history.len(), HISTORY_LIMIT);
-    for entry in history {
+    for entry in &history {
         assert_eq!(
             entry,
-            serde_json::json!({"state": "deleting", "deletion_state": {"state": "dbdelete"}}),
+            "{\"state\": \"deleting\", \"deletion_state\": {\"state\": \"dbdelete\"}}"
         );
     }
     txn.rollback().await.unwrap();

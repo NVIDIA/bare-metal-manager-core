@@ -28,7 +28,7 @@ pub struct DbMachineStateHistory {
     pub machine_id: MachineId,
 
     /// The state that was entered
-    pub state: serde_json::Value,
+    pub state: String,
 
     /// Current version.
     pub state_version: ConfigVersion,
@@ -58,7 +58,7 @@ pub async fn find_by_machine_ids(
     txn: &mut Transaction<'_, Postgres>,
     ids: &[MachineId],
 ) -> Result<HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
-    let query = "SELECT machine_id, state, state_version, timestamp
+    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
         FROM machine_state_history
         WHERE machine_id=ANY($1)
         ORDER BY id ASC";
@@ -85,7 +85,7 @@ pub async fn for_machine(
     txn: &mut Transaction<'_, Postgres>,
     id: &MachineId,
 ) -> Result<Vec<MachineStateHistory>, DatabaseError> {
-    let query = "SELECT machine_id, state, state_version, timestamp
+    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
         FROM machine_state_history
         WHERE machine_id=$1
         ORDER BY id ASC";
@@ -106,7 +106,7 @@ pub async fn persist(
 ) -> Result<MachineStateHistory, DatabaseError> {
     let query = "INSERT INTO machine_state_history (machine_id, state, state_version)
         VALUES ($1, $2, $3)
-        RETURNING machine_id, state, state_version, timestamp";
+        RETURNING machine_id, state::TEXT, state_version, timestamp";
     sqlx::query_as::<_, DbMachineStateHistory>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(state))
