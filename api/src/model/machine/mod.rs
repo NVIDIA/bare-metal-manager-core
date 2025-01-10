@@ -1936,7 +1936,7 @@ impl ManagedHostState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineStateHistory {
     /// The state that was entered
-    pub state: serde_json::Value,
+    pub state: String,
     // The version number associated with the state change
     pub state_version: ConfigVersion,
 }
@@ -1944,7 +1944,7 @@ pub struct MachineStateHistory {
 impl From<MachineStateHistory> for rpc::MachineEvent {
     fn from(value: MachineStateHistory) -> rpc::MachineEvent {
         rpc::MachineEvent {
-            event: value.state.to_string(),
+            event: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
         }

@@ -45,11 +45,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     ]);
     let expected_initial_states: Vec<serde_json::Value> =
         expected_initial_states_json.as_array().unwrap().clone();
-    let expected_initial_states_as_strings = expected_initial_states
-        .iter()
-        .map(|v| v.to_string())
-        .collect::<Vec<_>>();
-
     for machine_id in &[host_machine_id.clone(), dpu_machine_id.clone()] {
         let mut txn = env.pool.begin().await?;
 
@@ -65,7 +60,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap();
 
         assert_eq!(
-            json_history(&machine.history()[..expected_initial_states.len()]),
+            json_history(&machine.history()[..expected_initial_states.len()])?,
             expected_initial_states
         );
 
@@ -87,10 +82,14 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .get_machine(tonic::Request::new(machine_id.to_string().into()))
             .await?
             .into_inner();
-        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        let rpc_history: Vec<serde_json::Value> = rpc_machine
+            .events
+            .into_iter()
+            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
+            .collect::<Result<_, _>>()?;
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states_as_strings,
+            expected_initial_states,
         );
 
         let rpc_machine = env
@@ -110,10 +109,14 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .into_inner()
             .machines
             .remove(0);
-        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        let rpc_history: Vec<serde_json::Value> = rpc_machine
+            .events
+            .into_iter()
+            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
+            .collect::<Result<_, _>>()?;
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states_as_strings
+            expected_initial_states
         );
 
         let rpc_machine = env
@@ -126,10 +129,14 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .into_inner()
             .machines
             .remove(0);
-        let rpc_history: Vec<String> = rpc_machine.events.into_iter().map(|ev| ev.event).collect();
+        let rpc_history: Vec<serde_json::Value> = rpc_machine
+            .events
+            .into_iter()
+            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
+            .collect::<Result<_, _>>()?;
         assert_eq!(
             rpc_history[..expected_initial_states.len()].to_vec(),
-            expected_initial_states_as_strings
+            expected_initial_states
         );
     }
 
@@ -216,8 +223,8 @@ async fn test_old_machine_state_history(
     let states = machine
         .into_history()
         .into_iter()
-        .map(|m| m.state)
-        .collect::<Vec<_>>();
+        .map(|m| serde_json::from_str::<serde_json::Value>(&m.state))
+        .collect::<Result<Vec<_>, _>>()?;
     let dpu_machine_id = dpu_machine_id.to_string();
     assert_eq!(
         serde_json::Value::Array(states),
@@ -242,7 +249,7 @@ async fn test_old_machine_state_history(
     Ok(())
 }
 
-fn json_history(history: &[MachineStateHistory]) -> Vec<serde_json::Value> {
+fn json_history(history: &[MachineStateHistory]) -> serde_json::Result<Vec<serde_json::Value>> {
     // // Check that version numbers are always incrementing by 1
     if !history.is_empty() {
         let mut version = history[0].state_version.version_nr();
@@ -252,5 +259,8 @@ fn json_history(history: &[MachineStateHistory]) -> Vec<serde_json::Value> {
         }
     }
 
-    history.iter().map(|h| h.state.clone()).collect()
+    history
+        .iter()
+        .map(|h| serde_json::from_str::<serde_json::Value>(&h.state))
+        .collect::<Result<Vec<_>, _>>()
 }
