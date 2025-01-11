@@ -35,7 +35,6 @@
 - Added Redfish Browser Support to forge-admin-cli.
 - Added support for Lenovo 655v3 and 675 server models
 - The pkey resource pool metrics are now also emitted for additional IB fabrics besides `default`
-- UFM endpoint addresses are now logged as additional labels in the log lines produces by IbFabricMonitor
 - Added InstanceType related data database accessors and gRPC API handlers
 - When Instances are created on Zero-DPU hosts, the network config field of the created instance can be left empty by tenants.
 - CreateTenant, FindTenant, and UpdateTenant APIs are now accessible by site agent.
