@@ -469,6 +469,15 @@ pub(crate) async fn on_demand_machine_validation(
             .ok_or_else(|| {
                 Status::invalid_argument(format!("Machine id {machine_id} not found."))
             })?;
+            if machine
+                .on_demand_machine_validation_request()
+                .unwrap_or_default()
+            {
+                let msg =
+                    format!("On demand machine validation for {machine_id} is already scheduled.");
+                tracing::error!(msg);
+                return Err(Status::invalid_argument(msg));
+            }
             // Check state
             match machine.current_state() {
                 ManagedHostState::Ready | ManagedHostState::Failed { .. } => {
