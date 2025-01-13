@@ -4243,18 +4243,34 @@ impl StateHandler for HostMachineStateHandler {
                             //
                             // As of July 2024, Josh Price said there's an NBU FR to fix
                             // this, but it wasn't target to a release yet.
-                            let status = trigger_reboot_if_needed(
-                                &mh_snapshot.host_snapshot,
-                                mh_snapshot,
-                                None,
-                                &self.host_handler_params.reachability_params,
-                                ctx.services,
-                                txn,
-                            )
-                            .await?;
+                            let reboot_status =
+                                if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
+                                    handler_host_power_control(
+                                        mh_snapshot,
+                                        ctx.services,
+                                        SystemPowerControl::ForceRestart,
+                                        txn,
+                                    )
+                                    .await?;
+
+                                    RebootStatus {
+                                        increase_retry_count: true,
+                                        status: "Restarted host".to_string(),
+                                    }
+                                } else {
+                                    trigger_reboot_if_needed(
+                                        &mh_snapshot.host_snapshot,
+                                        mh_snapshot,
+                                        None,
+                                        &self.host_handler_params.reachability_params,
+                                        ctx.services,
+                                        txn,
+                                    )
+                                    .await?
+                                };
 
                             Ok(StateHandlerOutcome::Wait(
-                                        format!("redfish forge_setup failed: {e}; triggered host reboot?: {status:#?}"),
+                                        format!("redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"),
                                     ))
                         }
                     }
