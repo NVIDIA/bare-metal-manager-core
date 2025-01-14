@@ -817,7 +817,7 @@ impl SiteExplorer {
                         tracing::warn!(
                             address = %ep.address,
                             exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration.",
+                            "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration; expected_num_dpus_attached_to_host: {expected_num_dpus_attached_to_host}; dpus_explored_for_host: {dpus_explored_for_host:#?}",
                         );
                         continue;
                     }
