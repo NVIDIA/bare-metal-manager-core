@@ -4,6 +4,15 @@
 ### Added
 ### Changed
 ### Fixed
+
+- When a DHCP entry for a Machines Admin, OOB or BMC IP gets deleted, the Forge DHCP Server (KEA)
+  will now get restarted in order to invalidate its cache and account for the deletion.
+  This fixes a problem where the Forge DHCP Server did not serve DHCP requests for
+  MAC addresses which obtained a different IP address after re-discovery by Forge (https://nvbugspro.nvidia.co/).
+- The `UpdateTenantKeyset` and `DeleteTenantKeyset` APIs now return correct error codes instead of an `Internal` service error. Fixes https://nvbugspro.nvidia.com/bug/4682284.
+  - The `NotFound` status code is used when keyset is not found during update or deletion
+  - The `FailedPrecondition` status code is used when the supplied version number is incorrect during update
+
 ### Removed
 
 ## [v2024.12.20-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.20-rc3-0)
