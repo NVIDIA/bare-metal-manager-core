@@ -132,6 +132,7 @@ everyone can reap the rewards.
 |Pod 21| AZ40 | cnc-jb-admin01 | cnc-mc-staging |
 |Pod 22| AZ50 | jpn-jb-admin01 | jpn-mc-staging |
 |Pod 23| AZ60 | gwc-jb-admin01 | gwc-mc-staging |
+|Pod 24| AZ51 | jpw-jb-admin01 | jpw-mc-staging |
 
 **Note**: Jump hosts no longer allow direct ssh access. They should be used as jump hosts only.<br>Example: `ssh -J <win_ad_user>@<dc_jumphost> <os_user>@<host_ip/host_fqdn>`
 
