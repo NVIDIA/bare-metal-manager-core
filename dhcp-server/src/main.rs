@@ -19,13 +19,7 @@ mod rpc;
 mod util;
 mod vendor_class;
 
-use std::{
-    collections::HashMap,
-    error::Error,
-    net::{Ipv4Addr, SocketAddr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{error::Error, net::SocketAddr, sync::Arc, time::Duration};
 
 use ::rpc::{
     forge::{DhcpDiscovery, DhcpRecord},
@@ -39,10 +33,8 @@ use lru::LruCache;
 use modes::{
     controller::Controller,
     dpu::{get_host_config, Dpu},
-    fnn::Fnn,
     DhcpMode,
 };
-use serde::Deserialize;
 use tokio::{net::UdpSocket, sync::Mutex};
 use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
@@ -213,7 +205,6 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
     match args_mode {
         ServerMode::Dpu => Box::new(Dpu {}),
         ServerMode::Controller => Box::new(Controller {}),
-        ServerMode::Fnn => Box::new(Fnn {}),
     }
 }
 
@@ -221,26 +212,6 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 pub struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
-    fnn_config: Option<FnnConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct IpConfig {
-    giaddr: Ipv4Addr,
-    address: Ipv4Addr,
-    fqdn: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubnetInfo {
-    gateway: Ipv4Addr,
-    prefix: String,
-    ip: Vec<IpConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct FnnConfig {
-    config: HashMap<String, SubnetInfo>,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
@@ -254,17 +225,9 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
         host_config = None;
     };
 
-    let fnn_config;
-    if let ServerMode::Fnn = args.mode {
-        fnn_config = modes::fnn::get_fnn_config(args.fnn_config).await?;
-    } else {
-        fnn_config = None;
-    }
-
     Ok(Config {
         dhcp_config,
         host_config,
-        fnn_config,
     })
 }
 
@@ -396,7 +359,6 @@ mod test {
                     .to_string(),
             ),
             mode: crate::command_line::ServerMode::Dpu,
-            fnn_config: Some(base_path.join("test/fnn_config.yaml").display().to_string()),
         }
     }
 
