@@ -36,7 +36,7 @@ using the following steps:
 1. Log into NGC staging or production environment and select the required NGC
   Organization ID for the site you want to interact with
   - All our staging sites so far use the organization `Forge-Prime-Provider`
-  - Our production sites use the organization `???`
+  - Our production sites use the organization `Forge-Prime-Provider`
 2. Open the FleetCommand locations page in NGC:
   - Staging: https://fc.stg.ngc.nvidia.com/locations
   - Prod: https://fc.ngc.nvidia.com/locations
