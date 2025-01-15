@@ -24,9 +24,6 @@ pub struct Args {
     #[arg(long, help = "DPU Agent provided input file path for IP selection.")]
     pub host_config: Option<String>,
 
-    #[arg(long, help = "FNN config file.")]
-    pub fnn_config: Option<String>,
-
     #[arg(short, long, value_enum, default_value_t=ServerMode::Dpu)]
     pub mode: ServerMode,
 }
@@ -35,7 +32,6 @@ pub struct Args {
 pub enum ServerMode {
     Dpu,
     Controller,
-    Fnn,
 }
 
 impl Args {

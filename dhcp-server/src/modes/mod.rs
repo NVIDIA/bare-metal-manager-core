@@ -25,7 +25,6 @@ use crate::{
 
 pub mod controller;
 pub mod dpu;
-pub mod fnn;
 
 #[async_trait]
 pub trait DhcpMode: Send + Sync + std::fmt::Debug {
