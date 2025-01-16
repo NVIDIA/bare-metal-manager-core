@@ -115,8 +115,8 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-    ) -> Result<libredfish::ForgeSetupStatus, EndpointExplorationError> {
-        Ok(libredfish::ForgeSetupStatus {
+    ) -> Result<libredfish::MachineSetupStatus, EndpointExplorationError> {
+        Ok(libredfish::MachineSetupStatus {
             is_done: true,
             diffs: vec![],
         })

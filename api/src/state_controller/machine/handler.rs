@@ -5310,7 +5310,7 @@ async fn call_forge_setup_and_handle_no_dpu_error(
     expected_dpu_count: usize,
     allow_zero_dpus: bool,
 ) -> Result<(), RedfishError> {
-    let setup_result = redfish_client.forge_setup(boot_interface_mac).await;
+    let setup_result = redfish_client.machine_setup(boot_interface_mac).await;
     match (setup_result, expected_dpu_count, allow_zero_dpus) {
         (Err(RedfishError::NoDpu), 0, true) => {
             tracing::info!("redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this.");

@@ -118,14 +118,14 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
         }
         ForgeSetup(forge_setup_args) => {
             redfish
-                .forge_setup(forge_setup_args.boot_interface_mac.clone().as_deref())
+                .machine_setup(forge_setup_args.boot_interface_mac.clone().as_deref())
                 .await?;
         }
         ForgeSetupStatus => {
-            println!("{}", redfish.forge_setup_status().await?);
+            println!("{}", redfish.machine_setup_status().await?);
         }
         SetForgePasswordPolicy => {
-            redfish.set_forge_password_policy().await?;
+            redfish.set_machine_password_policy().await?;
         }
         GetPowerState => {
             println!("{}", redfish.get_power_state().await?);
@@ -649,11 +649,16 @@ async fn show_all_ports(
     redfish: Box<dyn Redfish>,
 ) -> Result<(Vec<NetworkPort>, Vec<NetworkDeviceFunction>), RedfishError> {
     let chassis_id = get_bluefield_chassis(&*redfish).await?;
-    let ports: Vec<String> = redfish.get_ports(&chassis_id).await?;
+    let ports: Vec<String> = redfish
+        .get_ports(&chassis_id, "NvidiaNetworkAdapter")
+        .await?;
     let mut ports_info: Vec<NetworkPort> = Vec::new();
 
     for p in ports.iter() {
-        match redfish.get_port(&chassis_id, p).await {
+        match redfish
+            .get_port(&chassis_id, "NvidiaNetworkAdapter", p)
+            .await
+        {
             Ok(port) => {
                 ports_info.push(port);
             }
