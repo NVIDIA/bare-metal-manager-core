@@ -39,6 +39,12 @@ build:
           - "carbide-api"
           - api/casbin-policy.csv
           - pxe/static/*
+    - image: carbide-dhcp-server
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.dhcpserver.localdev
+      sync:
+        infer:
+          - "forge-dhcp-server"
     - image: carbide-dhcp
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev
