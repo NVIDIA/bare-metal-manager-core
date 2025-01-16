@@ -18,7 +18,7 @@ use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{EnabledDisabled, ForgeSetupStatus, Redfish, RedfishError, RoleId};
+use libredfish::{EnabledDisabled, MachineSetupStatus, Redfish, RedfishError, RoleId};
 use regex::Regex;
 use serde_json::Value;
 
@@ -164,7 +164,7 @@ impl RedfishClient {
                     .await
                     .map_err(map_redfish_error)?;
             }
-            RedfishVendor::NvidiaDpu | RedfishVendor::NvidiaGH200 => {
+            RedfishVendor::NvidiaDpu | RedfishVendor::NvidiaGH200 | RedfishVendor::NvidiaGBx00 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
                 //
@@ -218,7 +218,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         client
-            .set_forge_password_policy()
+            .set_machine_password_policy()
             .await
             .map_err(map_redfish_error)?;
 
@@ -314,7 +314,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         client
-            .forge_setup(boot_interface_mac)
+            .machine_setup(boot_interface_mac)
             .await
             .map_err(map_redfish_error)?;
 
@@ -326,14 +326,14 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         username: String,
         password: String,
-    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+    ) -> Result<MachineSetupStatus, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, username, password)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
         let status = client
-            .forge_setup_status()
+            .machine_setup_status()
             .await
             .map_err(map_redfish_error)?;
 

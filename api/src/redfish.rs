@@ -467,12 +467,12 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    async fn forge_setup(&self, _boot_interface_mac: Option<&str>) -> Result<(), RedfishError> {
+    async fn machine_setup(&self, _boot_interface_mac: Option<&str>) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    async fn forge_setup_status(&self) -> Result<libredfish::ForgeSetupStatus, RedfishError> {
-        Ok(libredfish::ForgeSetupStatus {
+    async fn machine_setup_status(&self) -> Result<libredfish::MachineSetupStatus, RedfishError> {
+        Ok(libredfish::MachineSetupStatus {
             is_done: true,
             diffs: vec![],
         })
@@ -774,13 +774,18 @@ impl Redfish for RedfishSimClient {
         )
     }
 
-    async fn get_ports(&self, _chassis_id: &str) -> Result<Vec<std::string::String>, RedfishError> {
+    async fn get_ports(
+        &self,
+        _chassis_id: &str,
+        _network_adapter: &str,
+    ) -> Result<Vec<std::string::String>, RedfishError> {
         Ok(Vec::new())
     }
 
     async fn get_port(
         &self,
         _chassis_id: &str,
+        _network_adapter: &str,
         _id: &str,
     ) -> Result<libredfish::model::port::NetworkPort, RedfishError> {
         Ok(libredfish::model::port::NetworkPort {
@@ -991,7 +996,7 @@ impl Redfish for RedfishSimClient {
     ) -> Result<Vec<libredfish::model::account_service::ManagerAccount>, RedfishError> {
         todo!()
     }
-    async fn set_forge_password_policy(&self) -> Result<(), RedfishError> {
+    async fn set_machine_password_policy(&self) -> Result<(), RedfishError> {
         Ok(())
     }
     async fn update_firmware_multipart(

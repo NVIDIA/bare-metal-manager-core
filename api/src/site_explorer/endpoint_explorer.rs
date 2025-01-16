@@ -17,7 +17,7 @@ use crate::{
         site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     },
 };
-use libredfish::ForgeSetupStatus;
+use libredfish::MachineSetupStatus;
 use std::net::SocketAddr;
 
 use super::metrics::SiteExplorationMetrics;
@@ -77,5 +77,5 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-    ) -> Result<ForgeSetupStatus, EndpointExplorationError>;
+    ) -> Result<MachineSetupStatus, EndpointExplorationError>;
 }

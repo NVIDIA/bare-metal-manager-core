@@ -178,7 +178,7 @@ fn export_temperatures(
 
 fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), HealthError> {
     let fan_sensors = meter
-        .i64_observable_gauge("hw.fan.speed")
+        .f64_observable_gauge("hw.fan.speed")
         .with_description("Fans for this hardware")
         .with_unit("rpm")
         .init();
@@ -250,7 +250,7 @@ fn export_power_supplies(
         .with_unit("%")
         .init();
     let power_supplies_input_voltage_sensors = meter
-        .i64_observable_gauge("hw.power_supply.input")
+        .f64_observable_gauge("hw.power_supply.input")
         .with_description("Input line Voltage")
         .with_unit("V")
         .init();
@@ -295,8 +295,8 @@ fn export_power_supplies(
             );
         }
         let mut utilization: f64 = 0.0;
-        if power_capacity_watts > 0 {
-            utilization = (last_power_output_watts / power_capacity_watts as f64) * 100.0;
+        if power_capacity_watts > 0.0 {
+            utilization = (last_power_output_watts / power_capacity_watts) * 100.0;
         }
         power_supplies_utilization_sensors.observe(
             utilization,

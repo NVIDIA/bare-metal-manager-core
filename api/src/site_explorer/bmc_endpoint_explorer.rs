@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::ForgeSetupStatus;
+use libredfish::MachineSetupStatus;
 use mac_address::MacAddress;
 
 use super::credentials::{get_bmc_root_credential_key, CredentialClient};
@@ -285,7 +285,7 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+    ) -> Result<MachineSetupStatus, EndpointExplorationError> {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
@@ -475,7 +475,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-    ) -> Result<ForgeSetupStatus, EndpointExplorationError> {
+    ) -> Result<MachineSetupStatus, EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
