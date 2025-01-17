@@ -27,6 +27,7 @@ mod tests {
     use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use crate::model::machine::ManagedHostState;
+    use crate::model::metadata::Metadata;
     use ::measured_boot::pcr::PcrRegisterValue;
     use ::measured_boot::records::MeasurementApprovedMachineRecord;
     use forge_uuid::machine::MachineId;
@@ -1454,9 +1455,18 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
                 .unwrap();
-        Machine::create(&mut txn, None, &machine_id, ManagedHostState::Ready)
-            .await
-            .unwrap();
+        Machine::create(
+            &mut txn,
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            &Metadata {
+                name: machine_id.to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         MachineTopology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
             .await
             .unwrap();

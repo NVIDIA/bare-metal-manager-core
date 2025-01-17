@@ -10,14 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-/// tests/common.rs
-///
-/// Shared code by measured boot tests.
-use crate::db::machine::Machine;
-use crate::db::machine_topology::MachineTopology;
-use crate::measured_boot::db;
-use crate::model::hardware_info::HardwareInfo;
-use crate::model::machine::ManagedHostState;
+//! tests/common.rs
+//!
+//! Shared code by measured boot tests.
+
+use crate::{
+    db::{machine::Machine, machine_topology::MachineTopology},
+    measured_boot::db,
+    model::{hardware_info::HardwareInfo, machine::ManagedHostState, metadata::Metadata},
+};
 use forge_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use sqlx::{Postgres, Transaction};
@@ -40,7 +41,17 @@ pub async fn create_test_machine(
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {
     let machine_id = MachineId::from_str(machine_id)?;
-    Machine::create(txn, None, &machine_id, ManagedHostState::Ready).await?;
+    Machine::create(
+        txn,
+        None,
+        &machine_id,
+        ManagedHostState::Ready,
+        &Metadata {
+            name: machine_id.to_string(),
+            ..Default::default()
+        },
+    )
+    .await?;
     MachineTopology::create_or_update(txn, &machine_id, topology).await?;
     let machine = db::machine::from_id_with_txn(txn, machine_id.clone()).await?;
     assert_eq!(machine_id, machine.machine_id);

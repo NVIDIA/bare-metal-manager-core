@@ -36,11 +36,9 @@ impl Default for Metadata {
     }
 }
 
-impl TryFrom<Metadata> for rpc::Metadata {
-    type Error = RpcDataConversionError;
-
-    fn try_from(metadata: Metadata) -> Result<Self, Self::Error> {
-        Ok(rpc::Metadata {
+impl From<Metadata> for rpc::Metadata {
+    fn from(metadata: Metadata) -> Self {
+        rpc::Metadata {
             name: metadata.name,
             description: metadata.description,
             labels: metadata
@@ -55,7 +53,7 @@ impl TryFrom<Metadata> for rpc::Metadata {
                     },
                 })
                 .collect(),
-        })
+        }
     }
 }
 

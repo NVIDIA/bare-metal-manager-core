@@ -40,7 +40,7 @@ impl TryFrom<Tenant> for rpc::forge::Tenant {
     fn try_from(src: Tenant) -> Result<Self, Self::Error> {
         Ok(Self {
             organization_id: src.organization_id.to_string(),
-            metadata: Some(src.metadata.try_into()?),
+            metadata: Some(src.metadata.into()),
             version: src.version.version_string(),
         })
     }
@@ -76,11 +76,7 @@ impl TryFrom<Tenant> for rpc::forge::CreateTenantResponse {
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
         Ok(rpc::forge::CreateTenantResponse {
-            tenant: Some(rpc::forge::Tenant {
-                organization_id: value.organization_id.0,
-                metadata: Some(value.metadata.try_into()?),
-                version: value.version.to_string(),
-            }),
+            tenant: Some(value.try_into()?),
         })
     }
 }
@@ -90,11 +86,7 @@ impl TryFrom<Tenant> for rpc::forge::FindTenantResponse {
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
         Ok(rpc::forge::FindTenantResponse {
-            tenant: Some(rpc::forge::Tenant {
-                organization_id: value.organization_id.0,
-                metadata: Some(value.metadata.try_into()?),
-                version: value.version.to_string(),
-            }),
+            tenant: Some(value.try_into()?),
         })
     }
 }
@@ -104,11 +96,7 @@ impl TryFrom<Tenant> for rpc::forge::UpdateTenantResponse {
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
         Ok(rpc::forge::UpdateTenantResponse {
-            tenant: Some(rpc::forge::Tenant {
-                organization_id: value.organization_id.0,
-                metadata: Some(value.metadata.try_into()?),
-                version: value.version.to_string(),
-            }),
+            tenant: Some(value.try_into()?),
         })
     }
 }

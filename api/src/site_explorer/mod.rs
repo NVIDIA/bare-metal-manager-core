@@ -45,6 +45,7 @@ use crate::{
             machine_id::host_id_from_dpu_hardware_info, DpuDiscoveringState, DpuDiscoveringStates,
             MachineInterfaceSnapshot, ManagedHostState,
         },
+        metadata::Metadata,
         site_explorer::{
             EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
             ExploredEndpoint, ExploredManagedHost, MachineExpectation, NicMode, PowerState,
@@ -1521,6 +1522,10 @@ impl SiteExplorer {
                 Some(&self.common_pools),
                 dpu_machine_id,
                 ManagedHostState::Created,
+                &Metadata {
+                    name: dpu_machine_id.to_string(),
+                    ..Default::default()
+                },
             )
             .await
             {
@@ -1678,6 +1683,10 @@ impl SiteExplorer {
             Some(&self.common_pools),
             &predicted_machine_id,
             ManagedHostState::Created,
+            &Metadata {
+                name: predicted_machine_id.to_string(),
+                ..Default::default()
+            },
         )
         .await?;
 
@@ -1707,6 +1716,10 @@ impl SiteExplorer {
             Some(&self.common_pools),
             predicted_machine_id,
             ManagedHostState::Created,
+            &Metadata {
+                name: predicted_machine_id.to_string(),
+                ..Default::default()
+            },
         )
         .await?;
         let hardware_info = HardwareInfo::default();

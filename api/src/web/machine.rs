@@ -313,6 +313,8 @@ struct MachineDetail {
     health_overrides: Vec<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
+    metadata: rpc::forge::Metadata,
+    version: String,
 }
 
 struct MachineHistoryDisplay {
@@ -467,6 +469,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .as_ref()
                 .and_then(utils::reason_to_user_string)
                 .unwrap_or_default(),
+            version: m.version,
+            metadata: m.metadata.unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later

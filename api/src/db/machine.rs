@@ -12,6 +12,7 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 use std::str::FromStr;
@@ -44,6 +45,7 @@ use crate::model::machine::{
     MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineSnapshot,
     MachineStateHistory, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
+use crate::model::metadata::Metadata;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
@@ -198,6 +200,13 @@ pub struct Machine {
     on_demand_machine_validation_request: Option<bool>,
 
     asn: Option<u32>,
+
+    /// Machine metadata
+    metadata: Metadata,
+
+    /// Version field that tracks changes to
+    /// - Metadata
+    version: ConfigVersion,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -290,6 +299,13 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             .map(Into::into)
             .collect::<Vec<_>>();
 
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
+
         // History is only brought in if the search config requested it
         let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
             let json: sqlx::types::Json<Vec<Option<DbMachineStateHistory>>> =
@@ -348,6 +364,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             on_demand_machine_validation_request: row
                 .try_get("on_demand_machine_validation_request")?,
             asn,
+            metadata,
+            version: row.try_get("version")?,
         })
     }
 }
@@ -393,6 +411,8 @@ impl From<Machine> for MachineSnapshot {
             history: machine.history.into_iter().map(Into::into).collect(),
             health_report_overrides: machine.health_report_overrides,
             asn: machine.asn,
+            metadata: machine.metadata,
+            version: machine.version,
         }
     }
 }
@@ -563,7 +583,14 @@ impl Machine {
             // Host and DPU machines are created in same `discover_machine` call. Update same
             // state in both machines.
             let state = ManagedHostState::Created;
-            let machine = Self::create(txn, common_pools, stable_machine_id, state).await?;
+            let machine = Self::create(
+                txn,
+                common_pools,
+                stable_machine_id,
+                state,
+                &Metadata::default(),
+            )
+            .await?;
             db::machine_interface::associate_interface_with_machine(
                 &interface.id,
                 &machine.id,
@@ -1457,12 +1484,26 @@ impl Machine {
         // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
         // also change.
         let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING id";
-        sqlx::query_as(query)
+        let machine_id = sqlx::query_as(query)
             .bind(stable_machine_id.to_string())
             .bind(current_machine_id.to_string())
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e).into())
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        // If the Machines name in Metadata matched the predicted machine id,
+        // then update it to the new ID.
+        // If someone changed the name manually then don't bother
+        let query = "UPDATE machines SET name=$1 WHERE id=$2 AND name=$3";
+        sqlx::query(query)
+            .bind(stable_machine_id.to_string())
+            .bind(stable_machine_id.to_string())
+            .bind(current_machine_id.to_string())
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(machine_id)
     }
 
     pub async fn update_failure_details(
@@ -1526,11 +1567,13 @@ impl Machine {
         common_pools: Option<&CommonPools>,
         stable_machine_id: &MachineId,
         state: ManagedHostState,
+        metadata: &Metadata,
     ) -> CarbideResult<Self> {
         let stable_machine_id_string = stable_machine_id.to_string();
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state_version = ConfigVersion::initial();
+        let version = ConfigVersion::initial();
 
         let network_config_version = ConfigVersion::initial();
         let network_config = ManagedHostNetworkConfig::default();
@@ -1559,8 +1602,9 @@ impl Machine {
             None
         };
 
-        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn)
-                                VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING id"#;
+        let query = r#"INSERT INTO machines(
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json) RETURNING id"#;
         let machine_id: MachineId = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
             .bind(state_version)
@@ -1569,6 +1613,10 @@ impl Machine {
             .bind(sqlx::types::Json(&network_config))
             .bind(CURRENT_STATE_MODEL_VERSION)
             .bind(asn)
+            .bind(version)
+            .bind(&metadata.name)
+            .bind(&metadata.description)
+            .bind(sqlx::types::Json(&metadata.labels))
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
@@ -2211,7 +2259,7 @@ pub enum MaintenanceMode {
 #[cfg(test)]
 mod test {
     use super::Machine;
-    use crate::model::machine::ManagedHostState;
+    use crate::model::{machine::ManagedHostState, metadata::Metadata};
     use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 
@@ -2223,7 +2271,14 @@ mod test {
         let mut txn = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
-        Machine::create(&mut txn, None, &id, ManagedHostState::Ready).await?;
+        Machine::create(
+            &mut txn,
+            None,
+            &id,
+            ManagedHostState::Ready,
+            &Metadata::default(),
+        )
+        .await?;
         Machine::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
         Machine::set_firmware_autoupdate(&mut txn, &id, None).await?;
         Ok(())
