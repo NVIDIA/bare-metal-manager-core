@@ -108,9 +108,11 @@ dependencies = [
  "data-encoding",
  "diff",
  "eyre",
+ "forge-certs",
  "forge-host-support",
  "forge-http-connector",
  "forge-network",
+ "forge-systemd",
  "forge-tls",
  "forge-version",
  "futures",
@@ -2293,6 +2295,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f81ec6369c545a7d40e4589b5597581fa1c441fe1cce96dd1de43159910a36a2"
 
 [[package]]
+name = "forge-certs"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "forge-host-support",
+ "forge-tls",
+ "rand 0.8.5",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.3",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "forge-host-support"
 version = "0.1.0"
 dependencies = [
@@ -2348,6 +2366,22 @@ dependencies = [
  "rpc",
  "serde",
  "sqlx",
+]
+
+[[package]]
+name = "forge-systemd"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "forge-host-support",
+ "rand 0.8.5",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.3",
+ "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]
@@ -4359,6 +4393,30 @@ dependencies = [
  "thiserror 1.0.65",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "otel-agent"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "ctor",
+ "eyre",
+ "forge-certs",
+ "forge-host-support",
+ "forge-systemd",
+ "forge-tls",
+ "humantime",
+ "prost",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "rpc",
+ "rustls-pemfile 2.2.0",
+ "rustls-pki-types",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]

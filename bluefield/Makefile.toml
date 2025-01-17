@@ -99,6 +99,36 @@ description = "Referring to the prebuilt 'build' task doesn't work here, since i
 command = "cargo"
 args = ["build", "--release", "--bin", "forge-dpu-agent", "--bin", "forge-dhcp-server"]
 
+[tasks.build-dpu-otel-agent]
+category = "Build"
+description = "cross compile forge-dpu-otel-agent locally"
+workspace = false
+script = '''
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64:latest \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "--bin" \
+    "forge-dpu-otel-agent"
+    docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
+'''
+dependencies = [
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+  { name = "check-cargo-home-set", path = "${REPO_ROOT}" },
+]
+
+[tasks.build-dpu-otel-agent-ci]
+category = "Build"
+workspace = false
+description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
+command = "cargo"
+args = ["build", "--release", "--bin", "forge-dpu-otel-agent"]
+
 [tasks.download-otelcol-builder]
 category = "Build"
 description = "Download ocb binary (custom otelcol builder)"
@@ -302,10 +332,13 @@ script = '''
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
   mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+  mkdir -p "forge-dpu_${vers}/etc/forge-dpu-otel-agent"
   mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
   cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
   cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+  cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent "forge-dpu_${vers}/usr/bin/"
   cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp misc/forge-dpu-otel-agent.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
   cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
   cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
@@ -313,6 +346,7 @@ script = '''
   cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
   cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
+  cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}/etc/forge-dpu-otel-agent/config.toml"
   cp -r misc/DEBIAN "forge-dpu_${vers}/"
   sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
@@ -321,6 +355,7 @@ dependencies = [
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
+  "build-dpu-otel-agent",
 ]
 
 [tasks.setup-forge-dpu-deb]
@@ -334,10 +369,13 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+    mkdir -p "forge-dpu_${vers}/etc/forge-dpu-otel-agent"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
     cp ${REPO_ROOT}/target/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dpu-otel-agent "forge-dpu_${vers}/usr/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/forge-dpu-otel-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
@@ -345,6 +383,7 @@ script = '''
     cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
+    cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}/etc/forge-dpu-otel-agent/config.toml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
@@ -353,6 +392,7 @@ dependencies = [
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
+  "build-dpu-otel-agent-ci",
 ]
 
 [tasks.setup-forge-dpu-deb-ci]
@@ -366,10 +406,13 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+    mkdir -p "forge-dpu_${vers}/etc/forge-dpu-otel-agent"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
     cp ${REPO_ROOT}/target/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+    cp ${REPO_ROOT}/target/release/forge-dpu-otel-agent "forge-dpu_${vers}/usr/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/forge-dpu-otel-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
@@ -377,6 +420,7 @@ script = '''
     cp misc/transceiver-exporter.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
+    cp otel/otel-agent/otel-agent-config.toml "forge-dpu_${vers}/etc/forge-dpu-otel-agent/config.toml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
@@ -385,6 +429,7 @@ dependencies = [
   "include-otelcol",
   "include-node-exporter",
   "include-transceiver-exporter",
+  "build-dpu-otel-agent-ci",
 ]
 
 [tasks.build-forge-dpu-deb-local]

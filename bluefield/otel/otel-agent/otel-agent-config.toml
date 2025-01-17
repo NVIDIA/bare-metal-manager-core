@@ -1,0 +1,17 @@
+[forge-system]
+api-server = "https://carbide-api.forge"
+root-ca = "/opt/forge/forge_root.pem"
+client-cert = "/etc/ssl/certs/forge-dpu-otel-agent.pem"
+client-key = "/etc/ssl/private/forge-dpu-otel-agent.key"
+
+[machine]
+is_fake_dpu = false
+
+[period]
+main-loop-idle-secs = 30
+main-loop-active-secs = 10
+network-config-fetch-secs = 30
+version-check-secs = 600
+inventory-update-secs = 3600
+discovery-retry-secs = 60
+discovery-retries-max = 10080
