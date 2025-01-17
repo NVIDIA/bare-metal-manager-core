@@ -474,6 +474,14 @@ fn convert_tests_to_nice_format(
             Ok(msg) => msg,
             Err(_) => "[]".to_string(),
         };
+        let custom_tags = match serde_json::to_string(&test.custom_tags) {
+            Ok(msg) => msg,
+            Err(_) => "[]".to_string(),
+        };
+        let components = match serde_json::to_string(&test.components) {
+            Ok(msg) => msg,
+            Err(_) => "[]".to_string(),
+        };
 
         let details = vec![
             ("TestId", test.test_id),
@@ -482,6 +490,10 @@ fn convert_tests_to_nice_format(
             ("Command", test.command),
             ("Args", test.args),
             ("Contexts", contexts),
+            ("PreCondition", test.pre_condition.unwrap_or_default()),
+            ("TimeOut", test.timeout.unwrap().to_string()),
+            ("CustomTags", custom_tags),
+            ("Components", components),
             ("SupportedPlatforms", platforms),
             ("ImageName", test.img_name.unwrap_or_default()),
             ("ContainerArgs", test.container_arg.unwrap_or_default()),
@@ -502,6 +514,7 @@ fn convert_tests_to_nice_format(
             ("LastModifiedAt", test.last_modified_at),
             ("LastModifiedBy", test.modified_by),
             ("IsVerified", test.verified.to_string()),
+            ("IsReadOnly", test.read_only.to_string()),
             ("IsEnabled", test.is_enabled.to_string()),
         ];
 
