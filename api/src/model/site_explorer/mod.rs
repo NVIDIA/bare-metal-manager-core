@@ -442,9 +442,19 @@ impl ExploredDpu {
             .first()
             .and_then(|system| system.serial_number.as_ref())
             .unwrap();
+        let vendor = self
+            .report
+            .systems
+            .first()
+            .and_then(|system| system.manufacturer.as_ref());
+        let model = self
+            .report
+            .systems
+            .first()
+            .and_then(|system| system.model.as_ref());
         let dmi_data = self
             .report
-            .create_temporary_dmi_data(serial_number.as_str());
+            .create_temporary_dmi_data(serial_number.as_str(), vendor, model);
 
         let chassis_map = self
             .report
@@ -640,7 +650,22 @@ impl EndpointExplorationReport {
         }
     }
 
-    pub fn create_temporary_dmi_data(&self, serial_number: &str) -> DmiData {
+    pub fn create_temporary_dmi_data(
+        &self,
+        serial_number: &str,
+        vendor: Option<&String>,
+        model: Option<&String>,
+    ) -> DmiData {
+        let sys_vendor = if let Some(x) = vendor {
+            x.to_string()
+        } else {
+            utils::DEFAULT_DMI_SYSTEM_MANUFACTURER.to_string()
+        };
+        let product_name = if let Some(x) = model {
+            x.to_string()
+        } else {
+            utils::DEFAULT_DMI_SYSTEM_MODEL.to_string()
+        };
         // For DPUs the discovered data contains enough information to
         // calculate a MachineId
         // The "Unspecified" strings are delivered as serial numbers when doing
@@ -651,11 +676,11 @@ impl EndpointExplorationReport {
             chassis_serial: utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.to_string(),
             board_serial: utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.to_string(),
             bios_version: "".to_string(),
-            sys_vendor: "".to_string(),
+            sys_vendor,
             board_name: "BlueField SoC".to_string(),
             bios_date: "".to_string(),
             board_version: "".to_string(),
-            product_name: "".to_string(),
+            product_name,
         }
     }
 
@@ -670,7 +695,16 @@ impl EndpointExplorationReport {
             .first()
             .and_then(|system| system.serial_number.as_ref())
         {
-            let dmi_data = self.create_temporary_dmi_data(serial_number);
+            let vendor = self
+                .systems
+                .first()
+                .and_then(|system| system.manufacturer.as_ref());
+            let model = self
+                .systems
+                .first()
+                .and_then(|system| system.model.as_ref());
+
+            let dmi_data = self.create_temporary_dmi_data(serial_number, vendor, model);
 
             // Construct a HardwareInfo object specifically so that we can mint a MachineId.
             let hardware_info = HardwareInfo {

@@ -15,6 +15,9 @@ ExecStart=/opt/forge/forge-scout --api=${server_uri} --machine-interface-id=${ma
 OOMScoreAdjust=-1000
 Restart=on-failure
 RestartPreventExitStatus=255
+StandardOutput=journal+console
+StandardError=journal+console
+LogLevel=info
 
 [Install]
 WantedBy=multi-user.target
