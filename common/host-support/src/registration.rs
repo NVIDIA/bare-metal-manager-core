@@ -17,6 +17,7 @@ use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
 use ::rpc::{forge as rpc, MachineDiscoveryInfo};
 use eyre::WrapErr;
+use forge_tls::client_config::ClientCert;
 use forge_tls::default as tls_default;
 use tryhard::RetryFutureConfig;
 
@@ -217,7 +218,7 @@ pub async fn register_machine(
     }
 
     if response.machine_certificate.is_some() {
-        match write_certs(response.machine_certificate).await {
+        match write_certs(response.machine_certificate, None).await {
             Ok(()) => {}
             Err(e) => return Err(RegistrationError::ClientCertificateError(e)),
         }
@@ -256,7 +257,7 @@ pub async fn attest_quote(
         .attest_quote(quote)
         .await?;
 
-    let _ = write_certs(response.machine_certificate).await;
+    let _ = write_certs(response.machine_certificate, None).await;
 
     tracing::info!(
         "Attestation result is {}",
@@ -272,6 +273,7 @@ pub async fn attest_quote(
 
 pub async fn write_certs(
     machine_certificate: Option<MachineCertificate>,
+    override_client_cert: Option<&ClientCert>,
 ) -> Result<(), eyre::Report> {
     if let Some(mut machine_certificate) = machine_certificate {
         let mut combined_cert = Vec::with_capacity(
@@ -281,26 +283,24 @@ pub async fn write_certs(
         combined_cert.append(&mut "\n".to_string().into_bytes());
         combined_cert.append(&mut machine_certificate.issuing_ca);
         combined_cert.append(&mut "\n".to_string().into_bytes());
-        tokio::fs::write(tls_default::CLIENT_CERT, combined_cert)
+        let (client_cert, client_key) = match override_client_cert {
+            Some(c) => (c.cert_path.as_str(), c.key_path.as_str()),
+            None => (tls_default::CLIENT_CERT, tls_default::CLIENT_KEY),
+        };
+        tokio::fs::write(client_cert, combined_cert)
             .await
             .wrap_err(format!(
                 "Failed to write new machine certificate PEM to {}",
-                tls_default::CLIENT_CERT
+                client_cert
             ))?;
-        tracing::info!(
-            "Wrote new machine certificate PEM to: {:?}",
-            tls_default::CLIENT_CERT
-        );
+        tracing::info!("Wrote new machine certificate PEM to: {:?}", client_cert);
 
-        tokio::fs::write(
-            tls_default::CLIENT_KEY,
-            machine_certificate.private_key.as_slice(),
-        )
-        .await
-        .wrap_err(format!(
-            "Failed to write new machine certificate key to: {}",
-            tls_default::CLIENT_KEY
-        ))?;
+        tokio::fs::write(client_key, machine_certificate.private_key.as_slice())
+            .await
+            .wrap_err(format!(
+                "Failed to write new machine certificate key to: {}",
+                client_key
+            ))?;
     } else {
         return Err(eyre::eyre!("write_certs: machine_certificate is empty"));
     }

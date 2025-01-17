@@ -17,8 +17,6 @@ exporters:
 extensions:
   - gomod:
       github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v${VERSION}
-  - gomod:
-      github.com/open-telemetry/opentelemetry-collector-contrib/extension/headerssetterextension v${VERSION}
 
 processors:
   - gomod:
