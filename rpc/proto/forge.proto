@@ -1754,6 +1754,13 @@ message Machine {
 
   // Infiniband devices information attached to the machine.
   optional InfinibandStatusObservation ib_status = 32;
+
+  // Metadata associated with the Machine
+  Metadata metadata = 33;
+
+  // Version field that tracks changes to
+  // - Metadata
+  string version = 34;
 }
 
 message DpuAgentInventoryReport {

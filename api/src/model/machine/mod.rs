@@ -26,7 +26,8 @@ use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
-    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, StateSla,
+    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
+    StateSla,
 };
 use crate::{
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
@@ -376,7 +377,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             network_config_version: instance.network_config_version.version_string(),
             ib_config_version: instance.ib_config_version.version_string(),
             storage_config_version: instance.storage_config_version.version_string(),
-            metadata: Some(instance.metadata.try_into()?),
+            metadata: Some(instance.metadata.into()),
         }))
     }
 }
@@ -503,6 +504,13 @@ pub struct MachineSnapshot {
     pub on_demand_machine_validation_request: Option<bool>,
 
     pub asn: Option<u32>,
+
+    /// Machine Metadata
+    pub metadata: Metadata,
+
+    /// Version field that tracks changes to
+    /// - Metadata
+    pub version: ConfigVersion,
 }
 
 impl MachineSnapshot {
@@ -615,6 +623,8 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             state_version: machine.current.version.version_string(),
             state_sla: Some(state_sla(&machine.current.state, &machine.current.version).into()),
             machine_type: *RpcMachineTypeWrapper::from(machine.machine_id.machine_type()) as _,
+            metadata: Some(machine.metadata.into()),
+            version: machine.version.version_string(),
             events: machine
                 .history
                 .into_iter()
