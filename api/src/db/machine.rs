@@ -518,6 +518,10 @@ impl Machine {
         self.asn
     }
 
+    pub fn version(&self) -> &ConfigVersion {
+        &self.version
+    }
+
     pub async fn exists(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
@@ -1154,6 +1158,41 @@ impl Machine {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(machines)
+    }
+
+    pub async fn update_metadata(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        expected_version: ConfigVersion,
+        metadata: Metadata,
+    ) -> Result<(), CarbideError> {
+        let next_version = expected_version.increment();
+
+        let query = "UPDATE machines SET
+            version=$1,
+            name=$2, description=$3, labels=$4::jsonb
+            WHERE id=$5 AND version=$6
+            RETURNING id";
+        let query_result: Result<(MachineId,), _> = sqlx::query_as(query)
+            .bind(next_version)
+            .bind(&metadata.name)
+            .bind(&metadata.description)
+            .bind(sqlx::types::Json(&metadata.labels))
+            .bind(machine_id.to_string())
+            .bind(expected_version)
+            .fetch_one(txn.deref_mut())
+            .await;
+
+        match query_result {
+            Ok((_machine_id,)) => Ok(()),
+            Err(e) => Err(match e {
+                sqlx::Error::RowNotFound => CarbideError::ConcurrentModificationError(
+                    "machine",
+                    expected_version.to_string(),
+                ),
+                e => DatabaseError::new(file!(), line!(), query, e).into(),
+            }),
+        }
     }
 
     pub async fn find_dpu_machine_ids_by_host_machine_id(

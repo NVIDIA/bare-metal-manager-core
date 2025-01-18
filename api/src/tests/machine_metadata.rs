@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common;
+use crate::{tests::common, CarbideError};
 
 use common::api_fixtures::{create_managed_host, create_test_env};
+use rpc::forge::forge_server::Forge;
 
 #[crate::sqlx_test]
 async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -24,8 +25,8 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .machines
         .remove(0);
-    let version: config_version::ConfigVersion = host_machine.version.parse().unwrap();
-    assert_eq!(version.version_nr(), 1);
+    let version1: config_version::ConfigVersion = host_machine.version.parse().unwrap();
+    assert_eq!(version1.version_nr(), 1);
 
     let expected_metadata = rpc::forge::Metadata {
         name: host_machine.id.as_ref().unwrap().to_string(),
@@ -33,6 +34,141 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         labels: Vec::new(),
     };
     assert_eq!(host_machine.metadata.as_ref().unwrap(), &expected_metadata);
+
+    let new_metadata = rpc::forge::Metadata {
+        name: "ASDF".to_string(),
+        description: "LL1".to_string(),
+        labels: vec![
+            ::rpc::forge::Label {
+                key: "A".to_string(),
+                value: None,
+            },
+            ::rpc::forge::Label {
+                key: "B".to_string(),
+                value: Some("BB".to_string()),
+            },
+        ],
+    };
+
+    // Update with missing Metadata fails
+    let err = env
+        .api
+        .update_machine_metadata(tonic::Request::new(
+            ::rpc::forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id.clone(),
+                if_version_match: None,
+                metadata: None,
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    // Update succeeds
+    env.api
+        .update_machine_metadata(tonic::Request::new(
+            ::rpc::forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id.clone(),
+                if_version_match: None,
+                metadata: Some(new_metadata.clone()),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let mut host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let version2: config_version::ConfigVersion = host_machine.version.parse().unwrap();
+    assert_eq!(version2.version_nr(), 2);
+    host_machine
+        .metadata
+        .as_mut()
+        .unwrap()
+        .labels
+        .sort_by(|l1, l2| l1.key.cmp(&l2.key));
+
+    assert_eq!(host_machine.metadata.as_ref().unwrap(), &new_metadata);
+
+    // Conditional updates
+    let new_metadata = rpc::forge::Metadata {
+        name: "CONDITIONAL".to_string(),
+        description: "".to_string(),
+        labels: vec![::rpc::forge::Label {
+            key: "D".to_string(),
+            value: None,
+        }],
+    };
+
+    let err = env
+        .api
+        .update_machine_metadata(tonic::Request::new(
+            ::rpc::forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id.clone(),
+                if_version_match: Some(version1.to_string()),
+                metadata: Some(new_metadata.clone()),
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        err.message(),
+        CarbideError::ConcurrentModificationError("machine", version1.to_string()).to_string()
+    );
+
+    env.api
+        .update_machine_metadata(tonic::Request::new(
+            ::rpc::forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id.clone(),
+                if_version_match: Some(version2.to_string()),
+                metadata: Some(new_metadata.clone()),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let mut host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0);
+    let version3: config_version::ConfigVersion = host_machine.version.parse().unwrap();
+    assert_eq!(version3.version_nr(), 3);
+    host_machine
+        .metadata
+        .as_mut()
+        .unwrap()
+        .labels
+        .sort_by(|l1, l2| l1.key.cmp(&l2.key));
+
+    assert_eq!(host_machine.metadata.as_ref().unwrap(), &new_metadata);
+
+    // Updates with invalid metadata fail
+    let invalid_metadata = rpc::forge::Metadata {
+        name: "😀".to_string(),
+        description: "".to_string(),
+        labels: vec![],
+    };
+
+    let err = env
+        .api
+        .update_machine_metadata(tonic::Request::new(
+            ::rpc::forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id.clone(),
+                if_version_match: None,
+                metadata: Some(invalid_metadata),
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "Invalid value: Name '😀' must contain ASCII characters only"
+    );
 
     Ok(())
 }

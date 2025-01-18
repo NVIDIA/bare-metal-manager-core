@@ -16,6 +16,7 @@
 		<th>Health Overrides #</th>
 		<th>Associated DPU/Host</th>
 		<th>Hostname</th>
+		<th>Labels</th>
 		<th>IP Address</th>
 		<th>MAC Address</th>
 		<th>Sys Vendor</th>
@@ -55,6 +56,7 @@
 				{% endif %}
 			</td>
 			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
+			<td>{{ m.metadata.labels|label_list_fmt(true)|safe }}</td>
 			<td>{{ m.ip_address }}</td>
 			<td>{{ m.mac_address }}</td>
 			<td>{{ m.sys_vendor}}</td>

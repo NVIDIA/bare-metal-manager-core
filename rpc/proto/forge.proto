@@ -219,6 +219,9 @@ service Forge {
   // Add capacity to a resource pool
   rpc AdminGrowResourcePool(GrowResourcePoolRequest) returns (GrowResourcePoolResponse);
 
+  // Update the Metadata of a Machine
+  rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
+
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
@@ -1761,6 +1764,21 @@ message Machine {
   // Version field that tracks changes to
   // - Metadata
   string version = 34;
+}
+
+// Updates the Metadata stored on a Machine
+message MachineMetadataUpdateRequest {
+  // The ID of the Machine for which the Metadata update will apply
+  common.MachineId machine_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Machine `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Machine
+  Metadata metadata = 3;
 }
 
 message DpuAgentInventoryReport {

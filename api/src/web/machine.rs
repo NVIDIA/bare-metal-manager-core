@@ -49,6 +49,7 @@ struct MachineRowDisplay {
     num_ib_ifs: usize,
     health_probe_alerts: Vec<health_report::HealthProbeAlert>,
     override_mode_counts: String,
+    metadata: rpc::forge::Metadata,
 }
 
 impl PartialOrd for MachineRowDisplay {
@@ -145,6 +146,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
                     merge_count
                 }
             ),
+            metadata: m.metadata.unwrap_or_default(),
         }
     }
 }

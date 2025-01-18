@@ -2991,3 +2991,26 @@ pub async fn machine_validation_test_add(
     })
     .await
 }
+
+pub async fn update_machine_metadata(
+    api_config: &ApiConfig<'_>,
+    machine_id: ::rpc::common::MachineId,
+    metadata: ::rpc::forge::Metadata,
+    current_version: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::MachineMetadataUpdateRequest {
+            machine_id: Some(machine_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        });
+        client
+            .update_machine_metadata(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
