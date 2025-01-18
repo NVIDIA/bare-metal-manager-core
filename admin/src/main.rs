@@ -42,7 +42,7 @@ use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuAction::Versions;
 use cfg::carbide_options::DpuReprovision;
-use cfg::carbide_options::ExpectedMachine;
+use cfg::carbide_options::ExpectedMachineJson;
 use cfg::carbide_options::HostAction;
 use cfg::carbide_options::IbPartitionOptions;
 use cfg::carbide_options::IpAction;
@@ -885,12 +885,14 @@ async fn main() -> color_eyre::Result<()> {
                     eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
                     return Ok(());
                 }
+                let metadata = expected_machine_data.metadata()?;
                 rpc::add_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username,
                     expected_machine_data.bmc_password,
                     expected_machine_data.chassis_serial_number,
                     expected_machine_data.fallback_dpu_serial_numbers,
+                    metadata,
                     api_config,
                 )
                 .await?;
@@ -904,12 +906,14 @@ async fn main() -> color_eyre::Result<()> {
                     eprintln!("{e}");
                     return Ok(());
                 }
+                let metadata = expected_machine_data.metadata()?;
                 rpc::update_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username,
                     expected_machine_data.bmc_password,
                     expected_machine_data.chassis_serial_number,
                     expected_machine_data.fallback_dpu_serial_numbers,
+                    metadata,
                     api_config,
                 )
                 .await?;
@@ -919,7 +923,7 @@ async fn main() -> color_eyre::Result<()> {
                 let reader = BufReader::new(File::open(json_file_path)?);
                 #[derive(Debug, Serialize, Deserialize)]
                 struct ExpectedMachineList {
-                    expected_machines: Vec<ExpectedMachine>,
+                    expected_machines: Vec<ExpectedMachineJson>,
                     expected_machines_count: Option<usize>,
                 }
                 let expected_machine_list: ExpectedMachineList = serde_json::from_reader(reader)?;

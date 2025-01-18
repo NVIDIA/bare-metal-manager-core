@@ -521,7 +521,9 @@ impl SiteExplorer {
 
         if **self.config.create_machines.load() {
             let start_create_machines = std::time::Instant::now();
-            let create_machines_res = self.create_machines(metrics, identified_hosts).await;
+            let create_machines_res = self
+                .create_machines(metrics, identified_hosts, &matched_expected_machines)
+                .await;
             metrics.create_machines_latency = Some(start_create_machines.elapsed());
             create_machines_res?;
         }
@@ -539,13 +541,21 @@ impl SiteExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
         explored_managed_hosts: Vec<(ExploredManagedHost, EndpointExplorationReport)>,
+        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<()> {
         // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
         // for every identified ManagedHost even if we don't create any objects.
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
         for (host, report) in explored_managed_hosts {
+            let expected_machine = matched_expected_machines.get(&host.host_bmc_ip);
+
             match self
-                .create_managed_host(host.clone(), report, &self.database_connection)
+                .create_managed_host(
+                    host.clone(),
+                    report,
+                    expected_machine,
+                    &self.database_connection,
+                )
                 .await
             {
                 Ok(true) => {
@@ -569,12 +579,22 @@ impl SiteExplorer {
         &self,
         explored_host: ExploredManagedHost,
         mut report: EndpointExplorationReport,
+        expected_machine: Option<&ExpectedMachine>,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
         let mut managed_host = ManagedHost::init(explored_host);
         let mut txn = pool.begin().await.map_err(|e| {
             DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
         })?;
+
+        let metadata = match expected_machine {
+            Some(m) => m.metadata.clone(),
+            None => Metadata {
+                name: String::new(),
+                description: String::new(),
+                labels: Default::default(),
+            },
+        };
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
@@ -584,7 +604,7 @@ impl SiteExplorer {
                 return Err(error);
             }
             let did_create = self
-                .create_zero_dpu_machine(&mut txn, &mut managed_host, &mut report)
+                .create_zero_dpu_machine(&mut txn, &mut managed_host, &mut report, metadata.clone())
                 .await?;
             if !did_create {
                 // Site explorer has already created a machine for this endpoint previously, skip.
@@ -614,7 +634,7 @@ impl SiteExplorer {
                 return Ok(false);
             }
 
-            self.attach_dpu_to_host(&mut txn, &mut managed_host, dpu_report)
+            self.attach_dpu_to_host(&mut txn, &mut managed_host, dpu_report, metadata.clone())
                 .await?;
         }
 
@@ -1339,6 +1359,7 @@ impl SiteExplorer {
         txn: &mut Transaction<'_, Postgres>,
         managed_host: &mut ManagedHost,
         report: &mut EndpointExplorationReport,
+        metadata: Metadata,
     ) -> CarbideResult<bool> {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
@@ -1402,7 +1423,7 @@ impl SiteExplorer {
             return Ok(false);
         }
 
-        self.create_machine_from_explored_managed_host(txn, managed_host, machine_id)
+        self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, metadata)
             .await?;
 
         let machine_id = machine_id.clone(); // 🦀 end the borrow so we can write to managed_host.machine_id
@@ -1569,6 +1590,7 @@ impl SiteExplorer {
         txn: &mut Transaction<'_, Postgres>,
         explored_host: &mut ManagedHost,
         explored_dpu: &ExploredDpu,
+        metadata: Metadata,
     ) -> CarbideResult<()> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
@@ -1590,8 +1612,14 @@ impl SiteExplorer {
             )));
         }
 
-        self.configure_host_machine(txn, explored_host, &host_machine_interface, explored_dpu)
-            .await?;
+        self.configure_host_machine(
+            txn,
+            explored_host,
+            &host_machine_interface,
+            explored_dpu,
+            metadata,
+        )
+        .await?;
 
         // configure_host_machine should have setup the machine_id for the host
         let host_machine_id = explored_host
@@ -1631,6 +1659,7 @@ impl SiteExplorer {
         explored_host: &mut ManagedHost,
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
+        metadata: Metadata,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
@@ -1649,7 +1678,12 @@ impl SiteExplorer {
                 // 1. Generate the ID for the host from *this* DPU's hw info
                 // 2. Add an entry for this host in the machines table (with a machine-id from (1)).
                 let host_machine_id = self
-                    .create_host_from_dpu_hw_info(txn, &explored_host.explored_host, explored_dpu)
+                    .create_host_from_dpu_hw_info(
+                        txn,
+                        &explored_host.explored_host,
+                        explored_dpu,
+                        metadata,
+                    )
                     .await?;
 
                 tracing::info!(
@@ -1674,19 +1708,22 @@ impl SiteExplorer {
         txn: &mut Transaction<'_, Postgres>,
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
+        mut metadata: Metadata,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
+
+        if metadata.name.is_empty() {
+            metadata.name = predicted_machine_id.to_string();
+        }
+
         let _host_machine = Machine::create(
             txn,
             Some(&self.common_pools),
             &predicted_machine_id,
             ManagedHostState::Created,
-            &Metadata {
-                name: predicted_machine_id.to_string(),
-                ..Default::default()
-            },
+            &metadata,
         )
         .await?;
 
@@ -1710,16 +1747,18 @@ impl SiteExplorer {
         txn: &mut Transaction<'_, Postgres>,
         managed_host: &ManagedHost,
         predicted_machine_id: &MachineId,
+        mut metadata: Metadata,
     ) -> CarbideResult<()> {
+        if metadata.name.is_empty() {
+            metadata.name = predicted_machine_id.to_string();
+        }
+
         _ = Machine::create(
             txn,
             Some(&self.common_pools),
             predicted_machine_id,
             ManagedHostState::Created,
-            &Metadata {
-                name: predicted_machine_id.to_string(),
-                ..Default::default()
-            },
+            &metadata,
         )
         .await?;
         let hardware_info = HardwareInfo::default();

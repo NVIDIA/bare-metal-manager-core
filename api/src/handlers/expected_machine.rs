@@ -18,6 +18,7 @@ use tonic::Status;
 use crate::api::{log_request_data, Api};
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::DatabaseError;
+use crate::model::metadata::Metadata;
 use crate::CarbideError;
 
 pub(crate) async fn get(
@@ -52,15 +53,7 @@ pub(crate) async fn get(
                     "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}")));
             }
 
-            let rpc_expected_machine = rpc::ExpectedMachine {
-                bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
-                bmc_username: expected_machine.bmc_username,
-                bmc_password: expected_machine.bmc_password,
-                chassis_serial_number: expected_machine.serial_number,
-                fallback_dpu_serial_numbers: expected_machine.fallback_dpu_serial_numbers,
-            };
-
-            Ok(tonic::Response::new(rpc_expected_machine))
+            Ok(tonic::Response::new(expected_machine.into()))
         }
         None => Err(CarbideError::NotFoundError {
             kind: "expected_machine",
@@ -87,6 +80,8 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
+    let metadata = metadata_from_request(request.metadata)?;
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -103,6 +98,7 @@ pub(crate) async fn add(
         request.bmc_password,
         request.chassis_serial_number,
         request.fallback_dpu_serial_numbers,
+        metadata,
     )
     .await?;
 
@@ -124,20 +120,13 @@ pub(crate) async fn delete(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let rpc_expected_machine = get(api, request).await?.into_inner();
-
-    let parsed_mac: MacAddress = rpc_expected_machine
+    // We parse the MAC in order to detect formatting errors before
+    // handing it off to the database
+    let parsed_mac: MacAddress = request
+        .into_inner()
         .bmc_mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
-
-    let expected_machine = ExpectedMachine {
-        bmc_mac_address: parsed_mac,
-        bmc_username: rpc_expected_machine.bmc_username,
-        serial_number: rpc_expected_machine.chassis_serial_number,
-        bmc_password: rpc_expected_machine.bmc_password,
-        fallback_dpu_serial_numbers: rpc_expected_machine.fallback_dpu_serial_numbers,
-    };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -148,8 +137,7 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    expected_machine
-        .delete(&mut txn)
+    ExpectedMachine::delete(parsed_mac, &mut txn)
         .await
         .map_err(CarbideError::from)?;
 
@@ -182,19 +170,22 @@ pub(crate) async fn update(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
+    let metadata = metadata_from_request(request.metadata)?;
+
     let mut expected_machine = ExpectedMachine {
         bmc_mac_address: parsed_mac,
         bmc_username: request.bmc_username.clone(),
         serial_number: request.chassis_serial_number.clone(),
         bmc_password: request.bmc_password.clone(),
         fallback_dpu_serial_numbers: request.fallback_dpu_serial_numbers.clone(),
+        metadata: metadata.clone(),
     };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "begin update_bmc_credentials",
+            "begin update_expected_machine",
             e,
         ))
     })?;
@@ -206,6 +197,7 @@ pub(crate) async fn update(
             request.bmc_password,
             request.chassis_serial_number,
             request.fallback_dpu_serial_numbers,
+            metadata,
         )
         .await?;
 
@@ -213,7 +205,7 @@ pub(crate) async fn update(
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "commit update_bmc_credentials",
+            "commit update_expected_machine",
             e,
         ))
     })?;
@@ -277,16 +269,7 @@ pub(crate) async fn get_all(
         .map_err(CarbideError::from)?;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
-        expected_machines: expected_machine_list
-            .into_iter()
-            .map(|machine| rpc::ExpectedMachine {
-                bmc_mac_address: machine.bmc_mac_address.to_string(),
-                bmc_username: machine.bmc_username,
-                bmc_password: machine.bmc_password,
-                chassis_serial_number: machine.serial_number,
-                fallback_dpu_serial_numbers: machine.fallback_dpu_serial_numbers,
-            })
-            .collect(),
+        expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
     }))
 }
 
@@ -317,7 +300,7 @@ pub(crate) async fn delete_all(
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "begin replace_all_expected_machines",
+                "begin delete_all_expected_machines",
                 e,
             ))
         })?;
@@ -330,7 +313,7 @@ pub(crate) async fn delete_all(
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "commit replace_all_expected_machines",
+            "commit delete_all_expected_machines",
             e,
         ))
     })?;
@@ -364,4 +347,25 @@ pub(crate) async fn query(
     })?;
 
     Ok(expected.remove(&mac))
+}
+
+/// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
+/// Otherwise assume empty Metadata
+fn metadata_from_request(
+    opt_metadata: Option<::rpc::forge::Metadata>,
+) -> Result<Metadata, CarbideError> {
+    Ok(match opt_metadata {
+        None => Metadata {
+            name: "".to_string(),
+            description: "".to_string(),
+            labels: Default::default(),
+        },
+        Some(m) => {
+            // Note that this is unvalidated Metadata. It can contain non-ASCII names
+            // and
+            let m: Metadata = m.try_into().map_err(CarbideError::from)?;
+            m.validate(false).map_err(CarbideError::from)?;
+            m
+        }
+    })
 }

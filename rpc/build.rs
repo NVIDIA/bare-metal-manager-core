@@ -82,8 +82,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Metadata", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.Label", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.Metadata",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.Label",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .type_attribute(
             "forge.InstancePhoneHomeLastContactRequest",
             "#[derive(serde::Serialize)]",

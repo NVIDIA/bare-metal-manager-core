@@ -59,7 +59,7 @@ pub(crate) async fn create(
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
-    metadata.validate().map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(CarbideError::from)?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -139,7 +139,7 @@ pub(crate) async fn update(
 
     let metadata: Metadata = metadata_to_valid_tenant_metadata(metadata)?;
 
-    metadata.validate().map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(CarbideError::from)?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

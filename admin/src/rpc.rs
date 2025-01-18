@@ -1597,6 +1597,7 @@ pub async fn add_expected_machine(
     bmc_password: String,
     chassis_serial_number: String,
     fallback_dpu_serial_numbers: Option<Vec<String>>,
+    metadata: ::rpc::forge::Metadata,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
@@ -1606,6 +1607,7 @@ pub async fn add_expected_machine(
             bmc_password,
             chassis_serial_number,
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
+            metadata: Some(metadata),
         });
 
         client
@@ -1623,6 +1625,7 @@ pub async fn update_expected_machine(
     bmc_password: Option<String>,
     chassis_serial_number: Option<String>,
     fallback_dpu_serial_numbers: Option<Vec<String>>,
+    metadata: ::rpc::forge::Metadata,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     let expected_machine = get_expected_machine(bmc_mac_address, api_config).await?;
@@ -1635,6 +1638,7 @@ pub async fn update_expected_machine(
                 .unwrap_or(expected_machine.chassis_serial_number),
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
+            metadata: Some(metadata),
         });
 
         client
@@ -1647,7 +1651,7 @@ pub async fn update_expected_machine(
 }
 
 pub async fn replace_all_expected_machines(
-    expected_machine_list: Vec<carbide_options::ExpectedMachine>,
+    expected_machine_list: Vec<carbide_options::ExpectedMachineJson>,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {
@@ -1662,6 +1666,7 @@ pub async fn replace_all_expected_machines(
                     fallback_dpu_serial_numbers: machine
                         .fallback_dpu_serial_numbers
                         .unwrap_or_default(),
+                    metadata: machine.metadata,
                 })
                 .collect(),
         });

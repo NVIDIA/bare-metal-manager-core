@@ -85,7 +85,10 @@ fn convert_and_print_into_nice_table(
         "BMC Mac",
         "Interface IP",
         "Fallback DPUs",
-        "Associated Machine"
+        "Associated Machine",
+        "Name",
+        "Description",
+        "Labels"
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -98,6 +101,18 @@ fn convert_and_print_into_nice_table(
                     .unwrap_or("unknown".to_string()),
             )
             .cloned();
+
+        let metadata = expected_machine.metadata.clone().unwrap_or_default();
+        let labels = metadata
+            .labels
+            .iter()
+            .map(|label| {
+                let key = &label.key;
+                let value = label.value.clone().unwrap_or_default();
+                format!("\"{}:{}\"", key, value)
+            })
+            .collect::<Vec<_>>();
+
         table.add_row(row![
             expected_machine.chassis_serial_number,
             expected_machine.bmc_mac_address,
@@ -105,7 +120,10 @@ fn convert_and_print_into_nice_table(
                 .map(|x| x.address.join("\n"))
                 .unwrap_or("Undiscovered".to_string()),
             expected_machine.fallback_dpu_serial_numbers.join("\n"),
-            machine_id.unwrap_or("Unlinked".to_string())
+            machine_id.unwrap_or("Unlinked".to_string()),
+            metadata.name,
+            metadata.description,
+            labels.join(", ")
         ]);
     }
 
