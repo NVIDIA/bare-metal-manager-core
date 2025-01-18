@@ -1,23 +1,84 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc4-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc5-0...trunk)
 
 ### Added
 ### Changed
+### Fixed
+### Removed
+
+## [v2025.01.17-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc5-0...v2025.01.17-rc2-0)
+
+### Added
+
+- Scout process on hosts now logs to serial console.
+  forge ssh-console can now be used to view scout logs.
+- Container image Includes forge-dhcp-server binary.
+- Added ToolTree to the mkosi configs, making build more reproducable.
+- Added implementation to fmt for OsImageStatus enum.
+- Machine Validation includes a test for bandwidth.
+- OpenTelemetry DPU agent to renew mTLS certificates.
+- Forge now maintains the same set of `Metadata` for Machines as for `Instances` and `VPC`s. Machines can have an associated `Name`, `Description` and `Labels`. Machine metadata is returned in the `Metadata` field of the `Machine` message on the gRPC API. Machine Metadata is also visible on the `/admin/machine/$machine_id` page of the admin web ui as well as when using `forge-admin-cli machine show $machine_id`.
+  By default the Machines `Name` will be set equivalent to the Machine ID.
+  Other metadata fields are empty.
+- Machine metadata can be updated using the new `UpdateMachineMetadata` API.
+  The API supports the same version-based mechanism to prevent unexpected concurrent edits of Metadata as other Forge APIs.
+- `forge-admin` cli supports new sub-commands to update Machine metadata:
+  - Show Machine Metadata
+    ```
+    forge-admin-cli machine metadata show fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
+    ```
+  - Set the name or description of a Machine:
+    ```
+    forge-admin-cli machine metadata set --name NewMachineName --description NewMachineDescription fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
+    ```
+  - Add a label for Machine:
+    ```
+    forge-admin-cli machine metadata add-label --key MyLabel NewMachineName --value MyLabelValue fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
+    ```
+  - Remove labels from a Machine:
+    ```
+    forge-admin-cli machine metadata remove-labels --keys Key --Key2 fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
+    ```
+- Forge can be configured to automatically apply Machine metadata (including labels) during Machine Ingestion. The required metadata can be inserted into the `Expected Machines` manifest that informs Forge about hardware that is expected to be found on a site. The `forge-admin-cli expected-machine` commands related to Expected Machines have been updated in order to store Metadata within the expected machines entries. The forge admin web UI will show metadata associated with expected machines within the JSON view available on `/admin/expected-machine-definition.json`.
+
+### Changed
+
+- Updated libredfish to 0.27.2 for SWIPAT OSS requirements.
+- If TLS server certificate validation is disabled by setting flag DISABLE_TLS_ENFORCEMENT,
+  client certificates will still be passed to the server.  Only used for testing purposes.
+- [FORGE-5128](https://jirasw.nvidia.com/browse/FORGE-5128) Displaying additional machine validation properties as part of the forge-admin-cli command: mv tests show --extended
+- Block scheduling a Machine Validation request if one is already pending.
+
 ### Fixed
 
 - When a DHCP entry for a Machines Admin, OOB or BMC IP gets deleted, the Forge DHCP Server (KEA)
   will now get restarted in order to invalidate its cache and account for the deletion.
   This fixes a problem where the Forge DHCP Server did not serve DHCP requests for
-  MAC addresses which obtained a different IP address after re-discovery by Forge (https://nvbugspro.nvidia.co/).
-- The `UpdateTenantKeyset` and `DeleteTenantKeyset` APIs now return correct error codes instead of an `Internal` service error. Fixes https://nvbugspro.nvidia.com/bug/4682284.
+  MAC addresses which obtained a different IP address after re-discovery by Forge (https://nvbugspro.nvidia.com/bug/4792034).
+- The `UpdateTenantKeyset` and `DeleteTenantKeyset` APIs now return correct error codes instead of an `Internal` service error. Fixes (https://nvbugspro.nvidia.com/bug/4682284).
   - The `NotFound` status code is used when keyset is not found during update or deletion
   - The `FailedPrecondition` status code is used when the supplied version number is incorrect during update
+- Explicitly reboot the host the first time we encounter an issue calling forge_setup.
+- Fixed issue that prevented hosts in the same VPC from communicating with each other.
+- Performance fixes for recent machine snapshot views.
+- [FORGE-5085](https://jirasw.nvidia.com/browse/FORGE-5085) Prevent null org names in db.
+- Serial console for supermicro and qcow imager kernel command for ipxe.
+- When host is under lockdown, unlock perform power cycle and relock.
+- DHCP packet handler now handles packets concurrent mode.
 
 ### Removed
 
+- Removed FNN mmode from dhcp-server.
+
+## [v2024.12.20-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc4-0...v2024.12.20-rc5-0)
+
+### Fixed
+
+- If a managed host doesn't have Infiniband configured, set the IB Interface state to Synced.
+
 ## [v2024.12.20-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...v2024.12.20-rc4-0)
 
-###
+### Added
 
 - Handle ingestion for Bluefield 3 VPI QSFP112 2P 200G PCIe Gen5 x16
 
@@ -25,6 +86,7 @@
 
 ### Added
 
+- Added InstanceType implementation and handlers for CRUD actions
 - Added vpc-prefix subcommand in forge-admin-cli
 
 ### Fixed
