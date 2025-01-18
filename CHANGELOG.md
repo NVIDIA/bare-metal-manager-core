@@ -1,5 +1,5 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc3-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc4-0...trunk)
 
 ### Added
 ### Changed
@@ -14,6 +14,12 @@
   - The `FailedPrecondition` status code is used when the supplied version number is incorrect during update
 
 ### Removed
+
+## [v2024.12.20-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc3-0...v2024.12.20-rc4-0)
+
+###
+
+- Handle ingestion for Bluefield 3 VPI QSFP112 2P 200G PCIe Gen5 x16
 
 ## [v2024.12.20-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc2-0...v2024.12.20-rc3-0)
 

@@ -88,6 +88,13 @@ impl InstanceInfinibandStatus {
         config: Versioned<&InstanceInfinibandConfig>,
         observations: Option<&MachineInfinibandStatusObservation>,
     ) -> Self {
+        if config.ib_interfaces.is_empty() {
+            return Self {
+                ib_interfaces: Vec::new(),
+                configs_synced: SyncState::Synced,
+            };
+        }
+
         // Config version check is not used fo Infiniband Instance configuration.
         // There is no asynchronous process. It's actually the state handler itself which checks the
         // desired config, applies it against UFM, and then observes the status reports from UFM.
