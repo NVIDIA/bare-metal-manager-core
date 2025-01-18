@@ -1,8 +1,8 @@
 #set shell := ["bash", "-uc"]
 export DOCKER_BUILDKIT := "1"
 
-components_dir := "api pxe dns dhcp dev/bmc-mock dev/machine-a-tron admin health"
-components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock machine-a-tron admin health"
+components_dir := "api pxe dns dhcp dev/bmc-mock dev/machine-a-tron admin health dhcp-server"
+components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock machine-a-tron admin health dhcp-server"
 
 # Start cargo-watch for components "{{components}}"
 watch: check forged-link skaffold-dirs
