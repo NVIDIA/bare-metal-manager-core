@@ -12,4 +12,4 @@
 FROM runtime-container-localdev:latest as carbide
 WORKDIR ./carbide
 
-COPY ".skaffold/target/dhcp-server/debug/forge-dhcp-servr" /opt/carbide/
+COPY ".skaffold/target/dhcp-server/debug/forge-dhcp-server" /opt/carbide/
