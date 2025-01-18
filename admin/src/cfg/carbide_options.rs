@@ -1031,6 +1031,8 @@ pub enum Machine {
     ForceDelete(ForceDeleteMachineQuery),
     #[clap(about = "Set individual machine firmware autoupdate (host only)")]
     AutoUpdate(MachineAutoupdate),
+    #[clap(subcommand, about = "Edit Metadata associated with a Machine")]
+    Metadata(MachineMetadataCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -1139,6 +1141,52 @@ pub struct MachineQuery {
         help = "ID, IPv4, MAC or hostnmame of the machine to query"
     )]
     pub query: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub enum MachineMetadataCommand {
+    #[clap(about = "Set the Name or Description of the Machine")]
+    Set(MachineMetadataCommandSet),
+    #[clap(about = "Show the Metadata of the Machine")]
+    Show(MachineMetadataCommandShow),
+    #[clap(about = "Adds a label to the Metadata of a Machine")]
+    AddLabel(MachineMetadataCommandAddLabel),
+    #[clap(about = "Removes labels from the Metadata of a Machine")]
+    RemoveLabels(MachineMetadataCommandRemoveLabels),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct MachineMetadataCommandShow {
+    #[clap(help = "The machine which should get updated metadata")]
+    pub machine: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct MachineMetadataCommandSet {
+    #[clap(help = "The machine which should get updated metadata")]
+    pub machine: String,
+    #[clap(long, help = "The updated name of the Machine")]
+    pub name: Option<String>,
+    #[clap(long, help = "The updated description of the Machine")]
+    pub description: Option<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct MachineMetadataCommandAddLabel {
+    #[clap(help = "The machine which should get updated metadata")]
+    pub machine: String,
+    #[clap(long, help = "The key to add")]
+    pub key: String,
+    #[clap(long, help = "The optional value to add")]
+    pub value: Option<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct MachineMetadataCommandRemoveLabels {
+    #[clap(help = "The machine which should get updated metadata")]
+    pub machine: String,
+    #[clap(long, help = "The keys to remove")]
+    pub keys: Vec<String>,
 }
 
 #[derive(Parser, Debug, Clone)]

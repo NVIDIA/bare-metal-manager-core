@@ -44,6 +44,7 @@ fn convert_machine_to_nice_format(
                 .clone()
                 .unwrap_or("None".to_string()),
         ),
+        ("VERSION", machine.version),
     ];
     if let Some(di) = machine.discovery_info.as_ref() {
         if let Some(dmi) = di.dmi_data.as_ref() {
@@ -65,6 +66,20 @@ fn convert_machine_to_nice_format(
 
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+    }
+
+    let metadata = machine.metadata.unwrap_or_default();
+    writeln!(&mut lines, "METADATA")?;
+    writeln!(&mut lines, "\tNAME: {}", metadata.name)?;
+    writeln!(&mut lines, "\tDESCRIPTION: {}", metadata.description)?;
+    writeln!(&mut lines, "\tLABELS:")?;
+    for label in metadata.labels {
+        writeln!(
+            &mut lines,
+            "\t\t{}:{}",
+            label.key,
+            label.value.unwrap_or_default()
+        )?;
     }
 
     writeln!(&mut lines, "STATE HISTORY: (Latest {} only)", history_count)?;
@@ -183,6 +198,7 @@ fn get_machine_type(machine_id: &str) -> String {
 
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
     let mut table = Box::new(Table::new());
+    let default_metadata = Default::default();
 
     table.set_titles(row![
         "Id",
@@ -194,6 +210,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         "MAC Address",
         "Type",
         "Vendor",
+        "Labels",
     ]);
 
     for machine in machines.machines {
@@ -242,6 +259,19 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             }
         }
 
+        let labels = machine
+            .metadata
+            .as_ref()
+            .unwrap_or(&default_metadata)
+            .labels
+            .iter()
+            .map(|label| {
+                let key = &label.key;
+                let value = label.value.clone().unwrap_or_default();
+                format!("\"{}:{}\"", key, value)
+            })
+            .collect::<Vec<_>>();
+
         table.add_row(row![
             machine_id,
             machine.state.to_uppercase(),
@@ -252,6 +282,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             mac,
             machine_type,
             vendor,
+            labels.join(", ")
         ]);
     }
 

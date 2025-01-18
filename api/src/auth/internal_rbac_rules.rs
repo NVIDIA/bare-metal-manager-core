@@ -363,6 +363,7 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
+        x.perm("UpdateMachineMetadata", vec![ForgeAdminCLI, SiteAgent]);
 
         x
     }

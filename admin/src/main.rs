@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use std::fs;
@@ -47,6 +48,7 @@ use cfg::carbide_options::HostAction;
 use cfg::carbide_options::IbPartitionOptions;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
+use cfg::carbide_options::MachineMetadataCommand;
 use cfg::carbide_options::RouteServer;
 use cfg::carbide_options::SetAction;
 use cfg::carbide_options::Shell;
@@ -193,6 +195,106 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?
             }
+            Machine::Metadata(metadata_command) => match metadata_command {
+                MachineMetadataCommand::Show(cmd) => {
+                    let mut machines =
+                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
+                            .await?
+                            .machines;
+                    if machines.len() != 1 {
+                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
+                    }
+                    let machine = machines.remove(0);
+
+                    let metadata = machine
+                        .metadata
+                        .ok_or_else(|| eyre::eyre!("Machine does not carry Metadata"))?;
+
+                    // TODO: Support non-json output
+                    println!("{}", serde_json::to_string_pretty(&metadata).unwrap());
+                }
+                MachineMetadataCommand::Set(cmd) => {
+                    let mut machines =
+                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
+                            .await?
+                            .machines;
+                    if machines.len() != 1 {
+                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
+                    }
+                    let machine = machines.remove(0);
+
+                    let mut metadata = machine.metadata.ok_or_else(|| {
+                        eyre::eyre!("Machine does not carry Metadata that can be patched")
+                    })?;
+                    if let Some(name) = cmd.name {
+                        metadata.name = name;
+                    }
+                    if let Some(description) = cmd.description {
+                        metadata.description = description;
+                    }
+
+                    rpc::update_machine_metadata(
+                        api_config,
+                        machine.id.unwrap(),
+                        metadata,
+                        machine.version,
+                    )
+                    .await?;
+                }
+                MachineMetadataCommand::AddLabel(cmd) => {
+                    let mut machines =
+                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
+                            .await?
+                            .machines;
+                    if machines.len() != 1 {
+                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
+                    }
+                    let machine = machines.remove(0);
+
+                    let mut metadata = machine.metadata.ok_or_else(|| {
+                        eyre::eyre!("Machine does not carry Metadata that can be patched")
+                    })?;
+                    metadata.labels.retain_mut(|l| l.key != cmd.key);
+                    metadata.labels.push(::rpc::forge::Label {
+                        key: cmd.key,
+                        value: cmd.value,
+                    });
+
+                    rpc::update_machine_metadata(
+                        api_config,
+                        machine.id.unwrap(),
+                        metadata,
+                        machine.version,
+                    )
+                    .await?;
+                }
+                MachineMetadataCommand::RemoveLabels(cmd) => {
+                    let mut machines =
+                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
+                            .await?
+                            .machines;
+                    if machines.len() != 1 {
+                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
+                    }
+                    let machine = machines.remove(0);
+
+                    let mut metadata = machine.metadata.ok_or_else(|| {
+                        eyre::eyre!("Machine does not carry Metadata that can be patched")
+                    })?;
+
+                    // Retain everything that isn't specified as removed
+                    let removed_labels: HashSet<String> = cmd.keys.into_iter().collect();
+                    metadata.labels.retain(|l| !removed_labels.contains(&l.key));
+
+                    rpc::update_machine_metadata(
+                        api_config,
+                        machine.id.unwrap(),
+                        metadata,
+                        machine.version,
+                    )
+                    .await?;
+                }
+            },
             Machine::DpuSshCredentials(query) => {
                 let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
                 if config.format == OutputFormat::Json {

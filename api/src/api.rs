@@ -19,6 +19,7 @@ use std::time::Duration;
 use crate::db::attestation as db_attest;
 use crate::db::network_segment::NetworkSegment;
 use crate::model::instance::config::network::NetworkDetails;
+use crate::model::metadata::Metadata;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::BmcEndpointRequest;
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
@@ -2304,6 +2305,64 @@ impl Forge for Api {
         crate::handlers::resource_pool::list(self, request).await
     }
 
+    async fn update_machine_metadata(
+        &self,
+        request: Request<rpc::MachineMetadataUpdateRequest>,
+    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+        log_request_data(&request);
+        let request = request.into_inner();
+
+        let machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine ID is required"));
+            }
+        };
+        log_machine_id(&machine_id);
+
+        // Prepare the metadata
+        let metadata = match request.metadata {
+            Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+            _ => {
+                return Err(
+                    CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+                )
+            }
+        };
+        metadata.validate(false).map_err(CarbideError::from)?;
+
+        let (machine, mut txn) = self
+            .load_machine(
+                &machine_id,
+                MachineSearchConfig {
+                    include_dpus: true,
+                    include_predicted_host: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        let expected_version: config_version::ConfigVersion = match request.if_version_match {
+            Some(version) => version.parse().map_err(CarbideError::from)?,
+            None => *machine.version(),
+        };
+
+        Machine::update_metadata(&mut txn, &machine_id, expected_version, metadata)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end update_machine_metadata handler",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(()))
+    }
+
     /// Maintenance mode: Put a machine into maintenance mode or take it out.
     /// Switching a host into maintenance mode prevents an instance being assigned to it.
     async fn set_maintenance(
@@ -2915,7 +2974,7 @@ impl Forge for Api {
         let machine_id = match &request.host_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::invalid_argument("A machine UUID is required"));
+                return Err(Status::invalid_argument("A machine ID is required"));
             }
         };
         log_machine_id(&machine_id);
