@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -373,7 +374,12 @@ pub enum ExpectedMachineAction {
     ///                "bmc_username": "user",
     ///                "bmc_password": "pass",
     ///                "chassis_serial_number": "sample_serial-2",
-    ///                "fallback_dpu_serial_numbers": ["MT020100000003"]
+    ///                "fallback_dpu_serial_numbers": ["MT020100000003"],
+    ///                "metadata": {
+    ///                    "name": "MyMachine",
+    ///                    "description": "My Machine",
+    ///                    "labels": [{"key": "ABC", "value: "DEF"}]
+    ///                }
     ///            }
     ///        ]
     ///    }
@@ -405,6 +411,73 @@ pub struct ExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+
+    #[clap(
+        long = "meta-name",
+        value_name = "META_NAME",
+        help = "The name that should be used as part of the Metadata for newly created Machines. If empty, the MachineId will be used"
+    )]
+    pub meta_name: Option<String>,
+
+    #[clap(
+        long = "meta-description",
+        value_name = "META_DESCRIPTION",
+        help = "The description that should be used as part of the Metadata for newly created Machines"
+    )]
+    pub meta_description: Option<String>,
+
+    #[clap(
+        long = "label",
+        value_name = "LABEL",
+        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character. E.g. DATACENTER:XYZ",
+        action = clap::ArgAction::Append
+    )]
+    pub labels: Option<Vec<String>>,
+}
+
+impl ExpectedMachine {
+    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
+        let mut labels = Vec::new();
+        if let Some(list) = &self.labels {
+            for label in list {
+                let label = match label.split_once(':') {
+                    Some((k, v)) => rpc::forge::Label {
+                        key: k.trim().to_string(),
+                        value: Some(v.trim().to_string()),
+                    },
+                    None => rpc::forge::Label {
+                        key: label.trim().to_string(),
+                        value: None,
+                    },
+                };
+                labels.push(label);
+            }
+        }
+
+        Ok(::rpc::forge::Metadata {
+            name: self.meta_name.clone().unwrap_or_default(),
+            description: self.meta_description.clone().unwrap_or_default(),
+            labels,
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExpectedMachineJson {
+    pub bmc_mac_address: MacAddress,
+    pub bmc_username: String,
+    pub bmc_password: String,
+    pub chassis_serial_number: String,
+    pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+    #[serde(default)]
+    pub metadata: Option<rpc::forge::Metadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExpectedMachineMetadata {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub labels: HashMap<String, Option<String>>,
 }
 
 impl ExpectedMachine {
@@ -462,6 +535,28 @@ pub struct UpdateExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub fallback_dpu_serial_numbers: Option<Vec<String>>,
+
+    #[clap(
+        long = "meta-name",
+        value_name = "META_NAME",
+        help = "The name that should be used as part of the Metadata for newly created Machines. If empty, the MachineId will be used"
+    )]
+    pub meta_name: Option<String>,
+
+    #[clap(
+        long = "meta-description",
+        value_name = "META_DESCRIPTION",
+        help = "The description that should be used as part of the Metadata for newly created Machines"
+    )]
+    pub meta_description: Option<String>,
+
+    #[clap(
+        long = "label",
+        value_name = "LABEL",
+        help = "A label that will be added as metadata for the newly created Machine. The labels key and value must be separated by a : character",
+        action = clap::ArgAction::Append
+    )]
+    pub labels: Option<Vec<String>>,
 }
 
 impl UpdateExpectedMachine {
@@ -480,6 +575,31 @@ impl UpdateExpectedMachine {
             }
         }
         Ok(())
+    }
+
+    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
+        let mut labels = Vec::new();
+        if let Some(list) = &self.labels {
+            for label in list {
+                let label = match label.split_once(':') {
+                    Some((k, v)) => rpc::forge::Label {
+                        key: k.trim().to_string(),
+                        value: Some(v.trim().to_string()),
+                    },
+                    None => rpc::forge::Label {
+                        key: label.trim().to_string(),
+                        value: None,
+                    },
+                };
+                labels.push(label);
+            }
+        }
+
+        Ok(::rpc::forge::Metadata {
+            name: self.meta_name.clone().unwrap_or_default(),
+            description: self.meta_description.clone().unwrap_or_default(),
+            labels,
+        })
     }
 }
 

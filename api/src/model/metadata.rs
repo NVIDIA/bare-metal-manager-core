@@ -86,10 +86,13 @@ impl TryFrom<rpc::Metadata> for Metadata {
 }
 
 impl Metadata {
-    pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.name.len() <= 1 || self.name.len() > 256 {
+    pub fn validate(&self, require_min_length: bool) -> Result<(), ConfigValidationError> {
+        let min_len = if require_min_length { 2 } else { 0 };
+
+        if self.name.len() < min_len || self.name.len() > 256 {
             return Err(ConfigValidationError::InvalidValue(format!(
-                "Name must be between 2 and 256 characters long, got {} characters",
+                "Name must be between {} and 256 characters long, got {} characters",
+                min_len,
                 self.name.len()
             )));
         }
@@ -149,7 +152,7 @@ mod tests {
             labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
         };
 
-        assert!(metadata.validate().is_ok());
+        assert!(metadata.validate(true).is_ok());
 
         // And now lots of bad metadata
 
@@ -161,9 +164,18 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
+
+        // name too short without requiring min length is ok
+        let metadata = Metadata {
+            name: "".to_string(),
+            description: "anything is fine".to_string(),
+            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
+        };
+
+        assert!(metadata.validate(false).is_ok());
 
         // name too long
         let metadata = Metadata {
@@ -176,7 +188,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -188,7 +200,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -200,7 +212,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -212,7 +224,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -230,7 +242,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -248,7 +260,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
@@ -263,7 +275,7 @@ mod tests {
         };
 
         assert!(matches!(
-            metadata.validate(),
+            metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
     }

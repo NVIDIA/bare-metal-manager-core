@@ -26,6 +26,7 @@ use crate::{
     model::{
         hardware_info::HardwareInfo,
         machine::{DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot},
+        metadata::Metadata,
         site_explorer::{
             ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
             ExploredDpu, ExploredManagedHost, UefiDevicePath,
@@ -906,6 +907,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         .create_managed_host(
             exploration_report.clone(),
             EndpointExplorationReport::default(),
+            None,
             &env.pool,
         )
         .await
@@ -1202,7 +1204,8 @@ async fn test_site_explorer_creates_managed_host(
             .create_managed_host(
                 exploration_report.clone(),
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );
@@ -1295,7 +1298,8 @@ async fn test_site_explorer_creates_managed_host(
             .create_managed_host(
                 exploration_report,
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );
@@ -1608,7 +1612,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .create_managed_host(
                 exploration_report.clone(),
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );
@@ -1619,7 +1624,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .create_managed_host(
                 exploration_report,
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );
@@ -1943,6 +1949,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         "pw".to_string(),
         "host1".to_string(),
         vec![],
+        Metadata::default(),
     )
     .await?;
     txn.commit().await?;
@@ -1981,6 +1988,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             "pw".to_string(),
             "host1".to_string(),
             vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+            Metadata::default(),
         )
         .await?;
     txn.commit().await?;
@@ -2271,6 +2279,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
             .create_managed_host(
                 exploration_report,
                 EndpointExplorationReport::default(),
+                None,
                 &env.pool
             )
             .await?
@@ -2374,7 +2383,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             .create_managed_host(
                 exploration_report.clone(),
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );
@@ -2420,7 +2430,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             .create_managed_host(
                 exploration_report,
                 EndpointExplorationReport::default(),
-                &env.pool
+                None,
+                &env.pool,
             )
             .await?
     );

@@ -14,9 +14,11 @@ use std::ops::DerefMut;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
+use crate::model::metadata::Metadata;
 use crate::CarbideError;
 use crate::CarbideResult;
 use forge_uuid::machine::MachineId;
@@ -24,13 +26,47 @@ use forge_uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
-#[derive(Debug, Clone, Default, FromRow)]
+#[derive(Debug, Clone, Default)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
     pub serial_number: String,
     pub bmc_password: String,
     pub fallback_dpu_serial_numbers: Vec<String>,
+    pub metadata: Metadata,
+}
+
+impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("metadata_labels")?;
+        let metadata = Metadata {
+            name: row.try_get("metadata_name")?,
+            description: row.try_get("metadata_description")?,
+            labels: labels.0,
+        };
+
+        Ok(ExpectedMachine {
+            bmc_mac_address: row.try_get("bmc_mac_address")?,
+            bmc_username: row.try_get("bmc_username")?,
+            serial_number: row.try_get("serial_number")?,
+            bmc_password: row.try_get("bmc_password")?,
+            fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
+            metadata,
+        })
+    }
+}
+
+impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
+    fn from(expected_machine: ExpectedMachine) -> Self {
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
+            bmc_username: expected_machine.bmc_username,
+            bmc_password: expected_machine.bmc_password,
+            chassis_serial_number: expected_machine.serial_number,
+            fallback_dpu_serial_numbers: expected_machine.fallback_dpu_serial_numbers,
+            metadata: Some(expected_machine.metadata.into()),
+        }
+    }
 }
 
 #[derive(FromRow)]
@@ -169,11 +205,12 @@ FROM expected_machines em
         bmc_password: String,
         serial_number: String,
         fallback_dpu_serial_numbers: Vec<String>,
+        metadata: Metadata,
     ) -> CarbideResult<Self> {
         let query = "INSERT INTO expected_machines
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers)
+            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[]) RETURNING *";
+            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb) RETURNING *";
 
         sqlx::query_as(query)
             .bind(bmc_mac_address)
@@ -181,6 +218,9 @@ FROM expected_machines em
             .bind(bmc_password)
             .bind(serial_number)
             .bind(fallback_dpu_serial_numbers)
+            .bind(metadata.name)
+            .bind(metadata.description)
+            .bind(sqlx::types::Json(metadata.labels))
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -191,21 +231,26 @@ FROM expected_machines em
             })
     }
 
-    pub async fn delete(self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
+    pub async fn delete(
+        bmc_mac_address: MacAddress,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<()> {
         let query = "DELETE FROM expected_machines WHERE bmc_mac_address=$1";
 
-        sqlx::query(query)
-            .bind(self.bmc_mac_address)
+        let result = sqlx::query(query)
+            .bind(bmc_mac_address)
             .execute(txn.deref_mut())
             .await
-            .map(|_| ())
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
-                    kind: "expected_machine",
-                    id: self.bmc_mac_address.to_string(),
-                },
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
-            })
+            .map_err(|err| DatabaseError::new(file!(), line!(), query, err))?;
+
+        if result.rows_affected() == 0 {
+            return Err(CarbideError::NotFoundError {
+                kind: "expected_machine",
+                id: bmc_mac_address.to_string(),
+            });
+        }
+
+        Ok(())
     }
 
     pub async fn clear(txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
@@ -225,14 +270,18 @@ FROM expected_machines em
         bmc_password: String,
         serial_number: String,
         fallback_dpu_serial_numbers: Vec<String>,
+        metadata: Metadata,
     ) -> CarbideResult<&Self> {
-        let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4 WHERE bmc_mac_address=$5 RETURNING bmc_mac_address";
+        let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7 WHERE bmc_mac_address=$8 RETURNING bmc_mac_address";
 
         sqlx::query_as(query)
             .bind(&bmc_username)
             .bind(&bmc_password)
             .bind(&serial_number)
             .bind(&fallback_dpu_serial_numbers)
+            .bind(&metadata.name)
+            .bind(&metadata.description)
+            .bind(sqlx::types::Json(&metadata.labels))
             .bind(self.bmc_mac_address)
             .fetch_one(txn.deref_mut())
             .await
@@ -248,6 +297,7 @@ FROM expected_machines em
         self.bmc_username = bmc_username;
         self.bmc_password = bmc_password;
         self.fallback_dpu_serial_numbers = fallback_dpu_serial_numbers;
+        self.metadata = metadata;
         Ok(self)
     }
 }

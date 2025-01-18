@@ -653,7 +653,7 @@ pub(crate) async fn update_instance_config(
         None => return Err(CarbideError::MissingArgument("metadata").into()),
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
-    metadata.validate().map_err(|e| {
+    metadata.validate(true).map_err(|e| {
         CarbideError::InvalidArgument(format!("Instance's new metadata is not valid: {}", e))
     })?;
 

@@ -47,7 +47,7 @@ pub(crate) async fn create(
         }
     };
 
-    metadata.validate().map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the capabilities list
     let mut desired_capabilities = Vec::<InstanceTypeMachineCapability>::new();
@@ -225,7 +225,7 @@ pub(crate) async fn update(
         }
     };
 
-    metadata.validate().map_err(CarbideError::from)?;
+    metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the desired capabilities list
     let mut desired_capabilities = Vec::<InstanceTypeMachineCapability>::new();

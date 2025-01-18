@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,7 +11,7 @@
  */
 use crate::{
     db::{expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint},
-    model::site_explorer::EndpointExplorationReport,
+    model::{metadata::Metadata, site_explorer::EndpointExplorationReport},
     CarbideError,
 };
 use common::api_fixtures::create_test_env;
@@ -68,6 +68,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         "hmm".into(),
         "JFAKLJF".into(),
         vec![],
+        Metadata::default(),
     )
     .await;
 
@@ -125,8 +126,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 
     assert_eq!(machine.serial_number, "VVG121GG");
 
-    machine
-        .delete(&mut txn)
+    ExpectedMachine::delete(machine.bmc_mac_address, &mut txn)
         .await
         .expect("Error deleting expected_machine");
 
@@ -150,32 +150,73 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 #[crate::sqlx_test()]
 async fn test_add_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.to_string(),
-        bmc_username: "ADMIN".into(),
-        bmc_password: "PASS".into(),
-        chassis_serial_number: "VVG121GI".into(),
-        ..Default::default()
-    };
 
-    env.api
-        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
-        .await
-        .expect("unable to add expected machine ");
+    for mut expected_machine in [
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            metadata: None,
+            ..Default::default()
+        },
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            ..Default::default()
+        },
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "a".to_string(),
+                description: "desc".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "k1".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "k2".to_string(),
+                        value: Some("v2".to_string()),
+                    },
+                ],
+            }),
+            ..Default::default()
+        },
+    ] {
+        env.api
+            .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+            .await
+            .expect("unable to add expected machine ");
 
-    let expected_machine_query = rpc::forge::ExpectedMachineRequest {
-        bmc_mac_address: bmc_mac_address.to_string(),
-    };
+        let expected_machine_query = rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: expected_machine.bmc_mac_address.clone(),
+        };
 
-    let retrieved_expected_machine = env
-        .api
-        .get_expected_machine(tonic::Request::new(expected_machine_query))
-        .await
-        .expect("unable to retrieve expected machine ")
-        .into_inner();
+        let mut retrieved_expected_machine = env
+            .api
+            .get_expected_machine(tonic::Request::new(expected_machine_query))
+            .await
+            .expect("unable to retrieve expected machine ")
+            .into_inner();
+        retrieved_expected_machine
+            .metadata
+            .as_mut()
+            .unwrap()
+            .labels
+            .sort_by(|l1, l2| l1.key.cmp(&l2.key));
+        if expected_machine.metadata.is_none() {
+            expected_machine.metadata = Some(Default::default());
+        }
 
-    assert_eq!(retrieved_expected_machine, expected_machine);
+        assert_eq!(retrieved_expected_machine, expected_machine);
+    }
 }
 
 #[crate::sqlx_test(fixtures("create_expected_machine"))]
@@ -239,31 +280,73 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
 #[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_update_expected_machine(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: bmc_mac_address.to_string(),
-        bmc_username: "ADMIN_UPDATE".into(),
-        bmc_password: "PASS_UPDATE".into(),
-        chassis_serial_number: "VVG121GI".into(),
-        ..Default::default()
-    };
-
-    env.api
-        .update_expected_machine(tonic::Request::new(expected_machine.clone()))
-        .await
-        .expect("unable to delete expected machine ")
-        .into_inner();
-
-    let retrieved_expected_machine = env
-        .api
-        .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+    for mut updated_machine in [
+        rpc::forge::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
-        }))
-        .await
-        .expect("unable to delete expected machine ")
-        .into_inner();
+            bmc_username: "ADMIN_UPDATE".into(),
+            bmc_password: "PASS_UPDATE".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            metadata: None,
+            ..Default::default()
+        },
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN_UPDATE".into(),
+            bmc_password: "PASS_UPDATE".into(),
+            chassis_serial_number: "VVG121GJ".into(),
+            metadata: Some(Default::default()),
+            ..Default::default()
+        },
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN_UPDATE1".into(),
+            bmc_password: "PASS_UPDATE1".into(),
+            chassis_serial_number: "VVG121GN".into(),
+            metadata: Some(rpc::forge::Metadata {
+                name: "a".to_string(),
+                description: "desc".to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: "k1".to_string(),
+                        value: None,
+                    },
+                    rpc::forge::Label {
+                        key: "k2".to_string(),
+                        value: Some("v2".to_string()),
+                    },
+                ],
+            }),
+            ..Default::default()
+        },
+    ] {
+        env.api
+            .update_expected_machine(tonic::Request::new(updated_machine.clone()))
+            .await
+            .expect("unable to update expected machine ")
+            .into_inner();
 
-    assert_eq!(retrieved_expected_machine, expected_machine);
+        let mut retrieved_expected_machine = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: bmc_mac_address.to_string(),
+            }))
+            .await
+            .expect("unable to fetch expected machine ")
+            .into_inner();
+        retrieved_expected_machine
+            .metadata
+            .as_mut()
+            .unwrap()
+            .labels
+            .sort_by(|l1, l2| l1.key.cmp(&l2.key));
+        if updated_machine.metadata.is_none() {
+            updated_machine.metadata = Some(Default::default());
+        }
+
+        assert_eq!(retrieved_expected_machine, updated_machine);
+    }
 }
 
 #[crate::sqlx_test()]
@@ -349,6 +432,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
+        metadata: Some(rpc::Metadata::default()),
         ..Default::default()
     };
 
@@ -357,6 +441,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
+        metadata: Some(rpc::Metadata::default()),
         ..Default::default()
     };
 
@@ -508,6 +593,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string()],
+        metadata: Some(rpc::Metadata::default()),
     };
 
     env.api
@@ -577,6 +663,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string(), "dpu_serial1".to_string()],
+        metadata: None,
     };
 
     assert!(env
