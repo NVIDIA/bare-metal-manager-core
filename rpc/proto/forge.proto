@@ -96,6 +96,7 @@ service Forge {
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   rpc RecordHardwareHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
   rpc GetHardwareHealthReport(common.MachineId) returns (OptionalHealthReport);
+  rpc RecordLogParserHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Machine health status
   rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
   // Adds a new override for a Machines health status

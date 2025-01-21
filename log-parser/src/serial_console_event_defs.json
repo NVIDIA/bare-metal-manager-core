@@ -1,0 +1,133 @@
+{
+    "pipeline": "ssh-serial-console",
+    "delimiter": "\n",
+    "filename_format": "(?<machine_id>fm100.+)_(?<bmc_ip>.+)\\.log",
+    "logs_path": "/var/log/consoles",
+    "events": [
+        {
+            "regex_string": "No\\s*boot\\s*device\\s*available\\s*or\\s*Operating\\s*System\\s*detected",
+            "name": "boot-failure",
+            "description": "Detected a failure to boot into any of the boot options configured.",
+            "target": "uefi-firmware",
+            "severity": "Critical",
+            "ignore_case": false,
+            "alert": true,
+            "clears": [],
+            "constraints": null
+        },
+        {
+            "regex_string": "No\\s*boot\\s*device\\s*available\\s*or\\s*Operating\\s*System\\s*detected",
+            "name": "boot-loop",
+            "description": "Detected a loop of the machine failing to boot into any of the boot options configured.",
+            "target": "uefi-firmware",
+            "severity": "Critical",
+            "ignore_case": false,
+            "alert": true,
+            "clears": [],
+            "constraints": {
+                "duration": 720,
+                "count": 4
+            }
+        },
+        {
+            "regex_string": "Console\\s*Redirection\\s*Enabled\\s*Requested\\s*by\\s*iDRAC",
+            "name": "system-power-on",
+            "description": "Detected a system power on event, UEFI firmware initialization started.",
+            "target": "uefi-firmware",
+            "severity": "Warning",
+            "ignore_case": false,
+            "alert": true,
+            "clears": [],
+            "constraints": null
+        },
+        {
+            "regex_string": "Lifecycle\\s*Controller:\\s*Done",
+            "name": "uefi-post-complete",
+            "description": "Detected UEFI firmware initialization completed.",
+            "target": "uefi-firmware",
+            "severity": "Information",
+            "ignore_case": false,
+            "alert": false,
+            "clears": [
+                "system-power-on"
+            ],
+            "constraints": null
+        },
+        {
+            "regex_string": "UEFI:DXE\\s*INIT",
+            "name": "system-power-on",
+            "description": "Detected a system power on event, UEFI firmware initialization started.",
+            "target": "uefi-firmware",
+            "severity": "Warning",
+            "ignore_case": false,
+            "alert": true,
+            "clears": [],
+            "constraints": null
+        },
+        {
+            "regex_string": "UEFI:POST\\s*END",
+            "name": "uefi-post-complete",
+            "description": "Detected UEFI firmware initialization completed.",
+            "target": "uefi-firmware",
+            "severity": "Information",
+            "ignore_case": false,
+            "alert": false,
+            "clears": [
+                "system-power-on"
+            ],
+            "constraints": null
+        },
+        {
+            "regex_string": ":\\s*Pre-memory\\s*SB\\s*Initialization",
+            "name": "system-power-on",
+            "description": "Detected a system power on event, UEFI firmware initialization started.",
+            "target": "uefi-firmware",
+            "severity": "Warning",
+            "ignore_case": false,
+            "alert": true,
+            "clears": [],
+            "constraints": null
+        },
+        {
+            "regex_string": "Pushing\\s*firmware\\s*layout\\s*to\\s*OData\\s*server",
+            "name": "uefi-post-complete",
+            "description": "Detected UEFI firmware initialization completed.",
+            "target": "uefi-firmware",
+            "severity": "Information",
+            "ignore_case": false,
+            "alert": false,
+            "clears": [
+                "system-power-on"
+            ],
+            "constraints": null
+        },
+        {
+            "regex_string": "BIOS-provided\\s+physical\\s+RAM\\s+map:",
+            "name": "os-boot-start",
+            "description": "Detected a Linux OS kernel was launched on the host.",
+            "target": "operating-system",
+            "severity": "Information",
+            "ignore_case": false,
+            "alert": false,
+            "clears": [
+                "system-power-on",
+                "boot-failure"
+            ],
+            "constraints": null
+        },
+        {
+            "regex_string": "^(Ubuntu|Debian)\\s+.+\\s+ttyS\\d+",
+            "name": "os-boot-complete",
+            "description": "Detected an OS booted up on the host to the login prompt.",
+            "target": "operating-system",
+            "severity": "Information",
+            "ignore_case": false,
+            "alert": false,
+            "clears": [
+                "system-power-on",
+                "boot-failure"
+            ],
+            "constraints": null
+        }
+    ]
+}

@@ -93,6 +93,23 @@ docker run \
 '''
 dependencies = ["check-cargo-home-set"]
 
+[tasks.build-log-parser]
+category = "Build"
+description = "Build forge-log-parser locally using debian container."
+workspace = false
+script = '''
+docker run \
+	--rm \
+	--user $(id -u):$(id -g) \
+	--volume $(pwd):/code \
+	--workdir /code \
+	--volume $CARGO_HOME:/cargo \
+	--env CARGO_HOME=/cargo \
+	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	cargo build -p log-parser
+'''
+dependencies = ["check-cargo-home-set"]
+
 [tasks.check-cargo-home-set]
 category = "Build"
 description = "validates CARGO_HOME env var is set to something"
