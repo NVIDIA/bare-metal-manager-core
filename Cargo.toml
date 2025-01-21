@@ -26,6 +26,7 @@ members = [
     "dhcp-server",
     "dns",
     "health",
+    "log-parser",
     "pxe",
     "rpc",
     "scout",

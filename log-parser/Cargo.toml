@@ -1,0 +1,30 @@
+[package]
+name = "log-parser"
+version = "0.0.1"
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "forge-log-parser"
+path = "src/main.rs"
+
+[dependencies]
+regex = "1.11.1"
+serde = { version = "1", features = ["derive"] }
+chrono = "*"
+anyhow = "1.0.92"
+getopts = "0.2.21"
+serde_json = "1"
+thiserror = "2"
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+# [local-dependencies]
+health-report = { path = "../common/health-report" }
+rpc = { path = "../rpc" }
+forge-tls = { path = "../common/tls" }
+forge-version = { path = "../common/version" }
+
+[build-dependencies]
+forge-version = { path = "../common/version" }

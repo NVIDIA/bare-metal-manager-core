@@ -163,6 +163,10 @@ impl ManagedHostStateSnapshot {
 
         let mut output = health_report::HealthReport::empty("".to_string());
         output.merge(&self.host_snapshot.machine_validation_health_report);
+        // log parser reports are only merged if available, heartbeat timeout is not applicable
+        if let Some(input) = &self.host_snapshot.log_parser_health_report {
+            output.merge(input);
+        }
 
         if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
             output.merge(report);
@@ -487,6 +491,8 @@ pub struct MachineSnapshot {
     pub firmware_autoupdate: Option<bool>,
     /// Latest health report received by hardware health
     pub hardware_health_report: Option<HealthReport>,
+    /// Latest health report received by the log parser
+    pub log_parser_health_report: Option<HealthReport>,
 
     // TODO: These fields are not needed every time we load a Machine
     // and might be migrated somewher else.

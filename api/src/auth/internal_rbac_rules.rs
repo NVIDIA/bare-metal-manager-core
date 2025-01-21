@@ -105,7 +105,8 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Agent, Machineatron],
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
-        x.perm("RecordHardwareHealthReport", vec![Health, Ssh]);
+        x.perm("RecordHardwareHealthReport", vec![Health]);
+        x.perm("RecordLogParserHealthReport", vec![Health, Ssh]);
         x.perm("GetHardwareHealthReport", vec![]);
         x.perm("ListHealthReportOverrides", vec![ForgeAdminCLI]);
         x.perm("InsertHealthReportOverride", vec![ForgeAdminCLI]);

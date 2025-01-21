@@ -133,11 +133,17 @@ pub async fn get_hardware_health_report(
         ))
     })?;
 
+    let report =
+        if let Some(mut hardware_health_report) = host_machine.hardware_health_report().cloned() {
+            if let Some(log_parser_health_report) = host_machine.log_parser_health_report() {
+                hardware_health_report.merge(log_parser_health_report);
+            }
+            Some(hardware_health_report)
+        } else {
+            None
+        };
     Ok(Response::new(::rpc::forge::OptionalHealthReport {
-        report: host_machine
-            .hardware_health_report()
-            .cloned()
-            .map(|hr| hr.into()),
+        report: report.map(|hr| hr.clone().into()),
     }))
 }
 
@@ -194,6 +200,47 @@ pub async fn list_health_report_overrides(
             })
             .collect(),
     }))
+}
+
+pub async fn record_log_parser_health_report(
+    api: &Api,
+    request: Request<rpc::HardwareHealthReport>,
+) -> Result<Response<()>, Status> {
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin record_log_parser_health_report",
+            e,
+        ))
+    })?;
+    let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
+    let machine_id = match machine_id {
+        Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
+        None => {
+            return Err(CarbideError::MissingArgument("machine_id").into());
+        }
+    };
+    log_machine_id(&machine_id);
+    let Some(report) = report else {
+        return Err(CarbideError::MissingArgument("report").into());
+    };
+
+    let report = health_report::HealthReport::try_from(report.clone())
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    Machine::update_log_parser_health_report(&mut txn, &machine_id, &report)
+        .await
+        .map_err(CarbideError::from)?;
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit record_log_parser_health_report",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(()))
 }
 
 async fn remove_by_source(

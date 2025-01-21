@@ -445,6 +445,13 @@ impl Forge for Api {
         crate::handlers::health::get_hardware_health_report(self, request).await
     }
 
+    async fn record_log_parser_health_report(
+        &self,
+        request: Request<rpc::HardwareHealthReport>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::health::record_log_parser_health_report(self, request).await
+    }
+
     async fn list_health_report_overrides(
         &self,
         request: Request<::rpc::common::MachineId>,

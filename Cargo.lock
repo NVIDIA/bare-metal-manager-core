@@ -143,7 +143,7 @@ dependencies = [
  "prost",
  "rand 0.8.5",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.9",
  "resolv-conf",
  "rpc",
  "rtnetlink",
@@ -271,9 +271,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.91"
+version = "1.0.93"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c042108f3ed77fd83760a5fd79b53be043192bb3b9dba91d8c574c0ada7850c8"
+checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
 
 [[package]]
 name = "api-test"
@@ -3499,7 +3499,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -3619,6 +3619,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
+name = "log-parser"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "forge-tls",
+ "forge-version",
+ "getopts",
+ "health-report",
+ "regex",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.3",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "logfmt"
 version = "0.1.0"
 dependencies = [
@@ -3724,7 +3743,7 @@ dependencies = [
  "forge-tls",
  "futures",
  "futures-util",
- "reqwest 0.11.27",
+ "reqwest 0.12.9",
  "rpc",
  "serde",
  "serde_json",
@@ -4933,7 +4952,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c1318b19085f08681016926435853bbf7858f9c082d0999b80550ff5d9abe15"
 dependencies = [
  "bytes",
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.13.0",
  "log",
  "multimap",
@@ -5910,7 +5929,7 @@ dependencies = [
  "prost-types",
  "pwhash",
  "regex",
- "reqwest 0.11.27",
+ "reqwest 0.12.9",
  "rpc",
  "serde",
  "serde_json",
@@ -7942,7 +7961,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
