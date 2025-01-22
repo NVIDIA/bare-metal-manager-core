@@ -1765,6 +1765,29 @@ message Machine {
   // Version field that tracks changes to
   // - Metadata
   string version = 34;
+
+  // Restrictions on the network configuration for any instances that can be allocated on this machine.
+  optional InstanceNetworkRestrictions instance_network_restrictions = 35;
+}
+
+message InstanceNetworkRestrictions {
+  // Describes how instances machine can connect to network segments. See [`NetworkSegmentMembershipType`] for details.
+  InstanceNetworkSegmentMembershipType network_segment_membership_type = 1;
+  // If network_segment_membership_type is `STATIC`, this spells out what network segment ID's are available on the
+  // host. If it is `TENANT_CONFIGURABLE`, it lists what network segment ID's are available to be configured when an
+  // instance is allocated (empty for no limitations.) Currently this will always be empty if
+  // network_segment_membership_type is TENANT_CONFIGURABLE
+  repeated common.UUID network_segment_ids = 2;
+}
+
+// Describes how a machine can connect to network segments.
+//
+// - `TENANT_CONFIGURABLE` means tenants can specify what network segments they want to make available to instances on this host.
+// - `STATIC` means the machine's in-band network interfaces have direct access to their network segments, and cannot be
+// configured at changed by carbide (ie. their VLAN membership is configured in a switch somewhere, etc.)
+enum InstanceNetworkSegmentMembershipType {
+  TENANT_CONFIGURABLE = 0;
+  STATIC = 1;
 }
 
 // Updates the Metadata stored on a Machine

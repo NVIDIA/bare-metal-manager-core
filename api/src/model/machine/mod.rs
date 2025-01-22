@@ -19,6 +19,7 @@ use mac_address::MacAddress;
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
 
@@ -49,6 +50,7 @@ pub mod machine_id;
 pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
+use crate::db::network_segment::NetworkSegmentType;
 use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
@@ -583,6 +585,42 @@ impl MachineSnapshot {
 
         true
     }
+
+    pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {
+        let inband_interfaces = self
+            .interfaces
+            .iter()
+            .filter(|i| matches!(i.network_segment_type, Some(NetworkSegmentType::HostInband)))
+            .collect::<Vec<_>>();
+
+        // If there are no HostInband interfaces, this currently means this machine has DPUs and is
+        // not restricted to being in particular network segments
+        if inband_interfaces.is_empty() {
+            return rpc::forge::InstanceNetworkRestrictions {
+                network_segment_membership_type:
+                    rpc::forge::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
+                network_segment_ids: vec![],
+            };
+        }
+
+        // The machine has interfaces on HostInband segments, meaning its network segment
+        // memebership is static (cannot be configured at instance allocation time.)
+
+        // Get unique segment ID's and VPC ID's from each HostInband interface
+        let inband_network_segment_ids = inband_interfaces
+            .iter()
+            .map(|iface| iface.segment_id)
+            .collect::<HashSet<_>>();
+
+        rpc::forge::InstanceNetworkRestrictions {
+            network_segment_membership_type:
+                rpc::forge::InstanceNetworkSegmentMembershipType::Static as i32,
+            network_segment_ids: inband_network_segment_ids
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
 }
 
 impl From<MachineSnapshot> for rpc::forge::Machine {
@@ -618,6 +656,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             .map(|id| id.to_string().into())
             .collect();
         let associated_dpu_machine_id = associated_dpu_machine_ids.first().cloned();
+        let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
             id: Some(machine.machine_id.to_string().into()),
@@ -701,6 +740,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                     .map(|status: &MachineInfinibandStatusObservation| status.clone().into())
                     .unwrap_or_default(),
             ),
+            instance_network_restrictions,
         }
     }
 }
@@ -1684,6 +1724,8 @@ pub struct MachineInterfaceSnapshot {
     pub created: DateTime<Utc>,
     pub last_dhcp: Option<DateTime<Utc>>,
     pub addresses: Vec<IpAddr>,
+    // Note: this field is denormalized, brought in from a JOIN when coming from machine_interface::find_by. It is otherwise not set.
+    pub network_segment_type: Option<NetworkSegmentType>,
 }
 
 impl MachineInterfaceSnapshot {
@@ -1701,6 +1743,7 @@ impl MachineInterfaceSnapshot {
             vendors: Vec::new(),
             created: chrono::DateTime::default(),
             last_dhcp: None,
+            network_segment_type: None,
         }
     }
 }

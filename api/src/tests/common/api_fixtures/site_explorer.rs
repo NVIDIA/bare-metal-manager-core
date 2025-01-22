@@ -1011,16 +1011,14 @@ pub async fn new_host(
     new_mock_host(env, config)
         .await?
         .finish(|mock| async move {
-            let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
+            let machine_id = mock.discovered_machine_id().unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
-            Ok(db::managed_host::load_snapshot(
-                &mut txn,
-                &try_parse_machine_id(&machine_id).unwrap(),
-                Default::default(),
+            Ok(
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
-            .await
-            .transpose()
-            .unwrap()?)
         })
         .await
 }

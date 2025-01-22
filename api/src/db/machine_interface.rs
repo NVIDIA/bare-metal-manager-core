@@ -89,6 +89,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,
             last_dhcp: row.try_get("last_dhcp")?,
+            network_segment_type: row.try_get("network_segment_type")?,
             addresses: addrs_json.0.into_iter().flatten().collect(),
             vendors: vendors_json.0.into_iter().flatten().collect(),
         })
