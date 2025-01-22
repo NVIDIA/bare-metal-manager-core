@@ -725,6 +725,21 @@ impl NetworkSegment {
         Ok(())
     }
 
+    pub async fn set_vpc_id(
+        &self,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        vpc_id: VpcId,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE network_segments SET vpc_id=$1 WHERE id=$2";
+        sqlx::query(query)
+            .bind(vpc_id.0)
+            .bind(self.id)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     pub fn subdomain_id(&self) -> Option<&DomainId> {
         self.subdomain_id.as_ref()
     }

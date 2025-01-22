@@ -226,6 +226,29 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub bypass_rbac: bool,
+
+    #[serde(default)]
+    pub fnn: Option<FnnConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct FnnConfig {
+    #[serde(default)]
+    pub admin_vpc: Option<AdminFnnConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct AdminFnnConfig {
+    // if FNN should be applicable on admin network as well.
+    pub enabled: bool,
+
+    #[serde(default)]
+    // if enabled_on_admin_network is true, carbide will try to
+    //   1. Create a VPC with the given vni.
+    //   2. Attach this VPC to network_segment table with segment type `admin`.
+    // if a vpc with exiting vni exists and network_segment table has this vpc attached to admin
+    // segment, do nothing else throw a error and panic.
+    pub vpc_vni: Option<u32>,
 }
 
 impl CarbideConfig {
