@@ -440,6 +440,7 @@ impl MachineValidationTest {
         test_id: String,
         version: ConfigVersion,
         is_enabled: bool,
+        is_verified: bool,
     ) -> CarbideResult<String> {
         let req = rpc::forge::MachineValidationTestUpdateRequest {
             test_id,
@@ -447,6 +448,7 @@ impl MachineValidationTest {
             payload: Some(
                 rpc::forge::machine_validation_test_update_request::Payload {
                     is_enabled: Some(is_enabled),
+                    verified: Some(is_verified),
                     ..Default::default()
                 },
             ),

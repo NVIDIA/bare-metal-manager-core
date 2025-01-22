@@ -824,6 +824,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         req.test_id,
         existing[0].version,
         req.is_enabled,
+        existing[0].verified,
     )
     .await
     .map_err(CarbideError::from)?;
