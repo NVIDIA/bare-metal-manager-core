@@ -202,6 +202,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
@@ -290,6 +291,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
@@ -376,6 +378,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
@@ -495,6 +498,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(single_dpu_host.host_snapshot.machine_id.into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
@@ -545,6 +549,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(single_dpu_host.host_snapshot.machine_id.into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
@@ -671,6 +676,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture

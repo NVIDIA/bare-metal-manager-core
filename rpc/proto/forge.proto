@@ -1165,6 +1165,7 @@ message InstanceAllocationRequest {
   // AssignInstanceToTenant request, and the ID would be the instance_id
   common.MachineId machine_id = 1;
 
+
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
 
@@ -1172,6 +1173,11 @@ message InstanceAllocationRequest {
   // a random ID.
   // The Instance ID must be unique within the Forge site.
   optional common.UUID instance_id = 3;
+
+  // The expected InstanceTypeId of the machine associated
+  // with the Instance. If sent and the machine of the request has
+  // a different type ID, the request will be rejected.
+  optional string instance_type_id = 4;
 
   reserved 11; // Was ssh_keys - replaced by tenantKeysetId in InstanceConfig.TenantConfig instead.
   Metadata metadata = 12;
@@ -1453,6 +1459,13 @@ message Instance {
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
   common.MachineId machine_id = 2;
   Metadata metadata = 3;
+
+  // The InstanceTypeId associated with the Instance.
+  // This is inherited from its Machine upon creation
+  // and cannot be changed.  It technically can't even be
+  // optional, unlike on Machine, since allocations should
+  // come from pools defined by InstanceTypes.
+  optional string instance_type_id = 4;
 
   // The desired configuration on the instance
   InstanceConfig config = 103;
@@ -1755,7 +1768,7 @@ message Machine {
   optional bool firmware_autoupdate = 28;
 
   optional string failure_details = 30;
-
+ 
   // Infiniband devices information attached to the machine.
   optional InfinibandStatusObservation ib_status = 32;
 
@@ -1768,6 +1781,13 @@ message Machine {
 
   // Restrictions on the network configuration for any instances that can be allocated on this machine.
   optional InstanceNetworkRestrictions instance_network_restrictions = 35;
+
+  // The instance type with which a machine is associated if any.
+  optional string instance_type_id = 36;
+
+  // The known capabilities of a machine
+  MachineCapabilitiesSet capabilities = 37;
+  
 }
 
 message InstanceNetworkRestrictions {
@@ -3693,11 +3713,75 @@ message MachineValidationRunResponse {
   string message = 1;
 }
 
+message MachineCapabilityAttributesCpu {
+  string name               = 1;
+  uint32 count              = 2;
+  optional string vendor    = 3;
+  optional string frequency = 4;
+  optional uint32 cores     = 5;
+  optional uint32 threads   = 6;
+}
+
+message MachineCapabilityAttributesGpu {
+  string name                     = 1;
+  uint32 count                    = 2;
+  optional string vendor          = 3;
+  optional string frequency       = 4;
+  optional string capacity        = 5; // Memory capacity
+  optional uint32 cores           = 6;
+  optional uint32 threads         = 7;
+}
+
+message MachineCapabilityAttributesMemory {
+  string name                       = 1;
+  uint32 count                      = 2;
+  optional string vendor            = 3;
+  optional string capacity          = 4;
+}
+
+message MachineCapabilityAttributesStorage {
+  string name                       = 1;
+  uint32 count                      = 2;
+  optional string vendor            = 3;
+  optional string capacity          = 4;
+}
+
+
+message MachineCapabilityAttributesNetwork {
+  string name                       = 1;
+  uint32 count                      = 2;
+  optional string vendor            = 3;
+}
+
+message MachineCapabilityAttributesInfiniband {
+  string name                       = 1;
+  uint32 count                      = 2;
+  optional string vendor            = 3;
+}
+
+message MachineCapabilityAttributesDpu {
+  string name                       = 1;
+  uint32 count                      = 2;
+  optional string hardware_revision = 3;
+}
+
+
+message MachineCapabilitiesSet {
+  repeated MachineCapabilityAttributesCpu cpu               = 1;
+  repeated MachineCapabilityAttributesGpu gpu               = 2;
+  repeated MachineCapabilityAttributesMemory memory         = 3;
+  repeated MachineCapabilityAttributesStorage storage       = 4;
+  repeated MachineCapabilityAttributesNetwork network       = 5;
+  repeated MachineCapabilityAttributesInfiniband infiniband = 6;
+  repeated MachineCapabilityAttributesDpu dpu               = 7;
+}
+
+
 message InstanceTypeAttributes {
   // The minimum set of capabilities that a machine
   // must have before it can be link with the specified
   // instance type.
-  repeated InstanceTypeMachineCapabilityAttributes desired_capabilities = 1;
+  repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
 // An InstanceType describes a desired set of 
@@ -3715,7 +3799,7 @@ message InstanceType {
 
 // These match the current set of distinct
 // active types in Forge Cloud.
-enum InstanceTypeMachineCapabilityType {
+enum MachineCapabilityType {
   CAP_TYPE_INVALID    = 0;
   CAP_TYPE_CPU        = 1;
   CAP_TYPE_GPU        = 2;
@@ -3726,15 +3810,15 @@ enum InstanceTypeMachineCapabilityType {
   CAP_TYPE_DPU        = 7;
 }
 
-// InstanceTypeMachineCapabilityAttributes are the specific
+// InstanceTypeMachineCapabilityFilterAttributes are the specific
 // properties of ONE capability. For example, a InstanceType
 // might have a CPU capability.  The attributes of that single
 // capability might be type=CPU, name="Intel Xeon", cores=12,
 // threads=24. For a machine to be allowed in to the pool for
 // an InstanceType with that capability, the machine must also
 // have a capability that matches those properties.
-message InstanceTypeMachineCapabilityAttributes {
-  InstanceTypeMachineCapabilityType capability_type   = 1;
+message InstanceTypeMachineCapabilityFilterAttributes {
+  MachineCapabilityType capability_type               = 1;
   optional string name                                = 2; // Intel Xeon, Samsung SSD, etc.
   optional string frequency                           = 3; // E.g., 2.4GHz, 1024MHz, etc
   optional string capacity                            = 4; // E.g., 10GB, 256 MB, etc

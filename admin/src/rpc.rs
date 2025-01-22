@@ -2216,6 +2216,8 @@ pub async fn allocate_instance(
             machine_id: Some(::rpc::common::MachineId {
                 id: host_machine_id.to_owned(),
             }),
+
+            instance_type_id: allocate_instance.instance_type_id.clone(),
             config: Some(instance_config),
             metadata: Some(rpc::Metadata {
                 name: instance_name.to_string(),

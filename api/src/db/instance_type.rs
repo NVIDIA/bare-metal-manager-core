@@ -18,7 +18,7 @@ use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
 use crate::{
     db::DatabaseError,
     model::{
-        instance_type::{InstanceType, InstanceTypeMachineCapability},
+        instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter},
         metadata::Metadata,
     },
     CarbideError,
@@ -34,7 +34,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
             labels: labels.0,
         };
 
-        let desired_capabilities: sqlx::types::Json<Vec<InstanceTypeMachineCapability>> =
+        let desired_capabilities: sqlx::types::Json<Vec<InstanceTypeMachineCapabilityFilter>> =
             row.try_get("desired_capabilities")?;
 
         Ok(InstanceType {
@@ -58,7 +58,7 @@ pub async fn create(
     txn: &mut Transaction<'_, Postgres>,
     id: &InstanceTypeId,
     metadata: &Metadata,
-    desired_capabilities: &[InstanceTypeMachineCapability],
+    desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
 ) -> Result<InstanceType, CarbideError> {
     let query = "INSERT INTO instance_types
                 (id, name, labels, description, desired_capabilities, version)
@@ -159,7 +159,7 @@ pub(crate) async fn update(
     txn: &mut Transaction<'_, Postgres>,
     id: &InstanceTypeId,
     metadata: &Metadata,
-    desired_capabilities: &[InstanceTypeMachineCapability],
+    desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
     expected_version: ConfigVersion,
 ) -> Result<InstanceType, CarbideError> {
     let query = "UPDATE instance_types
@@ -242,8 +242,8 @@ pub(crate) async fn soft_delete(
 mod tests {
     use super::*;
     use crate::model::{
-        instance_type::{InstanceTypeMachineCapability, InstanceTypeMachineCapabilityType},
-        metadata::Metadata,
+        instance_type::InstanceTypeMachineCapabilityFilter,
+        machine::capabilities::MachineCapabilityType, metadata::Metadata,
     };
 
     #[crate::sqlx_test]
@@ -256,8 +256,8 @@ mod tests {
         let id_str = "can_i_see_some_id?";
 
         // Prepare some attributes we can (re)use for comparison later
-        let cap_attrs = InstanceTypeMachineCapability {
-            capability_type: InstanceTypeMachineCapabilityType::Cpu,
+        let cap_attrs = InstanceTypeMachineCapabilityFilter {
+            capability_type: MachineCapabilityType::Cpu,
             name: Some("pentium 4 HT".to_string()),
             frequency: Some("1.3 GHz".to_string()),
             capacity: None,
@@ -268,8 +268,8 @@ mod tests {
             threads: Some(2),
         };
 
-        let update_cap_attrs = InstanceTypeMachineCapability {
-            capability_type: InstanceTypeMachineCapabilityType::Gpu,
+        let update_cap_attrs = InstanceTypeMachineCapabilityFilter {
+            capability_type: MachineCapabilityType::Gpu,
             name: Some("H100".to_string()),
             frequency: None,
             capacity: None,

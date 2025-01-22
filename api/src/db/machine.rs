@@ -20,7 +20,10 @@ use std::str::FromStr;
 use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::instance_type::InstanceTypeId;
+use forge_uuid::{
+    instance_type::InstanceTypeId,
+    machine::{MachineId, MachineType},
+};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -41,15 +44,15 @@ use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    CurrentMachineState, FailureDetails, HostReprovisionRequest, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineSnapshot,
-    MachineStateHistory, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    capabilities::MachineCapabilitiesSet, CurrentMachineState, FailureDetails,
+    HostReprovisionRequest, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineSnapshot, MachineStateHistory, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
-use forge_uuid::machine::{MachineId, MachineType};
 
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug, Copy, Clone)]
@@ -60,6 +63,16 @@ pub struct MachineSearchConfig {
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
     pub exclude_hosts: bool,
+
+    /// Whether the query results will be later
+    /// used for updates in the same transaction.
+    ///
+    /// Triggers one or more locking behaviors in the DB.
+    ///
+    /// This applies *only* to the immediate machines records
+    /// and any joined tables.  The value is *not*
+    /// propagated to any additional underlying queries.
+    pub for_update: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
@@ -70,6 +83,7 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
             exclude_hosts: value.exclude_hosts,
+            for_update: false, // This isn't exposed to API callers
         }
     }
 }
@@ -202,6 +216,9 @@ pub struct Machine {
 
     on_demand_machine_validation_request: Option<bool>,
 
+    /// The InstanceType with which a machine is associated if any
+    instance_type_id: Option<InstanceTypeId>,
+
     asn: Option<u32>,
 
     /// Machine metadata
@@ -278,6 +295,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome")?;
 
+        let instance_type_id: Option<InstanceTypeId> = row.try_get("instance_type_id")?;
         let asn: Option<u32> = row.try_get::<Option<i64>, _>("asn")?.map(|v| v as u32);
 
         let topology_json: sqlx::types::Json<Vec<Option<MachineTopology>>> =
@@ -371,6 +389,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             on_demand_machine_validation_id: row.try_get("on_demand_machine_validation_id")?,
             on_demand_machine_validation_request: row
                 .try_get("on_demand_machine_validation_request")?,
+            instance_type_id,
             asn,
             metadata,
             version: row.try_get("version")?,
@@ -385,6 +404,9 @@ impl From<Machine> for MachineSnapshot {
             bmc_info: machine.bmc_info().clone(),
             bmc_vendor: machine.bmc_vendor(),
             hardware_info: machine.hardware_info().cloned(),
+            capabilities: machine
+                .hardware_info()
+                .map(|hw| MachineCapabilitiesSet::from(hw.to_owned())),
             agent_reported_inventory: machine.inventory().cloned().unwrap_or_default(),
             network_config: machine.network_config().clone(),
             interfaces: machine.interfaces().clone(),
@@ -419,6 +441,7 @@ impl From<Machine> for MachineSnapshot {
             machine_validation_health_report: machine.machine_validation_health_report,
             history: machine.history.into_iter().map(Into::into).collect(),
             health_report_overrides: machine.health_report_overrides,
+            instance_type_id: machine.instance_type_id,
             asn: machine.asn,
             metadata: machine.metadata,
             version: machine.version,
@@ -750,60 +773,59 @@ impl Machine {
         Ok(true)
     }
 
-    /// Find machines given a set of criteria, right now just returns all machines because there's
-    /// no way to filter the machines.
+    /// Find machines given a set of criteria
     ///
     /// Arguments:
     ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
+    /// * `txn`           - A reference to a currently open database transaction
+    /// * `filter`        - An ObjectFilter to control the size of the response set
+    /// * `search_config` - A MachineSearchConfig with search options to control the
+    ///                     records selected
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, MachineId>,
         search_config: MachineSearchConfig,
     ) -> Result<Vec<Machine>, DatabaseError> {
-        let base_query = if search_config.include_history {
-            "SELECT * FROM machine_snapshots_with_history m {where}".to_owned()
+        // The TRUE will be optimized away by the query planner,
+        // but it simplifies the rest of the building for us.
+        let mut builder = if search_config.include_history {
+            sqlx::QueryBuilder::new(
+                "SELECT * FROM machine_snapshots_with_history m WHERE TRUE".to_owned(),
+            )
         } else {
-            "SELECT * FROM machine_snapshots m {where}".to_owned()
+            sqlx::QueryBuilder::new("SELECT * FROM machine_snapshots m WHERE TRUE".to_owned())
         };
 
-        let all_machines: Vec<Machine> = match filter {
-            ObjectFilter::All => {
-                let where_clause = if search_config.only_maintenance {
-                    "WHERE m.maintenance_reference IS NOT NULL"
-                } else {
-                    ""
-                };
-                sqlx::query_as(&base_query.replace("{where}", where_clause))
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines All", e))?
-            }
+        match filter {
+            ObjectFilter::All => {} // Nothing to add.
             ObjectFilter::One(id) => {
-                let mut where_clause = "WHERE m.id=$1".to_string();
-                if search_config.only_maintenance {
-                    where_clause += " AND m.maintenance_reference IS NOT NULL";
-                }
-                sqlx::query_as(&base_query.replace("{where}", &where_clause))
-                    .bind(id.to_string())
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines One", e))?
+                builder.push(" AND m.id= ");
+                builder.push_bind(id.to_string());
             }
             ObjectFilter::List(list) => {
-                let mut where_clause = "WHERE m.id=ANY($1)".to_string();
-                if search_config.only_maintenance {
-                    where_clause += " AND m.maintenance_reference IS NOT NULL";
-                }
-                let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
-                sqlx::query_as(&base_query.replace("{where}", &where_clause))
-                    .bind(str_list)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "machines List", e))?
+                builder.push(" AND m.id=ANY( ");
+                builder.push_bind(
+                    list.iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<String>>(),
+                );
+                builder.push(" ) ");
             }
+        }
+
+        if search_config.only_maintenance {
+            builder.push(" AND m.maintenance_reference IS NOT NULL ");
+        }
+
+        if search_config.for_update {
+            builder.push(" FOR UPDATE ");
         };
+
+        let all_machines: Vec<Machine> = builder
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))?;
 
         Ok(all_machines)
     }
@@ -881,6 +903,7 @@ impl Machine {
     }
 
     /// Removes a machine's association with an InstanceType.
+    /// This does *NOT* check if the machine is in use.
     ///
     /// * `txn`        - A reference to an active DB transaction
     /// * `machine_id` - A reference to a machine ID to update
@@ -2000,6 +2023,10 @@ impl Machine {
             qb.push("NOT starts_with(id, 'fm100p')");
         }
 
+        if search_config.for_update {
+            qb.push(" FOR UPDATE ");
+        }
+
         let q = qb.build_query_as();
         let machine_ids: Vec<MachineId> = q
             .fetch_all(txn.deref_mut())
@@ -2040,6 +2067,9 @@ impl Machine {
         let host = Machine::find_one(
             txn,
             host_id,
+            // TODO(?): Should we be using for_update/row-level locks here?
+            // This is a select that's later used for an update on both version
+            // and state below with the calls to `advance`.
             crate::db::machine::MachineSearchConfig::default(),
         )
         .await?

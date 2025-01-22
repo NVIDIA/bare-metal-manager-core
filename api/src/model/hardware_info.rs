@@ -178,20 +178,20 @@ pub struct PciDeviceProperties {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gpu {
-    name: String,
-    serial: String,
-    driver_version: String,
-    vbios_version: String,
-    inforom_version: String,
-    total_memory: String,
-    frequency: String,
-    pci_bus_id: String,
+    pub name: String,
+    pub serial: String,
+    pub driver_version: String,
+    pub vbios_version: String,
+    pub inforom_version: String,
+    pub total_memory: String,
+    pub frequency: String,
+    pub pci_bus_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryDevice {
-    size_mb: Option<u32>,
-    mem_type: Option<String>,
+    pub size_mb: Option<u32>,
+    pub mem_type: Option<String>,
 }
 
 /// TPM endorsement key certificate

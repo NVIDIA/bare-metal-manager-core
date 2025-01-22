@@ -283,6 +283,7 @@ impl MachineUpdateManager {
                 include_predicted_host: true,
                 only_maintenance: true,
                 exclude_hosts: false,
+                for_update: false,
             },
         )
         .await?;

@@ -22,7 +22,7 @@ use crate::model::{
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
 /// Represents a snapshot view of an `Instance`
 ///
@@ -36,6 +36,9 @@ pub struct InstanceSnapshot {
     pub id: InstanceId,
     /// Machine ID
     pub machine_id: MachineId,
+
+    /// InstanceType ID
+    pub instance_type_id: Option<InstanceTypeId>,
 
     /// Instance Metadata
     pub metadata: Metadata,

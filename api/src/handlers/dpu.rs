@@ -477,6 +477,15 @@ pub(crate) async fn record_dpu_network_status(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            // We should probably be setting this to to true everywhere
+            // or including FOR UPDATE on all SELECT queries, but
+            // this wasn't being done up to now.  Based on the nature
+            // of health/status reporting (things could go
+            // unhealthy at any time, including moments after
+            // checking), the locking probably wouldn't buy much
+            // here, but maybe someone with broader knowledge of
+            // the codebase should re-examine that assumption.
+            for_update: false,
         },
     )
     .await

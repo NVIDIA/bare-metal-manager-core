@@ -682,6 +682,7 @@ pub async fn try_allocate_instance(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::forge::Metadata {
                 name: "test_instance".to_string(),

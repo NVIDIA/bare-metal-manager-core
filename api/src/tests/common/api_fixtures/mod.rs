@@ -49,8 +49,11 @@ use crate::{
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
     model::{
-        instance_type,
-        machine::{FailureDetails, MachineLastRebootRequested, ManagedHostState},
+        instance_type::InstanceTypeMachineCapabilityFilter,
+        machine::{
+            capabilities::MachineCapabilityType, FailureDetails, MachineLastRebootRequested,
+            ManagedHostState,
+        },
         metadata::Metadata,
     },
     redfish::RedfishSim,
@@ -931,16 +934,16 @@ pub async fn create_test_env_with_overrides(
         let uid = uuid::Uuid::new_v4();
 
         // Prepare some attributes for creation and comparison later
-        let desired_capabilities = vec![instance_type::InstanceTypeMachineCapability {
-            capability_type: instance_type::InstanceTypeMachineCapabilityType::Cpu,
-            name: Some("pentium 4 HT".to_string()),
-            frequency: Some("1.3 GHz".to_string()),
+        let desired_capabilities = vec![InstanceTypeMachineCapabilityFilter {
+            capability_type: MachineCapabilityType::Cpu,
+            name: None,
+            frequency: None,
             capacity: None,
-            vendor: Some("intel".to_string()),
-            count: Some(1),
+            vendor: None,
+            count: None,
             hardware_revision: None,
-            cores: Some(1),
-            threads: Some(2),
+            cores: None,
+            threads: None,
         }];
 
         let metadata = Metadata {
@@ -957,6 +960,7 @@ pub async fn create_test_env_with_overrides(
     }
 
     txn.commit().await.unwrap();
+
     // Create domain
     let domain: uuid::Uuid = api
         .create_domain(Request::new(rpc::forge::Domain {

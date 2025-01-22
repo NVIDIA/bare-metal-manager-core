@@ -69,6 +69,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 include_predicted_host: true,
                 only_maintenance: false,
                 exclude_hosts: false,
+                for_update: false,
             },
         )
         .await?)

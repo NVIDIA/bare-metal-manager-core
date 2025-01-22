@@ -32,18 +32,19 @@ use super::{
 };
 use crate::{
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
-    model::hardware_info::HardwareInfo,
+    model::{hardware_info::HardwareInfo, machine::capabilities::MachineCapabilitiesSet},
     state_controller::state_handler::StateHandlerError,
     CarbideError,
 };
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{
-    domain::DomainId, machine::MachineId, machine::MachineInterfaceId,
-    machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
+    domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
+    machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
 };
 
 mod slas;
 
+pub mod capabilities;
 pub mod health_override;
 pub mod infiniband;
 pub mod machine_id;
@@ -383,6 +384,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             network_config_version: instance.network_config_version.version_string(),
             ib_config_version: instance.ib_config_version.version_string(),
             storage_config_version: instance.storage_config_version.version_string(),
+            instance_type_id: instance.instance_type_id.map(|i| i.to_string()),
             metadata: Some(instance.metadata.into()),
         }))
     }
@@ -511,6 +513,13 @@ pub struct MachineSnapshot {
 
     pub on_demand_machine_validation_request: Option<bool>,
 
+    /// The InstanceType with which a machine is associated if any
+    pub instance_type_id: Option<InstanceTypeId>,
+
+    /// The capabilities of a machine, originally from
+    /// discovered HardwareInfo, but could expand to
+    /// include more sources.
+    pub capabilities: Option<MachineCapabilitiesSet>,
     pub asn: Option<u32>,
 
     /// Machine Metadata
@@ -665,6 +674,11 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             } else {
                 machine.current.state.to_string()
             },
+            instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
+            capabilities: machine.capabilities.map(|ref mut c| {
+                c.sort();
+                c.clone().into()
+            }),
             state_version: machine.current.version.version_string(),
             state_sla: Some(state_sla(&machine.current.state, &machine.current.version).into()),
             machine_type: *RpcMachineTypeWrapper::from(machine.machine_id.machine_type()) as _,

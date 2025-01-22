@@ -59,6 +59,7 @@ pub async fn record_hardware_health_report(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            for_update: false,
         },
     )
     .await
@@ -115,6 +116,7 @@ pub async fn get_hardware_health_report(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            for_update: false,
         },
     )
     .await
@@ -171,6 +173,7 @@ pub async fn list_health_report_overrides(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            for_update: false,
         },
     )
     .await
@@ -257,6 +260,9 @@ async fn remove_by_source(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            // Technically,  an update is going to happen,
+            // but we don't seem to need coordination/locking.
+            for_update: false,
         },
     )
     .await
