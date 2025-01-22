@@ -375,21 +375,32 @@ fn export_power_control(
                     .power_metrics
                     .clone()
                     .unwrap()
-                    .average_consumed_watts as f64,
+                    .average_consumed_watts
+                    .unwrap_or(0) as f64,
                 &[
                     KeyValue::new("hw.id", "average_consumed_watts".to_string()),
                     KeyValue::new("hw.host.id", machine_id.to_string()),
                 ],
             );
             power_min_consumed_sensors.observe(
-                power_ctrl.power_metrics.clone().unwrap().min_consumed_watts as f64,
+                power_ctrl
+                    .power_metrics
+                    .clone()
+                    .unwrap()
+                    .min_consumed_watts
+                    .unwrap_or(0) as f64,
                 &[
                     KeyValue::new("hw.id", "min_consumed_watts".to_string()),
                     KeyValue::new("hw.host.id", machine_id.to_string()),
                 ],
             );
             power_max_consumed_sensors.observe(
-                power_ctrl.power_metrics.clone().unwrap().max_consumed_watts as f64,
+                power_ctrl
+                    .power_metrics
+                    .clone()
+                    .unwrap()
+                    .max_consumed_watts
+                    .unwrap_or(0) as f64,
                 &[
                     KeyValue::new("hw.id", "max_consumed_watts".to_string()),
                     KeyValue::new("hw.host.id", machine_id.to_string()),
