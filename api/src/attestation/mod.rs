@@ -83,6 +83,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
             include_predicted_host: false,
             only_maintenance: false,
             exclude_hosts: false,
+            for_update: false,
         },
     )
     .await?

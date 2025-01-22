@@ -445,6 +445,9 @@ pub async fn allocate_instance(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_owned(),
             }),
+            //  None here means the allocation will simply inherit the
+            // instance_type_id of the machine in the request, whatever it is.
+            instance_type_id: None,
             config: Some(instance_config),
             metadata: None,
         });

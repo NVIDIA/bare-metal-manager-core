@@ -41,7 +41,9 @@ use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::{instance::InstanceId, machine::MachineId, vpc::VpcId};
+use forge_uuid::{
+    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId, vpc::VpcId,
+};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -63,6 +65,7 @@ pub struct Instance {}
 pub struct NewInstance<'a> {
     pub instance_id: InstanceId,
     pub machine_id: MachineId,
+    pub instance_type_id: Option<InstanceTypeId>,
     pub config: &'a InstanceConfig,
     pub metadata: Metadata,
     pub config_version: ConfigVersion,
@@ -146,6 +149,7 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         Ok(InstanceSnapshot {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
+            instance_type_id: row.try_get("instance_type_id")?,
             requested: row.try_get("requested")?,
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
@@ -727,10 +731,19 @@ WHERE s.network_config->>'loopback_ip'=$1";
 }
 
 impl<'a> NewInstance<'a> {
+    /// Persists the new instance to the DB.
+    ///
+    /// Does ***not*** check for the existence of the associated machine.
+    ///
+    /// It's expected that the machine associated with the request has
+    /// already been checked for existence and that appropriate locking has
+    /// been used.
+    ///
+    /// * `txn` - A reference to an active DB transaction
     pub async fn persist(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<InstanceSnapshot, DatabaseError> {
+    ) -> CarbideResult<InstanceSnapshot> {
         // None means we haven't observed any network status from forge-dpu-agent yet
         // The first report from the agent will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
@@ -770,11 +783,16 @@ impl<'a> NewInstance<'a> {
                         hostname,
                         storage_config,
                         storage_config_version,
-                        storage_status_observation
+                        storage_status_observation,
+                        instance_type_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json, $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json)
+                    SELECT 
+                            $1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json,
+                            $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json,
+                            m.instance_type_id
+                    FROM machines m WHERE m.id=$23 AND ($24 IS NULL OR m.instance_type_id=$24) FOR UPDATE
                     RETURNING *";
-        sqlx::query_as(query)
+        match sqlx::query_as(query)
             .bind(self.instance_id)
             .bind(self.machine_id.to_string())
             .bind(os_user_data)
@@ -797,9 +815,28 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.config.storage))
             .bind(self.storage_config_version)
             .bind(sqlx::types::Json(storage_status_observation))
+            .bind(self.machine_id.to_string())
+            .bind(&self.instance_type_id)
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        {
+            // Not sure which error feels better here, FailedPrecondition or InvalidArgument,
+            // since the state of the system (the instance type of the machine) might be correct,
+            // in which case maybe InvalidArgument, or the state of the system might be incorrect,
+            // in which case FailedPrecondition.  Since both depend on the state of the system,
+            // which could change and make the argument acceptable or not, this is probably
+            // FailedPrecondition.
+            Err(sqlx::Error::RowNotFound) => Err(CarbideError::FailedPrecondition(
+                "expected InstanceTypeId does not match source machine".to_string(),
+            )),
+            Err(e) => Err(CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                query,
+                e,
+            ))),
+            Ok(o) => Ok(o),
+        }
     }
 }
 

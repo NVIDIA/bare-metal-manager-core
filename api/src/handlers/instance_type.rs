@@ -17,8 +17,15 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::api::{log_request_data, Api};
-use crate::db::{instance_type, machine::Machine, DatabaseError};
-use crate::model::{instance_type::InstanceTypeMachineCapability, metadata::Metadata};
+use crate::db::{
+    instance, instance_type,
+    machine::{Machine, MachineSearchConfig},
+    DatabaseError, ObjectFilter,
+};
+use crate::model::{
+    instance_type::InstanceTypeMachineCapabilityFilter, machine::MachineSnapshot,
+    metadata::Metadata,
+};
 use crate::CarbideError;
 
 pub(crate) async fn create(
@@ -50,7 +57,7 @@ pub(crate) async fn create(
     metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the capabilities list
-    let mut desired_capabilities = Vec::<InstanceTypeMachineCapability>::new();
+    let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
 
     for cap in req
         .instance_type_attributes
@@ -228,7 +235,7 @@ pub(crate) async fn update(
     metadata.validate(true).map_err(CarbideError::from)?;
 
     // Prepare the desired capabilities list
-    let mut desired_capabilities = Vec::<InstanceTypeMachineCapability>::new();
+    let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
 
     for cap in req
         .instance_type_attributes
@@ -487,8 +494,85 @@ pub(crate) async fn associate_machines(
         );
     }
 
-    // TODO: A follow-up MR should add a check here to verify that a
-    // machine's capabilities match those required by the instance type.
+    let instance_type_id = req
+        .instance_type_id
+        .parse::<InstanceTypeId>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+        })?;
+
+    // Query the DB to make sure the instance type is valid/active.
+    let instance_types =
+        instance_type::find_by_ids(&mut txn, &[instance_type_id.clone()], true).await?;
+
+    if instance_types.len() > 1 {
+        return Err(CarbideError::Internal {
+            message: format!(
+                "multiple InstanceType records found for '{}'",
+                instance_type_id
+            ),
+        }
+        .into());
+    }
+
+    if instance_types.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "InstanceType",
+            id: req.instance_type_id,
+        }
+        .into());
+    }
+
+    // Grab the requested machines so we can row-lock and
+    // also get their most recent snapshots so we can check
+    // their capabilities.
+    let machines = Machine::find(
+        &mut txn,
+        ObjectFilter::List(&machine_ids),
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    // Check that there are no associated instances for the machines.
+    // I expected machine.has_instance() to handle this, but the data
+    // that drives that doesn't seem to get persisted until sometime in
+    // the future after an instance is created in the DB.
+    let instances = instance::Instance::find_by_machine_ids(&mut txn, &machine_ids)
+        .await
+        .map_err(CarbideError::from)?;
+
+    if !instances.is_empty() {
+        return Err(CarbideError::FailedPrecondition(
+            "one or more machines have instances assigned".to_string(),
+        )
+        .into());
+    }
+
+    // Go through the requested machines and make sure they
+    //actually meet the requirements of the instance type.
+    for machine in machines {
+        let machine_id = machine.id().to_owned();
+        let snapshot = MachineSnapshot::from(machine);
+        let capabilities = snapshot
+            .capabilities
+            .as_ref()
+            .ok_or(CarbideError::InvalidArgument(format!(
+                "capabilities of machine {} do not satisfy the requested InstanceType ({})",
+                machine_id, instance_type_id
+            )))?;
+
+        if !instance_types[0].matches_capability_set(capabilities) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "capabilities of machine {} do not satisfy the requested InstanceType ({})",
+                machine_id, instance_type_id
+            ))
+            .into());
+        }
+    }
 
     // Make our DB query for the association
     let _ids =
@@ -534,6 +618,41 @@ pub(crate) async fn remove_machine_association(
             e,
         ))
     })?;
+
+    // Grab a row lock on the requested machine so we can
+    // coordinate with the instance allocation handler and
+    // check for the existence of instances.
+    let mut machines = Machine::find(
+        &mut txn,
+        ObjectFilter::List(&[machine_id.clone()]),
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let Some(machine) = machines.pop() else {
+        return Err(CarbideError::NotFoundError {
+            kind: "Machine",
+            id: machine_id.to_string(),
+        }
+        .into());
+    };
+
+    // Check that there are no associated instances for the machines.
+    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+        .await
+        .map_err(CarbideError::from)?;
+
+    if !instances.is_empty() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "machine {} has instance assigned",
+            machine.id()
+        ))
+        .into());
+    }
 
     // Make our DB query to remove the association
     let _id = Machine::remove_instance_type_association(&mut txn, &machine_id)

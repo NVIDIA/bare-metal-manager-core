@@ -59,7 +59,9 @@ use common::api_fixtures::{
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
         single_interface_network_config, single_interface_network_config_with_vpc_prefix,
     },
+    managed_host::ManagedHostConfig,
     network_configured, network_configured_with_health, persist_machine_validation_result,
+    site_explorer,
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
     TestEnvOverrides,
 };
@@ -981,6 +983,7 @@ async fn test_allocate_instance_with_invalid_labels(_: PgPoolOptions, options: P
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(instance_metadata),
         }))
@@ -1039,6 +1042,8 @@ async fn test_allocate_instance_with_invalid_long_labels(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
+
             config: Some(config.clone()),
             metadata: Some(instance_metadata1),
         }))
@@ -1069,6 +1074,8 @@ async fn test_allocate_instance_with_invalid_long_labels(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
+
             config: Some(config.clone()),
             metadata: Some(instance_metadata2),
         }))
@@ -1097,6 +1104,8 @@ async fn test_allocate_instance_with_invalid_long_labels(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
+
             config: Some(config),
             metadata: Some(instance_metadata3),
         }))
@@ -1435,6 +1444,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -1482,6 +1492,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -1650,6 +1661,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config.clone()),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -1669,6 +1681,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id_2.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2064,6 +2077,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let request = InstanceAllocationRequest {
         instance_id: InstanceId::from(uuid::Uuid::new_v4()),
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
+        instance_type_id: None,
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
@@ -2277,6 +2291,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(rpc::InstanceConfig {
                 os: Some(default_os_config()),
                 tenant: Some(default_tenant_config()),
@@ -2494,6 +2509,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2553,6 +2569,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -3210,4 +3227,167 @@ async fn create_tenant_overlay_prefix(
     .id;
     txn.commit().await.unwrap();
     vpc_prefix_id
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_with_instance_type_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Create two new managed hosts in the DB and get the snapshot.
+    let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    let mh2 = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    // Find the existing instance types in the test env
+    let existing_instance_type_ids = env
+        .api
+        .find_instance_type_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypeIdsRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids;
+
+    let existing_instance_types = env
+        .api
+        .find_instance_types_by_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypesByIdsRequest {
+                instance_type_ids: existing_instance_type_ids,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_types;
+
+    let good_id = existing_instance_types[0].id.clone();
+    let bad_id = existing_instance_types[1].id.clone();
+
+    // Associate the machine with an instance type
+    let _ = env
+        .api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: good_id.clone(),
+                machine_ids: vec![
+                    mh.host_snapshot.machine_id.to_string(),
+                    mh2.host_snapshot.machine_id.to_string(),
+                ],
+            },
+        ))
+        .await
+        .unwrap();
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Try to create an instance type, but pretend like the
+    // instance type of the machine changed by the time we
+    // requested the allocation, and call with the wrong ID.
+    // This should fail.
+    let _ = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh.host_snapshot.machine_id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            instance_type_id: Some(bad_id.clone()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    // Try that again, but this time with the right ID
+    // This should pass.
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh.host_snapshot.machine_id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            instance_type_id: Some(good_id.clone()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(good_id, instance.instance_type_id.unwrap());
+
+    // Look-up the instance and make sure we really
+    // stored the instance type.
+    let instance = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    assert_eq!(good_id, instance.instance_type_id.unwrap());
+
+    // Try that one more time, but this time with no type id
+    // to see if we inherit it from the machine.
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh2.host_snapshot.machine_id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(good_id, instance.instance_type_id.unwrap());
+
+    Ok(())
 }

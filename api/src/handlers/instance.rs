@@ -39,7 +39,10 @@ pub(crate) async fn allocate(
     log_request_data(&request);
 
     let request = InstanceAllocationRequest::try_from(request.into_inner())?;
+
     log_machine_id(&request.machine_id);
+
+    // Row-locking on Machine records happens in allocate_instance
     let mh_snapshot = allocate_instance(
         request,
         &api.database_connection,

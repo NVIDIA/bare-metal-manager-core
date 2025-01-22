@@ -193,6 +193,7 @@ pub async fn create_instance_with_config(
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
+            instance_type_id: None,
             config: Some(config),
             metadata: instance_metadata,
         }))

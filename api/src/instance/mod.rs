@@ -30,9 +30,10 @@ use crate::{
         self,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
+        machine::{Machine, MachineSearchConfig},
         managed_host::LoadSnapshotOptions,
         network_segment::NetworkSegment,
-        DatabaseError,
+        DatabaseError, ObjectFilter,
     },
     dhcp::allocation::DhcpError,
     model::{
@@ -49,17 +50,22 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
 /// User parameters for creating an instance
 #[derive(Debug)]
 pub struct InstanceAllocationRequest {
-    // The Machine on top of which we create an Instance
+    /// The Machine on top of which we create an Instance
     pub machine_id: MachineId,
-    // Desired ID for the new instance
+
+    /// The expected InstanceTypeId of the source
+    /// machine for the instance.
+    pub instance_type_id: Option<InstanceTypeId>,
+
+    /// Desired ID for the new instance
     pub instance_id: InstanceId,
 
-    // Desired configuration of the instance
+    /// Desired configuration of the instance
     pub config: InstanceConfig,
 
     pub metadata: Metadata,
@@ -74,6 +80,15 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
                 .machine_id
                 .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
         )?;
+
+        let instance_type_id = request
+            .instance_type_id
+            .map(|i| i.parse::<InstanceTypeId>())
+            .transpose()
+            .map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            })?;
+
         let config = request
             .config
             .ok_or(RpcDataConversionError::MissingArgument("config"))?;
@@ -94,6 +109,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 
         Ok(InstanceAllocationRequest {
             instance_id,
+            instance_type_id,
             machine_id,
             config,
             metadata,
@@ -237,6 +253,25 @@ pub async fn allocate_instance(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
+    // Grab a row-level lock on the requested machine
+    let machines = Machine::find(
+        &mut txn,
+        ObjectFilter::List(&[request.machine_id.clone()]),
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if machines.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "Machine",
+            id: request.machine_id.to_string(),
+        });
+    };
+
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.
     allocate_network(&mut request.config.network, &mut txn, api).await?;
 
@@ -261,6 +296,7 @@ pub async fn allocate_instance(
 
     let new_instance = NewInstance {
         instance_id: request.instance_id,
+        instance_type_id: request.instance_type_id,
         machine_id: request.machine_id,
         config: &request.config,
         metadata: request.metadata,

@@ -1490,6 +1490,12 @@ pub struct AllocateInstance {
 
     #[clap(long, help = "The value of label instance to query")]
     pub label_value: Option<String>,
+
+    #[clap(
+        long,
+        help = "The expected instance type id for the instance, which will be compared to type ID set for the machine of the request"
+    )]
+    pub instance_type_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

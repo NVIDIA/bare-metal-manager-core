@@ -28,7 +28,10 @@ use tonic::Request;
 
 use crate::tests::common;
 use common::{
-    api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine},
+    api_fixtures::{
+        create_managed_host, create_test_env, dpu::create_dpu_machine,
+        managed_host::ManagedHostConfig, site_explorer,
+    },
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
 use rpc::forge::{forge_server::Forge, MachinesByIdsRequest};
@@ -276,6 +279,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: false,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -303,6 +307,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: true,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -330,6 +335,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: true,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -357,6 +363,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: false,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -378,6 +385,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: false,
         exclude_hosts: false,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -399,6 +407,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
         only_maintenance: false,
         include_predicted_host: true,
         exclude_hosts: false,
+        for_update: false,
     };
 
     let env = create_test_env(pool).await;
@@ -517,4 +526,49 @@ async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
         response.err().unwrap().message(),
         "at least one ID must be provided",
     );
+}
+
+#[crate::sqlx_test]
+async fn test_machine_capabilities_response(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Create a new managed host in the DB and get the snapshot.
+    let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    // Convert the caps of the MachineSnapshot to the proto representation
+    // for later comparison.
+    let mut caps = mh.host_snapshot.capabilities.unwrap();
+
+    // Make sure we have at least _something_ in the capabilities.
+    // CPU should be a safe one to rely on.  If we don't have CPUs,
+    // we've got bad test data.
+    assert!(!caps.cpu.is_empty());
+
+    caps.sort();
+    let caps_from_machine = rpc::protos::forge::MachineCapabilitiesSet::from(caps);
+
+    // Find the new host through the API
+    let machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            include_history: false,
+            machine_ids: vec![mh.host_snapshot.machine_id.to_string().into()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .pop()
+        .unwrap();
+
+    let caps_from_rpc_call = machine.capabilities.unwrap();
+
+    // Check the gRPC response and the original machine agree
+    assert_eq!(caps_from_rpc_call, caps_from_machine);
+
+    Ok(())
 }
