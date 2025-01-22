@@ -361,6 +361,9 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
         GetChassisAll => {
             handle_get_chassis_all(redfish).await?;
         }
+        GetChassis(chassis) => {
+            handle_get_chassis(redfish, chassis.chassis_id).await?;
+        }
         GetBmcEthernetInterfaces => {
             handle_ethernet_interface_show(redfish, false).await?;
         }
@@ -845,6 +848,29 @@ pub async fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), Red
         }
     }
     convert_chassis_to_nice_table(chassis_info).printstd();
+    Ok(())
+}
+
+pub async fn handle_get_chassis(
+    redfish: Box<dyn Redfish>,
+    chassis_id: String,
+) -> Result<(), RedfishError> {
+    let chassis_vec: Vec<String> = redfish.get_chassis_all().await?;
+    for c in chassis_vec.iter() {
+        match redfish.get_chassis(c).await {
+            Ok(chassis) => {
+                if *c == chassis_id {
+                    println!("{:?}", chassis);
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                eprintln!("Error fetching chassis '{c}': {err}");
+            }
+        }
+    }
+
+    println!("Could not find chassis with id {chassis_id} out of {chassis_vec:#?}");
     Ok(())
 }
 

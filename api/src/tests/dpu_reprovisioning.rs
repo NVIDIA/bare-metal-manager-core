@@ -185,7 +185,7 @@ pub async fn trigger_bmc_fw_update(
                 states: HashMap::from([(
                     dpu_machine_id.clone(),
                     crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
-                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 }
+                        substate: BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete
                     }
                 )]),
             },
@@ -898,7 +898,8 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
                     states: HashMap::from([(
                         dpu_machine_id.clone(),
                         crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
-                            substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 }
+                            substate:
+                                BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete
                         }
                     )]),
                 },
