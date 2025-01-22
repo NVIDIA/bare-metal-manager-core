@@ -191,7 +191,43 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         max_object_handling_time = "180s"
         max_concurrency = 10
 
-        [dpu_models]
+        [dpu_models.bluefield2]
+        vendor = "Nvidia"
+        model = "Bluefield 2 SmartNIC Main Card"
+        ordering = ["bmc", "cec"]
+
+        [dpu_models.bluefield3]
+        vendor = "Nvidia"
+        model = "Bluefield 3 SmartNIC Main Card"
+        ordering = ["bmc", "cec"]
+
+        [dpu_models.bluefield2.components.bmc]
+        preingest_upgrade_when_below = "BF-24.04-5"
+        current_version_reported_as = ".*"
+        known_firmware = [
+          {{ version = "BF-24.04-5", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg", default = true }},
+        ]
+
+        [dpu_models.bluefield2.components.cec]
+        preingest_upgrade_when_below = "4-15"
+        current_version_reported_as = ".*"
+        known_firmware = [
+          {{ version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg", default = true }},
+        ]
+
+        [dpu_models.bluefield3.components.bmc]
+        preingest_upgrade_when_below = "BF-24.04-5"
+        current_version_reported_as = ".*"
+        known_firmware = [
+          {{ version = "BF-24.04-5", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg", default = true }},
+        ]
+
+        [dpu_models.bluefield3.components.cec]
+        preingest_upgrade_when_below = "00.02.0182.0000_n02"
+        current_version_reported_as = "(\\d+\\.?)+"
+        known_firmware = [
+          {{ version = "00.02.0182.0000_n02", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg", default = true }},
+        ]
 
         [host_models]
 
