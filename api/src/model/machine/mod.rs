@@ -1012,7 +1012,7 @@ impl ReprovisionState {
         }
     }
 
-    pub fn next_bmc_updrade_step(
+    pub fn next_bmc_upgrade_step(
         &self,
         current_state: &ManagedHostStateSnapshot,
         dpu_snapshot: &MachineSnapshot,
@@ -1180,6 +1180,8 @@ pub enum BmcFirmwareUpgradeSubstate {
     Reboot {
         count: u32,
     },
+    // Wait for ERoT is not in the middle of a background copy of the new BMC image
+    WaitForERoTBackgroundCopyToComplete,
     HostPowerCycle,
     Failed {
         failure_details: String,

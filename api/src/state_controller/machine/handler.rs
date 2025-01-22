@@ -33,6 +33,7 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use health_report::HealthProbeId;
 use itertools::Itertools;
+use libredfish::model::oem::nvidia_dpu::BackgroundCopyStatus;
 use libredfish::{
     model::{
         task::{Task, TaskState},
@@ -2209,7 +2210,6 @@ async fn component_update(
 
     let cur_version = inventory.version.unwrap_or("0".to_string());
     let update_version = &component_value.version;
-
     match version_compare::compare_to(
         cur_version.clone(),
         update_version,
@@ -2342,7 +2342,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                                         task_id: task.unwrap().id,
                                     },
                                 }
-                                .next_bmc_updrade_step(state, dpu_snapshot)?;
+                                .next_bmc_upgrade_step(state, dpu_snapshot)?;
                                 return Ok(StateHandlerOutcome::Transition(next_state));
                             };
                         }
@@ -2354,7 +2354,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 ReprovisionState::BmcFirmwareUpgrade {
                     substate: BmcFirmwareUpgradeSubstate::FwUpdateCompleted,
                 }
-                .next_bmc_updrade_step(state, dpu_snapshot)?,
+                .next_bmc_upgrade_step(state, dpu_snapshot)?,
             ))
         }
         BmcFirmwareUpgradeSubstate::FwUpdateCompleted => {
@@ -2414,24 +2414,24 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
 
             match task.task_state {
                 Some(TaskState::Completed) => {
-                    let next_state = ReprovisionState::BmcFirmwareUpgrade {
-                        substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 },
-                    }
-                    .next_bmc_updrade_step(state, dpu_snapshot)?;
-
                     if *firmware_type == FirmwareComponentType::Cec {
                         match dpu_redfish_client
                             .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
                             .await
                         {
-                            Ok(()) => Ok(StateHandlerOutcome::Transition(next_state)),
+                            Ok(()) => Ok(StateHandlerOutcome::Transition(
+                                ReprovisionState::BmcFirmwareUpgrade {
+                                    substate: BmcFirmwareUpgradeSubstate::Reboot { count: 0 },
+                                }
+                                .next_bmc_upgrade_step(state, dpu_snapshot)?,
+                            )),
                             Err(e) if e.to_string().contains("is not supported") => {
                                 tracing::warn!("Chassis reset is not supported by current CEC FW, triggering host power cycle");
                                 Ok(StateHandlerOutcome::Transition(
                                     ReprovisionState::BmcFirmwareUpgrade {
                                         substate: BmcFirmwareUpgradeSubstate::HostPowerCycle,
                                     }
-                                    .next_bmc_updrade_step(state, dpu_snapshot)?,
+                                    .next_bmc_upgrade_step(state, dpu_snapshot)?,
                                 ))
                             }
                             Err(e) => Err(StateHandlerError::RedfishError {
@@ -2447,7 +2447,13 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                             }
                         })?;
 
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(StateHandlerOutcome::Transition(
+                            ReprovisionState::BmcFirmwareUpgrade {
+                                substate:
+                                    BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete,
+                            }
+                            .next_bmc_upgrade_step(state, dpu_snapshot)?,
+                        ))
                     }
                 }
                 Some(TaskState::Exception) => {
@@ -2464,7 +2470,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                             failure_details: msg,
                         },
                     }
-                    .next_bmc_updrade_step(state, dpu_snapshot)?;
+                    .next_bmc_upgrade_step(state, dpu_snapshot)?;
 
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
@@ -2542,7 +2548,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             let next_state = ReprovisionState::BmcFirmwareUpgrade {
                 substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
             }
-            .next_bmc_updrade_step(state, dpu_snapshot)?;
+            .next_bmc_upgrade_step(state, dpu_snapshot)?;
 
             Ok(StateHandlerOutcome::Transition(next_state))
         }
@@ -2552,7 +2558,40 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
             let next_state = ReprovisionState::BmcFirmwareUpgrade {
                 substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
             }
-            .next_bmc_updrade_step(state, dpu_snapshot)?;
+            .next_bmc_upgrade_step(state, dpu_snapshot)?;
+
+            Ok(StateHandlerOutcome::Transition(next_state))
+        }
+        BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete {} => {
+            let dpu_redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine_snapshot(dpu_snapshot, txn)
+                .await?;
+
+            // Only Bluefield3s will have the CEC background copy status when querying the ERoT Chassis Subsystem
+            // Bluefield2s will not have the OEM attribute when querying the ERoT Chassis subsystem
+            // We should not update the CEC of BF3s if there is a background copy in progress
+            // https://docs.nvidia.com/networking/display/bluefieldbmcv2407/cec+and+bmc+firmware+operations#src-3095344438_CECandBMCFirmwareOperations-CECBackgroundUpdateStatus
+            match get_cec_background_copy_in_progress(dpu_redfish_client.as_ref()).await? {
+                Some(BackgroundCopyStatus::InProgress) => {
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "The ERoT background copy is in progress on DPU {}",
+                        dpu_snapshot.machine_id
+                    )));
+                }
+                Some(BackgroundCopyStatus::Completed) => {
+                    tracing::info!(
+                        "The ERoT background copy is Completed on DPU {}",
+                        dpu_snapshot.machine_id
+                    );
+                }
+                None => {}
+            }
+
+            let next_state = ReprovisionState::BmcFirmwareUpgrade {
+                substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
+            }
+            .next_bmc_upgrade_step(state, dpu_snapshot)?;
 
             Ok(StateHandlerOutcome::Transition(next_state))
         }
@@ -5099,6 +5138,23 @@ async fn host_power_state(
         })
 }
 
+pub async fn get_cec_background_copy_in_progress(
+    redfish: &dyn Redfish,
+) -> Result<Option<BackgroundCopyStatus>, StateHandlerError> {
+    let chassis = redfish.get_chassis("Bluefield_ERoT").await.map_err(|e| {
+        StateHandlerError::RedfishError {
+            operation: "get_chassis(Bluefield_ERoT)",
+            error: e,
+        }
+    })?;
+
+    if let Some(oem_extensions) = chassis.clone().oem {
+        if let Some(nvidia_oem_extensions) = oem_extensions.nvidia {
+            return Ok(nvidia_oem_extensions.background_copy_status);
+        }
+    }
+    Ok(None)
+}
 pub async fn handler_host_power_control(
     managedhost_snapshot: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,

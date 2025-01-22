@@ -815,6 +815,8 @@ pub enum RedfishCommand {
     DisableSecureBoot,
     /// List Chassis
     GetChassisAll,
+    // List Chassis Subsystem
+    GetChassis(Chassis),
     /// Show BMC's Ethernet interface information
     GetBmcEthernetInterfaces,
     /// Show System Ethernet interface information
@@ -931,6 +933,12 @@ pub struct Multipart {
 pub struct Task {
     #[clap(long, help = "Task ID")]
     pub taskid: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct Chassis {
+    #[clap(long, help = "Chassis ID")]
+    pub chassis_id: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
