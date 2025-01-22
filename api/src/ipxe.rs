@@ -243,22 +243,22 @@ exit ||
                             id: machine_id.to_string(),
                         })?;
 
-                    if instance.use_custom_pxe_on_boot {
-                        // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
-                        // it's not used in this case
-                        Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
-                            .await
-                            .map_err(CarbideError::from)?;
-                    }
+                    if instance
+                        .config
+                        .os
+                        .run_provisioning_instructions_on_every_boot
+                        || instance.use_custom_pxe_on_boot
+                    {
+                        if instance.use_custom_pxe_on_boot {
+                            // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
+                            // it's not used in this case
+                            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
+                                .await
+                                .map_err(CarbideError::from)?;
+                        }
 
-                    match instance.config.os.variant {
-                        crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
-                            if instance
-                                .config
-                                .os
-                                .run_provisioning_instructions_on_every_boot
-                                || instance.use_custom_pxe_on_boot
-                            {
+                        match instance.config.os.variant {
+                            crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                                 let mut tenant_ipxe = ipxe.ipxe_script;
                                 let vendor_serial_console = format!(" console={console}");
                                 if !tenant_ipxe.contains(&vendor_serial_console) {
@@ -271,44 +271,46 @@ exit ||
                                     }
                                 }
                                 tenant_ipxe
-                            } else {
-                                "exit".to_string()
+                            }
+                            crate::model::os::OperatingSystemVariant::OsImage(id) => {
+                                let os_image = OsImage::get(txn, id).await?;
+                                if os_image.attributes.create_volume {
+                                    // this is a block storage os image
+                                    // boot will be via the block storage snapshot volume
+                                    // no ipxe script for os imaging
+                                    "exit".to_string()
+                                } else {
+                                    let mut qcow_imaging_ipxe = format!(
+                                        "{} console={},115200 image_url={} image_sha={}",
+                                        QCOW_IMAGER_IPXE,
+                                        console,
+                                        os_image.attributes.source_url,
+                                        os_image.attributes.digest
+                                    );
+                                    if let Some(x) = os_image.attributes.auth_token {
+                                        qcow_imaging_ipxe +=
+                                            format!(" image_auth_token={x}").as_str();
+                                    }
+                                    if let Some(x) = os_image.attributes.auth_type {
+                                        qcow_imaging_ipxe +=
+                                            format!(" image_auth_type={x}").as_str();
+                                    }
+                                    if let Some(x) = os_image.attributes.rootfs_id {
+                                        qcow_imaging_ipxe += format!(" rootfs_uuid={x}").as_str();
+                                    }
+                                    if let Some(x) = os_image.attributes.rootfs_label {
+                                        qcow_imaging_ipxe += format!(" rootfs_label={x}").as_str();
+                                    }
+                                    if let Some(x) = os_image.attributes.boot_disk {
+                                        qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
+                                    }
+                                    qcow_imaging_ipxe += "\r\nboot";
+                                    qcow_imaging_ipxe
+                                }
                             }
                         }
-                        crate::model::os::OperatingSystemVariant::OsImage(id) => {
-                            let os_image = OsImage::get(txn, id).await?;
-                            if os_image.attributes.create_volume {
-                                // this is a block storage os image
-                                // boot will be via the block storage snapshot volume
-                                // no ipxe script for os imaging
-                                "exit".to_string()
-                            } else {
-                                let mut qcow_imaging_ipxe = format!(
-                                    "{} console={},115200 image_url={} image_sha={}",
-                                    QCOW_IMAGER_IPXE,
-                                    console,
-                                    os_image.attributes.source_url,
-                                    os_image.attributes.digest
-                                );
-                                if let Some(x) = os_image.attributes.auth_token {
-                                    qcow_imaging_ipxe += format!(" image_auth_token={x}").as_str();
-                                }
-                                if let Some(x) = os_image.attributes.auth_type {
-                                    qcow_imaging_ipxe += format!(" image_auth_type={x}").as_str();
-                                }
-                                if let Some(x) = os_image.attributes.rootfs_id {
-                                    qcow_imaging_ipxe += format!(" rootfs_uuid={x}").as_str();
-                                }
-                                if let Some(x) = os_image.attributes.rootfs_label {
-                                    qcow_imaging_ipxe += format!(" rootfs_label={x}").as_str();
-                                }
-                                if let Some(x) = os_image.attributes.boot_disk {
-                                    qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
-                                }
-                                qcow_imaging_ipxe += "\r\nboot";
-                                qcow_imaging_ipxe
-                            }
-                        }
+                    } else {
+                        "exit".to_string()
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { .. } => {
