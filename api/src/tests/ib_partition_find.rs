@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::cfg::file::IBFabricConfig;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::{create_test_env, ib_partition::create_ib_partition};
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
@@ -86,7 +89,17 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
 
     let mut partition3 = rpc::IbPartition::default();
     for i in 0..6 {
@@ -138,7 +151,17 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test()]
 async fn test_find_ib_partitions_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
 
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
@@ -171,7 +194,17 @@ async fn test_find_ib_partitions_by_ids_over_max(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test()]
 async fn test_find_ib_partitions_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
 
     let request_none = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
         ib_partition_ids: Vec::new(),

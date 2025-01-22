@@ -12,6 +12,7 @@
 
 use crate::{
     api::Api,
+    cfg::file::IBFabricConfig,
     db::{
         self,
         explored_endpoints::DbExploredEndpoint,
@@ -43,7 +44,7 @@ use common::api_fixtures::{
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
     instance::{create_instance, create_instance_with_ib_config, single_interface_network_config},
     tpm_attestation::EK_CERT_SERIALIZED,
-    TestEnv,
+    TestEnv, TestEnvOverrides,
 };
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
@@ -395,7 +396,18 @@ async fn validate_machine_deletion(
 
 #[crate::sqlx_test]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (ib_partition_id, ib_partition) = create_ib_partition(
         &env,

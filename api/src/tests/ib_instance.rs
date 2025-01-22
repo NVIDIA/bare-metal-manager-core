@@ -22,7 +22,7 @@ use crate::{
     model::machine::{InstanceState, ManagedHostState},
 };
 use common::api_fixtures::{
-    create_managed_host, create_test_env,
+    create_managed_host,
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
     instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
     TestEnv,
@@ -324,7 +324,18 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -359,7 +370,18 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
 
 #[crate::sqlx_test]
 async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -394,7 +416,18 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -439,7 +472,18 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -577,6 +621,48 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
         "Error message should contain 'detected inactive state for GUID', but is {}",
         error
     );
+}
+
+#[crate::sqlx_test]
+async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: false,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env
+        .pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert!(!machine.has_instance());
+    assert!(!machine.is_dpu());
+    assert!(machine.hardware_info().is_some());
+    assert_eq!(
+        machine.hardware_info().unwrap().infiniband_interfaces.len(),
+        6
+    );
+    assert!(machine.infiniband_status_observation().is_none());
 }
 
 /// Tries to create an Instance using the Forge API
