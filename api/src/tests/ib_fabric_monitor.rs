@@ -12,11 +12,24 @@
 
 use crate::ib_fabric_monitor::IbFabricMonitor;
 
+use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
 
 #[crate::sqlx_test]
 async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let monitor = IbFabricMonitor::new(
         env.config.ib_fabric_monitor.clone(),
         env.config.ib_fabrics.clone(),

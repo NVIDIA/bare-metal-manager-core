@@ -53,6 +53,7 @@ use crate::{
         machine_topology::MachineTopology, machine_validation::MachineValidation,
     },
     firmware_downloader::FirmwareDownloader,
+    ib::IBFabricManagerType,
     model::{
         machine::{
             all_equal, get_display_ids, BmcFirmwareUpgradeSubstate, CleanupState,
@@ -362,6 +363,12 @@ impl MachineStateHandler {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) {
+        if ctx.services.ib_fabric_manager.get_config().manager_type == IBFabricManagerType::Disable
+        {
+            // Skip status update in case IB Manager is disabled
+            return;
+        }
+
         if mh_snapshot.host_snapshot.hardware_info.is_some() {
             match mh_snapshot.managed_state {
                 ManagedHostState::HostInit {

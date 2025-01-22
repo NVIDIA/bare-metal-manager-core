@@ -12,6 +12,8 @@
 
 use std::collections::HashMap;
 
+use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
@@ -22,9 +24,6 @@ use crate::{
         IBFabricManagerConfig, IBFabricManagerType,
     },
 };
-
-use crate::tests::common;
-use common::api_fixtures::create_test_env;
 use forge_uuid::infiniband::IBPartitionId;
 use rpc::forge::{forge_server::Forge, TenantState};
 use tonic::Request;
@@ -68,7 +67,17 @@ async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> Tenan
 async fn test_ib_partition_lifecycle_impl(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
 
     let partition =
         create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
@@ -164,7 +173,18 @@ async fn test_ib_partition_lifecycle(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 async fn test_find_ib_partition_for_tenant(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let created_ib_partition =
         create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
             .await
@@ -194,7 +214,18 @@ async fn test_find_ib_partition_for_tenant(
 async fn test_create_ib_partition_over_max_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     // create max number of ib partitions for the tenant
     for _i in 1..=IBFabricConfig::default_max_partition_per_tenant() {
         let _ =
@@ -222,7 +253,18 @@ async fn test_create_ib_partition_over_max_limit(
 async fn create_ib_partition_with_api_with_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let id = IBPartitionId::from(uuid::Uuid::new_v4());
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(::rpc::Uuid {

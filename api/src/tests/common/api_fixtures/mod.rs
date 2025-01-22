@@ -734,7 +734,11 @@ pub async fn create_test_env_with_overrides(
             } else {
                 Default::default()
             },
-            manager_type: IBFabricManagerType::Mock,
+            manager_type: if ib_config.enabled {
+                IBFabricManagerType::Mock
+            } else {
+                IBFabricManagerType::Disable
+            },
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
