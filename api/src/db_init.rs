@@ -14,7 +14,9 @@ use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use sqlx::{Pool, Postgres};
 
+use crate::db::vpc::{NewVpc, Vpc};
 use crate::db::ObjectColumnFilter;
+use crate::model::metadata::Metadata;
 use crate::{
     api::Api,
     cfg::file::{AgentUpgradePolicyChoice, CarbideConfig},
@@ -144,6 +146,62 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
             "Initialized DPU agent upgrade policy"
         );
     }
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit agent upgrade policy", e))?;
+
+    Ok(())
+}
+
+pub(crate) async fn create_admin_vpc(
+    db_pool: &Pool<Postgres>,
+    vpc_vni: Option<u32>,
+) -> Result<(), CarbideError> {
+    let Some(vpc_vni) = vpc_vni else {
+        return Err(CarbideError::internal(
+            "No VNI is configured for admin VPC.".to_string(),
+        ));
+    };
+
+    let mut txn = db_pool
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin agent upgrade policy", e))?;
+
+    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    let existing_vpc = Vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
+    if let Some(existing_vpc) = existing_vpc.first() {
+        if let Some(vpc_id) = admin_segment.vpc_id {
+            if vpc_id != existing_vpc.id {
+                return Err(CarbideError::internal(format!("Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.", existing_vpc.id)));
+            }
+
+            // All good here. We have valid admin vpc and it is attached to valid segment.
+            return Ok(());
+        } else {
+            // Somehow vni field is not updated in network segment table. do it now.
+            admin_segment.set_vpc_id(&mut txn, existing_vpc.id).await?;
+            return Ok(());
+        }
+    }
+
+    // Let's create admin vpc.
+    let admin_vpc = NewVpc {
+        id: uuid::Uuid::new_v4().into(),
+        tenant_organization_id: "carbide_internal".to_string(),
+        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        metadata: Metadata {
+            name: "admin".to_string(),
+            ..Metadata::default()
+        },
+    };
+
+    let vpc = admin_vpc.persist(&mut txn).await?;
+    Vpc::set_vni(&mut txn, vpc.id, vpc_vni as i32).await?;
+
+    // Attach it to admin network segment.
+    admin_segment.set_vpc_id(&mut txn, vpc.id).await?;
+
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit agent upgrade policy", e))?;

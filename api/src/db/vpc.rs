@@ -45,6 +45,17 @@ pub struct Vpc {
 }
 
 #[derive(Clone, Copy)]
+pub struct VniColumn;
+impl ColumnInfo<'_> for crate::db::vpc::VniColumn {
+    type TableType = Vpc;
+    type ColumnType = i32;
+
+    fn column_name(&self) -> &'static str {
+        "vni"
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct IdColumn;
 impl ColumnInfo<'_> for crate::db::vpc::IdColumn {
     type TableType = Vpc;
@@ -238,6 +249,13 @@ impl Vpc {
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+    }
+
+    pub async fn find_by_vni(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        vni: i32,
+    ) -> Result<Vec<Vpc>, DatabaseError> {
+        Self::find_by(txn, ObjectColumnFilter::One(VniColumn, &vni)).await
     }
 
     pub async fn find_by_name(

@@ -323,6 +323,14 @@ pub async fn start_api(
         db_init::create_initial_networks(&api_service, &db_pool, networks).await?;
     }
 
+    if let Some(fnn_config) = carbide_config.fnn.as_ref() {
+        if let Some(admin) = fnn_config.admin_vpc.as_ref() {
+            if admin.enabled {
+                db_init::create_admin_vpc(&db_pool, admin.vpc_vni).await?;
+            }
+        }
+    }
+
     db_init::store_initial_dpu_agent_upgrade_policy(
         &db_pool,
         carbide_config.initial_dpu_agent_upgrade_policy,

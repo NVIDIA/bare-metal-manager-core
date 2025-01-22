@@ -669,6 +669,7 @@ pub fn get_config() -> CarbideConfig {
         },
         machine_validation_config: MachineValidationConfig { enabled: true },
         bypass_rbac: false,
+        fnn: None,
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::db::network_segment::NetworkSegment;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,7 +13,7 @@
 use crate::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::db::ObjectColumnFilter;
 use crate::model::metadata::Metadata;
-use crate::CarbideError;
+use crate::{db_init, CarbideError};
 use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
 use forge_network::virtualization::VpcVirtualizationType;
@@ -778,6 +779,29 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     let err = delete_result.expect_err("Deletion should fail");
     assert_eq!(err.code(), tonic::Code::NotFound);
     assert_eq!(err.message(), format!("vpc not found: {vpc_id}"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool).await;
+    let vni = 10000;
+    db_init::create_admin_vpc(&env.pool, Some(vni)).await?;
+
+    let mut txn = env.pool.begin().await?;
+    let mut admin_vpc = Vpc::find_by_vni(&mut txn, vni as i32).await?;
+
+    let admin_vpc = admin_vpc.remove(0);
+
+    assert_eq!(
+        admin_vpc.network_virtualization_type,
+        VpcVirtualizationType::Fnn
+    );
+
+    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+
+    assert_eq!(admin_vpc.id, admin_segment.vpc_id.unwrap());
 
     Ok(())
 }
