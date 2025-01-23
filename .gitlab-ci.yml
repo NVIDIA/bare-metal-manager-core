@@ -635,8 +635,6 @@ build-boot-artifacts-ephemeral-image-x86-64:
     name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
   script:
     - cargo make --cwd pxe create-ephemeral-image-x86_64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:
     paths:
       - pxe/static/blobs/internal/x86_64/scout.efi
@@ -766,8 +764,6 @@ build-boot-artifacts-ephemeral-image-aarch64:
     - aarch64-shell
   script:
     - cargo make --cwd pxe create-ephemeral-image-aarch64-ci
-  after_script:
-    - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:
     paths:
       - pxe/static/blobs/internal/aarch64/scout.efi
@@ -1341,7 +1337,6 @@ dev-env-test-with-carbide:
     - .gitlab/dev-env-test-with-carbide.sh
   after_script:
     - set -euo pipefail
-    - "doas chown -R gitlab-runner: $CI_PROJECT_DIR"
     - cp /tmp/argo_watch.log .
     - cp /tmp/argo_logs.log .
     - cd ../forged

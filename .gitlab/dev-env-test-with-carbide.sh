@@ -136,10 +136,6 @@ fi
 
 # Build the carbide images (carbide-dns, carbide-api, etc.)
 echo "Building the carbide images..."
-# chown mkosi.output back to the gitlab-runner
-if [[ "$pxe_build" == "true" ]]; then
-  doas chown -R $USER $CI_PROJECT_DIR/pxe/mkosi.output
-fi
 echo "just build" && just build
 
 # Deploy the images to the k3s node
