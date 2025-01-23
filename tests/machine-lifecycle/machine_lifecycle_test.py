@@ -82,17 +82,35 @@ os.environ["NGC_CLI_API_KEY"] = ngc_api_key
 os.environ["NGC_CLI_ORG"] = ngc_environment.tenant_org_name
 os.environ["NGC_CLI_DEBUG_LOG"] = "ngc_cli_debug.log"
 
-# Collect DPU machine ID(s) for later
+# Collect machine info
 machine = admin_cli.get_machine(machine_under_test)
 host_bmc_ip = machine["host_bmc_ip"]
-dpus_under_test: list[str] = []  # list of DPU machine ids (fm100d...)
+# Create a dictionary of DPU IDs to their BMC IPs
+dpu_ids: list[str] = []
+dpu_bmc_ips: list[str] = []
+dpu_id_to_bmc_map: dict[str, str] = {}
 for dpu in machine["dpus"]:
-    dpus_under_test.append(dpu["machine_id"])
-print(f"DPUs in this machine: {dpus_under_test}")
-# Once we force-delete, we'll have to use a DPU machine ID to look it up until host fully ingested
-machine_under_test_dpu = dpus_under_test[0]
-machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_under_test_dpu[6:]
+    dpu_id = dpu.get("machine_id")
+    bmc_ip = dpu.get("bmc_ip")
+    if dpu_id and bmc_ip:
+        dpu_ids.append(dpu_id)
+        dpu_bmc_ips.append(bmc_ip)
+        dpu_id_to_bmc_map[dpu_id] = bmc_ip
+    else:
+        print(f"ERROR: Missing data for DPU {dpu_id}. \nExiting...", file=sys.stderr)
+        sys.exit(1)
+# Confirm we found the expected number of DPUs
+if len(dpu_id_to_bmc_map) != expected_number_of_dpus:
+    print(f"ERROR: Found {len(dpu_id_to_bmc_map)} DPU(s) but expected {expected_number_of_dpus}. \nExiting...",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
+print(f"DPUs in this machine: {dpu_id_to_bmc_map}")
+
+# After force-delete, we'll use the first DPU ID to track state until the host is fully ingested
+machine_under_test_dpu = dpu_ids[0]
+machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_under_test_dpu[6:]
 
 # Check the initial state is good before we get started
 print(f"Checking managed host {machine_under_test} is Ready")
@@ -114,20 +132,11 @@ if factory_reset == "true":
         sys.exit(1)
     print(f"Machine vendor is {machine_vendor}")
 
-    # Grab DPU BMC IP(s)
-    dpu_bmc_ips = [dpu["bmc_ip"] for dpu in machine["dpus"]]
-    if len(dpu_bmc_ips) != expected_number_of_dpus:
-        print(
-            f"ERROR: Found DPU BMC IP(s) {dpu_bmc_ips} but expected DPU_COUNT={expected_number_of_dpus}. \nExiting...",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     # Factory-reset DPU(s)
     i = 1
-    for dpu_bmc_ip in dpu_bmc_ips:
+    for dpu_id in dpu_ids:
         print(f"Resetting BIOS settings on DPU{i}")
-        url = "https://%s/redfish/v1/Systems/Bluefield/Bios/Settings" % dpu_bmc_ip
+        url = "https://%s/redfish/v1/Systems/Bluefield/Bios/Settings" % dpu_id_to_bmc_map[dpu_id]
         payload = {"Attributes": {"ResetEfiVars": True}}
         headers = {"Content-Type": "application/json"}
         print(f"Executing redfish request. \nPayload: {payload} \nURL: {url}")
@@ -146,15 +155,15 @@ if factory_reset == "true":
             print(f"Resetting BIOS settings on DPU{i} was successful.")
             time.sleep(5)
         print(f"Restarting DPU{i} BMC")
-        admin_cli.restart_bmc(machine_under_test_dpu)
+        admin_cli.restart_bmc(dpu_id)
         time.sleep(5)
-        network.wait_for_redfish_endpoint(hostname=dpu_bmc_ip)
+        network.wait_for_redfish_endpoint(hostname=dpu_id_to_bmc_map[dpu_id])
         time.sleep(30)
 
         print(f"Factory-resetting DPU{i} BMC")
-        admin_cli.factory_reset_bmc(dpu_bmc_ip, dpu_bmc_username, dpu_bmc_password)
+        admin_cli.factory_reset_bmc(dpu_id_to_bmc_map[dpu_id], dpu_bmc_username, dpu_bmc_password)
         time.sleep(5)
-        network.wait_for_redfish_endpoint(hostname=dpu_bmc_ip)
+        network.wait_for_redfish_endpoint(hostname=dpu_id_to_bmc_map[dpu_id])
         i += 1
 
     # Factory-reset Host
