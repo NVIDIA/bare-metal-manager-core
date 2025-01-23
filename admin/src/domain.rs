@@ -13,7 +13,7 @@ use prettytable::{row, Table};
 use std::fmt::Write;
 use tracing::warn;
 
-use super::cfg::carbide_options::ShowDomain;
+use super::cfg::cli_options::ShowDomain;
 use super::rpc;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{forge as forgerpc, Timestamp};

@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::cfg::carbide_options::NetworkDeviceShow;
+use crate::cfg::cli_options::NetworkDeviceShow;
 use ::rpc::forge_tls_client::ApiConfig;
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 

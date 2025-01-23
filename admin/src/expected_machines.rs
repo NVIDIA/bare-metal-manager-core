@@ -4,7 +4,7 @@ use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
-use crate::cfg::carbide_options::ShowExpectedMachineQuery;
+use crate::cfg::cli_options::ShowExpectedMachineQuery;
 use crate::rpc;
 
 pub async fn show_expected_machines(

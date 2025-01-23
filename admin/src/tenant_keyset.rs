@@ -12,7 +12,7 @@
 
 use std::fmt::Write;
 
-use super::cfg::carbide_options::ShowTenantKeySet;
+use super::cfg::cli_options::ShowTenantKeySet;
 use super::rpc;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;

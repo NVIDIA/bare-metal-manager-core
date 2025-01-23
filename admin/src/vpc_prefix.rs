@@ -17,7 +17,7 @@ use ipnet::IpNet;
 use rpc::Uuid;
 use serde::Serialize;
 
-use crate::cfg::carbide_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
+use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::with_forge_client;
 use forge_uuid::vpc::VpcPrefixId;
 use rpc::forge::{

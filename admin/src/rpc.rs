@@ -24,7 +24,7 @@ use ::rpc::forge::{
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
 
-use crate::cfg::carbide_options::{
+use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery,
 };
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
@@ -1651,7 +1651,7 @@ pub async fn update_expected_machine(
 }
 
 pub async fn replace_all_expected_machines(
-    expected_machine_list: Vec<carbide_options::ExpectedMachineJson>,
+    expected_machine_list: Vec<cli_options::ExpectedMachineJson>,
     api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     with_forge_client(api_config, |mut client| async move {

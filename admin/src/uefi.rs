@@ -11,7 +11,7 @@
  */
 
 use super::rpc;
-use crate::cfg::carbide_options::MachineQuery;
+use crate::cfg::cli_options::MachineQuery;
 use ::rpc::forge_tls_client::ApiConfig;
 use utils::admin_cli::CarbideCliResult;
 

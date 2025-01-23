@@ -12,9 +12,10 @@
 
 use std::fmt::Write;
 
-use super::cfg::carbide_options::ShowVpc;
-use super::rpc;
-use crate::cfg::carbide_options::SetVpcVirt;
+use crate::{
+    cfg::cli_options::{SetVpcVirt, ShowVpc},
+    rpc,
+};
 use ::rpc::forge::{self as forgerpc};
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};

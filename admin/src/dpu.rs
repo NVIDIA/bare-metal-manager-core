@@ -19,7 +19,7 @@ use prettytable::{row, Row, Table};
 use serde::Serialize;
 
 use super::rpc;
-use crate::cfg::carbide_options::AgentUpgradePolicyChoice;
+use crate::cfg::cli_options::AgentUpgradePolicyChoice;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn trigger_reprovisioning(

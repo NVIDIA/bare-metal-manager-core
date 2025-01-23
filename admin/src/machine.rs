@@ -19,9 +19,9 @@ use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 use tracing::warn;
 
-use super::cfg::carbide_options::ShowMachine;
+use super::cfg::cli_options::ShowMachine;
 use super::{default_uuid, rpc};
-use crate::cfg::carbide_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
+use crate::cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_machine_to_nice_format(

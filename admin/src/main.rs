@@ -33,31 +33,31 @@ use ::rpc::forge::ConfigSetting;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
 use ::rpc::Uuid;
-use cfg::carbide_options::AgentUpgrade;
-use cfg::carbide_options::AgentUpgradePolicyChoice;
-use cfg::carbide_options::BmcAction;
-use cfg::carbide_options::BootOverrideAction;
-use cfg::carbide_options::CredentialAction;
-use cfg::carbide_options::DpuAction;
-use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
-use cfg::carbide_options::DpuAction::Reprovision;
-use cfg::carbide_options::DpuAction::Versions;
-use cfg::carbide_options::DpuReprovision;
-use cfg::carbide_options::ExpectedMachineJson;
-use cfg::carbide_options::HostAction;
-use cfg::carbide_options::IbPartitionOptions;
-use cfg::carbide_options::IpAction;
-use cfg::carbide_options::MachineInterfaces;
-use cfg::carbide_options::MachineMetadataCommand;
-use cfg::carbide_options::RouteServer;
-use cfg::carbide_options::SetAction;
-use cfg::carbide_options::Shell;
-use cfg::carbide_options::SiteExplorer;
-use cfg::carbide_options::TenantKeySetOptions;
-use cfg::carbide_options::TpmCa;
-use cfg::carbide_options::VpcPrefixOptions;
-use cfg::carbide_options::{
-    CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
+use cfg::cli_options::AgentUpgrade;
+use cfg::cli_options::AgentUpgradePolicyChoice;
+use cfg::cli_options::BmcAction;
+use cfg::cli_options::BootOverrideAction;
+use cfg::cli_options::CredentialAction;
+use cfg::cli_options::DpuAction;
+use cfg::cli_options::DpuAction::AgentUpgradePolicy;
+use cfg::cli_options::DpuAction::Reprovision;
+use cfg::cli_options::DpuAction::Versions;
+use cfg::cli_options::DpuReprovision;
+use cfg::cli_options::ExpectedMachineJson;
+use cfg::cli_options::HostAction;
+use cfg::cli_options::IbPartitionOptions;
+use cfg::cli_options::IpAction;
+use cfg::cli_options::MachineInterfaces;
+use cfg::cli_options::MachineMetadataCommand;
+use cfg::cli_options::RouteServer;
+use cfg::cli_options::SetAction;
+use cfg::cli_options::Shell;
+use cfg::cli_options::SiteExplorer;
+use cfg::cli_options::TenantKeySetOptions;
+use cfg::cli_options::TpmCa;
+use cfg::cli_options::VpcPrefixOptions;
+use cfg::cli_options::{
+    CliCommand, CliOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
 };
 use clap::CommandFactory;
@@ -118,7 +118,7 @@ pub fn invalid_machine_id() -> ::rpc::common::MachineId {
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let config = CarbideOptions::load();
+    let config = CliOptions::load();
     if config.version {
         println!("{}", forge_version::version!());
         return Ok(());
@@ -169,23 +169,23 @@ async fn main() -> color_eyre::Result<()> {
     // borrowed by all others.
     let api_config = &ApiConfig::new(&url, client_config);
 
-    if let Some(CarbideCommand::Redfish(ra)) = config.commands {
+    if let Some(CliCommand::Redfish(ra)) = config.commands {
         return redfish::action(api_config, ra).await;
     }
 
     let command = match config.commands {
         None => {
-            return Ok(CarbideOptions::command().print_long_help()?);
+            return Ok(CliOptions::command().print_long_help()?);
         }
         Some(s) => s,
     };
 
     // Command do talk to Carbide API
     match command {
-        CarbideCommand::Version(version) => {
+        CliCommand::Version(version) => {
             version::handle_show_version(version, config.format, api_config).await?
         }
-        CarbideCommand::Machine(machine) => match machine {
+        CliCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
                 machine::handle_show(
                     machine,
@@ -398,7 +398,7 @@ async fn main() -> color_eyre::Result<()> {
             Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
             Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, api_config).await?,
         },
-        CarbideCommand::Instance(instance) => match instance {
+        CliCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
                 instance::handle_show(
                     instance,
@@ -502,7 +502,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CarbideCommand::NetworkSegment(network) => match network {
+        CliCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
                 network::handle_show(
                     network,
@@ -513,10 +513,10 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
         },
-        CarbideCommand::Domain(domain) => match domain {
+        CliCommand::Domain(domain) => match domain {
             Domain::Show(domain) => domain::handle_show(domain, config.format, api_config).await?,
         },
-        CarbideCommand::ManagedHost(managed_host) => match managed_host {
+        CliCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
                 let mut output_file = if let Some(filename) = config.output {
                     Box::new(
@@ -556,14 +556,14 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
         },
-        CarbideCommand::Measurement(cmd) => {
+        CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
                 format: config.format,
                 extended: config.extended,
             };
             measurement::dispatch(&cmd, &args, api_config).await?
         }
-        CarbideCommand::ResourcePool(rp) => match rp {
+        CliCommand::ResourcePool(rp) => match rp {
             ResourcePool::Grow(def) => {
                 let defs = fs::read_to_string(&def.filename)?;
                 let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
@@ -574,7 +574,7 @@ async fn main() -> color_eyre::Result<()> {
                 resource_pool::list(api_config).await?;
             }
         },
-        CarbideCommand::Ip(ip_command) => match ip_command {
+        CliCommand::Ip(ip_command) => match ip_command {
             IpAction::Find(find) => {
                 let req = forgerpc::FindIpAddressRequest {
                     ip: find.ip.to_string(),
@@ -592,12 +592,12 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CarbideCommand::NetworkDevice(data) => match data {
-            cfg::carbide_options::NetworkDeviceAction::Show(args) => {
+        CliCommand::NetworkDevice(data) => match data {
+            cfg::cli_options::NetworkDeviceAction::Show(args) => {
                 network_devices::show(config.format, args, api_config).await?;
             }
         },
-        CarbideCommand::Dpu(dpu_action) => match dpu_action {
+        CliCommand::Dpu(dpu_action) => match dpu_action {
             Reprovision(reprov) => match reprov {
                 DpuReprovision::Set(data) => {
                     dpu::trigger_reprovisioning(
@@ -681,7 +681,7 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
         },
-        CarbideCommand::Host(host_action) => match host_action {
+        CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
                 uefi::set_host_uefi_password(query, api_config).await?;
             }
@@ -693,11 +693,11 @@ async fn main() -> color_eyre::Result<()> {
                 println!("Generated Bios Admin Password: {}", password);
             }
         },
-        CarbideCommand::Redfish(_) => {
+        CliCommand::Redfish(_) => {
             // Handled earlier
             unreachable!();
         }
-        CarbideCommand::BootOverride(boot_override_args) => match boot_override_args {
+        CliCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {
                 let mbo = rpc::get_boot_override(
                     api_config,
@@ -746,7 +746,7 @@ async fn main() -> color_eyre::Result<()> {
                 .await?;
             }
         },
-        CarbideCommand::BmcMachine(bmc_machine) => match bmc_machine {
+        CliCommand::BmcMachine(bmc_machine) => match bmc_machine {
             BmcAction::BmcReset(args) => {
                 rpc::bmc_reset(api_config, None, Some(args.machine), args.use_ipmitool).await?;
             }
@@ -755,10 +755,10 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
         },
-        CarbideCommand::Inventory(action) => {
+        CliCommand::Inventory(action) => {
             inventory::print_inventory(api_config, action, config.internal_page_size).await?
         }
-        CarbideCommand::Credential(credential_action) => match credential_action {
+        CliCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
                 let username = url_validator(c.url.clone()).await?;
                 let password = c.token.clone();
@@ -845,7 +845,7 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::add_credential(api_config, req).await?;
             }
         },
-        CarbideCommand::RouteServer(action) => match action {
+        CliCommand::RouteServer(action) => match action {
             RouteServer::Get => {
                 let route_servers = rpc::get_route_servers(api_config).await?;
                 println!("{}", serde_json::to_string(&route_servers)?);
@@ -857,7 +857,7 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::remove_route_server(api_config, ip.ip).await?;
             }
         },
-        CarbideCommand::SiteExplorer(action) => match action {
+        CliCommand::SiteExplorer(action) => match action {
             SiteExplorer::GetReport(mode) => {
                 show_site_explorer_discovered_managed_host(
                     api_config,
@@ -891,7 +891,7 @@ async fn main() -> color_eyre::Result<()> {
                 println!("{}", have_credentials.have_credentials);
             }
         },
-        CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
+        CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
                 machine_interfaces::handle_show(machine_interfaces, config.format, api_config)
                     .await?
@@ -900,8 +900,8 @@ async fn main() -> color_eyre::Result<()> {
                 machine_interfaces::handle_delete(args, api_config).await?
             }
         },
-        CarbideCommand::GenerateShellComplete(shell) => {
-            let mut cmd = CarbideOptions::command();
+        CliCommand::GenerateShellComplete(shell) => {
+            let mut cmd = CliOptions::command();
             match shell.shell {
                 Shell::Bash => {
                     clap_complete::generate(
@@ -933,8 +933,8 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CarbideCommand::Ping(opts) => ping::ping(api_config, opts).await?,
-        CarbideCommand::Set(subcmd) => match subcmd {
+        CliCommand::Ping(opts) => ping::ping(api_config, opts).await?,
+        CliCommand::Set(subcmd) => match subcmd {
             SetAction::LogFilter(opts) => {
                 rpc::set_dynamic_config(
                     api_config,
@@ -973,8 +973,8 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
-            cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {
+        CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
+            cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
                 expected_machines::show_expected_machines(
                     &expected_machine_query,
                     api_config,
@@ -982,7 +982,7 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?;
             }
-            cfg::carbide_options::ExpectedMachineAction::Add(expected_machine_data) => {
+            cfg::cli_options::ExpectedMachineAction::Add(expected_machine_data) => {
                 if expected_machine_data.has_duplicate_dpu_serials() {
                     eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
                     return Ok(());
@@ -999,11 +999,11 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?;
             }
-            cfg::carbide_options::ExpectedMachineAction::Delete(expected_machine_query) => {
+            cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
                 rpc::delete_expected_machine(expected_machine_query.bmc_mac_address, api_config)
                     .await?;
             }
-            cfg::carbide_options::ExpectedMachineAction::Update(expected_machine_data) => {
+            cfg::cli_options::ExpectedMachineAction::Update(expected_machine_data) => {
                 if let Err(e) = expected_machine_data.validate() {
                     eprintln!("{e}");
                     return Ok(());
@@ -1020,7 +1020,7 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?;
             }
-            cfg::carbide_options::ExpectedMachineAction::ReplaceAll(request) => {
+            cfg::cli_options::ExpectedMachineAction::ReplaceAll(request) => {
                 let json_file_path = Path::new(&request.filename);
                 let reader = BufReader::new(File::open(json_file_path)?);
                 #[derive(Debug, Serialize, Deserialize)]
@@ -1050,11 +1050,11 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?;
             }
-            cfg::carbide_options::ExpectedMachineAction::Erase => {
+            cfg::cli_options::ExpectedMachineAction::Erase => {
                 rpc::delete_all_expected_machines(api_config).await?;
             }
         },
-        CarbideCommand::Vpc(vpc) => match vpc {
+        CliCommand::Vpc(vpc) => match vpc {
             VpcOptions::Show(vpc) => {
                 vpc::handle_show(vpc, config.format, api_config, config.internal_page_size).await?
             }
@@ -1062,7 +1062,7 @@ async fn main() -> color_eyre::Result<()> {
                 vpc::set_network_virtualization_type(api_config, set_vpc_virt).await?
             }
         },
-        CarbideCommand::VpcPrefix(vpc_prefix_command) => {
+        CliCommand::VpcPrefix(vpc_prefix_command) => {
             use VpcPrefixOptions::*;
             match vpc_prefix_command {
                 Create(create_options) => {
@@ -1082,13 +1082,13 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CarbideCommand::IbPartition(ibp) => match ibp {
+        CliCommand::IbPartition(ibp) => match ibp {
             IbPartitionOptions::Show(ibp) => {
                 ib_partition::handle_show(ibp, config.format, api_config, config.internal_page_size)
                     .await?
             }
         },
-        CarbideCommand::TenantKeySet(tks) => match tks {
+        CliCommand::TenantKeySet(tks) => match tks {
             TenantKeySetOptions::Show(tks) => {
                 tenant_keyset::handle_show(
                     tks,
@@ -1099,12 +1099,12 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
         },
-        CarbideCommand::Jump(j) => {
+        CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
             if forge_uuid::machine::MachineId::from_str(&j.id).is_ok() {
                 machine::handle_show(
-                    cfg::carbide_options::ShowMachine {
+                    cfg::cli_options::ShowMachine {
                         machine: j.id,
                         help: None,
                         hosts: false,
@@ -1148,7 +1148,7 @@ async fn main() -> color_eyre::Result<()> {
                         StaticDataRouteServer => tracing::info!("Route Server"),
                         InstanceAddress => {
                             instance::handle_show(
-                                cfg::carbide_options::ShowInstance {
+                                cfg::cli_options::ShowInstance {
                                     id: m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding instance for IP".to_string(),
                                     ))?,
@@ -1166,7 +1166,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         MachineAddress | BmcIp | LoopbackIp => {
                             machine::handle_show(
-                                cfg::carbide_options::ShowMachine {
+                                cfg::cli_options::ShowMachine {
                                     machine: m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding machine for IP".to_string(),
                                     ))?,
@@ -1188,7 +1188,7 @@ async fn main() -> color_eyre::Result<()> {
                                 api_config,
                                 config_format,
                                 config.internal_page_size,
-                                cfg::carbide_options::GetReportMode::Endpoint(cfg::carbide_options::EndpointInfo{
+                                cfg::cli_options::GetReportMode::Endpoint(cfg::cli_options::EndpointInfo{
                                     address: if m.owner_id.is_some() { m.owner_id } else {
                                         color_eyre::eyre::bail!(CarbideCliError::GenericError("IP type is explored-endpoint but returned owner_id is empty".to_string()))
                                     },
@@ -1203,7 +1203,7 @@ async fn main() -> color_eyre::Result<()> {
 
                         NetworkSegment => {
                             network::handle_show(
-                                cfg::carbide_options::ShowNetwork {
+                                cfg::cli_options::ShowNetwork {
                                     network: m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding network segment for IP".to_string(),
                                     ))?,
@@ -1232,7 +1232,7 @@ async fn main() -> color_eyre::Result<()> {
                     Ok(o) => match o {
                         forgerpc::UuidType::NetworkSegment => {
                             network::handle_show(
-                                cfg::carbide_options::ShowNetwork {
+                                cfg::cli_options::ShowNetwork {
                                     network: j.id,
                                     tenant_org_id: None,
                                     name: None,
@@ -1245,7 +1245,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         forgerpc::UuidType::Instance => {
                             instance::handle_show(
-                                cfg::carbide_options::ShowInstance {
+                                cfg::cli_options::ShowInstance {
                                     id: j.id,
                                     extrainfo: true,
                                     tenant_org_id: None,
@@ -1261,7 +1261,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         forgerpc::UuidType::MachineInterface => {
                             machine_interfaces::handle_show(
-                                cfg::carbide_options::ShowMachineInterfaces {
+                                cfg::cli_options::ShowMachineInterfaces {
                                     interface_id: j.id,
                                     all: false,
                                     more: true,
@@ -1273,7 +1273,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         forgerpc::UuidType::Vpc => {
                             vpc::handle_show(
-                                cfg::carbide_options::ShowVpc {
+                                cfg::cli_options::ShowVpc {
                                     id: j.id,
                                     tenant_org_id: None,
                                     name: None,
@@ -1288,7 +1288,7 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         forgerpc::UuidType::Domain => {
                             domain::handle_show(
-                                cfg::carbide_options::ShowDomain {
+                                cfg::cli_options::ShowDomain {
                                     domain: j.id,
                                     all: false,
                                 },
@@ -1313,7 +1313,7 @@ async fn main() -> color_eyre::Result<()> {
                     Ok((mac_owner, mac_type)) => match mac_owner {
                         forgerpc::MacOwner::MachineInterface => {
                             machine_interfaces::handle_show(
-                                cfg::carbide_options::ShowMachineInterfaces {
+                                cfg::cli_options::ShowMachineInterfaces {
                                     interface_id: mac_type,
                                     all: false,
                                     more: true,
@@ -1346,7 +1346,7 @@ async fn main() -> color_eyre::Result<()> {
             // Grab the machine ID and look-up the machine.
             if let Ok(machine_id) = rpc::identify_serial(api_config, j.id).await {
                 machine::handle_show(
-                    cfg::carbide_options::ShowMachine {
+                    cfg::cli_options::ShowMachine {
                         machine: machine_id.to_string(),
                         help: None,
                         hosts: false,
@@ -1367,10 +1367,10 @@ async fn main() -> color_eyre::Result<()> {
             color_eyre::eyre::bail!("Unable to determine ID type");
         }
 
-        CarbideCommand::MachineValidation(command) => match command {
-            cfg::carbide_options::MachineValidationCommand::ExternalConfig(config_command) => {
+        CliCommand::MachineValidation(command) => match command {
+            cfg::cli_options::MachineValidationCommand::ExternalConfig(config_command) => {
                 match config_command {
-                    cfg::carbide_options::MachineValidationExternalConfigCommand::Show(opts) => {
+                    cfg::cli_options::MachineValidationExternalConfigCommand::Show(opts) => {
                         machine_validation::external_config_show(
                             api_config,
                             opts.name,
@@ -1379,9 +1379,7 @@ async fn main() -> color_eyre::Result<()> {
                         )
                         .await?;
                     }
-                    cfg::carbide_options::MachineValidationExternalConfigCommand::AddUpdate(
-                        opts,
-                    ) => {
+                    cfg::cli_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
                         machine_validation::external_config_add_update(
                             api_config,
                             opts.name,
@@ -1390,13 +1388,13 @@ async fn main() -> color_eyre::Result<()> {
                         )
                         .await?;
                     }
-                    cfg::carbide_options::MachineValidationExternalConfigCommand::Remove(opts) => {
+                    cfg::cli_options::MachineValidationExternalConfigCommand::Remove(opts) => {
                         machine_validation::remove_external_config(api_config, opts.name).await?;
                     }
                 }
             }
-            cfg::carbide_options::MachineValidationCommand::Results(cmd) => match cmd {
-                cfg::carbide_options::MachineValidationResultsCommand::Show(options) => {
+            cfg::cli_options::MachineValidationCommand::Results(cmd) => match cmd {
+                cfg::cli_options::MachineValidationResultsCommand::Show(options) => {
                     machine_validation::handle_results_show(
                         options,
                         config.format,
@@ -1407,8 +1405,8 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
                 }
             },
-            cfg::carbide_options::MachineValidationCommand::Runs(cmd) => match cmd {
-                cfg::carbide_options::MachineValidationRunsCommand::Show(options) => {
+            cfg::cli_options::MachineValidationCommand::Runs(cmd) => match cmd {
+                cfg::cli_options::MachineValidationRunsCommand::Show(options) => {
                     machine_validation::handle_runs_show(
                         options,
                         config.format,
@@ -1418,46 +1416,49 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
                 }
             },
-            cfg::carbide_options::MachineValidationCommand::OnDemand(on_demand_command) => {
+            cfg::cli_options::MachineValidationCommand::OnDemand(on_demand_command) => {
                 match on_demand_command {
-                    cfg::carbide_options::MachineValidationOnDemandCommand::Start(options) => {
+                    cfg::cli_options::MachineValidationOnDemandCommand::Start(options) => {
                         machine_validation::on_demand_machine_validation(api_config, options)
                             .await?;
                     }
                 }
             }
-            cfg::carbide_options::MachineValidationCommand::Tests(
-                machine_validation_tests_command,
-            ) => match *machine_validation_tests_command {
-                cfg::carbide_options::MachineValidationTestsCommand::Show(options) => {
-                    machine_validation::show_tests(
-                        api_config,
-                        options,
-                        config.format,
-                        config.extended,
-                    )
-                    .await?;
-                }
-                cfg::carbide_options::MachineValidationTestsCommand::Verify(options) => {
-                    machine_validation::machine_validation_test_verfied(api_config, options)
+            cfg::cli_options::MachineValidationCommand::Tests(machine_validation_tests_command) => {
+                match *machine_validation_tests_command {
+                    cfg::cli_options::MachineValidationTestsCommand::Show(options) => {
+                        machine_validation::show_tests(
+                            api_config,
+                            options,
+                            config.format,
+                            config.extended,
+                        )
                         .await?;
+                    }
+                    cfg::cli_options::MachineValidationTestsCommand::Verify(options) => {
+                        machine_validation::machine_validation_test_verfied(api_config, options)
+                            .await?;
+                    }
+                    cfg::cli_options::MachineValidationTestsCommand::Enable(options) => {
+                        machine_validation::machine_validation_test_enable(api_config, options)
+                            .await?;
+                    }
+                    cfg::cli_options::MachineValidationTestsCommand::Disable(options) => {
+                        machine_validation::machine_validation_test_disable(api_config, options)
+                            .await?;
+                    }
+                    cfg::cli_options::MachineValidationTestsCommand::Add(options) => {
+                        machine_validation::machine_validation_test_add(api_config, options)
+                            .await?;
+                    }
+                    cfg::cli_options::MachineValidationTestsCommand::Update(options) => {
+                        machine_validation::machine_validation_test_update(api_config, options)
+                            .await?;
+                    }
                 }
-                cfg::carbide_options::MachineValidationTestsCommand::Enable(options) => {
-                    machine_validation::machine_validation_test_enable(api_config, options).await?;
-                }
-                cfg::carbide_options::MachineValidationTestsCommand::Disable(options) => {
-                    machine_validation::machine_validation_test_disable(api_config, options)
-                        .await?;
-                }
-                cfg::carbide_options::MachineValidationTestsCommand::Add(options) => {
-                    machine_validation::machine_validation_test_add(api_config, options).await?;
-                }
-                cfg::carbide_options::MachineValidationTestsCommand::Update(options) => {
-                    machine_validation::machine_validation_test_update(api_config, options).await?;
-                }
-            },
+            }
         },
-        CarbideCommand::Storage(storage_cmd) => match storage_cmd {
+        CliCommand::Storage(storage_cmd) => match storage_cmd {
             StorageActions::Cluster(storage_cluster) => match storage_cluster {
                 StorageClusterActions::Show(storage_cluster) => {
                     storage::cluster_show(
@@ -1519,7 +1520,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
         },
-        CarbideCommand::OsImage(os_image) => match os_image {
+        CliCommand::OsImage(os_image) => match os_image {
             OsImageActions::Show(os_image) => {
                 storage::os_image_show(
                     os_image,
@@ -1539,7 +1540,7 @@ async fn main() -> color_eyre::Result<()> {
                 storage::os_image_update(os_image, api_config).await?
             }
         },
-        CarbideCommand::TpmCa(subcmd) => match subcmd {
+        CliCommand::TpmCa(subcmd) => match subcmd {
             TpmCa::Show => tpm::show_ca_certs(api_config).await?,
             TpmCa::Delete(delete_opts) => {
                 tpm::delete_ca_cert(delete_opts.ca_id, api_config).await?
@@ -1574,8 +1575,8 @@ pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::cfg::carbide_options::{
-        CarbideCommand, CarbideOptions, ExpectedMachine, ExpectedMachineAction::Update,
+    use crate::cfg::cli_options::{
+        CliCommand, CliOptions, ExpectedMachine, ExpectedMachineAction::Update,
         UpdateExpectedMachine,
     };
     use clap::Parser;
@@ -1679,18 +1680,18 @@ mod tests {
         .is_err());
 
         fn test_update_expected_machine<F: Fn(UpdateExpectedMachine) -> bool>(
-            options: CarbideOptions,
+            options: CliOptions,
             pred: F,
         ) -> bool {
             let mut update_args = None;
-            if let Some(CarbideCommand::ExpectedMachine(Update(args))) = options.commands {
+            if let Some(CliCommand::ExpectedMachine(Update(args))) = options.commands {
                 update_args = Some(args);
             }
             update_args.is_some() && pred(update_args.unwrap())
         }
         // update 1 dpu serial
         assert!(test_update_expected_machine(
-            CarbideOptions::try_parse_from([
+            CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
                 "update",
@@ -1705,7 +1706,7 @@ mod tests {
         ));
         // update 2 dpu serials
         assert!(test_update_expected_machine(
-            CarbideOptions::try_parse_from([
+            CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
                 "update",
@@ -1720,7 +1721,7 @@ mod tests {
             |args| { args.validate().is_ok() }
         ));
 
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "expected-machine",
             "update",
@@ -1733,7 +1734,7 @@ mod tests {
         // Fail if duplicate dpu serials are given
         // duplicate dpu serials -
         assert!(test_update_expected_machine(
-            CarbideOptions::try_parse_from([
+            CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
                 "update",
@@ -1756,7 +1757,7 @@ mod tests {
         ));
 
         // Update credential
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "expected-machine",
             "update",
@@ -1770,7 +1771,7 @@ mod tests {
         .is_ok());
         // update all
         assert!(test_update_expected_machine(
-            CarbideOptions::try_parse_from([
+            CliOptions::try_parse_from([
                 "forge-admin-cli",
                 "expected-machine",
                 "update",
@@ -1790,7 +1791,7 @@ mod tests {
             |args| { args.validate().is_ok() }
         ));
         // update - user name only - error
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "expected-machine",
             "update",
@@ -1801,7 +1802,7 @@ mod tests {
         ])
         .is_err());
         // update - password  only - error
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "expected-machine",
             "update",
@@ -1816,7 +1817,7 @@ mod tests {
     #[test]
     fn forge_admin_cli_credential_test() {
         //  bmc-root credential w.o optional username
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "credential",
             "add-bmc",
@@ -1829,7 +1830,7 @@ mod tests {
         .is_ok());
 
         //  bmc-root credential with optional username
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "credential",
             "add-bmc",
@@ -1846,9 +1847,9 @@ mod tests {
 
     #[test]
     fn forge_admin_cli_tpm_ca_test() {
-        assert!(CarbideOptions::try_parse_from(["forge-admin-cli", "tpm-ca", "show"]).is_ok());
+        assert!(CliOptions::try_parse_from(["forge-admin-cli", "tpm-ca", "show"]).is_ok());
 
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "tpm-ca",
             "add",
@@ -1857,7 +1858,7 @@ mod tests {
         ])
         .is_ok());
 
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "tpm-ca",
             "add-bulk",
@@ -1866,7 +1867,7 @@ mod tests {
         ])
         .is_ok());
 
-        assert!(CarbideOptions::try_parse_from([
+        assert!(CliOptions::try_parse_from([
             "forge-admin-cli",
             "tpm-ca",
             "delete",

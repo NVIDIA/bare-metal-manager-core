@@ -18,11 +18,11 @@ use prettytable::Cell;
 use prettytable::Row;
 use tracing::warn;
 
-use super::cfg::carbide_options::ShowMachineInterfaces;
+use super::cfg::cli_options::ShowMachineInterfaces;
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 use super::rpc;
-use crate::cfg::carbide_options::DeleteMachineInterfaces;
+use crate::cfg::cli_options::DeleteMachineInterfaces;
 use crate::default_uuid;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
