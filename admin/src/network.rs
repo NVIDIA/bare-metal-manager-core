@@ -15,7 +15,7 @@ use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde::Deserialize;
 
-use super::cfg::carbide_options::ShowNetwork;
+use super::cfg::cli_options::ShowNetwork;
 use super::{default_uuid, rpc};
 use ::rpc::forge_tls_client::ApiConfig;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};

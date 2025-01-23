@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 
 use super::rpc;
-use crate::cfg::carbide_options::ShowManagedHost;
+use crate::cfg::cli_options::ShowManagedHost;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};

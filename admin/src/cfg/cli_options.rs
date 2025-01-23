@@ -33,7 +33,7 @@ const DEFAULT_IB_FABRIC_NAME: &str = "default";
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
 #[clap(author = "Slack channel #swngc-forge-dev")]
-pub struct CarbideOptions {
+pub struct CliOptions {
     #[clap(
         long,
         default_value = "false",
@@ -89,7 +89,7 @@ pub struct CarbideOptions {
     pub extended: bool,
 
     #[clap(subcommand)]
-    pub commands: Option<CarbideCommand>,
+    pub commands: Option<CliCommand>,
 
     #[clap(short = 'p', long, default_value_t = 100)]
     #[clap(help = "For commands that internally retrieve data with paging, use this page size.")]
@@ -97,7 +97,7 @@ pub struct CarbideOptions {
 }
 
 #[derive(Parser, Debug)]
-pub enum CarbideCommand {
+pub enum CliCommand {
     #[clap(about = "Print API server version", visible_alias = "v")]
     Version(Version),
     #[clap(about = "Machine related handling", subcommand, visible_alias = "m")]
@@ -1543,7 +1543,7 @@ pub struct ShowNetwork {
     pub name: Option<String>,
 }
 
-impl CarbideOptions {
+impl CliOptions {
     pub fn load() -> Self {
         Self::parse()
     }

@@ -12,7 +12,7 @@
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Cell, Row, Table};
 
-use crate::{cfg::carbide_options::Version, rpc};
+use crate::{cfg::cli_options::Version, rpc};
 use utils::admin_cli::{CarbideCliError, OutputFormat};
 
 macro_rules! r {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{cfg::carbide_options::GetReportMode, rpc};
+use crate::{cfg::cli_options::GetReportMode, rpc};
 use ::rpc::{
     forge_tls_client::ApiConfig,
     site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport},

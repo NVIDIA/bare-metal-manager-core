@@ -9,6 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub mod carbide_options;
+pub mod cli_options;
 pub mod measurement;
 pub mod storage;

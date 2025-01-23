@@ -29,10 +29,8 @@ use rpc::forge_tls_client::ApiConfig;
 use serde::Serialize;
 use tracing::warn;
 
-use super::cfg::carbide_options::RedfishCommand;
-use crate::cfg::carbide_options::{
-    DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort, UriInfo,
-};
+use super::cfg::cli_options::RedfishCommand;
+use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort, UriInfo};
 
 async fn handle_browse_command(api_config: &ApiConfig<'_>, uri: &str) -> color_eyre::Result<()> {
     let data = crate::rpc::redfish_browse(api_config, uri.to_string()).await?;

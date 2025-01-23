@@ -8,7 +8,7 @@
  * its affiliates is strictly prohibited.
  */
 use super::rpc;
-use crate::cfg::carbide_options::{
+use crate::cfg::cli_options::{
     MachineValidationAddTestOptions, MachineValidationEnableDisableTestOptions,
     MachineValidationOnDemandOptions, MachineValidationUpdateTestOptions,
     MachineValidationVerifyTestOptions, ShowMachineValidationResultsOptions,

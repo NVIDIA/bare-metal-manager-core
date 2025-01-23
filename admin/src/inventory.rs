@@ -17,7 +17,7 @@ use std::{
     fs,
 };
 
-use crate::{cfg::carbide_options::InventoryAction, rpc};
+use crate::{cfg::cli_options::InventoryAction, rpc};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 // Expected output
