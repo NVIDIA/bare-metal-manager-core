@@ -127,10 +127,10 @@ async fn send_one_report(
 pub(crate) async fn send_health_alerts(
     client: &mut ForgeClientT,
     events: &Vec<Event>,
-    pipeline: String,
+    pipeline: &String,
 ) -> Result<(), ReportingError> {
     let mut report = HealthReport {
-        source: pipeline,
+        source: pipeline.to_string(),
         observed_at: None,
         successes: vec![],
         alerts: vec![],

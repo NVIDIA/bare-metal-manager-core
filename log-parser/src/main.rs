@@ -46,14 +46,18 @@ enum Mode {
     Unknown,
 }
 
+/// for summary events that occur based on the frequency or pattern of other events occurring
 #[derive(Deserialize, Debug)]
 struct EventConstraints {
-    /// the event has occurred if it repeated > count inside of duration (seconds)
+    /// the event has occurred if it met a certain frequency of occurrence
+    /// repeated > count inside of duration (seconds)
     /// defaults are zero for event occurring every time
     pub duration: Option<i64>,
     pub count: Option<u32>,
-    /// must be preceded by an already occurred event with name specified
-    pub preceded_by: Option<String>,
+    /// alternatively (instead of frequency), the event has occurred if a pattern of events occurred
+    /// event is preceded by one or more events specified by names in chronological order
+    /// i.e.: [oldest event in pattern, oldest + 1, ..., latest event]
+    pub preceded_by: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -121,12 +125,11 @@ struct LogFile {
     pub file_name_fields: HashMap<String, String>,
     pub offset: u64,
     pub length: u64,
-    pub last_event: Option<String>,
     pub pending_event: Option<String>,
     pub pending_event_count: u32,
-    pub last_event_ts: Option<i64>,
     /// first time this event was detected, cleared/reset when the event constraint duration expires
     pub pending_event_ts: Option<i64>,
+    pub events: Vec<Event>,
 }
 
 impl Default for LogFile {
@@ -136,20 +139,19 @@ impl Default for LogFile {
             file_name_fields: HashMap::default(),
             offset: 0,
             length: 0,
-            last_event: None,
             pending_event: None,
             pending_event_count: 0,
-            last_event_ts: None,
             pending_event_ts: None,
+            events: vec![],
         }
     }
 }
 
 async fn clear_prior_events(
     event_type: &EventType,
-    queue: &mut [Event],
+    log: &mut LogFile,
 ) -> Result<(), anyhow::Error> {
-    for event in queue.iter_mut() {
+    for event in log.events.iter_mut() {
         for clear_events in event_type.clears.iter() {
             if event.name.contains(clear_events) {
                 event.cleared = true;
@@ -164,13 +166,10 @@ async fn queue_event(
     event_type: &EventType,
     log: &mut LogFile,
     buffer: &str,
-    queue: &mut Vec<Event>,
 ) -> Result<(), anyhow::Error> {
     if !event_type.clears.is_empty() {
-        clear_prior_events(event_type, queue).await?;
+        clear_prior_events(event_type, log).await?;
     }
-    log.last_event = Some(event_type.name.clone());
-    log.last_event_ts = Some(timestamp);
     let event = Event {
         name: event_type.name.clone(),
         description: event_type.description.clone(),
@@ -187,7 +186,7 @@ async fn queue_event(
             .to_string(),
         ids: log.file_name_fields.clone(),
     };
-    queue.push(event);
+    log.events.push(event);
     Ok(())
 }
 
@@ -197,7 +196,6 @@ async fn check_constraints(
     log: &mut LogFile,
     timestamp: i64,
     buffer: &str,
-    queue: &mut Vec<Event>,
 ) -> Result<(), anyhow::Error> {
     // duration and count of occurences of this event
     if constraints.count.is_some() && constraints.duration.is_some() {
@@ -213,8 +211,11 @@ async fn check_constraints(
                 }
             }
         } else {
+            // setup the pending summary event.
+            // we only support tracking one summary event across multiple regular events
             log.pending_event = Some(event_type.name.clone());
             log.pending_event_count = 1;
+            log.pending_event_ts = Some(timestamp);
         }
         // now check the count
         if let Some(count) = constraints.count {
@@ -222,11 +223,22 @@ async fn check_constraints(
                 log.pending_event_count = 0;
                 log.pending_event_ts = None;
                 log.pending_event = None;
-                queue_event(timestamp, event_type, log, buffer, queue).await?;
+                // send the summary event, it has met the constraints and considered as occurred
+                queue_event(timestamp, event_type, log, buffer).await?;
             }
         }
-    } else if constraints.preceded_by.is_some() && log.last_event == constraints.preceded_by {
-        queue_event(timestamp, event_type, log, buffer, queue).await?;
+    } else if let Some(event_pattern) = constraints.preceded_by.as_ref() {
+        let mut event_pattern_matched = true;
+        // walk through the pattern and queue and check every event name matches
+        for (event_name, prior_event) in event_pattern.iter().rev().zip(log.events.iter().rev()) {
+            if *event_name != prior_event.name {
+                event_pattern_matched = false;
+                break;
+            }
+        }
+        if event_pattern_matched {
+            queue_event(timestamp, event_type, log, buffer).await?;
+        }
     }
     Ok(())
 }
@@ -237,7 +249,6 @@ async fn process_events(
     event_regexes: &[Regex],
     log: &mut LogFile,
     buffer: &str,
-    queue: &mut Vec<Event>,
 ) -> Result<(), anyhow::Error> {
     // process slice
     for (event_type, regex_str) in event_types.iter().zip(event_regexes.iter()) {
@@ -246,17 +257,16 @@ async fn process_events(
             if let Some(_no_case_matched) = regex_str.captures(buffer.to_ascii_lowercase().as_str())
             {
                 if let Some(constraints) = &event_type.constraints {
-                    check_constraints(event_type, constraints, log, timestamp, buffer, queue)
-                        .await?;
+                    check_constraints(event_type, constraints, log, timestamp, buffer).await?;
                 } else {
-                    queue_event(timestamp, event_type, log, buffer, queue).await?;
+                    queue_event(timestamp, event_type, log, buffer).await?;
                 }
             }
         } else if let Some(_matched) = regex_str.captures(buffer) {
             if let Some(constraints) = &event_type.constraints {
-                check_constraints(event_type, constraints, log, timestamp, buffer, queue).await?;
+                check_constraints(event_type, constraints, log, timestamp, buffer).await?;
             } else {
-                queue_event(timestamp, event_type, log, buffer, queue).await?;
+                queue_event(timestamp, event_type, log, buffer).await?;
             }
         }
     }
@@ -268,7 +278,6 @@ async fn process_events(
 async fn process_log_file_events(
     cfg: &mut Configuration,
     log_index: usize,
-    queue: &mut Vec<Event>,
     set_offset: bool,
 ) -> Result<(), anyhow::Error> {
     if let Some(log) = cfg.logs.get_mut(log_index) {
@@ -291,15 +300,17 @@ async fn process_log_file_events(
         };
         // cap the buffer to 1MB
         let buffer_length = if len > 0x40000000 { 0x40000000 } else { len };
-        println!(
-            "log file length: {file_length}, read len: {len}, buffer len: {buffer_length}, offset: {}",
+        dbg!(
+            "reading from file at offset",
+            &log.file_path,
+            file_length,
+            len,
             log.offset
         );
 
         let now: DateTime<Utc> = Utc::now();
         let mut file = tokio::fs::File::open(&log.file_path).await?;
 
-        //let mut file = File::open(&log.file_path)?;
         let mut consumed = 0;
         let delimiter: u8 = if let Some(delim) = cfg.delimiter.clone() {
             delim.as_bytes()[0]
@@ -312,7 +323,13 @@ async fn process_log_file_events(
             file.seek(SeekFrom::Start(log.offset)).await?;
             file.read_exact(&mut buffer).await?;
             consumed += buffer_length;
-            println!("read {buffer_length}");
+            dbg!(
+                "read successfully",
+                &log.file_path,
+                consumed,
+                log.offset,
+                buffer_length
+            );
             if buffer.contains(&b'\n') {
                 // find last delimiter and move seek offset to that, truncate buffer to that
                 if let Some(seek_position) = buffer.iter().rev().position(|&c| c == delimiter) {
@@ -333,12 +350,14 @@ async fn process_log_file_events(
                         cfg.events_regex.as_ref().unwrap(), // this Vec<regex> is guaranteed to exist at this point
                         log,
                         &str_buffer,
-                        queue,
                     )
                     .await?
                 }
             } else {
-                eprintln!("buffer of size {buffer_length} did not contain the delimiter");
+                eprintln!(
+                    "{}: buffer of size {buffer_length} did not contain the delimiter",
+                    &log.file_path
+                );
                 log.offset += buffer_length;
             }
         }
@@ -382,7 +401,6 @@ async fn one_log_file(
     cfg: &mut Configuration,
     file_path: &Path,
     file_name: &str,
-    queue: &mut Vec<Event>,
     set_offset: bool,
 ) -> Result<(), anyhow::Error> {
     // cfg.filename_regex is guaranteed to exist at this point
@@ -404,7 +422,7 @@ async fn one_log_file(
             }
             None => add_log_file(cfg, file_path, matched)?,
         };
-        process_log_file_events(cfg, index, queue, set_offset).await
+        process_log_file_events(cfg, index, set_offset).await
     } else {
         eprintln!(
             "file name {file_name} did not match the regex pattern for events pipeline {}",
@@ -414,12 +432,8 @@ async fn one_log_file(
     }
 }
 
-/// scan the given configuration path for filename_format regex matching files
-async fn scan_files(
-    cfg: &mut Configuration,
-    queue: &mut Vec<Event>,
-    set_offset: bool,
-) -> Result<(), anyhow::Error> {
+/// scan the given event pipeline path for filename_format regex matching files
+async fn scan_files(cfg: &mut Configuration, set_offset: bool) -> Result<(), anyhow::Error> {
     let path_str = cfg.logs_path.clone();
     let path = Path::new(&path_str);
     if path.is_dir() {
@@ -427,14 +441,14 @@ async fn scan_files(
             if f.path().is_file() {
                 if let Some(name) = f.file_name().to_str() {
                     // file name matches filename_format regex
-                    one_log_file(cfg, f.path().as_path(), name, queue, set_offset).await?;
+                    one_log_file(cfg, f.path().as_path(), name, set_offset).await?;
                 }
             }
         }
     } else if path.is_file() {
         if let Some(x) = path.file_name() {
             if let Some(name) = x.to_str() {
-                one_log_file(cfg, path, name, queue, set_offset).await?;
+                one_log_file(cfg, path, name, set_offset).await?;
             }
         }
     } else {
@@ -447,7 +461,7 @@ async fn scan_files(
     Ok(())
 }
 
-/// read the json event definition pipeline file specified
+/// read the json event definition pipeline specified
 /// for event definitions with regex patterns and constraints
 async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Error> {
     let json = tokio::fs::read_to_string(path).await?;
@@ -484,10 +498,10 @@ async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Err
 
 fn help() {
     println!(
-        "Usage: -c [carbide api url] -e <event definition file1,file2,..> -m <monitor|oneshot>"
+        "Usage: -c [carbide api url] -e <event definition file1,file2,..> -m <monitor|oneshot> -t [poll interval in seconds]"
     );
     println!("Examples:");
-    println!("log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor");
+    println!("log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor -t 10");
     println!("log-parser -e event_definition.json -m oneshot");
 }
 
@@ -521,8 +535,14 @@ async fn main() -> Result<(), anyhow::Error> {
     opts.optopt(
         "m",
         "mode",
-        "Operating mode, monitor|oneshot",
+        "Operating mode, monitor|oneshot, monitor for carbide health reporting, oneshot for debugging on the terminal",
         "production/debugging",
+    );
+    opts.optopt(
+        "t",
+        "time",
+        "Polling time interval in seconds (default=5s)",
+        "number in seconds",
     );
 
     let args: Vec<String> = std::env::args().collect();
@@ -549,6 +569,17 @@ async fn main() -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
+    let mut poll_interval: u64 = 5;
+    if args_given.opt_present("t") {
+        if let Some(t) = args_given.opt_str("t") {
+            poll_interval = t.parse()?;
+            if poll_interval == 0 {
+                eprintln!("-t {t} time interval specified is invalid");
+                help();
+                return Ok(());
+            }
+        }
+    }
     let mut mode = Mode::Unknown;
     if args_given.opt_present("m") {
         if let Some(m) = args_given.opt_str("m") {
@@ -593,10 +624,9 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     }
 
-    let mut events: Vec<Event> = Vec::new();
     if mode == Mode::Oneshot {
         for config in configs.iter_mut() {
-            match scan_files(config, &mut events, false).await {
+            match scan_files(config, false).await {
                 Ok(_) => {
                     println!(
                         "successfully processed event pipeline defined in {}",
@@ -607,19 +637,21 @@ async fn main() -> Result<(), anyhow::Error> {
                     eprintln!("{}", e);
                 }
             }
-        }
-        for event in events {
-            for id in event.ids {
-                println!("{}: {}", id.0, id.1);
+            for log in &config.logs {
+                for event in &log.events {
+                    for id in &event.ids {
+                        println!("{}: {}", id.0, id.1);
+                    }
+                    println!(
+                        "[{}] [{}] {}: {}",
+                        event.timestamp,
+                        event.severity,
+                        event.name,
+                        event.description.clone().unwrap_or_default()
+                    );
+                    println!("from: {}", event.log_entry);
+                }
             }
-            println!(
-                "[{}] [{}] {}: {}",
-                event.timestamp,
-                event.severity,
-                event.name,
-                event.description.unwrap_or_default()
-            );
-            println!("from: {}", event.log_entry);
         }
         return Ok(());
     }
@@ -633,19 +665,33 @@ async fn main() -> Result<(), anyhow::Error> {
             .map_err(|e| anyhow::anyhow!(e))?;
     // in monitoring mode, start at the end of each log file and monitor so that we don't send stale events
     let mut set_offset = true;
+    let mut first_grpc_error_stamp = 0;
     loop {
         // process every event definition json config file found
         for config in configs.iter_mut() {
-            events.clear();
             // tolerate any errors during logs processing
-            match scan_files(config, &mut events, set_offset).await {
+            match scan_files(config, set_offset).await {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("{}", e);
                 }
             }
-            send_health_alerts(&mut forge_client, &events, config.pipeline.clone()).await?;
-            tokio::time::sleep(time::Duration::from_secs(5)).await;
+            for log in &config.logs {
+                match send_health_alerts(&mut forge_client, &log.events, &config.pipeline).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        let now: DateTime<Utc> = Utc::now();
+                        if first_grpc_error_stamp == 0 {
+                            first_grpc_error_stamp = now.timestamp();
+                        } else if now.timestamp() - first_grpc_error_stamp > 600 {
+                            // 10 minutes of grpc errors
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(time::Duration::from_secs(poll_interval)).await;
         }
         set_offset = false;
     }
