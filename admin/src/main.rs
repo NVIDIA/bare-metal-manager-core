@@ -241,6 +241,82 @@ async fn main() -> color_eyre::Result<()> {
                     )
                     .await?;
                 }
+                MachineMetadataCommand::FromExpectedMachine(cmd) => {
+                    let mut machines =
+                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
+                            .await?
+                            .machines;
+                    if machines.len() != 1 {
+                        return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
+                    }
+                    let machine = machines.remove(0);
+                    let bmc_mac = machine
+                        .bmc_info
+                        .as_ref()
+                        .and_then(|bmc_info| bmc_info.mac.clone())
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "No BMC MAC address found for Machine with ID {}",
+                                cmd.machine
+                            )
+                        })?
+                        .to_ascii_lowercase();
+
+                    let mut metadata = machine.metadata.ok_or_else(|| {
+                        eyre::eyre!("Machine does not carry Metadata that can be patched")
+                    })?;
+
+                    let expected_machines = rpc::get_all_expected_machines(api_config)
+                        .await?
+                        .expected_machines;
+                    let expected_machine =
+                        expected_machines
+                        .iter()
+                        .find(|em| em.bmc_mac_address.to_ascii_lowercase() == bmc_mac)
+                        .ok_or_else(|| eyre::eyre!("No expected Machine found for Machine with ID {} and BMC Mac address {}",
+                            cmd.machine, bmc_mac))?;
+                    let expected_machine_metadata =
+                        expected_machine.metadata.clone()
+                        .ok_or_else(|| eyre::eyre!("No expected Machine Metadata found for Machine with ID {} and BMC Mac address {}", cmd.machine, bmc_mac))?;
+
+                    if cmd.replace_all {
+                        // Configure the Machines metadata in the same way as if the Machine was freshly ingested
+                        metadata.name = if expected_machine_metadata.name.is_empty() {
+                            machine.id.clone().unwrap().id
+                        } else {
+                            expected_machine_metadata.name
+                        };
+                        metadata.description = expected_machine_metadata.description;
+                        metadata.labels = expected_machine_metadata.labels;
+                    } else {
+                        // Add new data from expected-machines, but current values that might have been the
+                        // result of previous changed to the Machine.
+                        // This operation is lossless for existing Metadata.
+                        if !expected_machine_metadata.name.is_empty()
+                            && (metadata.name.is_empty() || metadata.name == cmd.machine)
+                        {
+                            metadata.name = expected_machine_metadata.name;
+                        };
+                        if !expected_machine_metadata.description.is_empty()
+                            && metadata.description.is_empty()
+                        {
+                            metadata.description = expected_machine_metadata.description;
+                        };
+                        for label in expected_machine_metadata.labels {
+                            if !metadata.labels.iter().any(|l| l.key == label.key) {
+                                metadata.labels.push(label);
+                            }
+                        }
+                    }
+
+                    rpc::update_machine_metadata(
+                        api_config,
+                        machine.id.unwrap(),
+                        metadata,
+                        machine.version,
+                    )
+                    .await?;
+                }
                 MachineMetadataCommand::AddLabel(cmd) => {
                     let mut machines =
                         rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
