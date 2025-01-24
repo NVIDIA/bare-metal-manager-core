@@ -98,6 +98,58 @@
                 update-source: lo
               underlay:
                 remote-as: external
+      vpc_0: 
+        evpn:
+          enable: on
+          vni:
+            '0': {} 
+        loopback:
+          ip:
+            address:
+              10.1.1.1/32: {} 
+        router:
+          bgp:
+            address-family:
+              ipv4-unicast:
+                enable: on
+                redistribute:
+                  connected:
+                    enable: on
+                route-export:
+                  to-evpn:
+                    enable: on
+            enable: on
+            neighbor:
+              192.168.0.12:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+            peer-group:
+              tenant:
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        prefix-list: dpu_from_instance
+                      outbound:
+                        route-map: dpu_to_instance
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
+            route-export:
+              to-evpn:
+                route-target:
+                  11414:0: {}
+            route-import:
+              from-evpn:
+                route-target:
+                  11414:1337: {}
+                  11414:0: {}
+                  auto: {}
     acl:
       security_group:
         rule:

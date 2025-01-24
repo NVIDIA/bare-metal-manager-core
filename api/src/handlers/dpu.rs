@@ -124,24 +124,35 @@ pub(crate) async fn get_managed_host_network_config(
         true
     };
 
-    let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
-        &mut txn,
-        &snapshot.host_snapshot.machine_id,
-        &dpu_snapshot.machine_id,
-    )
-    .await?;
-
-    let mut vpc_vni = None;
-
-    // TODO(chet): This can eventually go away, but for now, keep the
-    // existing logic (where we set either ETV or ETV w/ NVUE depending
-    // on `nvue_enabled` being set), and then, if there's an instance,
-    // go into the complete matching logic.
     let mut network_virtualization_type = if api.runtime_config.nvue_enabled {
         VpcVirtualizationType::EthernetVirtualizerWithNvue
     } else {
         VpcVirtualizationType::EthernetVirtualizer
     };
+
+    let mut use_fnn_over_admin_nw = false;
+    if use_admin_network {
+        // If FNN config is enabled, we should use it in admin network.
+        if let Some(fnn) = &api.runtime_config.fnn {
+            if let Some(admin) = &fnn.admin_vpc {
+                if admin.enabled {
+                    use_fnn_over_admin_nw = true;
+                    network_virtualization_type = VpcVirtualizationType::Fnn;
+                }
+            }
+        }
+    }
+
+    let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
+        &mut txn,
+        &snapshot.host_snapshot.machine_id,
+        &dpu_snapshot.machine_id,
+        use_fnn_over_admin_nw,
+        &api.common_pools,
+    )
+    .await?;
+
+    let mut vpc_vni = None;
 
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
