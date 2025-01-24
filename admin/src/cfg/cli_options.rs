@@ -1161,6 +1161,8 @@ pub enum MachineMetadataCommand {
     AddLabel(MachineMetadataCommandAddLabel),
     #[clap(about = "Removes labels from the Metadata of a Machine")]
     RemoveLabels(MachineMetadataCommandRemoveLabels),
+    #[clap(about = "Copy Machine Metadata from Expected-Machine to Machine")]
+    FromExpectedMachine(MachineMetadataCommandFromExpectedMachine),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -1195,6 +1197,25 @@ pub struct MachineMetadataCommandRemoveLabels {
     pub machine: String,
     #[clap(long, help = "The keys to remove")]
     pub keys: Vec<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct MachineMetadataCommandFromExpectedMachine {
+    #[clap(help = "The machine which should get updated metadata")]
+    pub machine: String,
+    /// Whether to fully replace the Metadata that is currently stored on the Machine.
+    /// - If not set, existing Metadata on the Machine will not be touched by executing
+    ///   the command:
+    ///   - The existing Name will not be changed if the Name is not equivalent
+    ///     to the Machine ID or Empty.
+    ///   - The existing Description will not be changed if it is not empty.
+    ///   - Existing Labels and their values will not be changed. Only labels which
+    ///     do not exist on the Machine will be added.
+    /// - If set, the Machines Metadata will be set to the same values as
+    ///   they would if the Machine would get freshly ingested.
+    ///   Metadata that is currently set on the Machine will be overridden.
+    #[clap(long, verbatim_doc_comment)]
+    pub replace_all: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
