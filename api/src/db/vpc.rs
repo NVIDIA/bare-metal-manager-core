@@ -21,6 +21,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::machine::Machine;
+use super::network_segment::NetworkSegment;
 use super::{
     network_segment, vpc, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -651,10 +652,29 @@ impl VpcDpuLoopback {
         common_pools: &crate::resource_pool::common::CommonPools,
         dpu_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
+        delete_admin_loopback_also: bool,
     ) -> Result<(), CarbideError> {
-        let query = "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *";
-        let deleted_loopbacks = sqlx::query_as::<_, Self>(query)
-            .bind(dpu_id)
+        let mut admin_vpc = None;
+        let query = if !delete_admin_loopback_also {
+            let admin_segment = NetworkSegment::admin(txn).await?;
+            admin_vpc = admin_segment.vpc_id;
+            if admin_vpc.is_some() {
+                "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 AND vpc_id != $2 RETURNING *"
+            } else {
+                tracing::warn!("No VPC is attached to admin segment {}.", admin_segment.id);
+                "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *"
+            }
+        } else {
+            "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *"
+        };
+
+        let mut sqlx_query = sqlx::query_as::<_, Self>(query).bind(dpu_id);
+
+        if let Some(admin_vpc) = admin_vpc {
+            sqlx_query = sqlx_query.bind(admin_vpc);
+        }
+
+        let deleted_loopbacks = sqlx_query
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

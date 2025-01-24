@@ -16,8 +16,10 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
+use crate::db::vpc::VpcDpuLoopback;
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::{network_segment, ObjectColumnFilter};
+use crate::resource_pool::common::CommonPools;
 use crate::{
     db::{
         self,
@@ -89,6 +91,8 @@ pub async fn admin_network(
     txn: &mut Transaction<'_, Postgres>,
     host_machine_id: &MachineId,
     dpu_machine_id: &MachineId,
+    fnn_enabled_on_admin: bool,
+    common_pools: &CommonPools,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
     let admin_segment = NetworkSegment::admin(txn)
         .await
@@ -152,25 +156,86 @@ pub async fn admin_network(
         ))
     })?;
 
-    // admin isn't an overlay network, so:
-    //  - vni: 0 (because there's no VNI)
-    //  - network: ip/32 (because there won't be an instance network allocation)
-    //  - svi_ip: None (because there isn't an instance network allocation)
+    let svi_ip = if !fnn_enabled_on_admin {
+        None
+    } else {
+        get_svi_ip(&prefix.prefix, VpcVirtualizationType::Fnn, true)
+            .map_err(|e| {
+                Status::internal(format!(
+                    "failed to configure FlatInterfaceConfig.svi_ip: {}",
+                    e
+                ))
+            })?
+            .map(|ip| ip.to_string())
+    };
+
+    let (vpc_vni, tenant_vrf_loopback_ip) = if !fnn_enabled_on_admin {
+        (0, None)
+    } else {
+        match admin_segment.vpc_id {
+            Some(vpc_id) => {
+                let mut vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
+                    .await
+                    .map_err(CarbideError::from)?;
+                if vpcs.is_empty() {
+                    return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
+                }
+                let vpc = vpcs.remove(0);
+                match vpc.vni {
+                    Some(vpc_vni) => {
+                        let tenant_loopback_ip =
+                            VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
+                                common_pools,
+                                txn,
+                                dpu_machine_id,
+                                &vpc.id,
+                            )
+                            .await?;
+
+                        (vpc_vni as u32, Some(tenant_loopback_ip.to_string()))
+                    }
+                    None => {
+                        // if FNN is enabled, VPC must be created and updated in admin_segment.
+                        return Err(CarbideError::internal(format!(
+                            "Admin VPC is not found with id: {vpc_id}."
+                        ))
+                        .into());
+                    }
+                }
+            }
+            None => {
+                // if FNN is enabled, VPC must be created and updated in admin_segment.
+                return Err(CarbideError::internal(
+                    "Admin VPC is not attached to admin segment.".to_string(),
+                )
+                .into());
+            }
+        }
+    };
+
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
-        vni: 0,
-        vpc_vni: 0,
+        vni: if fnn_enabled_on_admin {
+            admin_segment.vni.unwrap_or_default() as u32
+        } else {
+            0
+        },
+        vpc_vni,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
         interface_prefix: address_prefix.to_string(),
-        vpc_prefixes: vec![],
+        vpc_prefixes: if fnn_enabled_on_admin {
+            vec![format!("{}/32", address.address.to_string())]
+        } else {
+            vec![]
+        },
         prefix: prefix.prefix.to_string(),
         fqdn: format!("{}.{}", interface.hostname, domain),
         booturl: None,
-        svi_ip: None,
-        tenant_vrf_loopback_ip: None,
+        svi_ip,
+        tenant_vrf_loopback_ip,
         is_l2_segment: true,
     };
     Ok((cfg, interface.id))

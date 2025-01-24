@@ -154,13 +154,29 @@ pub async fn update_nvue(
         vec![nvue::PortConfig {
             interface_name: physical_name,
             vlan: admin_interface.vlan_id as u16,
-            vni: None,
-            l3_vni: None,
+            vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn {
+                Some(admin_interface.vni)
+            } else {
+                None
+            },
+            l3_vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
+            {
+                Some(admin_interface.vpc_vni)
+            } else {
+                None
+            },
             gateway_cidr: admin_interface.gateway.clone(),
             vpc_prefixes: admin_interface.vpc_prefixes.clone(),
-            svi_ip: None,
-            tenant_vrf_loopback_ip: None,
-            is_l2_segment: false,
+            svi_ip: admin_interface.svi_ip.clone(),
+            tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
+            is_l2_segment: if nc.network_virtualization_type()
+                == ::rpc::forge::VpcVirtualizationType::Fnn
+            {
+                admin_interface.is_l2_segment
+            } else {
+                // Why false in legacy case? ¯\_(ツ)_/¯
+                false
+            },
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());

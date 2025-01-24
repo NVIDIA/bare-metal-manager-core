@@ -2204,6 +2204,7 @@ impl Forge for Api {
                 &self.common_pools,
                 dpu_machine.id(),
                 &mut txn,
+                true,
             )
             .await
             .map_err(CarbideError::from)?;

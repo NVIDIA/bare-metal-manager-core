@@ -192,6 +192,7 @@ pub(crate) async fn create_admin_vpc(
         network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {
             name: "admin".to_string(),
+            labels: HashMap::from([("kind".to_string(), "admin".to_string())]),
             ..Metadata::default()
         },
     };

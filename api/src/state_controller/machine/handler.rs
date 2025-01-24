@@ -5039,6 +5039,7 @@ impl StateHandler for InstanceStateHandler {
                                 common_pools,
                                 &dpu_snapshot.machine_id,
                                 txn,
+                                false,
                             )
                             .await
                             .map_err(|e| {
