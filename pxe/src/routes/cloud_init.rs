@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,66 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-// Rust somewhere 1.71->1.76 added a lint that doesn't like Rocket
-#![allow(unused_imports)]
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use base64::prelude::*;
+use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use base64::Engine as _;
 use forge_host_support::agent_config;
-use rocket::get;
-use rocket::routes;
-use rocket::Route;
-use rocket_dyn_templates::Template;
 use rpc::forge;
 
-use crate::{Machine, RuntimeConfig};
-
-fn user_data_handler(
-    machine_interface_id: rpc::Uuid,
-    machine_interface: forge::MachineInterface,
-    update_firmware: bool,
-    domain: forge::Domain,
-    config: RuntimeConfig,
-) -> (String, HashMap<String, String>) {
-    let forge_agent_config = generate_forge_agent_config(&machine_interface_id);
-
-    let mut context: HashMap<String, String> = HashMap::new();
-    context.insert("mac_address".to_string(), machine_interface.mac_address);
-
-    // IMPORTANT: if the nic fw update and the hbn are both yes, it puts the dpu into a state that requires a power down.
-    if update_firmware {
-        context.insert("update_firmware".to_owned(), "true".to_owned());
-    } else {
-        context.insert("update_firmware".to_owned(), "false".to_owned());
-    }
-
-    context.insert(
-        "hostname".to_string(),
-        format!("{}.{}", machine_interface.hostname, domain.name),
-    );
-    context.insert("interface_id".to_string(), machine_interface_id.to_string());
-    context.insert("api_url".to_string(), config.client_facing_api_url);
-    context.insert("pxe_url".to_string(), config.pxe_url);
-    context.insert(
-        "forge_agent_config_b64".to_string(),
-        BASE64_STANDARD.encode(forge_agent_config),
-    );
-
-    let start = SystemTime::now();
-    let seconds_since_epoch = start
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
-
-    context.insert(
-        "seconds_since_epoch".to_string(),
-        seconds_since_epoch.to_string(),
-    );
-
-    ("user-data".to_string(), context)
-}
+use crate::{
+    common::{AppState, Machine},
+    config::RuntimeConfig,
+};
 
 /// Generates the content of the /etc/forge/config.toml file
 //
@@ -88,24 +42,64 @@ fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid) -> String {
 
 fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
     eprintln!("{error}");
-    let mut context: HashMap<String, String> = HashMap::new();
-    context.insert(
+    let mut template_data: HashMap<String, String> = HashMap::new();
+    template_data.insert(
         "error".to_string(),
-        "An error occurred while rendering the user-data".to_string(),
+        "An error occurred while rendering the request".to_string(),
     );
-    ("error".to_string(), context) // Send a generic error back
+    ("error".to_string(), template_data) // Send a generic error back
 }
 
-#[get("/user-data")]
-pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
-    let (template, context) = match (
+fn user_data_handler(
+    machine_interface_id: rpc::Uuid,
+    machine_interface: forge::MachineInterface,
+    update_firmware: bool,
+    domain: forge::Domain,
+    config: RuntimeConfig,
+) -> (String, HashMap<String, String>) {
+    let forge_agent_config = generate_forge_agent_config(&machine_interface_id);
+
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert("mac_address".to_string(), machine_interface.mac_address);
+
+    // IMPORTANT: if the nic fw update and the hbn are both "true", it puts the dpu into a state that requires a power down.
+    context.insert("update_firmware".to_string(), update_firmware.to_string());
+
+    context.insert(
+        "hostname".to_string(),
+        format!("{}.{}", machine_interface.hostname, domain.name),
+    );
+    context.insert("interface_id".to_string(), machine_interface_id.to_string());
+    context.insert("api_url".to_string(), config.client_facing_api_url);
+    context.insert("pxe_url".to_string(), config.pxe_url);
+    context.insert(
+        "forge_agent_config_b64".to_string(),
+        base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
+    );
+
+    let start = SystemTime::now();
+    let seconds_since_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+
+    context.insert(
+        "seconds_since_epoch".to_string(),
+        seconds_since_epoch.to_string(),
+    );
+
+    ("user-data".to_string(), context)
+}
+
+pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+    let (template_key, template_data) = match (
         machine.instructions.custom_cloud_init,
         machine.instructions.discovery_instructions,
     ) {
         (Some(custom_cloud_init), _) => {
-            let mut context: HashMap<String, String> = HashMap::new();
-            context.insert("user_data".to_string(), custom_cloud_init);
-            ("user-data-assigned".to_string(), context)
+            let mut template_data: HashMap<String, String> = HashMap::new();
+            template_data.insert("user_data".to_string(), custom_cloud_init);
+            ("user-data-assigned".to_string(), template_data)
         }
         (None, Some(discovery_instructions)) => {
             match (
@@ -118,7 +112,7 @@ pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
                         interface,
                         discovery_instructions.update_firmware,
                         domain,
-                        config,
+                        state.runtime_config.clone(),
                     ),
                     None => print_and_generate_generic_error(format!(
                         "The interface ID should not be null: {:?}",
@@ -136,50 +130,62 @@ pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
         // custom_cloud_init None means user has not configured any user-data. Send a empty
         // response.
         (None, None) => {
-            let mut context: HashMap<String, String> = HashMap::new();
-            context.insert("user_data".to_string(), "{}".to_string());
-            ("user-data-assigned".to_string(), context)
+            let mut template_data: HashMap<String, String> = HashMap::new();
+            template_data.insert("user_data".to_string(), "{}".to_string());
+            ("user-data-assigned".to_string(), template_data)
         }
     };
 
-    Template::render(template, context)
+    axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-#[get("/meta-data")]
-pub async fn meta_data(machine: Machine) -> Template {
-    let (template, context) = match machine.instructions.metadata {
+pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+    let (template_key, template_data) = match machine.instructions.metadata {
         None => print_and_generate_generic_error(format!(
             "No metadata was found for machine {:?}",
             machine
         )),
         Some(metadata) => {
-            let context = HashMap::from([
+            let template_data = HashMap::from([
                 ("instance_id".to_string(), metadata.instance_id),
                 ("cloud_name".to_string(), metadata.cloud_name),
                 ("platform".to_string(), metadata.platform),
             ]);
 
-            ("meta-data".to_string(), context)
+            ("meta-data".to_string(), template_data)
         }
     };
 
-    Template::render(template, context)
+    axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-#[get("/vendor-data")]
-pub async fn vendor_data() -> Template {
-    Template::render("printcontext", HashMap::<String, String>::new())
+pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
+    axum_template::Render(
+        "printcontext",
+        state.engine.clone(),
+        HashMap::<String, String>::new(),
+    )
 }
 
-pub fn routes() -> Vec<Route> {
-    routes![user_data, meta_data, vendor_data]
+pub fn get_router(path_prefix: &str) -> Router<AppState> {
+    Router::new()
+        .route(
+            format!("{}/{}", path_prefix, "user-data").as_str(),
+            get(user_data),
+        )
+        .route(
+            format!("{}/{}", path_prefix, "meta-data").as_str(),
+            get(meta_data),
+        )
+        .route(
+            format!("{}/{}", path_prefix, "vendor-data").as_str(),
+            get(vendor_data),
+        )
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-
-    use forge_tls::default as tls_default;
 
     use super::*;
 

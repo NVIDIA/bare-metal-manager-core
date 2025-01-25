@@ -11,31 +11,35 @@ name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.22.1"
-clap = { workspace = true }
-rocket = { version = "= 0.5.1", features = ["uuid"] }
-serde = { version = "*", features = ["derive"] }
-toml = "0.8.8"
-tonic = { workspace = true }
-uuid = { version = "1.0", features = ["v4", "serde"] }
-
-
-# [local-dependencies]
+# [begin-local-dependencies]
 forge-host-support = { path = "../common/host-support" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
-prometheus = "0.13.4"
+# [end-local-dependencies]
+
+axum = "0.7"
+axum-response-cache = "0.1"
+axum-client-ip = "0.6"
+axum-template = { version = "2.4", features = ["tera"] }
+base64 = "0.22.1"
+bytes = "1"
+clap = { workspace = true }
+http-body = "1.0"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+mime = "0.3"
+pin-project-lite = "0.2"
+serde = { version = "*", features = ["derive"] }
+tera = "1.20"
+tokio = { workspace = true }
+toml = "0.8"
+tonic = { workspace = true }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+tower-layer = "0.3"
+tower-service = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
-
-[dev-dependencies]
-toml = "0.8.8"
-
-[dependencies.rocket_dyn_templates]
-version = "0.2.0"
-features = ["tera"]
-
-[dependencies.rocket_http]
-version = "= 0.5.1"
