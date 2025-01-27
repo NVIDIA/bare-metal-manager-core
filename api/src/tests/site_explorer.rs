@@ -12,6 +12,21 @@
 
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
+use crate::cfg::file::DpuConfig as InitialDpuConfig;
+use crate::tests::common::{
+    api_fixtures,
+    api_fixtures::{
+        dpu::DpuConfig,
+        managed_host::ManagedHostConfig,
+        network_segment::{
+            create_host_inband_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+        },
+        site_explorer::MockExploredHost,
+        TestEnvOverrides,
+    },
+    test_meter::TestMeter,
+};
 use crate::{
     cfg::file::SiteExplorerConfig,
     db::{
@@ -49,21 +64,6 @@ use rpc::{
 };
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
-
-use crate::tests::common::{
-    api_fixtures,
-    api_fixtures::{
-        dpu::DpuConfig,
-        managed_host::ManagedHostConfig,
-        network_segment::{
-            create_host_inband_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
-            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-        },
-        site_explorer::MockExploredHost,
-        TestEnvOverrides,
-    },
-    test_meter::TestMeter,
-};
 
 use crate::tests::common;
 
@@ -1099,7 +1099,7 @@ async fn test_site_explorer_creates_managed_host(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Prevent Firmware update here, since we test it in other method
     let mut config = common::api_fixtures::get_config();
-    config.dpu_models = HashMap::new();
+    config.dpu_config.dpu_models = HashMap::new();
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool,
         TestEnvOverrides::with_config(config),
@@ -1241,9 +1241,16 @@ async fn test_site_explorer_creates_managed_host(
         dpu_machine.bmc_info().ip.clone().unwrap(),
         response.address.to_string()
     );
+
     assert_eq!(
-        dpu_machine.bmc_info().firmware_version.clone().unwrap(),
-        "23.10-3".to_string()
+        format!(
+            "BF-{}",
+            dpu_machine.bmc_info().firmware_version.clone().unwrap()
+        ),
+        InitialDpuConfig::default()
+            .find_bf3_entry()
+            .unwrap()
+            .version,
     );
     assert_eq!(
         dpu_machine

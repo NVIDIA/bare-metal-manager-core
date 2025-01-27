@@ -362,7 +362,9 @@ pub async fn start_api(
             MachineStateHandlerBuilder::builder()
                 .dpu_up_threshold(carbide_config.machine_state_controller.dpu_up_threshold)
                 .dpu_nic_firmware_reprovision_update_enabled(
-                    carbide_config.dpu_nic_firmware_reprovision_update_enabled,
+                    carbide_config
+                        .dpu_config
+                        .dpu_nic_firmware_reprovision_update_enabled,
                 )
                 .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
                 .power_down_wait(carbide_config.machine_state_controller.power_down_wait)

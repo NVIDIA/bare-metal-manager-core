@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use tokio::sync::oneshot::{Receiver, Sender};
@@ -41,9 +40,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         ready_channel,
     } = start_args;
 
-    let mut dpu_nic_firmware_update_versions = HashMap::new();
-    dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
-
     let carbide_config_str = {
         let site_explorer_create_machines = if use_site_explorer { "true" } else { "false" };
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
@@ -74,8 +70,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         dpu_ipmi_tool_impl = "test"
         initial_domain_name = "{DOMAIN_NAME}"
         initial_dpu_agent_upgrade_policy = "off"
-        dpu_nic_firmware_initial_update_enabled = false
-        dpu_nic_firmware_reprovision_update_enabled = false
         max_concurrent_machine_updates = 1
         dpu_dhcp_server_enabled = true
         nvue_enabled = true
@@ -191,43 +185,10 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         max_object_handling_time = "180s"
         max_concurrency = 10
 
-        [dpu_models.bluefield2]
-        vendor = "Nvidia"
-        model = "Bluefield 2 SmartNIC Main Card"
-        ordering = ["bmc", "cec"]
 
-        [dpu_models.bluefield3]
-        vendor = "Nvidia"
-        model = "Bluefield 3 SmartNIC Main Card"
-        ordering = ["bmc", "cec"]
-
-        [dpu_models.bluefield2.components.bmc]
-        preingest_upgrade_when_below = "BF-24.04-5"
-        current_version_reported_as = ".*"
-        known_firmware = [
-          {{ version = "BF-24.04-5", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg", default = true }},
-        ]
-
-        [dpu_models.bluefield2.components.cec]
-        preingest_upgrade_when_below = "4-15"
-        current_version_reported_as = ".*"
-        known_firmware = [
-          {{ version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg", default = true }},
-        ]
-
-        [dpu_models.bluefield3.components.bmc]
-        preingest_upgrade_when_below = "BF-24.04-5"
-        current_version_reported_as = ".*"
-        known_firmware = [
-          {{ version = "BF-24.04-5", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg", default = true }},
-        ]
-
-        [dpu_models.bluefield3.components.cec]
-        preingest_upgrade_when_below = "00.02.0182.0000_n02"
-        current_version_reported_as = "(\\d+\\.?)+"
-        known_firmware = [
-          {{ version = "00.02.0182.0000_n02", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg", default = true }},
-        ]
+        [dpu_config]
+        dpu_nic_firmware_initial_update_enabled = false
+        dpu_nic_firmware_reprovision_update_enabled = false
 
         [host_models]
 
