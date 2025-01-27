@@ -2,8 +2,28 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc6-0...trunk)
 
 ### Added
+
+- A new forge-admin-cli subcommands allows to copy machine metadata from Expected-Machines
+  to Machines: Usage:
+  ```
+  forge-admin-cli machine metadata from-expected-machine [OPTIONS] <MACHINE>
+  ```
+  The optional `--replace-all` flag allows to specify whether existing Metadata on the Machine
+  will be retained (default), or whether existing Metadata should be dropped in favor of
+  the data on expected machines. Thereby specifying the flag will set a Machines metadata
+  to the same values as for a newly discovered Machine.
+- Improved unit-test coverage for Metadata on Instances, VPCs, Machines and Expected-Machines.
+  Creation and Update of any of these objects will now use the same test-cases for rejecting
+  invalid Metadata.
+
 ### Changed
+
 ### Fixed
+- Machine name must use a minimum length of 2 characters - similar to Instance and VPC names (https://nvbugspro.nvidia.com/bug/5075669).
+- Add validation that description length is smaller or equal than 1024 bytes in order to prevent internal/database errors on overlong descriptions.
+- Fix missing validations for duplicated labels during VPC creation.
+- Ensure that Metadata validation in the VPC creation workflow happens before actually trying to persist metadata to the DB. This prevents the Internal Errors that will happen if overlong metadata is passed to the DB layer.
+
 ### Removed
 
 ## [v2025.01.17-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc2-0...v2025.01.17-rc3-0)
