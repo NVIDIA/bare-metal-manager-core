@@ -589,21 +589,21 @@ pub(crate) async fn update_machine_validation_test(
         ))
     })?;
 
-    let existing = machine_validation_suites::MachineValidationTest::find(
-        &mut txn,
-        rpc::MachineValidationTestsGetRequest {
-            test_id: Some(req.test_id.clone()),
-            version: Some(req.version.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?;
-    if existing[0].read_only {
-        return Err(Status::invalid_argument(
-            "Cannot modify read-only test cases",
-        ));
-    }
+    // let existing = machine_validation_suites::MachineValidationTest::find(
+    //     &mut txn,
+    //     rpc::MachineValidationTestsGetRequest {
+    //         test_id: Some(req.test_id.clone()),
+    //         version: Some(req.version.clone()),
+    //         ..rpc::MachineValidationTestsGetRequest::default()
+    //     },
+    // )
+    // .await
+    // .map_err(CarbideError::from)?;
+    // if existing[0].read_only {
+    //     return Err(Status::invalid_argument(
+    //         "Cannot modify read-only test cases",
+    //     ));
+    // }
     let test_id = machine_validation_suites::MachineValidationTest::update(&mut txn, req.clone())
         .await
         .map_err(CarbideError::from)?;
