@@ -3,6 +3,8 @@ file=
 root_dev=
 rootfs_uuid=
 rootfs_label=
+bootfs_uuid=
+efifs_uuid=
 efi_dev=
 efi_label=
 image_disk=
@@ -165,24 +167,37 @@ function get_serial_port() {
 }
 
 function modify_grub_cfg() {
+	efi_mounted=
 	if [ ! -d "/mnt/boot/grub" ]; then
-		is_nvme=$(echo $image_disk | grep nvme)
 		boot_part=
-		if [ ! -z "$is_nvme" ]; then
-			boot_part="$image_disk"p1
-		else
-			boot_part="$image_disk"1
+		if [ ! -z "$bootfs_uuid" ]; then
+			boot_part=$(blkid -U $bootfs_uuid)
 		fi
+		is_nvme=$(echo $image_disk | grep nvme)
+		if [ -z "$boot_part" ]; then
+			if [ ! -z "$is_nvme" ]; then
+				boot_part="$image_disk"p1
+			else
+				boot_part="$image_disk"1
+			fi
+		fi
+		
 		if [ ! -b "$boot_part" ]; then
+			# This is not error, as CentOS, for example, does not have dedicated /boot partition
 			echo "Boot partition $boot_part not found or is not a block device" | tee $log_output
-			return 0
+		else
+			mount "$boot_part" /mnt/boot
 		fi
-		mount "$boot_part" /mnt/boot
+		# we want to mount efi now as it can contain uefi grub.cfg
+		mount_efi
+		efi_mounted=true
 		grub_cfg=
 		if [ -f "/mnt/boot/grub/grub.cfg" ]; then
 			grub_cfg="/mnt/boot/grub/grub.cfg"
 		elif [ -f "/mnt/boot/grub.cfg" ]; then
 			grub_cfg="/mnt/boot/grub.cfg"
+		elif [ -f "/mnt/boot/grub2/grub.cfg" ]; then
+			grub_cfg="/mnt/boot/grub2/grub.cfg"
 		else
 			grub_cfg=$(find /mnt/boot -name grub.cfg -print -quit)
 		fi
@@ -196,18 +211,38 @@ function modify_grub_cfg() {
 	mount -o bind /proc /mnt/proc
 	mount -o bind /sys /mnt/sys
 	echo "Updating grub configuration" | tee $log_output
-	if [ ! -z "$efi_dev" ]; then
-		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
-	else
-		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
+	# if we skipped grub mount before we want to mount efi now
+	if [ -z "$efi_mounted" ]; then
+		mount_efi
 	fi
-	chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
+	# Check if grub2-mkconfig exists, means we are in rhel distro, falback to update-grub if not found
+	if [ -f "/mnt/usr/sbin/grub2-mkconfig" ]; then
+		is_bls=$(chroot /mnt /bin/sh -c "grub2-mkconfig --help" | grep "\-\-update-bls-cmdline")
+		grub_bls_cmd=
+		if [ ! -z "$is_bls" ]; then
+			grub_bls_cmd="--update-bls-cmdline"
+		fi
+		chroot /mnt /bin/sh -c "grub2-mkconfig $grub_bls_cmd -o ${grub_cfg#'/mnt'}" 2>&1 | tee $log_output
+	else
+		chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
+	fi
 	umount /mnt/boot/efi 2>&1 | tee $log_output
 	umount /mnt/sys
 	umount /mnt/proc
 	umount /mnt/dev
 	if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
 		umount /mnt/boot
+	fi
+}
+
+function mount_efi() {
+	if [ ! -z "$efifs_uuid" ]; then
+		efi_dev=$(blkid -U $efifs_uuid)
+	fi
+	if [ ! -z "$efi_dev" ]; then
+		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
+	else
+		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
 	fi
 }
 
@@ -268,7 +303,7 @@ function modify_grub_template() {
 						first_console_set=true
 					fi
 					if [ -z "$second_console_set" ]; then
-						echo -n "console=$serial_port" >> $new_grub_template
+						echo -n "console=$serial_port,115200" >> $new_grub_template
 						second_console_set=true
 					fi
 					echo "\"" >> $new_grub_template
@@ -291,7 +326,7 @@ function modify_grub_template() {
 	done < "/mnt/etc/default/grub"
 	# done parsing the file, didn't find the grub args
 	if [ -z "$cmdline_found" ]; then
-		echo "GRUB_CMDLINE_LINUX=\"console=tty0 console=$serial_port\"" >> $new_grub_template
+		echo "GRUB_CMDLINE_LINUX=\"console=tty0 console=$serial_port,115200\"" >> $new_grub_template
 	fi
 	if [ -z "$serial_found" ]; then
 		echo "GRUB_SERIAL_COMMAND=\"serial --speed=115200 --unit=$serial_port_num --word=8 --parity=no --stop=1\"" >> $new_grub_template
@@ -367,6 +402,14 @@ function main() {
 			rootfs_label=$(echo $line|cut -d'=' -f2)
 		else
 			rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
+		fi
+		line=$(echo $i|grep 'bootfs_uuid')
+		if [ ! -z "$line" ]; then
+			bootfs_uuid=$(echo $line|cut -d'=' -f2)
+		fi
+		line=$(echo $i|grep 'efifs_uuid')
+		if [ ! -z "$line" ]; then
+			efifs_uuid=$(echo $line|cut -d'=' -f2)
 		fi
 		
 	done

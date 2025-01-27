@@ -9,6 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+// CLI enums variants can be rather large, we ok with that.
+#![allow(clippy::large_enum_variant)]
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
