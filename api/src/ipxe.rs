@@ -304,6 +304,12 @@ exit ||
                                     if let Some(x) = os_image.attributes.boot_disk {
                                         qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
                                     }
+                                    if let Some(x) = os_image.attributes.bootfs_id {
+                                        qcow_imaging_ipxe += format!(" bootfs_uuid={x}").as_str();
+                                    }
+                                    if let Some(x) = os_image.attributes.efifs_id {
+                                        qcow_imaging_ipxe += format!(" efifs_uuid={x}").as_str();
+                                    }
                                     qcow_imaging_ipxe += "\r\nboot";
                                     qcow_imaging_ipxe
                                 }

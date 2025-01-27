@@ -382,6 +382,8 @@ pub async fn os_image_create(
         rootfs_label: args.rootfs_label,
         boot_disk: args.boot_disk,
         capacity: args.capacity,
+        bootfs_id: args.bootfs_id,
+        efifs_id: args.efifs_id,
     };
     let image = cli_rpc::create_os_image(api_config, image_attrs).await?;
     if let Some(x) = image.attributes {

@@ -174,6 +174,8 @@ pub struct OsImageAttributes {
     pub rootfs_label: Option<String>,
     pub boot_disk: Option<String>,
     pub capacity: Option<u64>,
+    pub bootfs_id: Option<String>,
+    pub efifs_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
@@ -759,6 +761,8 @@ impl TryFrom<OsImageAttributes> for rpc::forge::OsImageAttributes {
             rootfs_label: image_attrs.rootfs_label,
             boot_disk: image_attrs.boot_disk,
             capacity: image_attrs.capacity,
+            bootfs_id: image_attrs.bootfs_id,
+            efifs_id: image_attrs.efifs_id,
         })
     }
 }
@@ -794,6 +798,8 @@ impl TryFrom<rpc::forge::OsImageAttributes> for OsImageAttributes {
             rootfs_label: image_attrs.rootfs_label,
             boot_disk: image_attrs.boot_disk,
             capacity: image_attrs.capacity,
+            bootfs_id: image_attrs.bootfs_id,
+            efifs_id: image_attrs.efifs_id,
         })
     }
 }

@@ -413,6 +413,10 @@ pub struct CreateOsImage {
     pub rootfs_label: Option<String>,
     #[clap(short = 'b', long, help = "Boot device path if using local disk.")]
     pub boot_disk: Option<String>,
+    #[clap(long, help = "UUID of the image boot filesystem (/boot)")]
+    pub bootfs_id: Option<String>,
+    #[clap(long, help = "UUID of the image EFI filesystem (/boot/efi)")]
+    pub efifs_id: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]
