@@ -302,29 +302,6 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
          format!("An object of type instance was intended to be modified did not have the expected version {}", initial_config_version.version_string()),
          "Message is {}", status.message());
 
-    // Start an invalid name for instance update
-    // This should fail.
-    let status = env
-        .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
-                if_version_match: Some(initial_config_version.version_string()),
-                config: Some(updated_config_2.clone()),
-                metadata: Some(rpc::Metadata {
-                    name: "Name with non-asci €".to_string(),
-                    description: "".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
-        .await
-        .expect_err("Update instances with non-ascii characters should fail");
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert!(status
-        .message()
-        .contains(&"Instance's new metadata is not valid".to_string()));
-
     // Using the correct current version should allow the update
     let instance = env
         .api
@@ -586,168 +563,30 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         "More than 10 Tenant KeySet IDs are not allowed"
     );
 
-    // // Try to update to invalid metadata
-    // let invalid_metadata_no_key = rpc::forge::Metadata {
-    //     name: "abc".to_string(),
-    //     description: "def".to_string(),
-    //     labels: vec![rpc::forge::Label { key: "".to_string(), value: None }]
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_no_key),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(
-    //     err.message(),
-    //     "Invalid value: TBD"
-    // );
-
-    // // Try to update to invalid metadata
-    // let invalid_metadata_duplicated_keys = rpc::forge::Metadata {
-    //     name: "abc".to_string(),
-    //     description: "def".to_string(),
-    //     labels: vec![
-    //         rpc::forge::Label {
-    //             key: "a".to_string(),
-    //             value: None,
-    //         },
-    //         rpc::forge::Label {
-    //             key: "a".to_string(),
-    //             value: Some("other".to_string()),
-    //         },
-    //     ],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_duplicated_keys),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
-
-    // // Try to update to invalid metadata
-    // let invalid_metadata_overlong_name = rpc::forge::Metadata {
-    //     name: "0123456789012345678901234567890123456789012345678901234567890123456789".to_string(),
-    //     description: "def".to_string(),
-    //     labels: vec![],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_overlong_name),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
-
-    // let invalid_metadata_overlong_description = rpc::forge::Metadata {
-    //     name: "instance".to_string(),
-    //     description: "0123456789012345678901234567890123456789012345678901234567890123456789".to_string(),
-    //     labels: vec![],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_overlong_description),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
-
-    // let invalid_metadata_invalid_chars_in_name_or_description = rpc::forge::Metadata {
-    //     name: "\x03asdf\0".to_string(),
-    //     description: "a\u{211D}".to_string(),
-    //     labels: vec![],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_invalid_chars_in_name_or_description),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
-
-    // let invalid_metadata_overlong_key_value = rpc::forge::Metadata {
-    //     name: "a".to_string(),
-    //     description: "b".to_string(),
-    //     labels: vec![
-    //         rpc::forge::Label {
-    //             key: "0123456789012345678901234567890123456789012345678901234567890123456789".to_string(),
-    //             value: Some("0123456789012345678901234567890123456789012345678901234567890123456789".to_string())
-    //         }
-    //     ],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_overlong_key_value),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
-
-    // let invalid_metadata_overlong_key_value = rpc::forge::Metadata {
-    //     name: "a".to_string(),
-    //     description: "b".to_string(),
-    //     labels: vec![
-    //         rpc::forge::Label {
-    //             key: "\x03asdf\0".to_string(),
-    //             value: Some("a\u{211D}".to_string())
-    //         }
-    //     ],
-    // };
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(valid_config.clone()),
-    //             metadata: Some(invalid_metadata_overlong_key_value),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid metadata should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(err.message(), "Invalid value: TBD");
+    // Try to update to invalid metadata
+    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
+        let err = env
+            .api
+            .update_instance_config(tonic::Request::new(
+                rpc::forge::InstanceConfigUpdateRequest {
+                    instance_id: Some(instance_id.into()),
+                    if_version_match: None,
+                    config: Some(valid_config.clone()),
+                    metadata: Some(invalid_metadata.clone()),
+                },
+            ))
+            .await
+            .expect_err(&format!(
+                "Invalid metadata of type should not be accepted: {:?}",
+                invalid_metadata
+            ));
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(
+            err.message().contains(&expected_err),
+            "Testcase: {:?}\nMessage is \"{}\".\nMessage should contain: \"{}\"",
+            invalid_metadata,
+            err.message(),
+            expected_err
+        );
+    }
 }

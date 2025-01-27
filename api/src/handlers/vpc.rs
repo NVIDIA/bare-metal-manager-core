@@ -25,29 +25,17 @@ pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::VpcCreationRequest>,
 ) -> Result<Response<rpc::Vpc>, Status> {
+    log_request_data(&request);
     let vpc_creation_request = request.get_ref();
 
     if let Some(metadata) = &vpc_creation_request.metadata {
-        if (!metadata.description.is_empty() || !metadata.labels.is_empty())
-            && metadata.name.is_empty()
-        {
-            return Err(CarbideError::InvalidArgument(
-                "VPC name must be specified under metadata only.".to_string(),
-            )
-            .into());
-        }
-
-        if (!metadata.name.is_empty() && !vpc_creation_request.name.is_empty())
-            && metadata.name != vpc_creation_request.name
-        {
+        if !vpc_creation_request.name.is_empty() && metadata.name != vpc_creation_request.name {
             return Err(CarbideError::InvalidArgument(
                 "VPC name must be specified under metadata only.".to_string(),
             )
             .into());
         }
     }
-
-    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin create_vpc", e))
@@ -57,10 +45,6 @@ pub(crate) async fn create(
         .persist(&mut txn)
         .await
         .map_err(CarbideError::from)?;
-
-    vpc.metadata
-        .validate(true)
-        .map_err(|e| CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e)))?;
 
     vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
     Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())

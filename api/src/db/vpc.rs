@@ -357,35 +357,24 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
             None => VpcId::from(uuid::Uuid::new_v4()),
         };
 
-        let vpc_name: String = if let Some(metadata) = &value.metadata {
-            if !metadata.name.is_empty() {
-                metadata.name.clone()
-            } else {
-                value.name.clone()
-            }
+        // If Metadata isn't passed or empty, then use the old name field
+        let use_legacy_name = if let Some(metadata) = &value.metadata {
+            metadata.name.is_empty()
         } else {
-            value.name.clone()
+            true
         };
 
-        let metadata = Metadata {
-            name: vpc_name,
-            description: value
-                .metadata
-                .clone()
-                .map(|m| m.description.clone())
-                .unwrap_or("".to_owned()),
-            labels: value.metadata.clone().map_or(HashMap::new(), |m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        (
-                            label.key.clone(),
-                            label.value.clone().unwrap_or("".to_owned()),
-                        )
-                    })
-                    .collect()
-            }),
+        let mut metadata = match value.metadata {
+            Some(metadata) => metadata.try_into()?,
+            None => Metadata::default(),
         };
+        if use_legacy_name {
+            metadata.name = value.name;
+        }
+
+        metadata.validate(true).map_err(|e| {
+            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e))
+        })?;
 
         Ok(NewVpc {
             id,
@@ -405,43 +394,24 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
             None => None,
         };
 
-        let mut labels = HashMap::new();
-        let vpc_name: String;
-
-        if let Some(metadata) = &value.metadata {
-            if !metadata.name.is_empty() {
-                vpc_name = metadata.name.clone();
-            } else {
-                vpc_name = value.name.clone();
-            }
-
-            for label in &metadata.labels {
-                let key = label.key.clone();
-                let value = label.value.clone().unwrap_or_default();
-
-                if labels.contains_key(&key) {
-                    return Err(CarbideError::InvalidArgument(format!(
-                        "Duplicate key found: {}",
-                        key
-                    )));
-                }
-
-                labels.insert(key, value);
-            }
+        // If Metadata isn't passed or empty, then use the old name field
+        let use_legacy_name = if let Some(metadata) = &value.metadata {
+            metadata.name.is_empty()
         } else {
-            vpc_name = value.name.clone();
-        }
-
-        let metadata = Metadata {
-            name: vpc_name,
-            description: value
-                .metadata
-                .as_ref()
-                .map_or_else(|| "".to_owned(), |m| m.description.clone()),
-            labels,
+            true
         };
 
-        metadata.validate(true)?;
+        let mut metadata = match value.metadata {
+            Some(metadata) => metadata.try_into()?,
+            None => Metadata::default(),
+        };
+        if use_legacy_name {
+            metadata.name = value.name;
+        }
+
+        metadata.validate(true).map_err(|e| {
+            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e))
+        })?;
 
         Ok(UpdateVpc {
             id: value

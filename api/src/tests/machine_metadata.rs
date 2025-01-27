@@ -147,28 +147,30 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert_eq!(host_machine.metadata.as_ref().unwrap(), &new_metadata);
 
     // Updates with invalid metadata fail
-    let invalid_metadata = rpc::forge::Metadata {
-        name: "😀".to_string(),
-        description: "".to_string(),
-        labels: vec![],
-    };
-
-    let err = env
-        .api
-        .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id.clone(),
-                if_version_match: None,
-                metadata: Some(invalid_metadata),
-            },
-        ))
-        .await
-        .unwrap_err();
-    assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(
-        err.message(),
-        "Invalid value: Name '😀' must contain ASCII characters only"
-    );
+    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
+        let err = env
+            .api
+            .update_machine_metadata(tonic::Request::new(
+                ::rpc::forge::MachineMetadataUpdateRequest {
+                    machine_id: host_machine.id.clone(),
+                    if_version_match: None,
+                    metadata: Some(invalid_metadata.clone()),
+                },
+            ))
+            .await
+            .expect_err(&format!(
+                "Invalid metadata of type should not be accepted: {:?}",
+                invalid_metadata
+            ));
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(
+            err.message().contains(&expected_err),
+            "Testcase: {:?}\nMessage is \"{}\".\nMessage should contain: \"{}\"",
+            invalid_metadata,
+            err.message(),
+            expected_err
+        );
+    }
 
     Ok(())
 }

@@ -15,6 +15,7 @@
 pub mod api_fixtures;
 pub mod endpoint;
 pub mod mac_address_pool;
+pub mod metadata;
 pub mod network_segment;
 pub mod sqlx_fixtures;
 pub mod test_certificates;

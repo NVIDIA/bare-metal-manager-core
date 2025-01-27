@@ -615,6 +615,83 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
     assert_eq!(retrieved_expected_machine, expected_machine);
 }
 
+#[crate::sqlx_test()]
+async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
+    // Start adding an expected-machine with invalid metadata
+    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(false) {
+        let expected_machine = rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Some(invalid_metadata.clone()),
+        };
+
+        let err = env
+            .api
+            .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+            .await
+            .expect_err(&format!(
+                "Invalid metadata of type should not be accepted: {:?}",
+                invalid_metadata
+            ));
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(
+            err.message().contains(&expected_err),
+            "Testcase: {:?}\nMessage is \"{}\".\nMessage should contain: \"{}\"",
+            invalid_metadata,
+            err.message(),
+            expected_err
+        );
+    }
+
+    // Create one with valid metadata, and try to update it to invalid
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: bmc_mac_address.to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "VVG121GI".into(),
+        fallback_dpu_serial_numbers: vec![],
+        metadata: None,
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("Expected addition to succeed");
+
+    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(false) {
+        let expected_machine = rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "VVG121GI".into(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Some(invalid_metadata.clone()),
+        };
+
+        let err = env
+            .api
+            .update_expected_machine(tonic::Request::new(expected_machine.clone()))
+            .await
+            .expect_err(&format!(
+                "Invalid metadata of type should not be accepted: {:?}",
+                invalid_metadata
+            ));
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(
+            err.message().contains(&expected_err),
+            "Testcase: {:?}\nMessage is \"{}\".\nMessage should contain: \"{}\"",
+            invalid_metadata,
+            err.message(),
+            expected_err
+        );
+    }
+}
+
 #[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_with_dpu_serial_numbers(
     pool: sqlx::PgPool,
