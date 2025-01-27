@@ -1,10 +1,17 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc5-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc6-0...trunk)
 
 ### Added
 ### Changed
 ### Fixed
 ### Removed
+
+## [v2025.01.17-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc2-0...v2025.01.17-rc3-0)
+
+### Fixed
+
+- Wait for the cec background to complete after updating the BMC firmware on a BF3 before proceeding to update the ERoT firmware.
+- Fixed problem in image based OS that caused reinstall on every reboot.
 
 ## [v2025.01.17-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc5-0...v2025.01.17-rc2-0)
 
@@ -69,6 +76,12 @@
 ### Removed
 
 - Removed FNN mmode from dhcp-server.
+
+## [v2024.12.20-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc5-0...v2024.12.20-rc6-0)
+
+### Fixed
+
+- Wait for the cec background to complete after updating the BMC firmware on a BF3 before proceeding to update the ERoT firmware.
 
 ## [v2024.12.20-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc4-0...v2024.12.20-rc5-0)
 
