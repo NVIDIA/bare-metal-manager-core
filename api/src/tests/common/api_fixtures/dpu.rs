@@ -17,7 +17,12 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use crate::tests::common::{
+    api_fixtures::{managed_host::ManagedHostConfig, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS},
+    mac_address_pool,
+};
 use crate::{
+    cfg::file::DpuConfig as InitialDpuConfig,
     db::machine::{Machine, MachineSearchConfig},
     model::{
         hardware_info::HardwareInfo,
@@ -37,15 +42,7 @@ use rpc::{
 };
 use tonic::Request;
 
-use crate::tests::common::{
-    api_fixtures::{managed_host::ManagedHostConfig, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS},
-    mac_address_pool,
-};
-
 use super::site_explorer;
-
-/// DPU firmware version that is reported by DPU objects created via `create_dpu_hardware_info`.
-pub const DEFAULT_DPU_FIRMWARE_VERSION: &str = "1.2.3";
 
 /// The version identifier that is used by dpu-agent in unit-tests
 pub const TEST_DPU_AGENT_VERSION: &str = "test";
@@ -99,7 +96,11 @@ impl From<&DpuConfig> for HardwareInfo {
     fn from(value: &DpuConfig) -> Self {
         let mut info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
         info.dpu_info.as_mut().unwrap().factory_mac_address = value.host_mac_address.to_string();
-        info.dpu_info.as_mut().unwrap().firmware_version = DEFAULT_DPU_FIRMWARE_VERSION.to_owned();
+        info.dpu_info.as_mut().unwrap().firmware_version = InitialDpuConfig::default()
+            .dpu_nic_firmware_update_version
+            .get("BlueField SoC")
+            .unwrap()
+            .to_owned();
         info.dmi_data.as_mut().unwrap().product_serial = value.serial.clone();
         assert!(info.is_dpu());
         info
@@ -179,7 +180,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     Inventory {
                         id: "DPU_NIC".to_string(),
                         description: Some("Host image".to_string()),
-                        version: Some("32.38.1002".to_string()),
+                        version: Some("32.42.1000".to_string()),
                         release_date: None,
                     },
                     Inventory {
@@ -191,13 +192,25 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     Inventory {
                         id: "BMC_Firmware".to_string(),
                         description: Some("Host image".to_string()),
-                        version: Some("BF-23.10-3".to_string()),
+                        version: Some(
+                            InitialDpuConfig::default()
+                                .find_bf3_entry()
+                                .unwrap()
+                                .version
+                                .clone(),
+                        ),
                         release_date: None,
                     },
                     Inventory {
                         id: "DPU_OFED".to_string(),
                         description: Some("Host image".to_string()),
                         version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "Bluefield_FW_ERoT".to_string(),
+                        description: Some("Host image".to_string()),
+                        version: Some("00.02.0182.0000_n02".to_string()),
                         release_date: None,
                     },
                     Inventory {

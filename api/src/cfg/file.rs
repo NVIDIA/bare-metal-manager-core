@@ -18,6 +18,7 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
+use bmc_vendor::BMCVendor;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::Ipv4Network;
@@ -119,20 +120,6 @@ pub struct CarbideConfig {
     /// Also settable via a `forge-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
-    /// The version of DPU NIC firmware that is expected on the DPU.  If the actual DPU NIC firmware
-    /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibility
-    /// to make sure this value matches the version shipped with carbide.  If "None" updates
-    /// during reprovisioning will be disabled
-    pub dpu_nic_firmware_update_version: Option<HashMap<String, String>>,
-
-    /// Enable dpu firmware updates on initial discovery
-    #[serde(default)]
-    pub dpu_nic_firmware_initial_update_enabled: bool,
-
-    /// Enable dpu firmware updates on known machines
-    #[serde(default)]
-    pub dpu_nic_firmware_reprovision_update_enabled: bool,
-
     /// IbFabricMonitor related configuration
     #[serde(default)]
     pub ib_fabric_monitor: IbFabricMonitorConfig,
@@ -179,10 +166,6 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
 
-    /// DPU related configuration parameter
-    #[serde(default)]
-    pub dpu_models: HashMap<String, Firmware>,
-
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
@@ -227,6 +210,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub bypass_rbac: bool,
 
+    /// DPU specific configs including DPU orand DPU BMC firmware
+    #[serde(default)]
+    pub dpu_config: DpuConfig,
+
     #[serde(default)]
     pub fnn: Option<FnnConfig>,
 }
@@ -260,7 +247,7 @@ impl CarbideConfig {
                 host.clone(),
             );
         }
-        for (_, dpu) in self.dpu_models.iter() {
+        for (_, dpu) in self.dpu_config.dpu_models.iter() {
             map.insert(
                 vendor_model_to_key(dpu.vendor, DpuModel::from(dpu.model.to_owned()).to_string()),
                 dpu.clone(),
@@ -853,6 +840,123 @@ fn default_max_database_connections() -> u32 {
     1000
 }
 
+/// DpuConfig related internal configuration
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DpuConfig {
+    /// Enable dpu firmware updates on initial discovery
+    #[serde(default)]
+    pub dpu_nic_firmware_initial_update_enabled: bool,
+
+    /// Enable dpu firmware updates on known machines
+    #[serde(default)]
+    pub dpu_nic_firmware_reprovision_update_enabled: bool,
+
+    /// The version of DPU NIC firmware that is expected on the DPU.  If the actual DPU NIC firmware
+    /// does not match, the DPU will be updated during reprovisioning. This value is hardcoded in the API
+    /// so the operator does not need to know what to do but can be overridden.
+    #[serde(default)]
+    pub dpu_nic_firmware_update_version: HashMap<String, String>,
+
+    /// DPU related configuration parameter
+    #[serde(default)]
+    pub dpu_models: HashMap<String, Firmware>,
+}
+
+impl DpuConfig {
+    pub fn find_bf3_entry(&self) -> Option<&FirmwareEntry> {
+        self.dpu_models.get("bluefield3").and_then(|f| {
+            f.components
+                .get(&FirmwareComponentType::Bmc)
+                .and_then(|fc| fc.known_firmware.first())
+        })
+    }
+    pub fn find_bf2_entry(&self) -> Option<&FirmwareEntry> {
+        self.dpu_models.get("bluefield2").and_then(|f| {
+            f.components
+                .get(&FirmwareComponentType::Bmc)
+                .and_then(|fc| fc.known_firmware.first())
+        })
+    }
+}
+
+impl Default for DpuConfig {
+    fn default() -> Self {
+        Self {
+            dpu_nic_firmware_initial_update_enabled: false,
+            dpu_nic_firmware_reprovision_update_enabled: true,
+            dpu_nic_firmware_update_version: HashMap::from([
+                ("BlueField SoC".to_string(), "24.42.1000".to_string()),
+                (
+                    "BlueField-3 SmartNIC Main Card".to_string(),
+                    "32.42.1000".to_string(),
+                ),
+            ]),
+            dpu_models: HashMap::from([("bluefield2".to_string(), Firmware {
+                vendor: BMCVendor::Nvidia,
+                model: "Bluefield 2 SmartNIC Main Card".to_string(),
+                ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new(".*").unwrap()),
+                    preingest_upgrade_when_below: Some("BF-24.07-14".to_string()),
+                    known_firmware: vec![FirmwareEntry {
+                        version: "BF-24.07-14".to_string(),
+                        mandatory_upgrade_from_priority: None,
+                        default: true,
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg".to_string()),
+                        url: None,
+                        checksum: None,
+                        install_only_specified: false,
+                    }],
+                }),
+                    (FirmwareComponentType::Cec, FirmwareComponent {
+                        current_version_reported_as: Some(Regex::new(".*").unwrap()),
+                        preingest_upgrade_when_below: Some("4-15".to_string()),
+                        known_firmware: vec![FirmwareEntry {
+                            version: "4-15".to_string(),
+                            mandatory_upgrade_from_priority: None,
+                            default: true,
+                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg".to_string()),
+                            url: None,
+                            checksum: None,
+                            install_only_specified: false,
+                        }],
+                    })]),
+
+            }), ("bluefield3".to_string(), Firmware {
+                vendor: BMCVendor::Nvidia,
+                model: "Bluefield 3 SmartNIC Main Card".to_string(),
+                ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new(".*").unwrap()),
+                    preingest_upgrade_when_below: Some("BF-24.07-14".to_string()),
+                    known_firmware: vec![FirmwareEntry {
+                        version: "BF-24.07-14".to_string(),
+                        mandatory_upgrade_from_priority: None,
+                        default: true,
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg".to_string()),
+                        url: None,
+                        checksum: None,
+                        install_only_specified: false,
+                    }],
+                }),
+                    (FirmwareComponentType::Cec, FirmwareComponent {
+                        current_version_reported_as: Some(Regex::new("(\\d+\\.?)+").unwrap()),
+                        preingest_upgrade_when_below: Some("00.02.0182.0000_n02".to_string()),
+                        known_firmware: vec![FirmwareEntry {
+                            version: "00.02.0182.0000_n02".to_string(),
+                            mandatory_upgrade_from_priority: None,
+                            default: true,
+                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg".to_string()),
+                            url: None,
+                            checksum: None,
+                            install_only_specified: false,
+                        }],
+                    })]),
+            })]),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Firmware {
     pub vendor: bmc_vendor::BMCVendor,
@@ -1367,11 +1471,10 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .initial_dpu_agent_upgrade_policy
                 .unwrap_or(AgentUpgradePolicyChoice::Off)
                 .to_string(),
-            dpu_nic_firmware_update_version: value
-                .dpu_nic_firmware_update_version
-                .unwrap_or_default(),
-            dpu_nic_firmware_initial_update_enabled: value.dpu_nic_firmware_initial_update_enabled,
-            dpu_nic_firmware_reprovision_update_enabled: value
+            dpu_nic_firmware_update_version: DpuConfig::default().dpu_nic_firmware_update_version,
+            dpu_nic_firmware_initial_update_enabled: DpuConfig::default()
+                .dpu_nic_firmware_initial_update_enabled,
+            dpu_nic_firmware_reprovision_update_enabled: DpuConfig::default()
                 .dpu_nic_firmware_reprovision_update_enabled,
             max_concurrent_machine_updates: value
                 .max_concurrent_machine_updates
@@ -1867,8 +1970,8 @@ mod tests {
                 },
             }
         );
-        assert_eq!(config.dpu_models.len(), 2);
-        for (_, entry) in config.dpu_models.iter() {
+        assert_eq!(config.dpu_config.dpu_models.len(), 2);
+        for (_, entry) in config.dpu_config.dpu_models.iter() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Nvidia);
         }
         assert_eq!(config.host_models.len(), 2);

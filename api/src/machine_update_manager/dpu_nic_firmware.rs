@@ -206,21 +206,22 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
 impl DpuNicFirmwareUpdate {
     pub fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self> {
-        if !config.dpu_nic_firmware_reprovision_update_enabled {
+        if !config
+            .dpu_config
+            .dpu_nic_firmware_reprovision_update_enabled
+        {
             return None;
         }
 
-        if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
-        {
-            let mut metrics = DpuNicFirmwareUpdateMetrics::new();
-            metrics.register_callbacks(&meter);
-            Some(DpuNicFirmwareUpdate {
-                expected_dpu_firmware_versions: expected_dpu_firmware_version.clone(),
-                metrics: Some(metrics),
-            })
-        } else {
-            None
-        }
+        let mut metrics = DpuNicFirmwareUpdateMetrics::new();
+        metrics.register_callbacks(&meter);
+        Some(DpuNicFirmwareUpdate {
+            expected_dpu_firmware_versions: config
+                .dpu_config
+                .dpu_nic_firmware_update_version
+                .clone(),
+            metrics: Some(metrics),
+        })
     }
 
     pub async fn check_for_updates(

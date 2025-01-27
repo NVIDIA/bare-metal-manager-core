@@ -11,6 +11,7 @@
  */
 use crate::tests::common;
 
+use crate::cfg::file::DpuConfig;
 use crate::db;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::measured_boot::db as mbdb;
@@ -36,10 +37,7 @@ use crate::model::machine::{FailureCause, FailureSource};
 use crate::tests::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
 use crate::tests::common::api_fixtures::{
     create_managed_host_with_ek, discovery_completed,
-    dpu::{
-        DEFAULT_DPU_FIRMWARE_VERSION, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION,
-        TEST_DPU_AGENT_VERSION,
-    },
+    dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
     forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
 };
 use chrono::Duration;
@@ -706,7 +704,11 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
             .unwrap(),
         format!(
             r#"{{firmware_version="{}",fresh="true"}} 2"#,
-            DEFAULT_DPU_FIRMWARE_VERSION
+            DpuConfig::default()
+                .dpu_nic_firmware_update_version
+                .get("BlueField SoC")
+                .unwrap()
+                .to_owned()
         )
     );
 

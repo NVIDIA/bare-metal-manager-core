@@ -9,9 +9,6 @@ rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
 dpu_dhcp_server_enabled = true
-dpu_nic_firmware_intial_update_enabled = false
-dpu_nic_firmware_reprovision_update_enabled = true
-dpu_nic_firmware_update_version = { "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
 max_concurrent_machine_updates = 1
 machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"
@@ -125,59 +122,6 @@ host_disable_autoupdate = [
 ]
 run_interval = "20s"
 max_uploads = 3
-
-[dpu_models.bluefield2]
-vendor = "Nvidia"
-model = "Bluefield 2 SmartNIC Main Card"
-ordering = ["bmc", "cec"]
-
-[dpu_models.bluefield3]
-vendor = "Nvidia"
-model = "Bluefield 3 SmartNIC Main Card"
-ordering = ["bmc", "cec", "uefi", "nic"]
-
-
-[dpu_models.bluefield2.components.bmc]
-preingest_upgrade_when_below = "23.10"
-current_version_reported_as = ".*"
-known_firmware = [
-  { version = "24.10-8", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-9-opn.tar", default = true },
-]
-
-[dpu_models.bluefield2.components.cec]
-preingest_upgrade_when_below = "04.0f_prod"
-current_version_reported_as = ".*"
-known_firmware = [
-  { version = "04.0f_prod ", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec_ota_BMGP-04.0f_prod.bin", default = true },
-]
-
-[dpu_models.bluefield3.components.bmc]
-preingest_upgrade_when_below = "24.10"
-current_version_reported_as = "BMC_Firmware"
-known_firmware = [
-  { version = "BF-24.10-8", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-9_opn.fwpkg", default = true },
-]
-
-[dpu_models.bluefield3.components.cec]
-preingest_upgrade_when_below = "00.02.0195.0000_n02"
-current_version_reported_as = "Bluefield_FW_ERoT"
-known_firmware = [
-  { version = "00.02.0195.0000_n02", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec1736-ecfw-00.02.0195.0000-n02-rel-prod.fwpkg", default = true },
-]
-
-[dpu_models.bluefield3.components.uefi]
-preingest_upgrade_when_below = "4.9.0-13378"
-current_version_reported_as = "DPU_UEFI"
-known_firmware = [
-  { version = "4.9.0-13378", filename = "/internal/firmware/nvidia/dpu/bf-fwbundle-2.9.0-90_24.10-prod.bfb", url = "http://carbide-pxe.forge", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
-]
-
-[dpu_models.bluefield3.components.nic]
-preingest_upgrade_when_below = "32.43.1014"
-current_version_reported_as = "DPU_NIC"
-known_firmware = [
-  { version = "32.43.1014", filename = "/internal/firmware/nvidia/dpu/bf-fwbundle-2.9.0-90_24.10-prod.bfb", url = "http://carbide-pxe.forge", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
-]
 
 [host_models.dell_r750]
 vendor = "Dell"

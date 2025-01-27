@@ -37,9 +37,10 @@ use crate::tests::common::{
 use crate::{
     api::Api,
     cfg::file::{
-        default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
-        FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig, IbFabricDefinition,
-        IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        default_max_find_by_ids, CarbideConfig, DpuConfig as InitialDpuConfig, Firmware,
+        FirmwareComponent, FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig,
+        IBFabricConfig, IbFabricDefinition, IbFabricMonitorConfig,
+        IbPartitionStateControllerConfig, MachineStateControllerConfig,
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
@@ -495,28 +496,31 @@ impl TestEnv {
     }
 }
 
-fn dpu_fw_example() -> Firmware {
-    Firmware {
-        vendor: bmc_vendor::BMCVendor::Nvidia,
-        model: "BlueField-3 SmartNIC Main Card".to_string(),
-        components: HashMap::from([(
-            FirmwareComponentType::Bmc,
-            FirmwareComponent {
-                current_version_reported_as: Some(Regex::new(".*").unwrap()),
-                preingest_upgrade_when_below: Some("BF-23.10".to_string()),
-                known_firmware: vec![FirmwareEntry {
-                    version: "BF-23.10".to_string(),
-                    default: true,
-                    filename: Some("/dev/null".to_string()),
-                    url: Some("file://dev/null".to_string()),
-                    checksum: None,
-                    mandatory_upgrade_from_priority: None,
-                    install_only_specified: false,
-                }],
-            },
-        )]),
-        ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
-    }
+fn dpu_fw_example() -> HashMap<String, Firmware> {
+    HashMap::from([(
+        "bluefield3".to_string(),
+        Firmware {
+            vendor: bmc_vendor::BMCVendor::Nvidia,
+            model: "BlueField 3 SmartNIC Main Card".to_string(),
+            components: HashMap::from([(
+                FirmwareComponentType::Bmc,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new(".*").unwrap()),
+                    preingest_upgrade_when_below: Some("BF-23.10".to_string()),
+                    known_firmware: vec![FirmwareEntry {
+                        version: "BF-23.10".to_string(),
+                        default: true,
+                        filename: Some("/dev/null".to_string()),
+                        url: Some("file://dev/null".to_string()),
+                        checksum: None,
+                        mandatory_upgrade_from_priority: None,
+                        install_only_specified: false,
+                    }],
+                },
+            )]),
+            ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+        },
+    )])
 }
 
 fn host_firmware_example() -> Firmware {
@@ -608,9 +612,6 @@ pub fn get_config() -> CarbideConfig {
         dpu_ipmi_reboot_attempts: Some(0),
         initial_domain_name: Some("test.com".to_string()),
         initial_dpu_agent_upgrade_policy: None,
-        dpu_nic_firmware_update_version: None,
-        dpu_nic_firmware_initial_update_enabled: true,
-        dpu_nic_firmware_reprovision_update_enabled: true,
         max_concurrent_machine_updates: Some(10),
         machine_update_run_interval: Some(1),
         site_explorer: SiteExplorerConfig {
@@ -657,7 +658,13 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),
         },
-        dpu_models: HashMap::from([("bluefield3".to_string(), dpu_fw_example())]),
+        dpu_config: InitialDpuConfig {
+            dpu_nic_firmware_update_version: InitialDpuConfig::default()
+                .dpu_nic_firmware_update_version,
+            dpu_nic_firmware_initial_update_enabled: true,
+            dpu_nic_firmware_reprovision_update_enabled: true,
+            dpu_models: dpu_fw_example(),
+        },
         host_models: HashMap::from([("1".to_string(), host_firmware_example())]),
         firmware_global: FirmwareGlobal::test_default(),
         max_find_by_ids: default_max_find_by_ids(),
