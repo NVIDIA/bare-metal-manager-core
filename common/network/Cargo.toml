@@ -7,13 +7,17 @@ license-file.workspace = true
 authors.workspace = true
 
 [features]
-sqlx = ["dep:sqlx"]
+default = ["ipnetwork"]
+ipnetwork = ["dep:ipnetwork"]
+sqlx = ["dep:sqlx", "dep:ipnetwork"]
 
 [dependencies]
 eyre = "*"
-ipnetwork = { version = "^0.20.0", features = ["serde"] }
+ipnet = { version = "2", features = ["serde"] }
+ipnetwork = { version = "^0.20.0", features = ["serde"], optional = true}
 mac_address = "1.1.2"
 serde = { version = "1.0", features = ["derive"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
+thiserror = { version = "2" }
 
 rpc = { path = "../../rpc" }

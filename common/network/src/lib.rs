@@ -15,6 +15,8 @@ use serde::de::Deserializer;
 use serde::Deserialize;
 use std::str::FromStr;
 
+pub mod ip;
+
 /// virtualization is a module specific to shared code around
 /// network virtualization, where shared means shared between
 /// different components, where components currently means
