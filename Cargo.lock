@@ -2361,11 +2361,13 @@ name = "forge-network"
 version = "0.0.1"
 dependencies = [
  "eyre",
+ "ipnet",
  "ipnetwork",
  "mac_address",
  "rpc",
  "serde",
  "sqlx",
+ "thiserror 2.0.3",
 ]
 
 [[package]]
@@ -3382,6 +3384,9 @@ name = "ipnet"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddc24109865250148c2e0f3d25d4f0f479571723792d3802153c60922a4fb708"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "ipnetwork"

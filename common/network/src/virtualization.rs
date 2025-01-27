@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fmt;
+use std::str::FromStr;
+
+#[cfg(feature = "ipnetwork")]
+use ipnetwork::IpNetwork;
+
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use ipnetwork::IpNetwork;
-use std::fmt;
-use std::net::IpAddr;
-use std::str::FromStr;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
 /// doesn't send it to Carbide (which it never does), or if the Carbide API
@@ -134,13 +136,14 @@ impl FromStr for VpcVirtualizationType {
     }
 }
 
+#[cfg(feature = "ipnetwork")]
 /// get_host_ip returns the host IP for a tenant instance
 /// for a given IpNetwork. This is being initially introduced
 /// for the purpose of FNN /30 allocations (where the host IP
 /// ends up being the 4th IP -- aka the second IP of the second
 /// /31 allocation in the /30), and will probably change with
 /// a wider refactor + intro of Carbide IP Prefix Management.
-pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<IpAddr> {
+pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<std::net::IpAddr> {
     match network.prefix() {
         32 => Ok(network.ip()),
         30 => match network.iter().nth(3) {
@@ -157,13 +160,14 @@ pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<IpAddr> {
     }
 }
 
+#[cfg(feature = "ipnetwork")]
 /// get_svi_ip returns the SVI IP (also known as the gateway IP)
 /// for a tenant instance for a given IpNetwork. This is valid only for l2 segments under FNN.
 pub fn get_svi_ip(
     network: &IpNetwork,
     virtualization_type: VpcVirtualizationType,
     is_l2_segment: bool,
-) -> eyre::Result<Option<IpAddr>> {
+) -> eyre::Result<Option<std::net::IpAddr>> {
     match virtualization_type {
         VpcVirtualizationType::EthernetVirtualizer
         | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(None),
