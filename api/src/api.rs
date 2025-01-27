@@ -2337,7 +2337,7 @@ impl Forge for Api {
                 )
             }
         };
-        metadata.validate(false).map_err(CarbideError::from)?;
+        metadata.validate(true).map_err(CarbideError::from)?;
 
         let (machine, mut txn) = self
             .load_machine(

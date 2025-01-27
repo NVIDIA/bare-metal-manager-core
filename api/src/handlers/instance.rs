@@ -657,7 +657,7 @@ pub(crate) async fn update_instance_config(
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
     metadata.validate(true).map_err(|e| {
-        CarbideError::InvalidArgument(format!("Instance's new metadata is not valid: {}", e))
+        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {}", e))
     })?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {

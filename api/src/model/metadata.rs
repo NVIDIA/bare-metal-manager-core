@@ -104,6 +104,13 @@ impl Metadata {
             )));
         }
 
+        if self.description.len() > 1024 {
+            return Err(ConfigValidationError::InvalidValue(format!(
+                "Description must be between 0 and 1024 characters long, got {} characters",
+                self.description.len()
+            )));
+        }
+
         for (key, value) in &self.labels {
             if !key.is_ascii() {
                 return Err(ConfigValidationError::InvalidValue(format!(
@@ -123,7 +130,7 @@ impl Metadata {
             }
             if value.len() > 255 {
                 return Err(ConfigValidationError::InvalidValue(format!(
-                    "Label value '{value}' is too long (max 255 characters)"
+                    "Label value '{value}' for key '{key}' is too long (max 255 characters)"
                 )));
             }
         }
