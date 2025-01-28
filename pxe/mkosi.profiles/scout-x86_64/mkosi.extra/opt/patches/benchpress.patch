@@ -17,17 +17,17 @@ index 300c666..80824fd 100644
 -        return 0
 +        return returncode
 diff --git a/framework/cli/main.py b/framework/cli/main.py
-index 7901997..7994b03 100644
+index 7901997..eed97c2 100644
 --- a/framework/cli/main.py
 +++ b/framework/cli/main.py
-@@ -10,6 +10,7 @@
- import argparse
- import logging
- import sys
+@@ -18,6 +18,7 @@ from framework.cli.commands.run import RunCommand
+ from framework.cli.commands.test import TestParserCommand
+ from framework.lib.job import Job, JobSuite
+ from framework.lib.util import jprint
 +import os
  
- import yaml
- from framework.cli.commands.list import ListCommand
+ 
+ def setup_parser():
 @@ -58,6 +59,8 @@ def setup_parser():
  
  # ignore sys.argv[0] because that is the name of the program
@@ -76,3 +76,26 @@ index ed9a9d5..941b007 100644
  
      @property
      def safe_name(self):
+diff --git a/install_scripts/install_raytracing_vk.sh b/install_scripts/install_raytracing_vk.sh
+index c08ee19..2163013 100755
+--- a/install_scripts/install_raytracing_vk.sh
++++ b/install_scripts/install_raytracing_vk.sh
+@@ -67,6 +67,9 @@ else
+                 elif [[ "$VERSION_ID" == 22.* ]]; then
+                     wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | benchpress_try_root tee /etc/apt/trusted.gpg.d/lunarg.asc
+                     benchpress_try_root wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
++                elif [[ "$VERSION_ID" == 24.* ]]; then
++                    wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | benchpress_try_root tee /etc/apt/trusted.gpg.d/lunarg.asc
++                    benchpress_try_root wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list http://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+                 else
+                     warnMsg "Ubuntu version ${VERSION_ID} not supported"
+                     exit 1
+@@ -103,7 +106,7 @@ pushd build
+ if ! [ -d "vcpkg.linux" ]; then
+     git clone https://github.com/Microsoft/vcpkg.git vcpkg.linux
+     pushd vcpkg.linux
+-    git checkout 2023.12.12
++    git checkout 2025.01.13
+     popd
+ fi
+ popd
