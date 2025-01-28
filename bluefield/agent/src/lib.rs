@@ -34,6 +34,7 @@ pub mod dpu;
 
 pub mod acl;
 mod acl_rules;
+mod cert_renewal;
 mod command_line;
 pub mod containerd;
 mod daemons;
@@ -57,6 +58,7 @@ pub mod network_monitor;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
 mod ovs;
 mod sysfs;
+mod systemd;
 #[cfg(test)]
 mod tests;
 pub mod upgrade;

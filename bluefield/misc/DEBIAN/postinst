@@ -12,7 +12,6 @@ if [ "$1" = "configure" ]; then
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
-	systemctl enable forge-dpu-otel-agent.service
 	systemctl enable node-exporter.service
 	systemctl enable transceiver-exporter.service
 
@@ -21,17 +20,6 @@ if [ "$1" = "configure" ]; then
 	fi
 	if [ -d /etc/otelcol-contrib/fd_configs ]; then
 		rmdir --ignore-fail-on-non-empty /etc/otelcol-contrib/fd_configs
-	fi
-        # Assert the expected client certs location in case someone changes the
-        # path without updating postinst. Otherwise testing on a DPU that has
-        # already copied the certs will not catch the problem.
-        [ -e /opt/forge/machine_cert.pem ] || (echo "Error: /opt/forge/machine_cert.pem does not exist" >&2; exit 1)
-        [ -e /opt/forge/machine_cert.key ] || (echo "Error: /opt/forge/machine_cert.key does not exist" >&2; exit 1)
-	if [ ! -e /etc/ssl/certs/forge-dpu-otel-agent.pem ]; then
-		cp /opt/forge/machine_cert.pem /etc/ssl/certs/forge-dpu-otel-agent.pem
-	fi
-	if [ ! -e /etc/ssl/private/forge-dpu-otel-agent.key ]; then
-		cp /opt/forge/machine_cert.key /etc/ssl/private/forge-dpu-otel-agent.key
 	fi
 
 	# Do not depend on starting services now, as this package is installed early in setup

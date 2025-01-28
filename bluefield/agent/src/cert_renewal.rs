@@ -16,7 +16,6 @@ use ::rpc::{
 };
 use eyre::Context;
 use forge_host_support::registration;
-use forge_tls::client_config::ClientCert;
 use rand::Rng;
 use std::ops::Add;
 use std::time::{Duration, Instant};
@@ -51,13 +50,10 @@ impl ClientCertRenewer {
     }
 
     /// Renews Client certificates once a certain timeframe has elapsed
-    pub async fn renew_certificates_if_necessary(
-        &mut self,
-        override_client_cert: Option<&ClientCert>,
-    ) {
+    pub async fn renew_certificates_if_necessary(&mut self) {
         let now = std::time::Instant::now();
         if now > self.cert_renewal_time {
-            let cert_renewal_period = match self.renew_certificates(override_client_cert).await {
+            let cert_renewal_period = match self.renew_certificates().await {
                 Ok(()) => rand::thread_rng()
                     .gen_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS),
                 Err(err) => {
@@ -81,10 +77,7 @@ impl ClientCertRenewer {
         self.cert_renewal_time = std::time::Instant::now();
     }
 
-    async fn renew_certificates(
-        &mut self,
-        override_client_cert: Option<&ClientCert>,
-    ) -> Result<(), eyre::Report> {
+    async fn renew_certificates(&mut self) -> Result<(), eyre::Report> {
         tracing::info!("Trying to renew TLS client certificates");
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
             &self.forge_api_server,
@@ -101,12 +94,9 @@ impl ClientCertRenewer {
             .into_inner();
 
         tracing::info!("Received new machine certificate. Attempting to write to disk.");
-        registration::write_certs(
-            machine_certificate_result.machine_certificate,
-            override_client_cert,
-        )
-        .await
-        .wrap_err("renew_certificates: Failed to write certs to disk")?;
+        registration::write_certs(machine_certificate_result.machine_certificate)
+            .await
+            .wrap_err("renew_certificates: Failed to write certs to disk")?;
 
         Ok(())
     }
