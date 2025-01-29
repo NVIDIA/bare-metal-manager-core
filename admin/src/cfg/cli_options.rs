@@ -1517,6 +1517,12 @@ pub struct AllocateInstance {
         help = "The expected instance type id for the instance, which will be compared to type ID set for the machine of the request"
     )]
     pub instance_type_id: Option<String>,
+
+    #[clap(long, help = "the PXE script")]
+    pub custom_ipxe: Option<String>,
+
+    #[clap(long, help = "the cloud-init script")]
+    pub user_data: Option<String>,
 }
 
 #[derive(Parser, Debug)]
