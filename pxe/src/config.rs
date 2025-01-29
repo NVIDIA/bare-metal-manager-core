@@ -27,16 +27,16 @@ pub(crate) struct RuntimeConfig {
 
 impl RuntimeConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
+        let carbide_pxe_url =
+            env::var("CARBIDE_PXE_URL").unwrap_or_else(|_| "http://carbide-pxe.forge".to_string());
         let this = Self {
             internal_api_url: env::var("CARBIDE_API_INTERNAL_URL").unwrap_or_else(|_| {
                 "https://carbide-api.forge-system.svc.cluster.local:1079".to_string()
             }),
             client_facing_api_url: env::var("CARBIDE_API_URL")
                 .unwrap_or_else(|_| "https://carbide-api.forge".to_string()),
-            pxe_url: env::var("CARBIDE_PXE_URL")
-                .unwrap_or_else(|_| "http://carbide-pxe.forge".to_string()),
-            static_pxe_url: env::var("CARBIDE_STATIC_PXE_URL")
-                .unwrap_or_else(|_| "http://carbide-static-pxe.forge".to_string()),
+            pxe_url: carbide_pxe_url.clone(),
+            static_pxe_url: env::var("CARBIDE_STATIC_PXE_URL").unwrap_or(carbide_pxe_url),
             forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH").map_err(|_| {
                 "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string()
             })?,
