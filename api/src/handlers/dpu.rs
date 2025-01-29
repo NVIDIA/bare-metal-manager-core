@@ -157,7 +157,9 @@ pub(crate) async fn get_managed_host_network_config(
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
         // We don't support secondary DPU yet.
-        Some(_instance) if !is_primary_dpu => {
+        // If admin network is to be used for this managedhost, why to send old tenant data, which
+        // is just to be deleted.
+        Some(_instance) if !is_primary_dpu || use_admin_network => {
             vec![]
         }
         Some(_instance)
@@ -202,7 +204,7 @@ pub(crate) async fn get_managed_host_network_config(
                 }
             };
 
-            vpc_vni = vpc.vni;
+            vpc_vni = vpc.vni.map(|x|x as u32);
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
@@ -326,6 +328,16 @@ pub(crate) async fn get_managed_host_network_config(
         ))
     })?;
 
+    // If admin network is in use, use admin network's vpc_vni.
+    if use_admin_network {
+        // 0 means non-fnn case.
+        vpc_vni = if admin_interface_rpc.vpc_vni != 0 {
+            Some(admin_interface_rpc.vpc_vni)
+        } else {
+            None
+        };
+    }
+
     let network_config = rpc::ManagedHostNetworkConfig {
         loopback_ip: loopback_ip.to_string(),
     };
@@ -386,7 +398,7 @@ pub(crate) async fn get_managed_host_network_config(
         network_virtualization_type: Some(rpc::VpcVirtualizationType::from(
             network_virtualization_type,
         ) as i32),
-        vpc_vni: vpc_vni.map(|vni| vni as u32),
+        vpc_vni,
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),
         is_primary_dpu,
