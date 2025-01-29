@@ -167,14 +167,14 @@ pub fn get_svi_ip(
     network: &IpNetwork,
     virtualization_type: VpcVirtualizationType,
     is_l2_segment: bool,
-) -> eyre::Result<Option<std::net::IpAddr>> {
+) -> eyre::Result<Option<IpNetwork>> {
     match virtualization_type {
         VpcVirtualizationType::EthernetVirtualizer
         | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(None),
         VpcVirtualizationType::Fnn => {
             if is_l2_segment {
                 match network.iter().nth(2) {
-                    Some(ip_addr) => Ok(Some(ip_addr)),
+                    Some(ip_addr) => Ok(Some(IpNetwork::new(ip_addr, network.prefix())?)),
                     None => Err(eyre::eyre!(format!(
                         "no viable SVI IP found in network: {}",
                         network

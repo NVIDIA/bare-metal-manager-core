@@ -1746,7 +1746,7 @@ mod tests {
             l3_vni: Some(7777),
             gateway_cidr: "10.217.4.65/26".to_string(),
             svi_ip: if is_fnn {
-                Some("10.217.4.66".to_string())
+                Some("10.217.4.66/26".to_string())
             } else {
                 None
             },
@@ -1949,7 +1949,10 @@ mod tests {
             },
         ];
 
-        assert_eq!(tenant_interfaces[0].svi_ip, Some("10.217.5.2".to_string()));
+        assert_eq!(
+            tenant_interfaces[0].svi_ip,
+            Some("10.217.5.2/24".to_string())
+        );
         assert_eq!(tenant_interfaces[1].svi_ip, None);
 
         let netconf = rpc::ManagedHostNetworkConfig {
