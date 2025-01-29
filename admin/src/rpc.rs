@@ -17,9 +17,10 @@ use std::str::FromStr;
 
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
-    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IsBmcInManagedHostResponse,
-    MachineBootOverride, MachineSearchConfig, MachineType, NetworkDeviceIdList,
-    NetworkSegmentSearchConfig, RedfishBrowseResponse, VpcVirtualizationType,
+    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IpxeOperatingSystem,
+    IsBmcInManagedHostResponse, MachineBootOverride, MachineSearchConfig, MachineType,
+    NetworkDeviceIdList, NetworkSegmentSearchConfig, OperatingSystem, RedfishBrowseResponse,
+    VpcVirtualizationType,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
@@ -2108,7 +2109,7 @@ pub async fn allocate_instance(
     api_config: &ApiConfig<'_>,
     host_machine_id: &str,
     allocate_instance: &AllocateInstance,
-    instance_name: &String,
+    instance_name: &str,
 ) -> CarbideCliResult<rpc::Instance> {
     with_forge_client(api_config, |mut client| async move {
         let (interface_config, tenant_org) = if let Some(network_segment_name) =
@@ -2185,9 +2186,21 @@ pub async fn allocate_instance(
             hostname: None,
         };
 
+        let variant = allocate_instance.custom_ipxe.as_ref().map(|ipxe_script| {
+            rpc::operating_system::Variant::Ipxe(IpxeOperatingSystem {
+                user_data: allocate_instance.user_data.clone(),
+                ipxe_script: ipxe_script.clone(),
+            })
+        });
+
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
-            os: None,
+            os: Some(OperatingSystem {
+                phone_home_enabled: false,
+                run_provisioning_instructions_on_every_boot: false,
+                user_data: None,
+                variant,
+            }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
             }),

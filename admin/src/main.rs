@@ -543,7 +543,8 @@ async fn main() -> color_eyre::Result<()> {
             Instance::Allocate(allocate_request) => {
                 if !config.cloud_unsafe_op {
                     return Err(CarbideCliError::GenericError(
-                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                        "Operation not allowed due to potential inconsistencies with cloud database."
+                            .to_owned(),
                     )
                     .into());
                 }
