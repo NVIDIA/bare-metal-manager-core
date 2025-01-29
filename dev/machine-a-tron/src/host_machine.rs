@@ -73,7 +73,6 @@ impl HostMachine {
         let host_info =
             HostMachineInfo::new(dpu_machines.iter().map(|d| d.dpu_info().clone()).collect());
         let dpus = dpu_machines.into_iter().map(|d| d.start(true)).collect();
-
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
         let state_machine = MachineStateMachine::new(

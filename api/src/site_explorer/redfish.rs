@@ -18,7 +18,7 @@ use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{EnabledDisabled, MachineSetupStatus, Redfish, RedfishError, RoleId};
+use libredfish::{EnabledDisabled, MachineSetupStatus, Redfish, RedfishError};
 use regex::Regex;
 use serde_json::Value;
 
@@ -118,13 +118,9 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         vendor: RedfishVendor,
         current_bmc_root_credentials: Credentials,
-        new_bmc_root_credentials: Credentials,
+        new_password: String,
     ) -> Result<(), EndpointExplorationError> {
         let (curr_user, curr_pass) = match current_bmc_root_credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        let (new_user, new_pass) = match new_bmc_root_credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
@@ -142,25 +138,8 @@ impl RedfishClient {
         match vendor {
             RedfishVendor::Lenovo => {
                 // Change (factory_user, factory_pass) to (factory_user, site_pass)
-                // We must do this first, BMC won't allow any other call until this is done
                 client
-                    .change_password_by_id("1", new_pass.as_str())
-                    .await
-                    .map_err(map_redfish_error)?;
-
-                // Auth has changed
-                let mid_client = self
-                    .create_authenticated_redfish_client(
-                        bmc_ip_address,
-                        curr_user.clone(),
-                        new_pass.clone(),
-                    )
-                    .await
-                    .map_err(map_redfish_client_creation_error)?;
-
-                // Change (factory_user, site_pass) to (site_user, site_pass)
-                mid_client
-                    .change_username(&curr_user, &new_user)
+                    .change_password_by_id("1", new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
@@ -171,38 +150,34 @@ impl RedfishClient {
                 // GH200 doesn't require change-on-first-use, but it's good practice. GB200
                 // probably will.
                 client
-                    .change_password_by_id("root", new_pass.as_str())
+                    .change_password_by_id("root", new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
             // Handle Vikings
             RedfishVendor::AMI => {
-                // new user will always be "admin"
                 client
-                    .change_password(new_user.as_str(), new_pass.as_str())
+                    .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Supermicro => {
-                // I think Supermicro does not allow renaming its original superuser ('ADMIN').
-                // Check this.
                 client
-                    .create_user(&new_user, &new_pass, RoleId::Administrator)
+                    .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Dell => {
                 client
-                    .change_password(new_user.as_str(), new_pass.as_str())
+                    .change_password(curr_user.as_str(), new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Hpe => {
-                // We don't have an Ansible playbook for HPE. We only run one or two of them
-                // in dev, no prod deploys.
-                return Err(EndpointExplorationError::UnsupportedVendor(
-                    vendor.to_string(),
-                ));
+                client
+                    .change_password(curr_user.as_str(), new_password.as_str())
+                    .await
+                    .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
                 return Err(EndpointExplorationError::UnsupportedVendor(
@@ -213,7 +188,7 @@ impl RedfishClient {
 
         // log in using the new credentials
         client = self
-            .create_authenticated_redfish_client(bmc_ip_address, new_user, new_pass)
+            .create_authenticated_redfish_client(bmc_ip_address, curr_user, new_password)
             .await
             .map_err(map_redfish_client_creation_error)?;
 

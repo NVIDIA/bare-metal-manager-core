@@ -1177,6 +1177,10 @@ impl SiteExplorer {
                         )
                         .await;
 
+                    if let Err(error) = result.clone() {
+                        tracing::info!(%error, "Failed to explore {}: {}",bmc_target_addr , error);
+                    }
+
                     // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
                         if let Err(error) = report.generate_machine_id(false) {

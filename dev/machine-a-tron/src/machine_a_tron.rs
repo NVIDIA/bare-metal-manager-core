@@ -42,18 +42,28 @@ impl MachineATron {
             .flat_map(|(config_name, config)| {
                 tracing::info!("Constructing machines for config {}", config_name);
                 (0..config.host_count).map(|_| {
-                    HostMachine::new(
+                    let host_machine = HostMachine::new(
                         self.app_context.clone(),
                         config.clone(),
                         dhcp_client.clone(),
                         bmc_listen_mode.clone(),
                         api_throttler.clone(),
-                    )
-                    .start(paused)
+                    );
+
+                    host_machine.start(paused)
                 })
             })
             .collect::<Vec<_>>();
 
+        for machine in &machines {
+            // Inform the API that we have finished our reboot (ie. scout is now running)
+            api_client::add_expected_machine(
+                &self.app_context,
+                machine.host_machine_info.bmc_mac_address.to_string(),
+                machine.host_machine_info.serial.clone(),
+            )
+            .await?;
+        }
         // Useful for comparing values in logs with machine-a-tron's state
         tracing::info!(
             "Machine-a-tron using machines: {:?}",
