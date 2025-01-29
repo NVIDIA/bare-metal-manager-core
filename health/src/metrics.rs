@@ -678,6 +678,7 @@ pub async fn scrape_machine_health(
         password: Some(health_hash.password.clone()),
     };
     let redfish = pool.create_client(endpoint.clone()).await?;
+    let model = redfish.get_system().await?.model.unwrap_or_default();
     let health = get_metrics(redfish, health_hash.last_polled_ts).await;
 
     // try dpu metrics
@@ -733,7 +734,7 @@ pub async fn scrape_machine_health(
         }
     };
 
-    export_health_report(client, &health, machine_id).await?;
+    export_health_report(client, &health, machine_id, model).await?;
 
     export_metrics(
         provider.clone(),
@@ -753,6 +754,7 @@ async fn export_health_report(
     client: &mut ForgeClientT,
     health: &HardwareHealth,
     machine_id: &str,
+    model: String,
 ) -> Result<(), HealthError> {
     let mut report = HealthReport {
         source: "hardware-health".to_string(),
@@ -768,6 +770,16 @@ async fn export_health_report(
                 thermal
                     .fans
                     .iter()
+                    // This model is equipped with only 4 fans, but the Redfish API
+                    // incorrectly reports Fans 5 and 6 as "critical" and "absent"
+                    .filter(|r| {
+                        if model.contains("ThinkSystem SR655 V3 OVX") {
+                            r.fan_name.as_deref() != Some("Fan 5 Tach")
+                                && r.fan_name.as_deref() != Some("Fan 6 Tach")
+                        } else {
+                            true
+                        }
+                    })
                     .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status.health)),
                 HealthCheck::FanSpeed,
             );
