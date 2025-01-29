@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
@@ -42,6 +42,7 @@ use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Postgres, Row, Transaction};
@@ -185,6 +186,42 @@ impl fmt::Display for NetworkSegmentType {
             Self::HostInband => write!(f, "host_inband"),
         }
     }
+}
+
+const NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE: &str = r#"
+    WITH
+        prefixes_agg AS (
+            SELECT np.segment_id,
+                json_agg(np.*) AS json
+            FROM network_prefixes np
+            GROUP BY np.segment_id
+        )
+        __HISTORY_AGG__
+     SELECT
+        ns.*,
+        COALESCE(prefixes_agg.json, '[]'::json) AS prefixes
+        __HISTORY_SELECT__
+     FROM network_segments ns
+     LEFT JOIN prefixes_agg ON prefixes_agg.segment_id = ns.id
+     __HISTORY_JOIN__
+"#;
+
+lazy_static! {
+    static ref NETWORK_SEGMENT_SNAPSHOT_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
+        .replace("__HISTORY_AGG__", "")
+        .replace("__HISTORY_SELECT__", "")
+        .replace("__HISTORY_JOIN__", "");
+
+    static ref NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
+        .replace("__HISTORY_AGG__", r#"
+            , history_agg AS (
+                SELECT h.segment_id,
+                    json_agg(json_build_object('segment_id', h.segment_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
+                FROM network_segment_state_history h
+                GROUP BY h.segment_id
+            )"#)
+        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]'::json) AS history")
+        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.segment_id = ns.id");
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -442,13 +479,18 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         vpc_id: uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
+        lazy_static! {
+            static ref query: String = format!(
+                "{} WHERE ns.vpc_id=$1::uuid",
+                NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+            );
+        }
         let results: Vec<NetworkSegment> = {
-            let query = "SELECT * FROM network_segment_snapshots WHERE vpc_id=$1::uuid";
-            sqlx::query_as(query)
+            sqlx::query_as(&query)
                 .bind(vpc_id)
                 .fetch_all(txn.deref_mut())
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?
         };
 
         Ok(results)
@@ -458,15 +500,19 @@ impl NetworkSegment {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         relay: IpAddr,
     ) -> CarbideResult<Option<Self>> {
-        let query = r#"SELECT ns.*
-            FROM network_segment_snapshots ns
-            INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
-            WHERE $1::inet <<= network_prefixes.prefix"#;
-        let mut results = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{}
+                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
+                WHERE $1::inet <<= network_prefixes.prefix"#,
+                NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let mut results = sqlx::query_as(&query)
             .bind(IpNetwork::from(relay))
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
 
         match results.len() {
             0 | 1 => Ok(results.pop()),
@@ -538,11 +584,11 @@ impl NetworkSegment {
         filter: ObjectColumnFilter<'a, C>,
         search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let mut query = if search_config.include_history {
-            FilterableQueryBuilder::new("SELECT * FROM network_segment_snapshots_with_history")
+        let mut query = FilterableQueryBuilder::new(if search_config.include_history {
+            NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY.deref()
         } else {
-            FilterableQueryBuilder::new("SELECT * FROM network_segment_snapshots")
-        }
+            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+        })
         .filter(&filter);
 
         let mut all_records = query
@@ -801,43 +847,55 @@ impl NetworkSegment {
         txn: &mut Transaction<'_, Postgres>,
         circuit_id: &str,
     ) -> Result<Self, DatabaseError> {
-        let query = r#"
-            SELECT ns.* FROM network_segment_snapshots ns
-            INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
-            WHERE network_prefixes.circuit_id=$1"#;
-        sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{}
+                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
+                WHERE network_prefixes.circuit_id=$1"#,
+                NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+            );
+        }
+        sqlx::query_as(&query)
             .bind(circuit_id)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
     }
 
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: &str,
     ) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM network_segment_snapshots WHERE name = $1";
-        let segment: Self = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String =
+                format!("{} WHERE name = $1", NETWORK_SEGMENT_SNAPSHOT_QUERY.deref());
+        }
+        let segment: Self = sqlx::query_as(&query)
             .bind(name)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         Ok(segment)
     }
 
     /// This method returns Admin network segment.
     pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
-        let query = "SELECT * FROM network_segment_snapshots WHERE network_segment_type = 'admin'";
-        let mut segments: Vec<NetworkSegment> = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                "{} WHERE network_segment_type = 'admin'",
+                NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let mut segments: Vec<NetworkSegment> = sqlx::query_as(&query)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         if segments.is_empty() {
             return Err(DatabaseError::new(
                 file!(),
                 line!(),
-                query,
+                &query,
                 sqlx::Error::RowNotFound,
             ));
         }

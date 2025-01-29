@@ -16,6 +16,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
+use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
@@ -71,9 +72,35 @@ impl ColumnInfo<'_> for MachineIdColumn {
     }
 }
 
+/// A denormalized view on machine_interfaces that aggregates the addresses and vendors using
+/// JSON_AGG. This query is also used by machines.rs as a subquery when collecting machine
+/// snapshots.
+pub const MACHINE_INTERFACE_SNAPSHOT_QUERY: &str = r#"
+    WITH addresses_agg AS (
+        SELECT a.interface_id,
+            json_agg(a.address) AS json
+        FROM machine_interface_addresses a
+        GROUP BY a.interface_id
+    ),
+    vendors_agg AS (
+        SELECT d.machine_interface_id,
+            json_agg(d.vendor_string) AS json
+        FROM dhcp_entries d
+        GROUP BY d.machine_interface_id
+    )
+    SELECT mi.*,
+        COALESCE(addresses_agg.json, '[]'::json) AS addresses,
+        COALESCE(vendors_agg.json, '[]'::json) AS vendors,
+        ns.network_segment_type
+    FROM machine_interfaces mi
+    JOIN network_segments ns ON ns.id = mi.segment_id
+    LEFT JOIN addresses_agg ON addresses_agg.interface_id = mi.id
+    LEFT JOIN vendors_agg ON vendors_agg.machine_interface_id = mi.id
+"#;
+
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        // Note: Make sure to use the machine_interface_snapshots view when querying, or these
+        // Note: Make sure to use the MACHINE_INTERFACE_SNAPSHOT_QUERY when querying, or these
         // columns will not be present in the result.
         let addrs_json: sqlx::types::Json<Vec<Option<IpAddr>>> = row.try_get("addresses")?;
         let vendors_json: sqlx::types::Json<Vec<Option<String>>> = row.try_get("vendors")?;
@@ -158,14 +185,19 @@ pub async fn find_by_ip(
     txn: &mut Transaction<'_, Postgres>,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-    let query = r#"SELECT mi.* FROM machine_interface_snapshots mi
-        INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-        WHERE mia.address = $1::inet"#;
-    sqlx::query_as(query)
+    lazy_static! {
+        static ref query: String = format!(
+            r#"{}
+            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+            WHERE mia.address = $1::inet"#,
+            MACHINE_INTERFACE_SNAPSHOT_QUERY
+        );
+    }
+    sqlx::query_as(&query)
         .bind(ip)
         .fetch_optional(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
 }
 
 pub async fn find_all(
@@ -516,8 +548,8 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
     txn: &mut Transaction<'_, Postgres>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    let query_str = "SELECT * FROM machine_interface_snapshots";
-    let mut query = FilterableQueryBuilder::new(query_str).filter(&filter);
+    let mut query = FilterableQueryBuilder::new(MACHINE_INTERFACE_SNAPSHOT_QUERY)
+        .filter_relation(&filter, Some("mi"));
     let interfaces = query
         .build_query_as::<MachineInterfaceSnapshot>()
         .fetch_all(txn.deref_mut())
@@ -689,14 +721,18 @@ pub async fn find_by_machine_and_segment(
     machine_id: &MachineId,
     segment_id: NetworkSegmentId,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    let query =
-        "SELECT * FROM machine_interface_snapshots WHERE machine_id = $1 AND segment_id = $2::uuid";
-    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+    lazy_static! {
+        static ref query: String = format!(
+            "{} WHERE mi.machine_id = $1 AND mi.segment_id = $2::uuid",
+            MACHINE_INTERFACE_SNAPSHOT_QUERY
+        );
+    }
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(&query)
         .bind(machine_id.to_string())
         .bind(segment_id)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
         .map(|interfaces| {
             interfaces
                 .into_iter()

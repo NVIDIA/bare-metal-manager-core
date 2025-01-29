@@ -14,7 +14,7 @@
 //!
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, DpuInfo};
@@ -26,6 +26,7 @@ use forge_uuid::{
 };
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
@@ -34,6 +35,7 @@ use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
+use crate::db::machine_interface::MACHINE_INTERFACE_SNAPSHOT_QUERY;
 use crate::db::machine_state_history::DbMachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
@@ -227,6 +229,65 @@ pub struct Machine {
     /// Version field that tracks changes to
     /// - Metadata
     version: ConfigVersion,
+}
+
+lazy_static! {
+    // This is a denormalized view of a machine that includes its interfaces (including their
+    // denormalized address/vendors), its most recent topology, and optionally its history, in a
+    // single query, using CTE's and JSON_AGG.
+    static ref MACHINE_SNAPSHOT_QUERY_TEMPLATE: String = r#"
+        WITH
+        interface_snapshots AS (__INTERFACE_SNAPSHOTS__),
+        interfaces_agg AS (
+            SELECT i.machine_id, JSON_AGG(i.*) AS json
+            FROM interface_snapshots AS i
+            GROUP BY i.machine_id
+        ),
+        partitioned_topologies AS (
+            SELECT mt.*, ROW_NUMBER()
+            OVER (PARTITION BY mt.machine_id ORDER BY mt.created DESC) as row_num
+            FROM machine_topologies mt
+        ),
+        most_recent_topology AS (
+            SELECT t.machine_id, t.topology, t.created, t.updated, t.topology_update_needed
+            FROM partitioned_topologies t
+            WHERE row_num = 1
+        ),
+        topology_agg AS (
+            SELECT mt.machine_id, JSON_AGG(mt.*) AS json
+            FROM most_recent_topology mt
+            GROUP BY mt.machine_id
+        )
+        __HISTORY_AGG__
+        SELECT
+            m.*,
+            COALESCE(interfaces_agg.json, '[]') AS interfaces,
+            COALESCE(topology_agg.json, '[]') AS topology
+            __HISTORY_SELECT__
+        FROM machines m
+        LEFT JOIN interfaces_agg ON interfaces_agg.machine_id = m.id
+        LEFT JOIN topology_agg ON topology_agg.machine_id = m.id
+        __HISTORY_JOIN__
+    "#
+    // MACHINE_INTERFACE_SNAPSHOT_QUERY is the query we use in machine_interfaces.rs to denormalize
+    // the machine_interfaces table. Use that as a subquery for machine snapshots.
+        .replace("__INTERFACE_SNAPSHOTS__", MACHINE_INTERFACE_SNAPSHOT_QUERY);
+
+    static ref MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
+        .replace(
+            "__HISTORY_AGG__",
+            r#", history_agg AS (
+                SELECT mh.machine_id, JSON_AGG(json_build_object('machine_id', mh.machine_id, 'state', mh.state::TEXT, 'state_version', mh.state_version)) AS json
+                FROM machine_state_history mh
+                GROUP BY machine_id
+            )"#)
+        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]') AS history")
+        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.machine_id = m.id");
+
+    static ref MACHINE_SNAPSHOT_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
+        .replace("__HISTORY_AGG__", "")
+        .replace("__HISTORY_SELECT__", "")
+        .replace("__HISTORY_JOIN__", "");
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -788,13 +849,18 @@ impl Machine {
     ) -> Result<Vec<Machine>, DatabaseError> {
         // The TRUE will be optimized away by the query planner,
         // but it simplifies the rest of the building for us.
-        let mut builder = if search_config.include_history {
-            sqlx::QueryBuilder::new(
-                "SELECT * FROM machine_snapshots_with_history m WHERE TRUE".to_owned(),
-            )
+        lazy_static! {
+            static ref query_no_history: String =
+                format!("{} WHERE TRUE", MACHINE_SNAPSHOT_QUERY.deref());
+            static ref query_with_history: String =
+                format!("{} WHERE TRUE", MACHINE_SNAPSHOT_WITH_HISTORY_QUERY.deref());
+        }
+
+        let mut builder = sqlx::QueryBuilder::new(if search_config.include_history {
+            query_with_history.deref()
         } else {
-            sqlx::QueryBuilder::new("SELECT * FROM machine_snapshots m WHERE TRUE".to_owned())
-        };
+            query_no_history.deref()
+        });
 
         match filter {
             ObjectFilter::All => {} // Nothing to add.
@@ -834,15 +900,20 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         ip: &Ipv4Addr,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machine_snapshots m
-            JOIN machine_interfaces mi ON m.id = mi.machine_id
-            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-            WHERE mia.address = $1::inet"#;
-        let machine = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{}
+                INNER JOIN machine_interfaces mi ON mi.machine_id = m.id
+                INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+                WHERE mia.address = $1::inet"#,
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machine = sqlx::query_as(&query)
             .bind(ip.to_string())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machine)
     }
@@ -924,15 +995,18 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         hostname: &str,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machine_snapshots m
-            JOIN machine_interfaces mi ON m.id = mi.machine_id
-            WHERE mi.hostname = $1"#;
+        lazy_static! {
+            static ref query: String = format!(
+                "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.hostname = $1",
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
 
-        let machine = sqlx::query_as(query)
+        let machine = sqlx::query_as(&query)
             .bind(hostname)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machine)
     }
@@ -941,14 +1015,17 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         mac_address: &MacAddress,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* FROM machine_snapshots m
-            JOIN machine_interfaces mi ON m.id = mi.machine_id
-            WHERE mi.mac_address = $1::macaddr"#;
-        let machine = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.mac_address = $1::macaddr",
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machine = sqlx::query_as(&query)
             .bind(mac_address)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machine)
     }
@@ -957,12 +1034,17 @@ impl Machine {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         loopback_ip: &str,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_snapshots WHERE network_config->>'loopback_ip' = $1";
-        let machine = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                "{} WHERE m.network_config->>'loopback_ip' = $1",
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machine = sqlx::query_as(&query)
             .bind(loopback_ip)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         Ok(machine)
     }
 
@@ -1166,16 +1248,19 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT m.* From machine_snapshots m
-                INNER JOIN machine_interfaces mi
-                  ON m.id = mi.machine_id
-                WHERE mi.attached_dpu_machine_id=$1
-                    AND mi.attached_dpu_machine_id != mi.machine_id"#;
-        let machine = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{} INNER JOIN machine_interfaces mi ON m.id = mi.machine_id
+                    WHERE mi.attached_dpu_machine_id=$1
+                    AND mi.attached_dpu_machine_id != mi.machine_id"#,
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machine = sqlx::query_as(&query)
             .bind(dpu_machine_id.to_string())
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machine)
     }
@@ -1184,15 +1269,20 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = r#"SELECT m.* From machine_snapshots m
-                INNER JOIN machine_interfaces mi
-                  ON m.id = mi.attached_dpu_machine_id
-                WHERE mi.machine_id=$1"#;
-        let machines = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{}
+                    INNER JOIN machine_interfaces mi
+                      ON m.id = mi.attached_dpu_machine_id
+                    WHERE mi.machine_id=$1"#,
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machines = sqlx::query_as(&query)
             .bind(host_machine_id.to_string())
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machines)
     }
@@ -1808,12 +1898,17 @@ impl Machine {
     pub async fn get_host_reprovisioning_machines(
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Machine>, DatabaseError> {
-        let query = "SELECT * FROM machine_snapshots
-            WHERE host_reprovisioning_requested IS NOT NULL";
-        sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                "{}
+                WHERE m.host_reprovisioning_requested IS NOT NULL",
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        sqlx::query_as(&query)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
     }
 
     pub async fn update_controller_state_outcome(
@@ -1912,11 +2007,16 @@ impl Machine {
     pub async fn list_machines_requested_for_reprovisioning(
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT * FROM machine_snapshots WHERE reprovisioning_requested IS NOT NULL";
-        sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                "{} WHERE m.reprovisioning_requested IS NOT NULL",
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        sqlx::query_as(&query)
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
     }
 
     /// Apply dpu agent upgrade policy to a single DPU.
@@ -2234,13 +2334,20 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         validation_id: &Uuid,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT * FROM machine_snapshots
-            WHERE discovery_machine_validation_id = $1 OR cleanup_machine_validation_id = $1 OR on_demand_machine_validation_id = $1"#;
-        let machine = sqlx::query_as(query)
+        lazy_static! {
+            static ref query: String = format!(
+                r#"{}
+                WHERE m.discovery_machine_validation_id = $1
+                OR m.cleanup_machine_validation_id = $1
+                OR m.on_demand_machine_validation_id = $1"#,
+                MACHINE_SNAPSHOT_QUERY.deref()
+            );
+        }
+        let machine = sqlx::query_as(&query)
             .bind(validation_id)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
         Ok(machine)
     }
