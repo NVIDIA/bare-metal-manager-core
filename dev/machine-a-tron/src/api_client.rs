@@ -2,7 +2,9 @@ use crate::config::MachineATronContext;
 use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::{ConfigSetting, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest};
+use rpc::forge::{
+    ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
+};
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
     forge::MachineType,
@@ -728,6 +730,28 @@ pub async fn configure_bmc_proxy_host(
                 setting: ConfigSetting::BmcProxy as i32,
                 value: host,
                 expiry: None,
+            }))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|r| r.into_inner())
+}
+
+pub async fn add_expected_machine(
+    app_context: &MachineATronContext,
+    bmc_mac_address: String,
+    chassis_serial_number: String,
+) -> ClientApiResult<()> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .add_expected_machine(tonic::Request::new(ExpectedMachine {
+                bmc_mac_address,
+                bmc_username: "root".to_string(),
+                bmc_password: "factory_password".to_string(),
+                chassis_serial_number,
+                fallback_dpu_serial_numbers: Vec::new(),
+                metadata: None,
             }))
             .await
             .map_err(ClientApiError::InvocationError)

@@ -50,27 +50,17 @@ impl BmcEndpointExplorer {
         }
     }
 
-    pub async fn get_sitewide_bmc_root_credentials(
-        &self,
-        vendor: RedfishVendor,
-    ) -> Result<Credentials, EndpointExplorationError> {
+    pub async fn get_sitewide_bmc_password(&self) -> Result<String, EndpointExplorationError> {
         let credentials = self
             .credential_client
             .get_sitewide_bmc_root_credentials()
             .await?;
 
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => match vendor {
-                // The libredfish::AMI RedfishVendor is specific to Vikings.
-                // DPUs use the NVIDIA RedfishVendor type.
-                RedfishVendor::AMI => ("admin".to_string(), password),
-                // We use the site-wide username from Vault on all other vendors. Vikings do not allow
-                // using "root" as the username of an account with Administrative priviledges.
-                _ => (username, password),
-            },
+        let (_, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        Ok(Credentials::UsernamePassword { username, password })
+        Ok(password)
     }
 
     pub async fn get_default_hardware_dpu_bmc_root_credentials(
@@ -114,16 +104,25 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         vendor: RedfishVendor,
         current_bmc_credentials: Credentials,
-        new_bmc_credentials: Credentials,
-    ) -> Result<(), EndpointExplorationError> {
+        new_password: String,
+    ) -> Result<Credentials, EndpointExplorationError> {
         self.redfish_client
             .set_bmc_root_password(
                 bmc_ip_address,
                 vendor,
-                current_bmc_credentials,
-                new_bmc_credentials,
+                current_bmc_credentials.clone(),
+                new_password.clone(),
             )
-            .await
+            .await?;
+
+        let (user, _) = match current_bmc_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        Ok(Credentials::UsernamePassword {
+            username: user,
+            password: new_password,
+        })
     }
 
     pub async fn generate_exploration_report(
@@ -189,18 +188,19 @@ impl BmcEndpointExplorer {
             }
         }
 
-        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials(vendor).await?;
+        let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
 
         // use redfish to set the machine's BMC root password to
         // match Forge's sitewide BMC root password (from the factory default).
         // return an error if we cannot log into the machine's BMC using current credentials
-        self.set_bmc_root_password(
-            bmc_ip_address,
-            vendor,
-            current_bmc_credentials,
-            sitewide_bmc_root_credentials.clone(),
-        )
-        .await?;
+        let bmc_credentials = self
+            .set_bmc_root_password(
+                bmc_ip_address,
+                vendor,
+                current_bmc_credentials,
+                sitewide_bmc_password,
+            )
+            .await?;
 
         tracing::info!(
             %bmc_ip_address, %bmc_mac_address, %vendor,
@@ -208,33 +208,11 @@ impl BmcEndpointExplorer {
         );
 
         // set the BMC root credentials in vault for this machine
-        self.set_bmc_root_credentials(bmc_mac_address, sitewide_bmc_root_credentials.clone())
+        self.set_bmc_root_credentials(bmc_mac_address, bmc_credentials.clone())
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, sitewide_bmc_root_credentials)
+        self.generate_exploration_report(bmc_ip_address, bmc_credentials)
             .await
-    }
-
-    // Handle the legacy case: machines that were previously discovered through the legacy ingestion flow
-    // and already had their bmc's root account password changed from the factory to the site specific password.
-    // These machines do not need their root authentication changed; we just need to add the appropriate bmc specific
-    // credentials in vault so that the new site explorer flow can continue ingesting this machine
-    pub async fn handle_legacy_bmc_root_auth(
-        &self,
-        bmc_ip_address: SocketAddr,
-        bmc_mac_address: MacAddress,
-        vendor: RedfishVendor,
-    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials(vendor).await?;
-
-        let report = self
-            .generate_exploration_report(bmc_ip_address, sitewide_bmc_root_credentials.clone())
-            .await?;
-
-        self.set_bmc_root_credentials(bmc_mac_address, sitewide_bmc_root_credentials)
-            .await?;
-
-        Ok(report)
     }
 
     pub async fn redfish_reset_bmc(
@@ -350,40 +328,18 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     bmc_mac_address,
                 );
 
-                // Case 2:
-                // The machine's BMC root password has already been set to the Forge Sitewide BMC root password.
-                // But, Vault does NOT have an entry for "bmc/{bmc_mac_address}/root"
-                // 1) Add an entry in vault for "bmc/{bmc_mac_address}/root"
-                // 2) Create the redfish client and generate the report.
-                match self
-                    .handle_legacy_bmc_root_auth(bmc_ip_address, bmc_mac_address, vendor)
-                    .await
-                {
-                    Ok(report) => Ok(report),
-                    Err(e) => match e {
-                        EndpointExplorationError::Unauthorized { .. } => {
-                            tracing::info!(
-                                %bmc_ip_address,
-                                "Site Explorer could not use site-wide credentials to login to this unknown BMC - this is expected if the BMC has never been seen before: {e}"
-                            );
-
-                            // Case 3:
-                            // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
-                            // 1) Try to login to the machine's BMC root account
-                            // 2) Set the machine's BMC root password to the Forge Sitewide BMC root password
-                            // 3) Set the password policy for the machine's BMC
-                            // 4) Generate the report
-                            self.set_sitewide_bmc_root_password(
-                                bmc_ip_address,
-                                bmc_mac_address,
-                                vendor,
-                                expected_machine,
-                            )
-                            .await
-                        }
-                        _ => Err(e),
-                    },
-                }
+                // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
+                // 1) Try to login to the machine's BMC root account
+                // 2) Set the machine's BMC root password to the Forge Sitewide BMC root password
+                // 3) Set the password policy for the machine's BMC
+                // 4) Generate the report
+                self.set_sitewide_bmc_root_password(
+                    bmc_ip_address,
+                    bmc_mac_address,
+                    vendor,
+                    expected_machine,
+                )
+                .await
             }
         }
     }

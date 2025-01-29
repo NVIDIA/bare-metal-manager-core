@@ -27,8 +27,8 @@ use crate::CarbideError;
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
-/// Username for the root BMC account.
-const FORGE_ROOT_BMC_USERNAME: &str = "root";
+/// Default Username for the admin BMC account.
+const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
 pub(crate) async fn create_credential(
     api: &Api,
@@ -401,7 +401,8 @@ async fn set_sitewide_bmc_root_credentials(
     };
 
     let credentials = Credentials::UsernamePassword {
-        username: FORGE_ROOT_BMC_USERNAME.to_string(),
+        // we no longer set a site-wide bmc username
+        username: "".to_string(),
         password: password.clone(),
     };
 
@@ -427,7 +428,7 @@ async fn set_bmc_root_credentials_by_mac(
     };
 
     let credentials = Credentials::UsernamePassword {
-        username: username.unwrap_or_else(|| FORGE_ROOT_BMC_USERNAME.to_string()),
+        username: username.unwrap_or_else(|| DEFAULT_FORGE_ADMIN_BMC_USERNAME.to_string()),
         password: password.clone(),
     };
 
