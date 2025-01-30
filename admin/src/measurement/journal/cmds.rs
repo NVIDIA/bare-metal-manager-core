@@ -173,7 +173,7 @@ pub async fn list(
     list: &List,
 ) -> CarbideCliResult<MeasurementJournalRecordList> {
     // Request.
-    let request = match list.machine_id.clone() {
+    let request = match list.machine_id {
         Some(machine_id) => ListMeasurementJournalRequest {
             selector: Some(list_measurement_journal_request::Selector::MachineId(
                 machine_id.to_string(),

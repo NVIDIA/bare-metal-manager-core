@@ -337,7 +337,7 @@ impl SiteExplorer {
             let machine = match machine_id.as_ref() {
                 Some(id) => db::machine::Machine::find(
                     &mut txn,
-                    ObjectFilter::One(id.clone()),
+                    ObjectFilter::One(*id),
                     MachineSearchConfig {
                         include_dpus: true,
                         include_history: false,
@@ -619,7 +619,7 @@ impl SiteExplorer {
             // machine_id_if_valid_report makes sure that all optional fields on dpu_report are
             // actually set (like the machine-id etc) and returns the machine_id if everything
             // is valid.
-            let dpu_machine_id = dpu_report.machine_id_if_valid_report()?.clone();
+            let dpu_machine_id = *dpu_report.machine_id_if_valid_report()?;
             dpu_ids.push(dpu_machine_id);
 
             if !self.create_dpu(&mut txn, dpu_report).await? {
@@ -655,7 +655,7 @@ impl SiteExplorer {
                 dpu_states: DpuDiscoveringStates {
                     states: dpu_ids
                         .into_iter()
-                        .map(|x| (x.clone(), DpuDiscoveringState::Initializing))
+                        .map(|x| (x, DpuDiscoveringState::Initializing))
                         .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
                 },
             },
@@ -1431,8 +1431,8 @@ impl SiteExplorer {
         self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, metadata)
             .await?;
 
-        let machine_id = machine_id.clone(); // 🦀 end the borrow so we can write to managed_host.machine_id
-        managed_host.machine_id = Some(machine_id.clone());
+        let machine_id = *machine_id; // 🦀 end the borrow so we can write to managed_host.machine_id
+        managed_host.machine_id = Some(machine_id);
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
@@ -1676,7 +1676,7 @@ impl SiteExplorer {
                     txn,
                 )
                 .await?;
-                Ok(host_machine_id.clone())
+                Ok(*host_machine_id)
             }
             None => {
                 // This is the primary interface for the host.
@@ -1697,7 +1697,7 @@ impl SiteExplorer {
                     "Created host machine proactively in site-explorer",
                 );
 
-                explored_host.machine_id = Some(host_machine_id.clone());
+                explored_host.machine_id = Some(host_machine_id);
                 db::machine_interface::set_primary_interface(&host_machine_interface.id, true, txn)
                     .await?;
                 Ok(host_machine_id)

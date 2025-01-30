@@ -77,7 +77,7 @@ pub async fn from_id_with_txn(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
 ) -> CarbideResult<CandidateMachine> {
-    match get_candidate_machine_record_by_id(txn, machine_id.clone()).await? {
+    match get_candidate_machine_record_by_id(txn, machine_id).await? {
         Some(record) => {
             let attrs = match &record.topology.discovery_data.info.dmi_data {
                 Some(dmi_data) => Ok(HashMap::from([
@@ -90,11 +90,11 @@ pub async fn from_id_with_txn(
                 ))),
             }?;
 
-            let journal = get_latest_journal_for_id(txn, machine_id.clone()).await?;
+            let journal = get_latest_journal_for_id(txn, machine_id).await?;
             let state = machine_state_from_journal(&journal);
 
             Ok(CandidateMachine {
-                machine_id: record.machine_id.clone(),
+                machine_id: record.machine_id,
                 created_ts: record.created,
                 updated_ts: record.updated,
                 attrs,
@@ -152,7 +152,7 @@ pub async fn get_measurement_bundle_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
 ) -> eyre::Result<Option<MeasurementBundleState>> {
-    let result = get_latest_journal_for_id(&mut *txn, machine_id.clone()).await?;
+    let result = get_latest_journal_for_id(&mut *txn, *machine_id).await?;
     if let Some(journal_record) = result {
         if let Some(bundle_id) = journal_record.bundle_id {
             if let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await? {
@@ -186,11 +186,11 @@ async fn get_candidate_machines(
             ))),
         }?;
 
-        let journal = get_latest_journal_for_id(txn, record.machine_id.clone()).await?;
+        let journal = get_latest_journal_for_id(txn, record.machine_id).await?;
         let state = machine_state_from_journal(&journal);
 
         res.push(CandidateMachine {
-            machine_id: record.machine_id.clone(),
+            machine_id: record.machine_id,
             created_ts: record.created,
             updated_ts: record.updated,
             attrs,

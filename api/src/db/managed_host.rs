@@ -37,7 +37,7 @@ pub async fn load_snapshot(
     machine_id: &MachineId,
     options: LoadSnapshotOptions,
 ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
-    let mut snapshots = load_by_machine_ids(txn, &[machine_id.clone()], options).await?;
+    let mut snapshots = load_by_machine_ids(txn, &[*machine_id], options).await?;
     Ok(snapshots.remove(machine_id))
 }
 
@@ -59,14 +59,14 @@ pub async fn load_by_machine_ids(
     let mut host_ids_by_requested_dpu_ids = HashMap::new();
     for machine_id in machine_ids.iter() {
         if !machine_id.machine_type().is_dpu() {
-            all_host_ids.insert(machine_id.clone());
-            requested_host_ids.insert(machine_id.clone());
+            all_host_ids.insert(*machine_id);
+            requested_host_ids.insert(*machine_id);
         } else {
             // TODO: This is slow. We should have an API which loads us all the associated host IDs
             // However the Method is not used in a hot path - only debug tools query for DPU information
             match Machine::find_host_machine_id_by_dpu_machine_id(txn, machine_id).await? {
                 Some(host_id) => {
-                    host_ids_by_requested_dpu_ids.insert(machine_id.clone(), host_id.clone());
+                    host_ids_by_requested_dpu_ids.insert(*machine_id, host_id);
                     all_host_ids.insert(host_id);
                 }
                 None => {
@@ -89,7 +89,7 @@ pub async fn load_by_machine_ids(
     };
     let mut instances_by_host_id: HashMap<MachineId, InstanceSnapshot> = instances
         .into_iter()
-        .map(|instance| (instance.machine_id.clone(), instance))
+        .map(|instance| (instance.machine_id, instance))
         .collect();
 
     let mut snapshots_by_host_id = HashMap::with_capacity(states.hosts_by_id.len());
@@ -138,14 +138,14 @@ pub async fn load_by_machine_ids(
     // we have to clone from snapshots_by_host_id
     for (dpu_machine_id, host_machine_id) in host_ids_by_requested_dpu_ids.iter() {
         if let Some(snapshot) = snapshots_by_host_id.get(host_machine_id) {
-            result.insert(dpu_machine_id.clone(), snapshot.clone());
+            result.insert(*dpu_machine_id, snapshot.clone());
         }
     }
     // Then extract the explicitly requested host snapshots. Since they can't be requested
     // by any DPU anymore, we can move them out of the map
     for host_machine_id in requested_host_ids.iter() {
         if let Some(snapshot) = snapshots_by_host_id.remove(host_machine_id) {
-            result.insert(host_machine_id.clone(), snapshot);
+            result.insert(*host_machine_id, snapshot);
         }
     }
 
@@ -176,9 +176,8 @@ pub async fn load_by_instance_snapshots(
     let mut host_machine_ids = Vec::with_capacity(instance_snapshots.len());
     let mut instance_snapshots_by_machine_id = HashMap::with_capacity(instance_snapshots.len());
     for instance_snapshot in instance_snapshots.into_iter() {
-        host_machine_ids.push(instance_snapshot.machine_id.clone());
-        instance_snapshots_by_machine_id
-            .insert(instance_snapshot.machine_id.clone(), instance_snapshot);
+        host_machine_ids.push(instance_snapshot.machine_id);
+        instance_snapshots_by_machine_id.insert(instance_snapshot.machine_id, instance_snapshot);
     }
 
     let mut machines =
@@ -243,10 +242,10 @@ async fn load_host_and_dpu_machine_states(
     for host_machine in hosts.into_iter() {
         for iface in host_machine.interfaces().iter() {
             if let Some(dpu_id) = &iface.attached_dpu_machine_id {
-                dpu_machine_ids.push(dpu_id.clone());
+                dpu_machine_ids.push(*dpu_id);
             }
         }
-        hosts_by_id.insert(host_machine.id().clone(), host_machine.into());
+        hosts_by_id.insert(*host_machine.id(), host_machine.into());
     }
     let dpus = Machine::find(
         txn,
@@ -256,7 +255,7 @@ async fn load_host_and_dpu_machine_states(
     .await?;
     let mut dpus_by_id: HashMap<MachineId, MachineSnapshot> = dpus
         .into_iter()
-        .map(|dpu| (dpu.id().clone(), dpu.into()))
+        .map(|dpu| (*dpu.id(), dpu.into()))
         .collect();
 
     if include_history {

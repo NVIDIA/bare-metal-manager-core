@@ -322,12 +322,11 @@ impl<'a> MockExploredHost<'a> {
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
         let host_machine_id =
-            Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+            *Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
                 .await
                 .unwrap()
                 .unwrap()
-                .id()
-                .clone();
+                .id();
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, machine_id).await;
@@ -374,13 +373,13 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            let response = forge_agent_control(self.test_env, machine_id.clone().into()).await;
+            let response = forge_agent_control(self.test_env, (*machine_id).into()).await;
             assert_eq!(
                 response.action,
                 rpc::forge_agent_control_response::Action::Discovery as i32
             );
 
-            discovery_completed(self.test_env, machine_id.clone().into()).await;
+            discovery_completed(self.test_env, (*machine_id).into()).await;
         }
 
         self.test_env
@@ -431,12 +430,11 @@ impl<'a> MockExploredHost<'a> {
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
         let host_machine_id =
-            Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+            *Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
                 .await
                 .unwrap()
                 .unwrap()
-                .id()
-                .clone();
+                .id();
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, machine_id).await;
@@ -483,7 +481,7 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            discovery_completed(self.test_env, machine_id.clone().into()).await;
+            discovery_completed(self.test_env, (*machine_id).into()).await;
         }
 
         self.test_env
@@ -519,7 +517,7 @@ impl<'a> MockExploredHost<'a> {
             .clone()
             .unwrap();
 
-        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap().clone();
+        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap();
 
         if self.test_env.attestation_enabled {
             let mut txn = self.test_env.pool.begin().await.unwrap();
@@ -562,13 +560,8 @@ impl<'a> MockExploredHost<'a> {
 
         txn.commit().await.unwrap();
 
-        discovery_completed(self.test_env, host_machine_id.clone().into()).await;
-        host_uefi_setup(
-            self.test_env,
-            &host_machine_id,
-            host_machine_id.clone().into(),
-        )
-        .await;
+        discovery_completed(self.test_env, host_machine_id.into()).await;
+        host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
@@ -613,7 +606,7 @@ impl<'a> MockExploredHost<'a> {
             .await;
         txn.commit().await.unwrap();
 
-        machine_validation_completed(self.test_env, host_machine_id.clone().into(), None).await;
+        machine_validation_completed(self.test_env, host_machine_id.into(), None).await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
@@ -630,7 +623,7 @@ impl<'a> MockExploredHost<'a> {
             .await;
         txn.commit().await.unwrap();
 
-        let response = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+        let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
         assert_eq!(
             response.action,
             rpc::forge_agent_control_response::Action::Noop as i32
@@ -678,7 +671,7 @@ impl<'a> MockExploredHost<'a> {
             .machine_id
             .clone()
             .unwrap();
-        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap().clone();
+        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap();
         let mut machine_validation_result = machine_validation_result_data.unwrap_or_default();
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
@@ -702,13 +695,8 @@ impl<'a> MockExploredHost<'a> {
 
         txn.commit().await.unwrap();
 
-        discovery_completed(self.test_env, host_machine_id.clone().into()).await;
-        host_uefi_setup(
-            self.test_env,
-            &host_machine_id,
-            host_machine_id.clone().into(),
-        )
-        .await;
+        discovery_completed(self.test_env, host_machine_id.into()).await;
+        host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
@@ -753,7 +741,7 @@ impl<'a> MockExploredHost<'a> {
             .await;
         txn.commit().await.unwrap();
 
-        let response = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+        let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
             let validation_id = Some(rpc::Uuid {
@@ -768,8 +756,7 @@ impl<'a> MockExploredHost<'a> {
             .await;
             assert_eq!(success.message, "Success".to_string());
             let runs =
-                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
-                    .await;
+                get_machine_validation_runs(self.test_env, host_machine_id.into(), false).await;
             for run in runs.runs {
                 if run.validation_id == validation_id {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
@@ -781,23 +768,18 @@ impl<'a> MockExploredHost<'a> {
             persist_machine_validation_result(self.test_env, machine_validation_result.clone())
                 .await;
             assert_eq!(
-                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
+                get_machine_validation_runs(self.test_env, host_machine_id.into(), false)
                     .await
                     .runs[0]
                     .end_time,
                 None
             );
 
-            machine_validation_completed(
-                self.test_env,
-                host_machine_id.clone().into(),
-                error.clone(),
-            )
-            .await;
+            machine_validation_completed(self.test_env, host_machine_id.into(), error.clone())
+                .await;
 
             let runs =
-                get_machine_validation_runs(self.test_env, host_machine_id.clone().into(), false)
-                    .await;
+                get_machine_validation_runs(self.test_env, host_machine_id.into(), false).await;
             for run in runs.runs {
                 if run.validation_id == validation_id {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
@@ -828,7 +810,7 @@ impl<'a> MockExploredHost<'a> {
 
                 txn.commit().await.unwrap();
             } else if machine_validation_result.exit_code == 0 {
-                let _ = forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+                let _ = forge_agent_control(self.test_env, host_machine_id.into()).await;
 
                 let mut txn = self.test_env.pool.begin().await.unwrap();
                 self.test_env
@@ -845,8 +827,7 @@ impl<'a> MockExploredHost<'a> {
                     .await;
                 txn.commit().await.unwrap();
 
-                let response =
-                    forge_agent_control(self.test_env, host_machine_id.clone().into()).await;
+                let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
                 assert_eq!(response.action, Action::Noop as i32);
                 let mut txn = self.test_env.pool.begin().await.unwrap();
                 self.test_env
@@ -873,7 +854,7 @@ impl<'a> MockExploredHost<'a> {
                                 failed_at: chrono::Utc::now(),
                                 source: FailureSource::Scout,
                             },
-                            machine_id: host_machine_id.clone(),
+                            machine_id: host_machine_id,
                             retry_count: 0,
                         },
                     )
@@ -1111,7 +1092,7 @@ pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<M
         .dpu_state_controller_iterations()
         .await;
 
-    Ok(mock_explored_host.dpu_machine_ids[&0].clone())
+    Ok(mock_explored_host.dpu_machine_ids[&0])
 }
 
 pub async fn new_dpu_in_network_install(
@@ -1142,13 +1123,12 @@ pub async fn new_dpu_in_network_install(
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0].clone();
-    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0];
+    let host_machine_id = *Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap()
-        .id()
-        .clone();
+        .id();
 
     Ok((dpu_machine_id, host_machine_id))
 }

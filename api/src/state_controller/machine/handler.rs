@@ -779,7 +779,7 @@ impl MachineStateHandler {
                             "DisableBIOSBMCLockdown state is not implemented. Machine stuck in unimplemented state.",
                         );
                         Err(StateHandlerError::InvalidHostState(
-                            host_machine_id.clone(),
+                            *host_machine_id,
                             Box::new(mh_state.clone()),
                         ))
                     }
@@ -788,7 +788,7 @@ impl MachineStateHandler {
             ManagedHostState::Created => {
                 tracing::error!("Machine just created. We should not be here.");
                 Err(StateHandlerError::InvalidHostState(
-                    host_machine_id.clone(),
+                    *host_machine_id,
                     Box::new(mh_state.clone()),
                 ))
             }
@@ -844,7 +844,7 @@ impl MachineStateHandler {
                             let next_state = ManagedHostState::Failed {
                                 retry_count: retry_count + 1,
                                 details: details.clone(),
-                                machine_id: machine_id.clone(),
+                                machine_id: *machine_id,
                             };
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
@@ -863,7 +863,7 @@ impl MachineStateHandler {
                             let next_state = ManagedHostState::Failed {
                                 retry_count: retry_count + 1,
                                 details: details.clone(),
-                                machine_id: machine_id.clone(),
+                                machine_id: *machine_id,
                             };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
@@ -906,7 +906,7 @@ impl MachineStateHandler {
                             let next_state = ManagedHostState::Failed {
                                 retry_count: retry_count + 1,
                                 details: details.clone(),
-                                machine_id: machine_id.clone(),
+                                machine_id: *machine_id,
                             };
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
@@ -1964,7 +1964,7 @@ fn map_measuring_outcome_to_state_handler_outcome(
                     failed_at: failure_details.failed_at,
                     source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
                 },
-                machine_id: machine_id.clone(),
+                machine_id: *machine_id,
                 retry_count: 0,
             }))
         }
@@ -2009,7 +2009,7 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
                     failed_at: failure_details.failed_at,
                     source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
                 },
-                machine_id: machine_id.clone(),
+                machine_id: *machine_id,
                 retry_count: 0,
             }))
         }
@@ -2054,7 +2054,7 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
                     failed_at: failure_details.failed_at,
                     source: FailureSource::StateMachineArea(StateMachineArea::AssignedInstance),
                 },
-                machine_id: machine_id.clone(),
+                machine_id: *machine_id,
                 retry_count: 0,
             }))
         }
@@ -2493,7 +2493,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 .iter()
                 .filter_map(|x| {
                     if x.reprovision_requested.is_some() {
-                        dpu_ids_for_reprovisioning.push(dpu_snapshot.machine_id.clone());
+                        dpu_ids_for_reprovisioning.push(dpu_snapshot.machine_id);
                         state
                             .managed_state
                             .as_reprovision_state(&dpu_snapshot.machine_id)
@@ -2521,7 +2521,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 .collect_vec();
             if !dpus_not_in_sync_state.is_empty() {
                 let msg = format!("Waiting for DPUs to come in HostPowerCycle or FwUpdateCompleted state. DPUs not in sync state: {:#?}",
-                dpus_not_in_sync_state.iter().map(|(i, s)| {(dpu_ids_for_reprovisioning[*i].clone(), s)}).collect_vec());
+                dpus_not_in_sync_state.iter().map(|(i, s)| {(dpu_ids_for_reprovisioning[*i], s)}).collect_vec());
 
                 return Ok(StateHandlerOutcome::Wait(msg));
             }
@@ -2612,7 +2612,7 @@ async fn handle_dpu_reprovision(
     let reprovision_state = state
         .managed_state
         .as_reprovision_state(dpu_machine_id)
-        .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?;
+        .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?;
 
     match reprovision_state {
         ReprovisionState::BmcFirmwareUpgrade { substate } => {
@@ -2930,7 +2930,7 @@ async fn try_wait_for_dpu_discovery(
             )
             .await?;
             // TODO propagate the status.status message to a StateHandlerOutcome::Wait
-            return Ok(Some(dpu_snapshot.machine_id.clone()));
+            return Ok(Some(dpu_snapshot.machine_id));
         }
     }
 
@@ -2956,7 +2956,7 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
     // state.
     if state.host_snapshot.failure_details.cause != FailureCause::NoError {
         return Some((
-            state.host_snapshot.machine_id.clone(),
+            state.host_snapshot.machine_id,
             state.host_snapshot.failure_details.clone(),
         ));
     } else {
@@ -2964,7 +2964,7 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
             // In case of the DPU, use first failed DPU and recover it before moving forward.
             if dpu_snapshot.failure_details.cause != FailureCause::NoError {
                 return Some((
-                    dpu_snapshot.machine_id.clone(),
+                    dpu_snapshot.machine_id,
                     dpu_snapshot.failure_details.clone(),
                 ));
             }
@@ -3039,7 +3039,7 @@ impl DpuMachineStateHandler {
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?,
+                .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?,
             _ => {
                 return Err(StateHandlerError::InvalidState(
                     "Unexpected state.".to_string(),
@@ -3372,7 +3372,7 @@ impl DpuMachineStateHandler {
             ManagedHostState::DPUInit { dpu_states } => dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?,
+                .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?,
             _ => {
                 return Err(StateHandlerError::InvalidState(
                     "Unexpected state.".to_string(),
@@ -3601,7 +3601,7 @@ impl DpuMachineStateHandler {
                     dpu_machine_id
                 );
                 Err(StateHandlerError::InvalidHostState(
-                    dpu_machine_id.clone(),
+                    *dpu_machine_id,
                     Box::new(state.managed_state.clone()),
                 ))
             }
@@ -4177,7 +4177,7 @@ impl StateHandler for HostMachineStateHandler {
         if let ManagedHostState::HostInit { machine_state } = &mh_snapshot.managed_state {
             match machine_state {
                 MachineState::Init => Err(StateHandlerError::InvalidHostState(
-                    host_machine_id.clone(),
+                    *host_machine_id,
                     Box::new(mh_snapshot.managed_state.clone()),
                 )),
                 MachineState::EnableIpmiOverLan => {
@@ -4575,7 +4575,7 @@ impl StateHandler for HostMachineStateHandler {
                             );
                             return Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
                                 details: mh_snapshot.host_snapshot.failure_details.clone(),
-                                machine_id: mh_snapshot.host_snapshot.machine_id.clone(),
+                                machine_id: mh_snapshot.host_snapshot.machine_id,
                                 retry_count: 0,
                             }));
                         }
@@ -4587,7 +4587,7 @@ impl StateHandler for HostMachineStateHandler {
             }
         } else {
             Err(StateHandlerError::InvalidHostState(
-                host_machine_id.clone(),
+                *host_machine_id,
                 Box::new(mh_snapshot.managed_state.clone()),
             ))
         }
@@ -4650,7 +4650,7 @@ impl StateHandler for InstanceStateHandler {
                     // we should not be here. This state to be used if state machine has not
                     // picked instance creation and user asked for status.
                     Err(StateHandlerError::InvalidHostState(
-                        host_machine_id.clone(),
+                        *host_machine_id,
                         Box::new(mh_snapshot.managed_state.clone()),
                     ))
                 }

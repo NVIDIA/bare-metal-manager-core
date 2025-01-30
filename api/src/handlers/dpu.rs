@@ -105,7 +105,6 @@ pub(crate) async fn get_managed_host_network_config(
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
-        .clone()
         .map(|x| x == dpu_snapshot.machine_id)
         .unwrap_or(false);
 

@@ -256,7 +256,7 @@ pub async fn allocate_instance(
     // Grab a row-level lock on the requested machine
     let machines = Machine::find(
         &mut txn,
-        ObjectFilter::List(&[request.machine_id.clone()]),
+        ObjectFilter::List(&[request.machine_id]),
         MachineSearchConfig {
             for_update: true,
             ..MachineSearchConfig::default()
@@ -306,7 +306,7 @@ pub async fn allocate_instance(
         storage_config_version,
     };
 
-    let machine_id = new_instance.machine_id.clone();
+    let machine_id = new_instance.machine_id;
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(format!(
             "Machine with UUID {} is of type {} and can not be converted into an instance",

@@ -624,7 +624,7 @@ pub(crate) async fn remove_machine_association(
     // check for the existence of instances.
     let mut machines = Machine::find(
         &mut txn,
-        ObjectFilter::List(&[machine_id.clone()]),
+        ObjectFilter::List(&[machine_id]),
         MachineSearchConfig {
             for_update: true,
             ..MachineSearchConfig::default()
@@ -642,7 +642,7 @@ pub(crate) async fn remove_machine_association(
     };
 
     // Check that there are no associated instances for the machines.
-    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[machine_id])
         .await
         .map_err(CarbideError::from)?;
 

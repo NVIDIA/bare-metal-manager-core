@@ -53,7 +53,7 @@ pub async fn create_test_machine(
     )
     .await?;
     MachineTopology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = db::machine::from_id_with_txn(txn, machine_id.clone()).await?;
+    let machine = db::machine::from_id_with_txn(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

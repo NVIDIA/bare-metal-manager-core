@@ -39,10 +39,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     ) -> CarbideResult<HashSet<MachineId>> {
         let current_updating_machines = Machine::get_host_reprovisioning_machines(txn).await?;
 
-        Ok(current_updating_machines
-            .iter()
-            .map(|m| m.id().clone())
-            .collect())
+        Ok(current_updating_machines.iter().map(|m| *m.id()).collect())
     }
 
     async fn start_updates(
@@ -74,7 +71,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
             Machine::trigger_host_reprovisioning_request(txn, machine_update).await?;
 
-            updates_started.insert(machine_update.clone());
+            updates_started.insert(*machine_update);
         }
 
         self.update_metrics(txn).await;

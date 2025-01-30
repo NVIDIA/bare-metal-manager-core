@@ -550,7 +550,7 @@ async fn test_instance_type_associate(
 
     // Grab the machine so we can verify that it actually got the update
     let machine = env
-        .find_machines(Some(tmp_machine_id.clone().into()), None, false)
+        .find_machines(Some(tmp_machine_id.into()), None, false)
         .await;
 
     // Check that it has the instance type ID we expect.

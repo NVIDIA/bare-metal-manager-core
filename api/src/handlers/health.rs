@@ -350,7 +350,7 @@ pub async fn insert_health_report_override(
 
     // In case a report with the same source exists, either as merge or replace,
     // remove it. If such a report does not exist, ignore error.
-    match remove_by_source(&mut txn, machine_id.clone(), report.source.clone()).await {
+    match remove_by_source(&mut txn, machine_id, report.source.clone()).await {
         Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
         Err(e) => return Err(e.into()),
     }

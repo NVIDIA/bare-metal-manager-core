@@ -252,7 +252,7 @@ impl InstanceState {
                     dpu_states: new_machine::DpuReprovisionStates {
                         states: dpu_ids
                             .iter()
-                            .map(|x| (x.clone(), reprovision_state.clone()))
+                            .map(|x| (*x, reprovision_state.clone()))
                             .collect::<HashMap<MachineId, ReprovisionState>>(),
                     },
                 }
@@ -341,7 +341,7 @@ async fn migrate_machine_to_v2(
             retry_count,
         } => NewManagedHostState::Failed {
             details: details.clone(),
-            machine_id: machine_id.clone(),
+            machine_id: *machine_id,
             retry_count: *retry_count,
         },
         ManagedHostStateV1::Measuring { measuring_state } => NewManagedHostState::Measuring {

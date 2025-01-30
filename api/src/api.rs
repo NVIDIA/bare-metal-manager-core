@@ -1418,7 +1418,7 @@ impl Forge for Api {
                 };
                 match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
                     Ok(Some(machine_id)) => {
-                        let rpc_machine_id = Some(machine_id.clone().into());
+                        let rpc_machine_id = Some(machine_id.into());
                         interface.is_bmc = Some(true);
                         match machine_id.machine_type() {
                             MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
@@ -2049,7 +2049,7 @@ impl Forge for Api {
                         .await
                     {
                         Ok(client) => {
-                            let machine_id = machine.id().clone();
+                            let machine_id = *machine.id();
                             match client.lockdown_status().await {
                                 Ok(status) if status.is_fully_disabled() => {
                                     tracing::info!(%machine_id, "Bios is not locked down");
@@ -3232,7 +3232,7 @@ impl Forge for Api {
             pairs: pairs
                 .into_iter()
                 .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
-                    machine_id: Some(machine_id.clone().into()),
+                    machine_id: Some(machine_id.into()),
                     bmc_ip,
                 })
                 .collect(),
@@ -3373,7 +3373,7 @@ impl Forge for Api {
         // throw it away.
         let report = crate::measured_boot::db::report::new_with_txn(
             &mut txn,
-            machine_id.clone(),
+            machine_id,
             pcr_values.into_inner().as_slice(),
         )
         .await
@@ -4527,10 +4527,9 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             })?;
             log_machine_id(&machine_id);
 
-            let mut topologies =
-                MachineTopology::find_latest_by_machine_ids(txn, &[machine_id.clone()])
-                    .await
-                    .map_err(CarbideError::from)?;
+            let mut topologies = MachineTopology::find_latest_by_machine_ids(txn, &[machine_id])
+                .await
+                .map_err(CarbideError::from)?;
 
             let topology =
                 topologies

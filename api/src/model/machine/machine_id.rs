@@ -11,13 +11,11 @@
  */
 
 // use std::fmt::Write;
-use std::str::FromStr;
-
 use crate::model::hardware_info::HardwareInfo;
 use ::rpc::errors::RpcDataConversionError;
-use data_encoding::BASE32_DNSSEC;
-use forge_uuid::machine::{MachineId, MachineIdSource, MachineType, MACHINE_ID_HARDWARE_ID_LENGTH};
+use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
+use std::str::FromStr;
 
 /// Generates a temporary Machine ID for a host from the hardware fingerprint
 /// of the attached DPU
@@ -71,14 +69,12 @@ pub fn from_hardware_info_with_type(
 
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    let hash: [u8; 32] = hasher.finalize().into();
 
-    // BASE32_DNSSEC is chosen to just generate lowercase characters and
-    // numbers - which will result in valid DNS names for MachineIds.
-    let encoded = BASE32_DNSSEC.encode(&hash);
-    assert_eq!(encoded.len(), MACHINE_ID_HARDWARE_ID_LENGTH);
-
-    Ok(MachineId::new(source, encoded, machine_type))
+    Ok(MachineId::new(
+        source,
+        hasher.finalize().into(),
+        machine_type,
+    ))
 }
 
 /// Generates a Machine ID from a hardware fingerprint

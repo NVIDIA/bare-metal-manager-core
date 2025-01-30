@@ -45,7 +45,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
 
-    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
         .await
         .unwrap();
 
@@ -96,7 +96,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id().clone()])
+    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[*machine.id()])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);

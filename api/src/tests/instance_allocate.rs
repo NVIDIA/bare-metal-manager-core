@@ -201,7 +201,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.into()),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -238,7 +238,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     let rpc_machine: forge::Machine = env
         .api
         .get_machine(tonic::Request::new(::rpc::MachineId::from(
-            zero_dpu_host.host_snapshot.machine_id.clone(),
+            zero_dpu_host.host_snapshot.machine_id,
         )))
         .await?
         .into_inner();
@@ -290,7 +290,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.into()),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -377,7 +377,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.into()),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -675,7 +675,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.clone().into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.machine_id.into()),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {

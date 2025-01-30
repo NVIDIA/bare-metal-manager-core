@@ -99,7 +99,7 @@ async fn test_dns(pool: sqlx::PgPool) {
         // First, check the BMC record by querying the MachineTopology
         // data for the current machine ID.
         tracing::info!(machine_id = %machine_id, subdomain = %DNS_BMC_SUBDOMAIN, "Checking BMC record");
-        let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+        let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[*machine_id])
             .await
             .unwrap();
         let topology = &topologies.get(machine_id).unwrap()[0];

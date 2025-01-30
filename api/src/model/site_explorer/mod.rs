@@ -1499,7 +1499,7 @@ mod tests {
             .generate_machine_id(false)
             .expect("Error generating machine ID");
 
-        let machine_id = report.machine_id.clone().unwrap();
+        let machine_id = report.machine_id.unwrap();
 
         assert_eq!(
             machine_id.to_string(),
@@ -1519,7 +1519,7 @@ mod tests {
             r#""MachineId":"fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0""#
         ));
         let deserialized = serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap();
-        assert_eq!(deserialized.machine_id.clone().unwrap(), machine_id);
+        assert_eq!(deserialized.machine_id.unwrap(), machine_id);
     }
 
     #[test]

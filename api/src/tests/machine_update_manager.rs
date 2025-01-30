@@ -208,7 +208,7 @@ async fn test_remove_machine_from_maintenance(
 
     let machine_update = DpuMachineUpdate {
         host_machine_id,
-        dpu_machine_id: dpu_machine_id.clone(),
+        dpu_machine_id,
         firmware_version: "1".to_owned(),
         product_name: "product_x".to_owned(),
     };
@@ -325,7 +325,7 @@ async fn test_get_machines_in_maintenance(
         .expect("Failed to create transaction");
 
     let machine_update = DpuMachineUpdate {
-        host_machine_id: host_machine_id1.clone(),
+        host_machine_id: host_machine_id1,
         dpu_machine_id: dpu_machine_id1,
         firmware_version: "1".to_owned(),
         product_name: "product_x".to_owned(),

@@ -331,7 +331,7 @@ pub(crate) async fn get_dpu_ssh_credential(
                     machine.id()
                 )));
             }
-            machine.id().clone()
+            *machine.id()
         }
         None => {
             return Err(CarbideError::NotFoundError {

@@ -365,7 +365,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     super::network_configured(env, dpu_machine_id).await;
 
     if env.attestation_enabled {
-        inject_machine_measurements(env, host_machine_id.clone().into()).await;
+        inject_machine_measurements(env, (*host_machine_id).into()).await;
     }
 
     let mut txn = env.pool.begin().await.unwrap();

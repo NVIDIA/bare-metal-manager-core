@@ -296,7 +296,7 @@ impl MachineUpdateManager {
                         maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
                     })
                 {
-                    Some(m.id().clone())
+                    Some(*m.id())
                 } else {
                     None
                 }
