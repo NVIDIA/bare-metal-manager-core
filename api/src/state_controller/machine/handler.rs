@@ -4339,7 +4339,7 @@ impl StateHandler for HostMachineStateHandler {
                             match measuring_problem {
                                 MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
                                     return Ok(StateHandlerOutcome::Wait(format!(
-                                        "Waiting for DiscoverMachine to be called: {info}"
+                                        "Waiting for Scout to start and send registration info (in discover_machine): {info}"
                                     )))
                                 }
                             }
