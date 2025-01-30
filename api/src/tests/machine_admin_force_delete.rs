@@ -77,13 +77,13 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
     assert!(
-        !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
-        !MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        !MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .is_empty()
@@ -367,7 +367,7 @@ async fn validate_machine_deletion(
             .is_none()
     );
     assert!(
-        MachineTopology::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+        MachineTopology::find_by_machine_ids(&mut txn, &[*machine_id])
             .await
             .unwrap()
             .is_empty()
@@ -375,7 +375,7 @@ async fn validate_machine_deletion(
 
     // The history should remain in table.
     assert!(
-        !db::machine_state_history::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+        !db::machine_state_history::find_by_machine_ids(&mut txn, &[*machine_id])
             .await
             .unwrap()
             .is_empty()

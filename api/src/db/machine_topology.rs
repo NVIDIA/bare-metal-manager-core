@@ -107,7 +107,7 @@ impl MachineTopology {
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
     ) -> CarbideResult<Self> {
-        let topology_data = Self::find_latest_by_machine_ids(txn, &[machine_id.clone()]).await?;
+        let topology_data = Self::find_latest_by_machine_ids(txn, &[*machine_id]).await?;
         let topology_data = topology_data.get(machine_id);
 
         if let Some(topology) = topology_data {
@@ -190,7 +190,7 @@ impl MachineTopology {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
-            .into_group_map_by(|t: &Self| t.machine_id.clone());
+            .into_group_map_by(|t: &Self| t.machine_id);
         Ok(topologies)
     }
 

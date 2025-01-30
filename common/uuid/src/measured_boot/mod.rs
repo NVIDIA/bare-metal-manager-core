@@ -55,7 +55,7 @@ use sqlx::{
 /// It includes all of the necessary trait implementations
 /// to allow it to be used as a clap argument, sqlx binding,
 /// etc.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TrustedMachineId {
     MachineId(MachineId),
     Any,

@@ -220,7 +220,7 @@ pub async fn find_by_machine_ids(
         find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
             .await?
             .into_iter()
-            .into_group_map_by(|interface| interface.machine_id.clone().unwrap()),
+            .into_group_map_by(|interface| interface.machine_id.unwrap()),
     )
 }
 
@@ -563,7 +563,7 @@ pub async fn get_machine_interface_primary(
     machine_id: &MachineId,
     txn: &mut sqlx::Transaction<'_, Postgres>,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
-    find_by_machine_ids(txn, &[machine_id.clone()])
+    find_by_machine_ids(txn, &[*machine_id])
         .await?
         .remove(machine_id)
         .ok_or_else(|| CarbideError::NotFoundError {

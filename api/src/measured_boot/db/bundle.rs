@@ -365,7 +365,7 @@ async fn update_journal(
     let reports = match_latest_reports(txn, &measurement_bundle.pcr_values()).await?;
     let mut updates: Vec<MeasurementJournal> = Vec::new();
     for report in reports.iter() {
-        let machine = db::machine::from_id_with_txn(txn, report.machine_id.clone()).await?;
+        let machine = db::machine::from_id_with_txn(txn, report.machine_id).await?;
         let discovery_attributes = db::machine::discovery_attributes(&machine)?;
         let profile =
             db::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes).await?;
@@ -380,7 +380,7 @@ async fn update_journal(
         updates.push(
             db::journal::new_with_txn(
                 txn,
-                report.machine_id.clone(),
+                report.machine_id,
                 report.report_id,
                 Some(profile.profile_id),
                 Some(measurement_bundle.bundle_id),

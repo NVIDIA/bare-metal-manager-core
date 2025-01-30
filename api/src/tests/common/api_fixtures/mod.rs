@@ -1347,10 +1347,7 @@ pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
     let mh = site_explorer::new_host(env, ManagedHostConfig::default())
         .await
         .expect("Failed to create a new host");
-    (
-        mh.host_snapshot.machine_id,
-        mh.dpu_snapshots[0].machine_id.clone(),
-    )
+    (mh.host_snapshot.machine_id, mh.dpu_snapshots[0].machine_id)
 }
 
 pub async fn create_managed_host_with_ek(
@@ -1367,7 +1364,7 @@ pub async fn create_managed_host_with_ek(
     let (host_machine_id, dpu_machine_id) =
         create_managed_host_with_config(env, host_sim.config.clone()).await;
 
-    (host_machine_id, dpu_machine_id[0].clone(), host_sim)
+    (host_machine_id, dpu_machine_id[0], host_sim)
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)
@@ -1394,15 +1391,12 @@ pub async fn create_managed_host_with_config(
 
     match dpu_count {
         0 => (host_machine_id, vec![]),
-        1 => (
-            host_machine_id,
-            vec![mh.dpu_snapshots[0].machine_id.clone()],
-        ),
+        1 => (host_machine_id, vec![mh.dpu_snapshots[0].machine_id]),
         _ => {
             let dpu_ids = mh
                 .dpu_snapshots
                 .iter()
-                .map(|snapshot| snapshot.machine_id.clone())
+                .map(|snapshot| snapshot.machine_id)
                 .collect();
             (host_machine_id, dpu_ids)
         }
@@ -1419,7 +1413,7 @@ pub async fn create_host_with_machine_validation(
         .unwrap();
     (
         mh.host_snapshot.machine_id.into(),
-        mh.dpu_snapshots[0].machine_id.clone(),
+        mh.dpu_snapshots[0].machine_id,
     )
 }
 

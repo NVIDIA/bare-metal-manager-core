@@ -143,7 +143,7 @@ async fn get_measurement_journals(
         .iter()
         .map(|record| MeasurementJournal {
             journal_id: record.journal_id,
-            machine_id: record.machine_id.clone(),
+            machine_id: record.machine_id,
             report_id: record.report_id,
             profile_id: record.profile_id,
             bundle_id: record.bundle_id,
@@ -221,7 +221,7 @@ pub(crate) mod test_support {
             .iter()
             .map(|record| MeasurementJournal {
                 journal_id: record.journal_id,
-                machine_id: record.machine_id.clone(),
+                machine_id: record.machine_id,
                 report_id: record.report_id,
                 profile_id: record.profile_id,
                 bundle_id: record.bundle_id,

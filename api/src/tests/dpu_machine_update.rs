@@ -20,8 +20,8 @@ async fn test_find_available_outdated_dpus(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(host_machine_id.clone());
+        dpu_machine_ids.push(dpu_machine_id);
+        host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
@@ -54,8 +54,8 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(host_machine_id.clone());
+        dpu_machine_ids.push(dpu_machine_id);
+        host_machine_ids.push(host_machine_id);
     }
 
     let machine_obs = MachineNetworkStatusObservation {
@@ -122,8 +122,8 @@ async fn test_find_available_outdated_dpus_limit(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(host_machine_id.clone());
+        dpu_machine_ids.push(dpu_machine_id);
+        host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
@@ -155,8 +155,8 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(host_machine_id.clone());
+        dpu_machine_ids.push(dpu_machine_id);
+        host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
@@ -181,8 +181,8 @@ async fn test_find_unavailable_outdated_dpus(
     let mut host_machine_ids = Vec::default();
     for _ in 0..2 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id.clone());
-        host_machine_ids.push(host_machine_id.clone());
+        dpu_machine_ids.push(dpu_machine_id);
+        host_machine_ids.push(host_machine_id);
     }
 
     let host_sim = env.start_managed_host_sim();
@@ -256,13 +256,13 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
         .await
         .unwrap();
 
-    let dpu_machine_id = all_dpus[0].id().clone();
+    let dpu_machine_id = *all_dpus[0].id();
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &host_machine_id,
         &[DpuMachineUpdate {
-            host_machine_id: host_machine_id.clone(),
-            dpu_machine_id: all_dpus[0].id().clone(),
+            host_machine_id,
+            dpu_machine_id: *all_dpus[0].id(),
             firmware_version: "test_version".to_string(),
             product_name: "BlueField SoC".to_string(),
         }],
@@ -323,14 +323,14 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
         &host_machine_id,
         &[
             DpuMachineUpdate {
-                host_machine_id: host_machine_id.clone(),
-                dpu_machine_id: all_dpus[1].id().clone(),
+                host_machine_id,
+                dpu_machine_id: *all_dpus[1].id(),
                 firmware_version: "test_version".to_string(),
                 product_name: "BlueField SoC".to_string(),
             },
             DpuMachineUpdate {
-                host_machine_id: host_machine_id.clone(),
-                dpu_machine_id: all_dpus[0].id().clone(),
+                host_machine_id,
+                dpu_machine_id: *all_dpus[0].id(),
                 firmware_version: "test_version".to_string(),
                 product_name: "BlueField SoC".to_string(),
             },

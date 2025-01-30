@@ -80,8 +80,7 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure it looks good.
-        let report =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
+        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
         assert_eq!(report.machine_id, machine.machine_id);
         assert_eq!(report.pcr_values().len(), 7);
         let report_value_map = pcr_register_values_to_map(&report.pcr_values())?;
@@ -97,8 +96,7 @@ mod tests {
         // Now make another report with the same values, which is totally fine,
         // and make sure that all looks good too.
 
-        let report2 =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
+        let report2 = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
         assert_eq!(report2.machine_id, machine.machine_id);
         assert_eq!(report2.pcr_values().len(), 7);
 
@@ -157,8 +155,7 @@ mod tests {
         assert_eq!(input3_value_map.len(), 7);
 
         // Make a report and make sure it looks good.
-        let report3 =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values3).await?;
+        let report3 = db::report::new_with_txn(&mut txn, machine.machine_id, &values3).await?;
         assert_eq!(report3.machine_id, machine.machine_id);
         assert_eq!(report3.pcr_values().len(), 7);
         let report3_value_map = pcr_register_values_to_map(&report3.pcr_values())?;
@@ -254,8 +251,7 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure the records themselves are correct.
-        let report =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
+        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;
@@ -266,8 +262,7 @@ mod tests {
         let profile = optional_profile.unwrap();
 
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 1);
 
         let journal = &journals[0];
@@ -332,17 +327,13 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
+        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 1);
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -355,16 +346,13 @@ mod tests {
         let bundles = db::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 1);
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 2);
         let first_bundle = db::bundle::from_id_with_txn(&mut txn, bundle_full.bundle_id).await?;
         assert_eq!(first_bundle.pcr_values().len(), 7);
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
@@ -378,18 +366,15 @@ mod tests {
         let bundles = db::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 2);
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 3);
         let second_bundle =
             db::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id).await?;
         assert_eq!(second_bundle.pcr_values().len(), 4);
 
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -445,17 +430,14 @@ mod tests {
         let bundles = db::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 3);
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 3);
         let third_bundle = db::bundle::from_id_with_txn(&mut txn, other_bundle.bundle_id).await?;
         assert_eq!(third_bundle.pcr_values().len(), 8);
 
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -516,17 +498,13 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report =
-            db::report::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
+        let report = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 1);
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -540,16 +518,13 @@ mod tests {
         let bundles = db::bundle::get_all(&mut txn).await?;
         assert_eq!(bundles.len(), 1);
         let journals =
-            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id.clone())
-                .await?;
+            db::journal::test_support::get_all_for_machine_id(&mut txn, report.machine_id).await?;
         assert_eq!(journals.len(), 2);
         let first_bundle = db::bundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id).await?;
         assert_eq!(first_bundle.pcr_values().len(), 4);
-        let is_latest_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            report.machine_id.clone(),
-        )
-        .await?;
+        let is_latest_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, report.machine_id)
+                .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));

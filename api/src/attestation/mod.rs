@@ -88,7 +88,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
     )
     .await?
     .iter()
-    .map(|machine| machine.id().clone())
+    .map(|machine| *machine.id())
     .collect();
 
     if !machines.is_empty() {

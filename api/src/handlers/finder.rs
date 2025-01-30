@@ -139,7 +139,7 @@ pub(crate) async fn identify_serial(
     if machine_ids.len() == 1 {
         return Ok(tonic::Response::new(rpc::IdentifySerialResponse {
             serial_number: req.serial_number,
-            machine_id: Some(machine_ids[0].clone().into()),
+            machine_id: Some(machine_ids[0].into()),
         }));
     }
 

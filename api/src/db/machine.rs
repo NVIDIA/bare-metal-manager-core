@@ -461,7 +461,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 impl From<Machine> for MachineSnapshot {
     fn from(machine: Machine) -> Self {
         MachineSnapshot {
-            machine_id: machine.id().clone(),
+            machine_id: *machine.id(),
             bmc_info: machine.bmc_info().clone(),
             bmc_vendor: machine.bmc_vendor(),
             hardware_info: machine.hardware_info().cloned(),
@@ -708,11 +708,9 @@ impl Machine {
         id: &MachineId,
         search_config: MachineSearchConfig,
     ) -> Result<Option<Self>, DatabaseError> {
-        Ok(
-            Machine::find(txn, ObjectFilter::One(id.clone()), search_config)
-                .await?
-                .pop(),
-        )
+        Ok(Machine::find(txn, ObjectFilter::One(*id), search_config)
+            .await?
+            .pop())
     }
 
     pub async fn find_existing_machine(
@@ -2207,7 +2205,7 @@ impl Machine {
 
         let all_machines = {
             let mut all = dpu_ids.to_vec();
-            all.push(host_id.clone());
+            all.push(*host_id);
             all
         };
 

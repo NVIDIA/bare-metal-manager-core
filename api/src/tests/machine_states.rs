@@ -762,10 +762,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
     let _expected_state = ManagedHostState::DPUInit {
         dpu_states: crate::model::machine::DpuInitStates {
-            states: HashMap::from([(
-                dpu_machine_id.clone(),
-                DpuInitState::WaitingForNetworkConfig,
-            )]),
+            states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig)]),
         },
     };
     assert!(matches!(host_machine.current_state(), _expected_state));
@@ -803,7 +800,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 
     // When the Machine is in Ready state, there is no SLA
     let machine = env
-        .find_machines(Some(host_machine_id.clone().into()), None, false)
+        .find_machines(Some(host_machine_id.into()), None, false)
         .await
         .machines
         .remove(0);
@@ -822,7 +819,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::NoError,
             },
-            machine_id: host_machine_id.clone(),
+            machine_id: host_machine_id,
             retry_count: 1,
         },
     )

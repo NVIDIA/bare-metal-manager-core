@@ -594,7 +594,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .unwrap();
 
-    inject_machine_measurements(&env, host_machine_id.clone().into()).await;
+    inject_machine_measurements(&env, host_machine_id.into()).await;
 
     for _ in 0..5 {
         env.run_machine_state_controller_iteration().await;

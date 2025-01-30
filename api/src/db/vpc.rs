@@ -610,7 +610,7 @@ impl VpcDpuLoopback {
         let query = "INSERT INTO vpc_dpu_loopbacks (dpu_id, vpc_id, loopback_ip) 
                            VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as(query)
-            .bind(&self.dpu_id)
+            .bind(self.dpu_id)
             .bind(self.vpc_id)
             .bind(self.loopback_ip)
             .fetch_one(txn.deref_mut())
@@ -706,7 +706,7 @@ impl VpcDpuLoopback {
                     Machine::allocate_vpc_dpu_loopback(common_pools, txn, &dpu_id.to_string())
                         .await?;
                 let vpc_dpu_loopback =
-                    VpcDpuLoopback::new(dpu_id.clone(), *vpc_id, IpAddr::V4(loopback_ip));
+                    VpcDpuLoopback::new(*dpu_id, *vpc_id, IpAddr::V4(loopback_ip));
                 vpc_dpu_loopback.persist(txn).await?;
 
                 loopback_ip

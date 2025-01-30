@@ -90,7 +90,7 @@ async fn test_state_migration_1(pool: sqlx::PgPool) {
         OldStates::DpuDiscoveringState {
             discovering_state: DpuDiscoveringState::Initializing,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -150,7 +150,7 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
         OldStates::DPUNotReady {
             machine_state: legacy::states::machine::MachineState::Init,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -209,7 +209,7 @@ async fn test_state_migration_2_1(pool: sqlx::PgPool) {
         OldStates::DPUNotReady {
             machine_state: legacy::states::machine::MachineState::WaitingForPlatformConfiguration,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -271,7 +271,7 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
         OldStates::DPUNotReady {
             machine_state: legacy::states::machine::MachineState::Discovered,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -319,7 +319,7 @@ async fn test_state_migration_3(pool: sqlx::PgPool) {
         OldStates::HostNotReady {
             machine_state: legacy::states::machine::MachineState::Init,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -364,7 +364,7 @@ async fn test_state_migration_4(pool: sqlx::PgPool) {
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    update_host_state(&mut txn, OldStates::Ready, host_machine_id.clone()).await;
+    update_host_state(&mut txn, OldStates::Ready, host_machine_id).await;
 
     txn.commit().await.unwrap();
 
@@ -390,7 +390,7 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
         OldStates::Assigned {
             instance_state: legacy::states::machine::InstanceState::SwitchToAdminNetwork,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -439,7 +439,7 @@ async fn test_state_migration_5_1(pool: sqlx::PgPool) {
                     crate::model::machine::ReprovisionState::WaitingForNetworkInstall,
             },
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -500,7 +500,7 @@ async fn test_state_migration_6(pool: sqlx::PgPool) {
         OldStates::WaitingForCleanup {
             cleanup_state: crate::model::machine::CleanupState::HostCleanup,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -543,7 +543,7 @@ async fn test_state_migration_7(pool: sqlx::PgPool) {
         OldStates::DPUReprovision {
             reprovision_state: ReprovisionState::PowerDown,
         },
-        host_machine_id.clone(),
+        host_machine_id,
     )
     .await;
 
@@ -569,7 +569,7 @@ async fn test_state_migration_7(pool: sqlx::PgPool) {
                 states: dpus
                     .clone()
                     .into_iter()
-                    .map(|dpu| (dpu.id().clone(), ReprovisionState::PowerDown))
+                    .map(|dpu| (*dpu.id(), ReprovisionState::PowerDown))
                     .collect::<HashMap<MachineId, ReprovisionState>>(),
             },
         },

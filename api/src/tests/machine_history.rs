@@ -45,7 +45,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     ]);
     let expected_initial_states: Vec<serde_json::Value> =
         expected_initial_states_json.as_array().unwrap().clone();
-    for machine_id in &[host_machine_id.clone(), dpu_machine_id.clone()] {
+
+    for machine_id in &[host_machine_id, dpu_machine_id] {
         let mut txn = env.pool.begin().await?;
 
         let machine = Machine::find_one(

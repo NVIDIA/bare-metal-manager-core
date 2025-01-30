@@ -45,7 +45,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
         Ok(current_updating_machines
             .iter()
-            .map(|mu| mu.host_machine_id.clone())
+            .map(|mu| mu.host_machine_id)
             .collect())
     }
 
@@ -68,7 +68,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
         for machine_update in machine_updates {
             host_machine_updates
-                .entry(machine_update.host_machine_id.clone())
+                .entry(machine_update.host_machine_id)
                 .or_default()
                 .push(machine_update);
         }

@@ -228,20 +228,15 @@ mod tests {
 
         let dell_r750_profile = db::profile::new_with_txn(&mut txn, None, &dell_r750_attrs).await?;
 
-        let princess_report = db::report::new_with_txn(
-            &mut txn,
-            princess_network.machine_id.clone(),
-            &princess_values,
-        )
-        .await?;
+        let princess_report =
+            db::report::new_with_txn(&mut txn, princess_network.machine_id, &princess_values)
+                .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
 
-        let princess_journal = journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            princess_network.machine_id.clone(),
-        )
-        .await?
-        .unwrap();
+        let princess_journal =
+            journal::test_support::get_latest_for_machine_id(&mut txn, princess_network.machine_id)
+                .await?
+                .unwrap();
         assert_eq!(
             princess_journal.profile_id,
             Some(dell_r750_profile.profile_id)
@@ -253,13 +248,12 @@ mod tests {
         assert_eq!(princess_journal.bundle_id, None);
 
         let report =
-            db::report::new_with_txn(&mut txn, beer_louisiana.machine_id.clone(), &beer_values)
-                .await?;
+            db::report::new_with_txn(&mut txn, beer_louisiana.machine_id, &beer_values).await?;
         assert_eq!(report.machine_id, beer_louisiana.machine_id);
 
         let beer_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
-            beer_louisiana.machine_id.clone(),
+            beer_louisiana.machine_id,
         )
         .await?
         .unwrap();
@@ -268,26 +262,19 @@ mod tests {
         assert_eq!(beer_journal.bundle_id, None);
 
         let lime_report =
-            db::report::new_with_txn(&mut txn, lime_coconut.machine_id.clone(), &bad_dell_values)
-                .await?;
+            db::report::new_with_txn(&mut txn, lime_coconut.machine_id, &bad_dell_values).await?;
         assert_eq!(lime_report.machine_id, lime_coconut.machine_id);
 
-        let lime_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            lime_coconut.machine_id.clone(),
-        )
-        .await?
-        .unwrap();
+        let lime_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, lime_coconut.machine_id)
+                .await?
+                .unwrap();
         assert_eq!(beer_journal.profile_id, lime_journal.profile_id);
         assert_eq!(lime_journal.state, MeasurementMachineState::PendingBundle);
 
         // and now deal with slippery-lilac
-        let report = db::report::new_with_txn(
-            &mut txn,
-            slippery_lilac.machine_id.clone(),
-            &dgx_h100_values,
-        )
-        .await?;
+        let report =
+            db::report::new_with_txn(&mut txn, slippery_lilac.machine_id, &dgx_h100_values).await?;
         assert_eq!(report.machine_id, slippery_lilac.machine_id);
 
         let slippery_profile = db::profile::load_from_attrs(&mut txn, &dgx_h100_attrs)
@@ -296,7 +283,7 @@ mod tests {
 
         let slippery_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
-            slippery_lilac.machine_id.clone(),
+            slippery_lilac.machine_id,
         )
         .await?
         .unwrap();
@@ -312,32 +299,26 @@ mod tests {
         assert_eq!(slippery_journal.bundle_id, None);
 
         // and now kick off silly-salander and cat-videos
-        let report = db::report::new_with_txn(
-            &mut txn,
-            silly_salamander.machine_id.clone(),
-            &dgx_h100_v1_values,
-        )
-        .await?;
+        let report =
+            db::report::new_with_txn(&mut txn, silly_salamander.machine_id, &dgx_h100_v1_values)
+                .await?;
         assert_eq!(report.machine_id, silly_salamander.machine_id);
 
         let cat_report =
-            db::report::new_with_txn(&mut txn, cat_videos.machine_id.clone(), &dgx_h100_v1_values)
-                .await?;
+            db::report::new_with_txn(&mut txn, cat_videos.machine_id, &dgx_h100_v1_values).await?;
         assert_eq!(cat_report.machine_id, cat_videos.machine_id);
 
         let silly_journal = db::journal::test_support::get_latest_for_machine_id(
             &mut txn,
-            silly_salamander.machine_id.clone(),
+            silly_salamander.machine_id,
         )
         .await?
         .unwrap();
 
-        let cat_journal = db::journal::test_support::get_latest_for_machine_id(
-            &mut txn,
-            cat_videos.machine_id.clone(),
-        )
-        .await?
-        .unwrap();
+        let cat_journal =
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
+                .await?
+                .unwrap();
 
         assert_eq!(silly_journal.profile_id, cat_journal.profile_id);
         assert_eq!(silly_journal.state, MeasurementMachineState::PendingBundle);
@@ -354,7 +335,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                princess_network.machine_id.clone()
+                princess_network.machine_id
             )
             .await?
             .unwrap()
@@ -365,7 +346,26 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                beer_louisiana.machine_id.clone()
+                beer_louisiana.machine_id
+            )
+            .await?
+            .unwrap()
+            .state
+        );
+
+        assert_eq!(
+            MeasurementMachineState::PendingBundle,
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, lime_coconut.machine_id)
+                .await?
+                .unwrap()
+                .state
+        );
+
+        assert_eq!(
+            MeasurementMachineState::PendingBundle,
+            db::journal::test_support::get_latest_for_machine_id(
+                &mut txn,
+                slippery_lilac.machine_id
             )
             .await?
             .unwrap()
@@ -376,7 +376,7 @@ mod tests {
             MeasurementMachineState::PendingBundle,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                lime_coconut.machine_id.clone()
+                silly_salamander.machine_id
             )
             .await?
             .unwrap()
@@ -385,35 +385,10 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                slippery_lilac.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
-        );
-
-        assert_eq!(
-            MeasurementMachineState::PendingBundle,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                silly_salamander.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
-        );
-
-        assert_eq!(
-            MeasurementMachineState::PendingBundle,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                cat_videos.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
+                .await?
+                .unwrap()
+                .state
         );
 
         let pcr_set = parse_pcr_index_input("1")?;
@@ -427,7 +402,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                princess_network.machine_id.clone()
+                princess_network.machine_id
             )
             .await?
             .unwrap()
@@ -438,7 +413,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                beer_louisiana.machine_id.clone()
+                beer_louisiana.machine_id
             )
             .await?
             .unwrap()
@@ -447,9 +422,17 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, lime_coconut.machine_id)
+                .await?
+                .unwrap()
+                .state
+        );
+
+        assert_eq!(
+            MeasurementMachineState::PendingBundle,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                lime_coconut.machine_id.clone()
+                slippery_lilac.machine_id
             )
             .await?
             .unwrap()
@@ -460,7 +443,7 @@ mod tests {
             MeasurementMachineState::PendingBundle,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                slippery_lilac.machine_id.clone()
+                silly_salamander.machine_id
             )
             .await?
             .unwrap()
@@ -469,24 +452,10 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                silly_salamander.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
-        );
-
-        assert_eq!(
-            MeasurementMachineState::PendingBundle,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                cat_videos.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
+                .await?
+                .unwrap()
+                .state
         );
 
         let bundle =
@@ -498,7 +467,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                princess_network.machine_id.clone()
+                princess_network.machine_id
             )
             .await?
             .unwrap()
@@ -509,7 +478,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                beer_louisiana.machine_id.clone()
+                beer_louisiana.machine_id
             )
             .await?
             .unwrap()
@@ -518,20 +487,17 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                lime_coconut.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, lime_coconut.machine_id)
+                .await?
+                .unwrap()
+                .state
         );
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                slippery_lilac.machine_id.clone()
+                slippery_lilac.machine_id
             )
             .await?
             .unwrap()
@@ -542,7 +508,7 @@ mod tests {
             MeasurementMachineState::Measured,
             db::journal::test_support::get_latest_for_machine_id(
                 &mut txn,
-                silly_salamander.machine_id.clone()
+                silly_salamander.machine_id
             )
             .await?
             .unwrap()
@@ -551,13 +517,10 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::journal::test_support::get_latest_for_machine_id(
-                &mut txn,
-                cat_videos.machine_id.clone()
-            )
-            .await?
-            .unwrap()
-            .state
+            db::journal::test_support::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
+                .await?
+                .unwrap()
+                .state
         );
 
         Ok(())

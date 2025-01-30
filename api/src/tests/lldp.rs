@@ -133,7 +133,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .get(&dpu_machine_id)

@@ -728,7 +728,7 @@ pub(crate) async fn update_instance_config(
 fn snapshot_to_instance(
     mh_snapshot: ManagedHostStateSnapshot,
 ) -> Result<rpc::Instance, CarbideError> {
-    let machine_id = mh_snapshot.host_snapshot.machine_id.clone();
+    let machine_id = mh_snapshot.host_snapshot.machine_id;
     Option::<rpc::Instance>::try_from(mh_snapshot)
         .map_err(CarbideError::from)?
         .ok_or_else(|| {

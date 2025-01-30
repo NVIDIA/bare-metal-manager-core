@@ -142,7 +142,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
             ca_id,
             ek_cert.issuer.as_raw(),
             auth_info_access_str,
-            machine_id.clone(),
+            *machine_id,
         )
         .await?;
 

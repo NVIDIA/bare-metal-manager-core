@@ -140,7 +140,7 @@ pub async fn trigger_bmc_fw_update(
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    *dpu_machine_id,
                     ReprovisionState::BmcFirmwareUpgrade {
                         substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
                     }
@@ -159,7 +159,7 @@ pub async fn trigger_bmc_fw_update(
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu.id().clone(),
+                    *dpu.id(),
                     crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
                         substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
                             firmware_type: FirmwareComponentType::Bmc,
@@ -183,7 +183,7 @@ pub async fn trigger_bmc_fw_update(
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    *dpu_machine_id,
                     crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
                         substate: BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete
                     }
@@ -211,14 +211,13 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovisioning_requested().is_none(),);
 
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -271,7 +270,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     crate::model::machine::ReprovisionState::FirmwareUpgrade
                 )]),
             },
@@ -292,7 +291,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
@@ -307,10 +306,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::PoweringOffHost
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
             },
         }
     );
@@ -326,7 +322,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
             },
         }
     );
@@ -342,7 +338,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkInstall
                 )]),
             },
@@ -381,7 +377,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
             },
         }
     );
@@ -414,7 +410,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkConfig
                 )]),
             },
@@ -455,7 +451,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHostBmc)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
             },
         }
     );
@@ -473,7 +469,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
             },
         }
     );
@@ -494,7 +490,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
+    let _response = forge_agent_control(&env, host_machine_id.into()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -570,14 +566,13 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     assert!(dpu.reprovisioning_requested().is_none(),);
 
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -604,7 +599,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         "AdminCli"
     );
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     env.run_machine_state_controller_iteration().await;
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -617,7 +612,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkInstall
                 )]),
             },
@@ -656,7 +651,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
             },
         }
     );
@@ -680,7 +675,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkConfig
                 )]),
             },
@@ -702,7 +697,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHostBmc)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
             },
         }
     );
@@ -720,7 +715,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
             },
         }
     );
@@ -741,7 +736,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     ));
 
-    let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
+    let _response = forge_agent_control(&env, host_machine_id.into()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -772,14 +767,13 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -797,7 +791,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -847,7 +841,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::BmcFirmwareUpgrade {
                             substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
                         }
@@ -870,7 +864,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu.id().clone(),
+                        *dpu.id(),
                         crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
                             substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
                                 firmware_type: FirmwareComponentType::Bmc,
@@ -896,7 +890,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
                             substate:
                                 BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete
@@ -924,7 +918,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         crate::model::machine::ReprovisionState::FirmwareUpgrade
                     )]),
                 },
@@ -946,7 +940,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
@@ -962,10 +956,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::PoweringOffHost
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
                 },
             }
         }
@@ -983,7 +974,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
                 },
             }
         }
@@ -1002,7 +993,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkInstall
                     )]),
                 },
@@ -1043,7 +1034,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
                 },
             }
         }
@@ -1078,7 +1069,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkConfig
                     )]),
                 },
@@ -1121,10 +1112,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::RebootHostBmc
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
                 },
             }
         }
@@ -1144,7 +1132,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
                 },
             }
         }
@@ -1185,17 +1173,16 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -1219,7 +1206,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -1297,7 +1284,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(env
         .api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -1314,7 +1301,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
 
     assert_eq!(
         dpu.current_state(),
@@ -1322,7 +1309,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkInstall
                     )]),
                 },
@@ -1363,7 +1350,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
                 },
             }
         }
@@ -1398,7 +1385,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkConfig
                     )]),
                 },
@@ -1440,10 +1427,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::RebootHostBmc
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
                 },
             }
         }
@@ -1463,7 +1447,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
                 },
             }
         }
@@ -1639,10 +1623,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::FirmwareUpgrade
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade)]),
             },
         }
     );
@@ -1664,10 +1645,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
             dpu.current_state(),
             ManagedHostState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::FirmwareUpgrade
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade)]),
                 },
             }
         );
@@ -1693,10 +1671,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::PoweringOffHost
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
             },
         }
     );
@@ -1717,7 +1692,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
             },
         }
     );
@@ -1739,7 +1714,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkInstall
                 )]),
             },
@@ -1925,10 +1900,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::FirmwareUpgrade
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade)]),
             },
         }
     );
@@ -1958,10 +1930,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
             dpu.current_state(),
             ManagedHostState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::FirmwareUpgrade
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade)]),
                 },
             }
         );
@@ -2002,10 +1971,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::PoweringOffHost
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
             },
         }
     );
@@ -2122,10 +2088,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         &mut txn,
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    DpuInitState::WaitingForNetworkConfig,
-                )]),
+                states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig)]),
             },
         },
     )
@@ -2189,10 +2152,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id.clone(),
-                    ReprovisionState::FirmwareUpgrade,
-                )]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade,)]),
             }
         }
     );
@@ -2221,7 +2181,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     let _expected_state = ManagedHostState::DPUReprovision {
         dpu_states: crate::model::machine::DpuReprovisionStates {
-            states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::FirmwareUpgrade)]),
+            states: HashMap::from([(dpu_machine_id, ReprovisionState::FirmwareUpgrade)]),
         },
     };
     assert!(matches!(dpu.current_state(), _expected_state));
@@ -2248,7 +2208,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
-                    dpu_machine_id.clone(),
+                    dpu_machine_id,
                     ReprovisionState::WaitingForNetworkInstall
                 )]),
             },
@@ -2266,19 +2226,18 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
-    let dpu_machine_id_1 = dpus[0].id().clone();
-    let dpu_machine_id_2 = dpus[1].id().clone();
+    let dpu_machine_id_1 = *dpus[0].id();
+    let dpu_machine_id_2 = *dpus[1].id();
 
     assert!(dpus[0].reprovisioning_requested().is_none(),);
 
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id_1)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id_1)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -2325,15 +2284,12 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
                     (
-                        dpu_machine_id_1.clone(),
+                        dpu_machine_id_1,
                         ReprovisionState::BmcFirmwareUpgrade {
                             substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
                         }
                     ),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::NotUnderReprovision
-                    )
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision)
                 ]),
             },
         }
@@ -2359,11 +2315,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::FirmwareUpgrade),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::NotUnderReprovision
-                    )
+                    (dpu_machine_id_1, ReprovisionState::FirmwareUpgrade),
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision)
                 ]),
             },
         }
@@ -2383,7 +2336,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id_1.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id_1.into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone()).await;
 
@@ -2399,8 +2352,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::PoweringOffHost),
-                    (dpu_machine_id_2.clone(), ReprovisionState::PoweringOffHost)
+                    (dpu_machine_id_1, ReprovisionState::PoweringOffHost),
+                    (dpu_machine_id_2, ReprovisionState::PoweringOffHost)
                 ]),
             },
         }
@@ -2418,8 +2371,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::PowerDown),
-                    (dpu_machine_id_2.clone(), ReprovisionState::PowerDown)
+                    (dpu_machine_id_1, ReprovisionState::PowerDown),
+                    (dpu_machine_id_2, ReprovisionState::PowerDown)
                 ]),
             },
         }
@@ -2436,14 +2389,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (
-                        dpu_machine_id_1.clone(),
-                        ReprovisionState::WaitingForNetworkInstall
-                    ),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::NotUnderReprovision
-                    )
+                    (dpu_machine_id_1, ReprovisionState::WaitingForNetworkInstall),
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision)
                 ]),
             },
         }
@@ -2482,8 +2429,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::BufferTime),
-                    (dpu_machine_id_2.clone(), ReprovisionState::BufferTime)
+                    (dpu_machine_id_1, ReprovisionState::BufferTime),
+                    (dpu_machine_id_2, ReprovisionState::BufferTime)
                 ]),
             },
         }
@@ -2517,14 +2464,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (
-                        dpu_machine_id_1.clone(),
-                        ReprovisionState::WaitingForNetworkConfig
-                    ),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::WaitingForNetworkConfig
-                    )
+                    (dpu_machine_id_1, ReprovisionState::WaitingForNetworkConfig),
+                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkConfig)
                 ]),
             },
         }
@@ -2566,8 +2507,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHostBmc),
-                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHostBmc)
+                    (dpu_machine_id_1, ReprovisionState::RebootHostBmc),
+                    (dpu_machine_id_2, ReprovisionState::RebootHostBmc)
                 ]),
             },
         }
@@ -2587,8 +2528,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHost),
-                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHost)
+                    (dpu_machine_id_1, ReprovisionState::RebootHost),
+                    (dpu_machine_id_2, ReprovisionState::RebootHost)
                 ]),
             },
         }
@@ -2610,7 +2551,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     ));
     txn.commit().await.unwrap();
 
-    let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
+    let _response = forge_agent_control(&env, host_machine_id.into()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -2631,19 +2572,18 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
-    let dpu_machine_id_1 = dpus[0].id().clone();
-    let dpu_machine_id_2 = dpus[1].id().clone();
+    let dpu_machine_id_1 = *dpus[0].id();
+    let dpu_machine_id_2 = *dpus[1].id();
 
     assert!(dpus[0].reprovisioning_requested().is_none(),);
 
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id_1)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id_1)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -2691,13 +2631,13 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
                     (
-                        dpu_machine_id_1.clone(),
+                        dpu_machine_id_1,
                         ReprovisionState::BmcFirmwareUpgrade {
                             substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
                         }
                     ),
                     (
-                        dpu_machine_id_2.clone(),
+                        dpu_machine_id_2,
                         ReprovisionState::BmcFirmwareUpgrade {
                             substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
                         }
@@ -2727,8 +2667,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::FirmwareUpgrade),
-                    (dpu_machine_id_2.clone(), ReprovisionState::FirmwareUpgrade)
+                    (dpu_machine_id_1, ReprovisionState::FirmwareUpgrade),
+                    (dpu_machine_id_2, ReprovisionState::FirmwareUpgrade)
                 ]),
             },
         }
@@ -2748,8 +2688,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id_1: rpc::common::MachineId = dpu_machine_id_1.clone().into();
-    let dpu_rpc_id_2: rpc::common::MachineId = dpu_machine_id_2.clone().into();
+    let dpu_rpc_id_1: rpc::common::MachineId = dpu_machine_id_1.into();
+    let dpu_rpc_id_2: rpc::common::MachineId = dpu_machine_id_2.into();
 
     let _response = forge_agent_control(&env, dpu_rpc_id_1.clone()).await;
     let _response = forge_agent_control(&env, dpu_rpc_id_2.clone()).await;
@@ -2768,8 +2708,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::PoweringOffHost),
-                    (dpu_machine_id_2.clone(), ReprovisionState::PoweringOffHost)
+                    (dpu_machine_id_1, ReprovisionState::PoweringOffHost),
+                    (dpu_machine_id_2, ReprovisionState::PoweringOffHost)
                 ]),
             },
         }
@@ -2787,8 +2727,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::PowerDown),
-                    (dpu_machine_id_2.clone(), ReprovisionState::PowerDown)
+                    (dpu_machine_id_1, ReprovisionState::PowerDown),
+                    (dpu_machine_id_2, ReprovisionState::PowerDown)
                 ]),
             },
         }
@@ -2805,14 +2745,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (
-                        dpu_machine_id_1.clone(),
-                        ReprovisionState::WaitingForNetworkInstall
-                    ),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::WaitingForNetworkInstall
-                    )
+                    (dpu_machine_id_1, ReprovisionState::WaitingForNetworkInstall),
+                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkInstall)
                 ]),
             },
         }
@@ -2852,8 +2786,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::BufferTime),
-                    (dpu_machine_id_2.clone(), ReprovisionState::BufferTime)
+                    (dpu_machine_id_1, ReprovisionState::BufferTime),
+                    (dpu_machine_id_2, ReprovisionState::BufferTime)
                 ]),
             },
         }
@@ -2887,14 +2821,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (
-                        dpu_machine_id_1.clone(),
-                        ReprovisionState::WaitingForNetworkConfig
-                    ),
-                    (
-                        dpu_machine_id_2.clone(),
-                        ReprovisionState::WaitingForNetworkConfig
-                    )
+                    (dpu_machine_id_1, ReprovisionState::WaitingForNetworkConfig),
+                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkConfig)
                 ]),
             },
         }
@@ -2936,8 +2864,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHostBmc),
-                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHostBmc)
+                    (dpu_machine_id_1, ReprovisionState::RebootHostBmc),
+                    (dpu_machine_id_2, ReprovisionState::RebootHostBmc)
                 ]),
             },
         }
@@ -2957,8 +2885,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1.clone(), ReprovisionState::RebootHost),
-                    (dpu_machine_id_2.clone(), ReprovisionState::RebootHost)
+                    (dpu_machine_id_1, ReprovisionState::RebootHost),
+                    (dpu_machine_id_2, ReprovisionState::RebootHost)
                 ]),
             },
         }
@@ -2980,7 +2908,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     ));
     txn.commit().await.unwrap();
 
-    let _response = forge_agent_control(&env, host_machine_id.clone().into()).await;
+    let _response = forge_agent_control(&env, host_machine_id.into()).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -3011,17 +2939,16 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-            .await
-            .unwrap()
-            .get(&dpu_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
 
     let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -3045,7 +2972,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -3123,7 +3050,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     assert!(env
         .api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -3140,7 +3067,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
 
     assert_eq!(
         dpu.current_state(),
@@ -3148,7 +3075,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkInstall
                     )]),
                 },
@@ -3189,7 +3116,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
                 },
             }
         }
@@ -3224,7 +3151,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkConfig
                     )]),
                 },
@@ -3290,7 +3217,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
                     source: crate::model::machine::FailureSource::Scout,
                     failed_at
                 },
-                machine_id: dpu.id().clone()
+                machine_id: *dpu.id()
             }
         }
     );
@@ -3321,7 +3248,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.clone().into();
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
 
     assert_eq!(
         dpu.current_state(),
@@ -3329,7 +3256,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkInstall
                     )]),
                 },
@@ -3370,7 +3297,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
                 },
             }
         }
@@ -3405,7 +3332,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
-                        dpu_machine_id.clone(),
+                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkConfig
                     )]),
                 },
@@ -3447,10 +3374,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id.clone(),
-                        ReprovisionState::RebootHostBmc
-                    )]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
                 },
             }
         }
@@ -3470,7 +3394,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::RebootHost)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
                 },
             }
         }

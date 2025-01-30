@@ -34,7 +34,7 @@ mod tests {
         let profile_id = MeasurementSystemProfileId(uuid::Uuid::new_v4());
         let journal = db::journal::new_with_txn(
             &mut txn,
-            machine_id.clone(),
+            machine_id,
             report_id,
             Some(profile_id),
             None,

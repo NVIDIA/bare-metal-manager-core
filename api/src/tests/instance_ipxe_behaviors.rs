@@ -33,7 +33,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -65,17 +65,17 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "exit");
 
     // A regular reboot attempt should still lead to returning "exit"
-    invoke_instance_power(&env, host_machine_id.clone(), false).await;
+    invoke_instance_power(&env, host_machine_id, false).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert_eq!(pxe.pxe_script, "exit");
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
-    invoke_instance_power(&env, host_machine_id.clone(), true).await;
+    invoke_instance_power(&env, host_machine_id, true).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // The next reboot should again lead to returning "exit"
-    invoke_instance_power(&env, host_machine_id.clone(), false).await;
+    invoke_instance_power(&env, host_machine_id, false).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert_eq!(pxe.pxe_script, "exit");
 }
@@ -88,7 +88,7 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -120,12 +120,12 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A regular reboot attempt should also return custom iPXE instructions
-    invoke_instance_power(&env, host_machine_id.clone(), false).await;
+    invoke_instance_power(&env, host_machine_id, false).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A reboot with flag `boot_with_custom_ipxe` should also return custom iPXE instructions
-    invoke_instance_power(&env, host_machine_id.clone(), true).await;
+    invoke_instance_power(&env, host_machine_id, true).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 }
@@ -150,7 +150,7 @@ async fn invoke_instance_power(
 ) {
     env.api
         .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
             apply_updates_on_reboot: false,

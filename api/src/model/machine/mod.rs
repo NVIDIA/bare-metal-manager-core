@@ -294,7 +294,7 @@ impl ManagedHostStateSnapshot {
             .iter()
             .find_map(|x| {
                 if x.primary_interface {
-                    Some(x.attached_dpu_machine_id.clone())
+                    Some(x.attached_dpu_machine_id)
                 } else {
                     None
                 }
@@ -306,9 +306,9 @@ impl ManagedHostStateSnapshot {
                 .dpu_snapshots
                 .iter()
                 .position(|x| x.machine_id == primary_dpu_id)
-                .ok_or_else(|| {
+                .ok_or({
                     ManagedHostStateSnapshotError::MissingPrimaryDpu(
-                        self.host_snapshot.machine_id.clone(),
+                        self.host_snapshot.machine_id,
                         primary_dpu_id,
                     )
                 })?;
@@ -320,7 +320,7 @@ impl ManagedHostStateSnapshot {
         } else if !self.dpu_snapshots.is_empty() {
             // If it is not Zero-DPU case, return failure.
             return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
-                self.host_snapshot.machine_id.clone(),
+                self.host_snapshot.machine_id,
             ));
         };
 
@@ -559,7 +559,7 @@ impl MachineSnapshot {
 
         self.interfaces
             .iter()
-            .filter_map(|i| i.attached_dpu_machine_id.clone())
+            .filter_map(|i| i.attached_dpu_machine_id)
             .collect::<Vec<MachineId>>()
     }
 
@@ -910,7 +910,7 @@ impl ReprovisionState {
                     .iter()
                     .map(|x| {
                         (
-                            x.machine_id.clone(),
+                            x.machine_id,
                             if dpu_ids_to_process.contains(&&x.machine_id) {
                                 self.clone()
                             } else {
@@ -929,7 +929,7 @@ impl ReprovisionState {
                     .iter()
                     .map(|x| {
                         (
-                            x.machine_id.clone(),
+                            x.machine_id,
                             if dpu_ids_to_process.contains(&&x.machine_id) {
                                 self.clone()
                             } else {
@@ -950,7 +950,7 @@ impl ReprovisionState {
                         .iter()
                         .map(|x| {
                             (
-                                x.machine_id.clone(),
+                                x.machine_id,
                                 if dpu_ids_to_process.contains(&&x.machine_id) {
                                     self.clone()
                                 } else {
@@ -987,7 +987,7 @@ impl ReprovisionState {
         match current_state {
             ManagedHostState::DPUReprovision { dpu_states } => {
                 let mut states = dpu_states.states.clone();
-                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                let entry = states.entry(*dpu_id).or_insert(self.clone());
                 *entry = self;
 
                 Ok(ManagedHostState::DPUReprovision {
@@ -998,7 +998,7 @@ impl ReprovisionState {
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     let mut states = dpu_states.states.clone();
-                    let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                    let entry = states.entry(*dpu_id).or_insert(self.clone());
                     *entry = self;
 
                     Ok(ManagedHostState::Assigned {
@@ -1011,7 +1011,7 @@ impl ReprovisionState {
                     Ok(ManagedHostState::Assigned {
                         instance_state: InstanceState::DPUReprovision {
                             dpu_states: DpuReprovisionStates {
-                                states: HashMap::from([(dpu_id.clone(), self.clone())]),
+                                states: HashMap::from([(*dpu_id, self.clone())]),
                             },
                         },
                     })
@@ -1035,7 +1035,7 @@ impl ReprovisionState {
         match current_state.managed_state.clone() {
             ManagedHostState::DPUReprovision { dpu_states } => {
                 let mut states = dpu_states.states.clone();
-                states.insert(dpu_machine_id.clone(), self.clone());
+                states.insert(*dpu_machine_id, self.clone());
                 Ok(ManagedHostState::DPUReprovision {
                     dpu_states: DpuReprovisionStates { states },
                 })
@@ -1054,12 +1054,12 @@ impl ReprovisionState {
                             failed_at: chrono::Utc::now(),
                             source: FailureSource::StateMachine,
                         },
-                        machine_id: dpu_machine_id.clone(),
+                        machine_id: *dpu_machine_id,
                     },
                 }),
                 _ => {
                     let mut states = dpu_states.states.clone();
-                    states.insert(dpu_machine_id.clone(), self.clone());
+                    states.insert(*dpu_machine_id, self.clone());
                     Ok(ManagedHostState::Assigned {
                         instance_state: InstanceState::DPUReprovision {
                             dpu_states: DpuReprovisionStates { states },
@@ -1236,7 +1236,7 @@ impl DpuDiscoveringState {
         match current_state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 let mut states = dpu_states.states.clone();
-                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                let entry = states.entry(*dpu_id).or_insert(self.clone());
                 *entry = self;
 
                 Ok(ManagedHostState::DpuDiscoveringState {
@@ -1258,7 +1258,7 @@ impl DpuDiscoveringState {
                 let states = dpu_states
                     .states
                     .keys()
-                    .map(|x| (x.clone(), self.clone()))
+                    .map(|x| (*x, self.clone()))
                     .collect::<HashMap<MachineId, DpuDiscoveringState>>();
 
                 Ok(ManagedHostState::DpuDiscoveringState {
@@ -1330,7 +1330,7 @@ impl DpuInitState {
         match current_state {
             ManagedHostState::DPUInit { dpu_states } => {
                 let mut states = dpu_states.states.clone();
-                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                let entry = states.entry(*dpu_id).or_insert(self.clone());
                 *entry = self;
 
                 Ok(ManagedHostState::DPUInit {
@@ -1353,7 +1353,7 @@ impl DpuInitState {
                 let states = dpu_states
                     .states
                     .keys()
-                    .map(|x| (x.clone(), self.clone()))
+                    .map(|x| (*x, self.clone()))
                     .collect::<HashMap<MachineId, DpuInitState>>();
 
                 Ok(ManagedHostState::DPUInit {
@@ -1365,7 +1365,7 @@ impl DpuInitState {
                 let states = dpu_states
                     .states
                     .keys()
-                    .map(|x| (x.clone(), DpuInitState::Init))
+                    .map(|x| (*x, DpuInitState::Init))
                     .collect::<HashMap<MachineId, DpuInitState>>();
                 Ok(ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates { states },
@@ -1881,7 +1881,7 @@ impl NextReprovisionState for MachineNextStateResolver {
     ) -> Result<ManagedHostState, StateHandlerError> {
         let reprovision_state = current_state
             .as_reprovision_state(dpu_id)
-            .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
+            .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_id))?;
 
         match reprovision_state {
             ReprovisionState::RebootHost => Ok(ManagedHostState::HostInit {
@@ -1905,7 +1905,7 @@ impl NextReprovisionState for InstanceNextStateResolver {
     ) -> Result<ManagedHostState, StateHandlerError> {
         let reprovision_state = current_state
             .as_reprovision_state(dpu_id)
-            .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
+            .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_id))?;
 
         match reprovision_state {
             ReprovisionState::RebootHost => Ok(ManagedHostState::Assigned {
@@ -1930,7 +1930,7 @@ pub fn get_action_for_dpu_state(
         } => {
             let dpu_state = state
                 .as_reprovision_state(dpu_machine_id)
-                .ok_or_else(|| CarbideError::MissingDpu(dpu_machine_id.clone()))?;
+                .ok_or_else(|| CarbideError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
                 ReprovisionState::BufferTime => (Action::Retry, None),
                 ReprovisionState::WaitingForNetworkInstall => (Action::Discovery, None),
@@ -1949,7 +1949,7 @@ pub fn get_action_for_dpu_state(
             let dpu_state = dpu_states
                 .states
                 .get(dpu_machine_id)
-                .ok_or_else(|| CarbideError::MissingDpu(dpu_machine_id.clone()))?;
+                .ok_or_else(|| CarbideError::MissingDpu(*dpu_machine_id))?;
 
             match dpu_state {
                 DpuInitState::Init => (Action::Discovery, None),

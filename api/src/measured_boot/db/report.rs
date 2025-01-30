@@ -134,13 +134,13 @@ pub async fn create_measurement_report(
     };
 
     let journal_data =
-        JournalData::new_from_values(txn, report.machine_id.clone(), &report.pcr_values()).await?;
+        JournalData::new_from_values(txn, report.machine_id, &report.pcr_values()).await?;
     // Now that the bundle_id and profile_id bits have been sorted, its
     // time to make a new journal entry that captures the [possible]
     // bundle_id, the profile_id, and the values to log to the journal.
     let journal = db::journal::new_with_txn(
         txn,
-        report.machine_id.clone(),
+        report.machine_id,
         report.report_id,
         journal_data.profile_id,
         journal_data.bundle_id,
@@ -199,7 +199,7 @@ pub async fn get_all_measurement_reports(
             .unwrap_or_default();
         res.push(MeasurementReport {
             report_id: report_record.report_id,
-            machine_id: report_record.machine_id.clone(),
+            machine_id: report_record.machine_id,
             ts: report_record.ts,
             values: values.to_vec(),
         });
@@ -251,7 +251,7 @@ pub async fn get_measurement_reports_for_machine_id(
             .map_err(CarbideError::from)?;
         res.push(MeasurementReport {
             report_id: report_record.report_id,
-            machine_id: report_record.machine_id.clone(),
+            machine_id: report_record.machine_id,
             ts: report_record.ts,
             values,
         });
@@ -311,7 +311,7 @@ async fn maybe_auto_approve_machine(
     txn: &mut Transaction<'_, Postgres>,
     report: &MeasurementReport,
 ) -> CarbideResult<bool> {
-    match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id.clone()))
+    match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id))
         .await
         .map_err(CarbideError::from)?
     {
@@ -413,7 +413,7 @@ pub async fn create_bundle_with_state(
 ) -> CarbideResult<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
-    let machine = db::machine::from_id_with_txn(txn, report.machine_id.clone()).await?;
+    let machine = db::machine::from_id_with_txn(txn, report.machine_id).await?;
     let discovery_attributes = db::machine::discovery_attributes(&machine)?;
     let profile = db::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes).await?;
 

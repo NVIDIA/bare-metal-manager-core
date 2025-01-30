@@ -386,7 +386,7 @@ impl StorageVolume {
         }
         let mut machine_ids: Vec<MachineId> = Vec::new();
         if let Some(dpu_id) = dpu_id {
-            machine_ids.push(dpu_id.clone());
+            machine_ids.push(*dpu_id);
         }
         let nvmesh_uuid: Uuid = Uuid::try_from(nvmesh_vol.uuid.as_str()).map_err(|e| {
             DatabaseError::new(
@@ -437,7 +437,7 @@ impl StorageVolume {
             self.instance_id.push(*instance_id);
         }
         if !self.dpu_machine_id.contains(dpu_machine_id) {
-            self.dpu_machine_id.push(dpu_machine_id.clone());
+            self.dpu_machine_id.push(*dpu_machine_id);
         }
         self.persist(txn, true).await
     }

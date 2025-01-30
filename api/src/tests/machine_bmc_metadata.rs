@@ -34,7 +34,7 @@ async fn fetch_bmc_credentials(pool: PgPool) {
 
     for request in vec![
         rpc::forge::BmcMetaDataGetRequest {
-            machine_id: Some(host_machine_id.clone().into()),
+            machine_id: Some(host_machine_id.into()),
             request_type: rpc::forge::BmcRequestType::Redfish.into(),
             role: rpc::forge::UserRoles::Administrator.into(),
             bmc_endpoint_request: None,

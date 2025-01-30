@@ -99,27 +99,24 @@ async fn get_measuring_prerequisites(
     machine_id: &MachineId,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
-    let machine_state = get_measurement_machine_state(txn, machine_id.clone())
+    let machine_state = get_measurement_machine_state(txn, *machine_id)
         .await
         .map_err(StateHandlerError::DBError)?;
 
-    let ek_cert_verification_status =
-        EkCertVerificationStatus::get_by_machine_id(txn, machine_id.clone())
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
-                    machine_id,
-                    e
-                ))
-            })?
-            .ok_or_else(|| {
-                StateHandlerError::MeasuringError(
-                    MeasuringProblem::NoEkCertVerificationStatusFound(format!(
-                        "MachineId - {machine_id}"
-                    )),
-                )
-            })?;
+    let ek_cert_verification_status = EkCertVerificationStatus::get_by_machine_id(txn, *machine_id)
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!(
+                "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                machine_id,
+                e
+            ))
+        })?
+        .ok_or_else(|| {
+            StateHandlerError::MeasuringError(MeasuringProblem::NoEkCertVerificationStatusFound(
+                format!("MachineId - {machine_id}"),
+            ))
+        })?;
 
     Ok((machine_state, ek_cert_verification_status))
 }
@@ -144,7 +141,7 @@ pub(crate) async fn handle_measuring_state(
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::StateMachineArea(StateMachineArea::Default),
             },
-            machine_id.clone(),
+            *machine_id,
         )));
     }
 
@@ -175,7 +172,7 @@ pub(crate) async fn handle_measuring_state(
                         failed_at: chrono::Utc::now(),
                         source: FailureSource::StateMachineArea(StateMachineArea::Default),
                     },
-                    machine_id.clone(),
+                    *machine_id,
                 )),
             })
         }
@@ -203,7 +200,7 @@ pub(crate) async fn handle_measuring_state(
                         failed_at: chrono::Utc::now(),
                         source: FailureSource::StateMachineArea(StateMachineArea::Default),
                     },
-                    machine_id.clone(),
+                    *machine_id,
                 )),
             })
         }
