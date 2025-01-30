@@ -2330,6 +2330,39 @@ impl Machine {
             }
         }
     }
+
+    /// Allocate a value from the loopback IP resource pool.
+    ///
+    /// If the pool exists but is empty or has en error, return that.
+    pub async fn allocate_vpc_dpu_loopback(
+        common_pools: &CommonPools,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Ipv4Addr, CarbideError> {
+        match common_pools
+            .ethernet
+            .pool_vpc_dpu_loopback_ip
+            .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
+            .await
+        {
+            Ok(val) => Ok(val),
+            Err(resource_pool::ResourcePoolError::Empty) => {
+                tracing::error!(
+                    owner_id,
+                    pool = "vpc-dpu-lo-ip",
+                    "Pool exhausted, cannot allocate"
+                );
+                Err(CarbideError::ResourceExhausted(
+                    "pool vpc-dpu-lo-ip".to_string(),
+                ))
+            }
+            Err(err) => {
+                tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
+                Err(err.into())
+            }
+        }
+    }
+
     pub async fn find_by_validation_id(
         txn: &mut Transaction<'_, Postgres>,
         validation_id: &Uuid,

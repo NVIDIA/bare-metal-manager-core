@@ -662,7 +662,7 @@ impl VpcDpuLoopback {
 
             common_pools
                 .ethernet
-                .pool_loopback_ip
+                .pool_vpc_dpu_loopback_ip
                 .release(txn, ipv4_addr)
                 .await
                 .map_err(CarbideError::from)?;
@@ -703,7 +703,8 @@ impl VpcDpuLoopback {
             },
             None => {
                 let loopback_ip =
-                    Machine::allocate_loopback_ip(common_pools, txn, &dpu_id.to_string()).await?;
+                    Machine::allocate_vpc_dpu_loopback(common_pools, txn, &dpu_id.to_string())
+                        .await?;
                 let vpc_dpu_loopback =
                     VpcDpuLoopback::new(dpu_id.clone(), *vpc_id, IpAddr::V4(loopback_ip));
                 vpc_dpu_loopback.persist(txn).await?;
