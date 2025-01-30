@@ -38,6 +38,10 @@ pub const VPC_VNI: &str = "vpc-vni";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const FNN_ASN: &str = "fnn-asn";
 
+/// VPC DPU loopback IP, used as in FNN.
+/// Must match a pool defined in dev/resource_pools.toml
+pub const VPC_DPU_LOOPBACK: &str = "vpc-dpu-lo";
+
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -65,6 +69,7 @@ pub struct EthernetPools {
     pub pool_vni: Arc<DbResourcePool<i32>>,
     pub pool_vpc_vni: Arc<DbResourcePool<i32>>,
     pub pool_fnn_asn: Arc<DbResourcePool<u32>>,
+    pub pool_vpc_dpu_loopback_ip: Arc<DbResourcePool<Ipv4Addr>>,
 }
 
 /// ResourcePools that are used for infiniband
@@ -98,6 +103,12 @@ impl CommonPools {
         let pool_fnn_asn: Arc<DbResourcePool<u32>> =
             Arc::new(DbResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
         optional_pool_names.push(pool_fnn_asn.name().to_string());
+
+        let pool_vpc_dpu_loopback_ip: Arc<DbResourcePool<Ipv4Addr>> = Arc::new(
+            DbResourcePool::new(VPC_DPU_LOOPBACK.to_string(), ValueType::Ipv4),
+        );
+        //  TODO: This should be removed from optional once FNN become mandatory.
+        optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
         // We can't run if any of the mandatory pools are missing
         for name in &pool_names {
@@ -162,6 +173,7 @@ impl CommonPools {
                 pool_vni,
                 pool_vpc_vni,
                 pool_fnn_asn,
+                pool_vpc_dpu_loopback_ip,
             },
             infiniband: IbPools { pkey_pools },
             pool_stats,

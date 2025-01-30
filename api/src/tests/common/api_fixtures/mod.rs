@@ -1079,6 +1079,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         },
     );
     defs.insert(
+        resource_pool::common::VPC_DPU_LOOPBACK.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Ipv4,
+            // Must match a network_prefix in fixtures/create_network_segment.sql
+            prefix: None,
+            ranges: vec![resource_pool::Range {
+                start: "10.255.255.0".to_string(),
+                end: "10.255.255.127".to_string(),
+            }],
+        },
+    );
+    defs.insert(
         resource_pool::common::LOOPBACK_IP.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Ipv4,
