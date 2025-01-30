@@ -25,7 +25,11 @@ use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-const UPGRADE_CMD: &str = "ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --only-upgrade --reinstall forge-dpu";
+// We do a `dpkg --configure -a` first to give ourselves a better chance of
+// making it through the self-upgrade if the last one was interrupted.
+const UPGRADE_CMD: &str = "DEBIAN_FRONTEND=noninteractive dpkg --configure -a && \
+ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && \
+DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --only-upgrade --reinstall forge-dpu";
 
 /// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
