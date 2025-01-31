@@ -1041,6 +1041,12 @@ impl MachineStateHandler {
             }
             ManagedHostState::DPUReprovision { .. } => {
                 for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                    // TODO: Optimization Possible: We can have another outcome something like
+                    // TransitionNotPossible. This will be valid for the sync states (States where
+                    // we wait for all DPUs to come in same state). If return value is
+                    // TransitionNotPossible, means at least one DPU is not in ready to move into
+                    // next state, thus no point of checking for next DPU. In this case, just break
+                    // the loop.
                     if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
                         mh_snapshot,
                         &self.reachability_params,
@@ -2737,8 +2743,15 @@ async fn handle_dpu_reprovision(
             ))
         }
         ReprovisionState::WaitingForNetworkInstall => {
-            if let Some(dpu_id) =
-                try_wait_for_dpu_discovery(state, reachability_params, services, true, txn).await?
+            if let Some(dpu_id) = try_wait_for_dpu_discovery(
+                state,
+                reachability_params,
+                services,
+                true,
+                txn,
+                dpu_machine_id,
+            )
+            .await?
             {
                 // Return Wait.
                 return Ok(StateHandlerOutcome::Wait(format!(
@@ -2925,6 +2938,7 @@ async fn try_wait_for_dpu_discovery(
     services: &StateHandlerServices,
     is_reprovision_case: bool,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    current_dpu_machine_id: &MachineId,
 ) -> Result<Option<MachineId>, StateHandlerError> {
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
@@ -2938,15 +2952,18 @@ async fn try_wait_for_dpu_discovery(
             dpu_snapshot.current.version,
             dpu_snapshot.last_discovery_time,
         ) {
-            let _status = trigger_reboot_if_needed(
-                dpu_snapshot,
-                state,
-                None,
-                reachability_params,
-                services,
-                txn,
-            )
-            .await?;
+            // Reboot only the DPU for which the handler loop is called.
+            if current_dpu_machine_id == &dpu_snapshot.machine_id {
+                let _status = trigger_reboot_if_needed(
+                    dpu_snapshot,
+                    state,
+                    None,
+                    reachability_params,
+                    services,
+                    txn,
+                )
+                .await?;
+            }
             // TODO propagate the status.status message to a StateHandlerOutcome::Wait
             return Ok(Some(dpu_snapshot.machine_id));
         }
@@ -3406,6 +3423,7 @@ impl DpuMachineStateHandler {
                     ctx.services,
                     false,
                     txn,
+                    dpu_machine_id,
                 )
                 .await?;
 
