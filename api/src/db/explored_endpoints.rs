@@ -333,6 +333,15 @@ WHERE address = $3 AND version=$4";
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
 
+    pub async fn set_preingestion_recheck_versions_reason(
+        address: IpAddr,
+        reason: String,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::RecheckVersionsAfterFailure { reason };
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
     pub async fn set_preingestion_waittask(
         address: IpAddr,
         task_id: String,

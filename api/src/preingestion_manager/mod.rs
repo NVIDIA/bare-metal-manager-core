@@ -261,6 +261,11 @@ async fn one_endpoint(
                 .check_firmware_versions_below_preingestion(&mut txn, &endpoint)
                 .await?
         }
+        PreingestionState::RecheckVersionsAfterFailure { .. } => {
+            static_info
+                .start_firmware_uploads_or_continue(&mut txn, &endpoint)
+                .await?
+        }
         PreingestionState::RecheckVersions => {
             static_info
                 .start_firmware_uploads_or_continue(&mut txn, &endpoint)
@@ -571,20 +576,22 @@ impl PreingestionManagerStatic {
                     | Some(TaskState::Interrupted)
                     | Some(TaskState::Killed)
                     | Some(TaskState::Cancelled) => {
-                        tracing::warn!(
+                        let msg = format!(
                             "Failure in firmware upgrade for {}: {} {:?}",
                             &endpoint.address,
-                            task_info.task_state.unwrap(),
+                            task_info.task_state.unwrap_or(TaskState::Killed),
                             task_info
                                 .messages
                                 .last()
                                 .map_or(String::new(), |m| m.message.clone())
                         );
+                        tracing::warn!(msg);
 
                         // Wait for site explorer to refresh it then try again after that.
                         // Someday, we should generate metrics for visiblity if something fails multiple times.
-                        DbExploredEndpoint::set_preingestion_recheck_versions(
+                        DbExploredEndpoint::set_preingestion_recheck_versions_reason(
                             endpoint.address,
+                            msg,
                             txn,
                         )
                         .await?;

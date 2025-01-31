@@ -1150,6 +1150,12 @@ pub struct FirmwareGlobal {
     pub concurrency_limit: usize,
     #[serde(default = "FirmwareGlobal::firmware_directory_default")]
     pub firmware_directory: PathBuf,
+    #[serde(
+        default = "FirmwareGlobal::host_firmware_upgrade_retry_interval_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub host_firmware_upgrade_retry_interval: Duration,
 }
 
 impl FirmwareGlobal {
@@ -1162,6 +1168,8 @@ impl FirmwareGlobal {
             run_interval: Duration::seconds(5),
             concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
             firmware_directory: PathBuf::default(),
+            host_firmware_upgrade_retry_interval:
+                FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
         }
     }
 }
@@ -1203,6 +1211,9 @@ impl FirmwareGlobal {
     pub fn firmware_directory_default() -> PathBuf {
         PathBuf::from("/opt/carbide/firmware")
     }
+    pub fn host_firmware_upgrade_retry_interval_default() -> Duration {
+        Duration::minutes(60)
+    }
 }
 
 impl Default for FirmwareGlobal {
@@ -1215,6 +1226,8 @@ impl Default for FirmwareGlobal {
             max_uploads: FirmwareGlobal::max_uploads_default(),
             concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
             firmware_directory: FirmwareGlobal::firmware_directory_default(),
+            host_firmware_upgrade_retry_interval:
+                FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
         }
     }
 }

@@ -1114,6 +1114,7 @@ pub enum HostReprovisionState {
     },
     FailedFirmwareUpgrade {
         firmware_type: FirmwareComponentType,
+        report_time: Option<DateTime<Utc>>,
     },
 }
 
