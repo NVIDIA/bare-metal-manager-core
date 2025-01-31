@@ -899,7 +899,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
-        ms.reprovisioning_requested()
+        ms.reprovision_requested()
             .is_some_and(|x| x.started_at.is_some())
     }) {
         match req.mode() {
@@ -958,7 +958,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .dpu_snapshots
             .iter()
             .filter_map(|x| {
-                if x.reprovisioning_requested().is_some() {
+                if x.reprovision_requested().is_some() {
                     Some(&x.machine_id)
                 } else {
                     None

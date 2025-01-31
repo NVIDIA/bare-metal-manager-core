@@ -492,7 +492,6 @@ impl From<Machine> for MachineSnapshot {
             cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
             on_demand_machine_validation_id: machine.on_demand_machine_validation_id(),
             on_demand_machine_validation_request: machine.on_demand_machine_validation_request(),
-            reprovisioning_requested: machine.reprovisioning_requested().clone(),
             host_reprovision_requested: machine.host_reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
             site_explorer_health_report: machine.site_explorer_health_report,
