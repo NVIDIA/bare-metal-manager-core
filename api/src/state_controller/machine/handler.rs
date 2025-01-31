@@ -1292,13 +1292,6 @@ impl MachineStateHandler {
             .host_checking_fw_noclear(state, services, machine_id, txn)
             .await?;
 
-        if ret == Some(original_state.clone()) {
-            // host_checking_fw_noclear can return Ready to indicate that we're moving out of CheckingFirmware,
-            // but we also take this path when we're actually in Ready - for that case, return Ok(None) so that
-            // we don't keep retransitioning to the same state.
-            ret = None;
-        }
-
         // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
         if let Some(ret) = &ret {
             match ret {
@@ -1307,6 +1300,13 @@ impl MachineStateHandler {
                     Machine::clear_host_reprovisioning_request(txn, machine_id).await?;
                 }
             };
+        }
+
+        if ret == Some(original_state.clone()) {
+            // host_checking_fw_noclear can return Ready to indicate that we're moving out of CheckingFirmware,
+            // but we also take this path when we're actually in Ready - for that case, return Ok(None) so that
+            // we don't keep retransitioning to the same state.
+            ret = None;
         }
 
         Ok(ret)

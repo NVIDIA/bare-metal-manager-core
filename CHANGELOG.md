@@ -26,7 +26,7 @@
 - Add validation that description length is smaller or equal than 1024 bytes in order to prevent internal/database errors on overlong descriptions.
 - Fix missing validations for duplicated labels during VPC creation.
 - Ensure that Metadata validation in the VPC creation workflow happens before actually trying to persist metadata to the DB. This prevents the Internal Errors that will happen if overlong metadata is passed to the DB layer.
-
+- When checking if host firmware is up to date and deciding that there is no change, we properly clean the reprovisioning request.  This prevents cerain situations of machines getting stuck in Ready.
 ### Removed
 
 ## [v2025.01.17-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc2-0...v2025.01.17-rc3-0)
