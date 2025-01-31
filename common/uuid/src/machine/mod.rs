@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::convert::TryFrom;
 use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 use std::{fmt::Write, ops::Deref, str::FromStr};
 use tonic::Status;
 
@@ -139,7 +140,7 @@ pub type HardwareIdBase32 = [u8; MACHINE_ID_HARDWARE_ID_BASE32_LENGTH];
 /// - fm100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
 /// - fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g
 /// - fm100ptjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct MachineId {
     /// The hardware source from which the Machine ID was derived
     source: MachineIdSource,
@@ -148,6 +149,14 @@ pub struct MachineId {
     hardware_id: HardwareIdBase32,
     /// The Type of the Machine
     ty: MachineType,
+}
+
+impl Debug for MachineId {
+    // The derived Debug implementation is messy, just output the string representation even when
+    // debugging.
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
 }
 
 impl TryFrom<&rpc::MachineId> for MachineId {
