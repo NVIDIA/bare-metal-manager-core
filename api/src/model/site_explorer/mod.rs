@@ -287,6 +287,9 @@ pub enum PreingestionState {
         final_version: String,
         upgrade_type: FirmwareComponentType,
     },
+    RecheckVersionsAfterFailure {
+        reason: String,
+    },
     Complete,
 }
 

@@ -1268,7 +1268,24 @@ impl MachineStateHandler {
                 )
                 .await
             }
-            HostReprovisionState::FailedFirmwareUpgrade { .. } => Ok(None),
+            HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
+                if Utc::now().signed_duration_since(report_time.unwrap_or(Utc::now()))
+                    >= services
+                        .site_config
+                        .firmware_global
+                        .host_firmware_upgrade_retry_interval
+                {
+                    tracing::info!(
+                        "Retrying firmware upgrade on {}",
+                        state.host_snapshot.machine_id
+                    );
+                    Ok(Some(ManagedHostState::HostReprovision {
+                        reprovision_state: HostReprovisionState::CheckingFirmware,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 
@@ -1576,6 +1593,7 @@ impl MachineStateHandler {
                         Ok(Some(ManagedHostState::HostReprovision {
                             reprovision_state: HostReprovisionState::FailedFirmwareUpgrade {
                                 firmware_type: args.firmware_type,
+                                report_time: Some(Utc::now()),
                             },
                         }))
                     }
