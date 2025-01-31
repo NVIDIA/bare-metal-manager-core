@@ -2660,8 +2660,52 @@ async fn handle_dpu_reprovision(
 
             for dpu_snapshot in dpus_snapshots_for_reprov {
                 if !rebooted(dpu_snapshot) {
+                    /*
+                    We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning,
+                    the boot order on the DPU is reset.
+                    Example (DPU with BMC IP 10.91.54.28 in AZ51):
+                    curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
+                    {
+                    "@Redfish.Settings": {
+                        "@odata.type": "#Settings.v1_3_5.Settings",
+                        "SettingsObject": {
+                        "@odata.id": "/redfish/v1/Systems/Bluefield/Settings"
+                        }
+                    },
+                    ...
+                    "BootOrder": [
+                                "Boot0009",
+                                "Boot0000",
+                                ...
+                    }
+                    ...
+                    }
+
+                    curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield/BootOptions/Boot0009
+                    {
+                        "@odata.id": "/redfish/v1/Systems/Bluefield/BootOptions/Boot0009",
+                        "@odata.type": "#BootOption.v1_0_4.BootOption",
+                        "BootOptionEnabled": true,
+                        "BootOptionReference": "Boot0009",
+                        "Description": "",
+                        "DisplayName": "ubuntu0",
+                        "Id": "Boot0009",
+                        "Name": "Boot0009",
+                        "UefiDevicePath": "HD(1,GPT,40AF1556-D288-0443-BCED-2061783C95FF,0x800,0x19000)/\\EFI\\ubuntu\\shimaa64.efi"
+                      }
+                    */
+                    let reboot_status = trigger_reboot_if_needed(
+                        dpu_snapshot,
+                        state,
+                        None,
+                        reachability_params,
+                        services,
+                        txn,
+                    )
+                    .await?;
+
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "Waiting for DPU {} to come up.",
+                        "Waiting for DPU {} to come up; reboot status: {reboot_status:#?}",
                         dpu_snapshot.machine_id
                     )));
                 }
