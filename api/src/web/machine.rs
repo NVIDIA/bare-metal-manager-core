@@ -317,6 +317,14 @@ struct MachineDetail {
     discovery_info_json: String,
     metadata: rpc::forge::Metadata,
     version: String,
+    capabilities: Vec<MachineCapability>,
+    capabilities_json: String,
+}
+
+struct MachineCapability {
+    ty: &'static str,
+    name: String,
+    count: u32,
 }
 
 struct MachineHistoryDisplay {
@@ -512,6 +520,67 @@ impl From<forgerpc::Machine> for MachineDetail {
                         .unwrap_or_else(|e| format!("Formatting error: {e}"))
                 })
                 .unwrap_or_else(|| "null".to_string()),
+            capabilities_json: m
+                .capabilities
+                .as_ref()
+                .map(|set| serde_json::to_string_pretty(set).unwrap_or("Invalid JSON".to_string()))
+                .unwrap_or_else(|| "{}".to_string()),
+            capabilities: m
+                .capabilities
+                .map(|s| {
+                    let mut caps = Vec::new();
+                    for item in s.cpu {
+                        caps.push(MachineCapability {
+                            ty: "cpu",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.gpu {
+                        caps.push(MachineCapability {
+                            ty: "gpu",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.memory {
+                        caps.push(MachineCapability {
+                            ty: "memory",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.storage {
+                        caps.push(MachineCapability {
+                            ty: "storage",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.network {
+                        caps.push(MachineCapability {
+                            ty: "network",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.infiniband {
+                        caps.push(MachineCapability {
+                            ty: "infiniband",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    for item in s.dpu {
+                        caps.push(MachineCapability {
+                            ty: "dpu",
+                            name: item.name,
+                            count: item.count,
+                        })
+                    }
+                    caps
+                })
+                .unwrap_or_default(),
         }
     }
 }

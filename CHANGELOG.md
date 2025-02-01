@@ -16,7 +16,7 @@
   Creation and Update of any of these objects will now use the same test-cases for rejecting
   invalid Metadata.
 - [FORGE-2851](https://jirasw.nvidia.com/browse/FORGE-2851) Carbide now returns machine capabilities in
-  snapshot data when querying for machines, and capabilities are compared when adding machines to instance types.
+  snapshot data when querying for machines, and capabilities are compared when adding machines to instance types. Machine capabilities are displayed on the `/machine` endpoints of the Admin Web UI.
 
 
 ### Changed

@@ -201,6 +201,41 @@ Missing BMC Data
 	</tbody>
 </table>
 
+<h3>Capabilities</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Name</th>
+			<th>Count</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for cap in capabilities %}
+		<tr>
+			<td>{{ cap.ty }}</td>
+			<td>{{ cap.name }}</td>
+			<td>{{ cap.count }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>Capability Details</h3>
+<table class="detailsview">
+	<tr>
+		<th>Full Capabilities</th>
+		<td>
+			<details>
+				<summary>Expand Capabilities</summary>
+				<div style="max-height: 40vh; overflow: auto; margin: 0; padding: 0;">
+					<pre><code>{{ capabilities_json }}</code></pre>
+				</div>
+			</details>
+		</td>
+	</tr>
+</table>
+
+
 <h3>History</h3>
 <table class="detailsview">
 	<thead>
