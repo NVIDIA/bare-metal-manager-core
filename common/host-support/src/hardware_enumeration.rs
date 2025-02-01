@@ -26,7 +26,6 @@ use std::{
 };
 use tracing::{error, warn};
 use uname::uname;
-use utils::cmd::Cmd;
 
 pub mod dpu;
 mod gpu;
@@ -81,8 +80,11 @@ impl PciDevicePropertiesExt {
 
     //pub fn mlnx_ib_capable(device: &str, pci_subclass: &str, vendor: &str) -> bool {
     pub fn mlnx_ib_capable(&self) -> bool {
-        // TODO: Check whether the device exists.
-        // only check Mellanox devices
+        // Check only Mellanox port which is presented as a separate network interface
+        // ID_PCI_CLASS_FROM_DATABASE='Network controller'
+        //   - It is assumption for SUBSYSTEM=[net|infiniband]
+        // ID_PCI_SUBCLASS_FROM_DATABASE='Infiniband controller' or 'Ethernet controller'
+        //   - Because ports for VPI Mellanox device can be configured in IB(1) or ETH(2) type
         if let Some(slot) = self.pci_properties.slot.as_ref() {
             if !slot.is_empty()
                 && self
@@ -90,12 +92,7 @@ impl PciDevicePropertiesExt {
                     .vendor
                     .eq_ignore_ascii_case("Mellanox Technologies")
             {
-                // there are three types of devices: VPI, IB-only and Eth-only
-                // VPI and IB-only device are ib capable
-                // VPI device has LINK_TYPE_P1 parameters. IB-only and Eth-only devices do not have these parameters.
-                // IB-only device has Infiniband controller sub class.
-                return check_link_type(slot, LINK_TYPE_P1)
-                    || self.sub_class.eq_ignore_ascii_case("Infiniband controller");
+                return self.sub_class.eq_ignore_ascii_case("Infiniband controller");
             }
         }
         false
@@ -125,22 +122,6 @@ impl TryFrom<&Device> for PciDevicePropertiesExt {
             },
             device_id: convert_property_to_string(PCI_DEVICE_ID, "", device)?.to_string(),
         })
-    }
-}
-
-pub fn check_link_type(device: &str, port: &str) -> bool {
-    match Cmd::new("mstconfig")
-        .args(vec!["-d", device, "q", port])
-        .output()
-    {
-        Ok(_) => {
-            tracing::info!("Device {} is IB capable", device,);
-            true
-        }
-        Err(e) => {
-            tracing::trace!("Device {} is not IB capable, result {} ", device, e,);
-            false
-        }
     }
 }
 
@@ -272,13 +253,17 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
             }
         };
 
-        // filter out DPU
+        // SUBSYSTEM=infiniband
+        // Skip DPU
         if properties_ext.is_dpu() {
             continue;
         }
 
-        // VPI, IB-only and eth-oly ConnectX devices are here.
-        // in case there are eth-only ConnectX devices, we need filter out eth-only.
+        // SUBSYSTEM=infiniband
+        // ID_PCI_CLASS_FROM_DATABASE='Network controller'
+        //   - It is assumption for SUBSYSTEM=[net|infiniband]
+        // ID_PCI_SUBCLASS_FROM_DATABASE='Infiniband controller' or 'Ethernet controller'
+        //   - because ports for VPI device can be configured in IB(1) or ETH(2) types
         if properties_ext.mlnx_ib_capable() {
             ibs.push(rpc_discovery::InfinibandInterface {
                 guid: convert_sysattr_to_string("node_guid", &device)?
@@ -345,6 +330,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                 tracing::trace!("properties: {:?}", properties_ext);
 
                 // discovery DPU and non ib capable device
+                // Note:
+                //   Probably current logic does not allow to detect non DPU network interfaces
+                //   with following properties
+                //     SUBSYSTEM=infiniband
+                //     ID_PCI_CLASS_FROM_DATABASE='Network controller'
+                //     ID_PCI_SUBCLASS_FROM_DATABASE='Ethernet controller'
                 if properties_ext.is_dpu() || !properties_ext.mlnx_ib_capable() {
                     nics.push(rpc_discovery::NetworkInterface {
                         mac_address: convert_udev_to_mac(
