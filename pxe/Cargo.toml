@@ -43,3 +43,6 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+
+[dev-dependencies]
+tempfile = "3"
