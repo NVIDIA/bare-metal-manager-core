@@ -11,7 +11,10 @@
  */
 use std::{fmt::Debug, net::SocketAddr, str::FromStr};
 
-use axum::{middleware::map_request, Router, ServiceExt};
+use axum::{
+    middleware::{map_request, map_response},
+    Router, ServiceExt,
+};
 use axum_template::engine::Engine;
 use clap::Parser;
 use common::AppState;
@@ -96,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(routes::cloud_init::get_router("/api/v0/cloud-init"))
         .merge(routes::tls::get_router("/api/v0/tls"))
         .route_layer(axum::middleware::from_fn(middleware::logging::logger))
+        .layer(map_response(middleware::fix_content_length_header))
         .layer(middleware::metrics::MetricLayer::default())
         .merge(routes::metrics::get_router("/metrics"))
         .with_state(app_state); // The order of the calls here matters --> we only want to cache the files on disk, nothing else, and we don't want /metrics to be included in our metrics.
