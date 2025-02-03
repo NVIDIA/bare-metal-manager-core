@@ -17,6 +17,13 @@
   invalid Metadata.
 - [FORGE-2851](https://jirasw.nvidia.com/browse/FORGE-2851) Carbide now returns machine capabilities in
   snapshot data when querying for machines, and capabilities are compared when adding machines to instance types. Machine capabilities are displayed on the `/machine` endpoints of the Admin Web UI.
+- New health override templates have been added to the `/admin/machine/health/machine_id` endpoint of the Admin Web UI. These allow operators to add new "Maintenance" health alerts with different targets. The targets are defines as follows:
+  - `null` (no target): Describes that the host is in maintenance by Forge internal workflows. This mode is used by setting the currently existing Maintenance mode on hosts, as well as by update workflows.
+  - `"OutForRepair"`: Describes that a Machine is out for repair and requires intervention by an external party.
+  - `"Degraded"`: Describes that a Machine is still in use by a Tenant, but is known to have issues.
+  The usage of different targets in Maintenance will allow for better accounting which party is currently required to resolve an issue with a Host.
+- A new health alert classification with name `SuppressExternalAlerting` will get added to Maintenance alerts.
+  The presence of the classification can be used for excluding machines from alerting&paging thresholds (via Prometheus->AlertManager->Pagerduty path).
 
 
 ### Changed
