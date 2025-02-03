@@ -1223,15 +1223,6 @@ pub async fn host_power_control(
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart) =>
         {
-            if machine_snapshot.machine_id.machine_type().is_dpu() {
-                // We have seen the boot order be reset on DPUs in some edge cases (for example, after upgrading the BMC and CEC on BF3s)
-                // This should take care of handling such cases
-                redfish_client
-                    .boot_once(libredfish::Boot::UefiHttp)
-                    .await
-                    .map_err(CarbideError::RedfishError)?;
-            }
-
             // vikings reboot their DPU's if redfish reset is used. \
             // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
             //
