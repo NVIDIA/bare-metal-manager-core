@@ -2435,6 +2435,7 @@ impl Forge for Api {
                                     tenant_message: None,
                                     classifications: vec![
                                         health_report::HealthAlertClassification::prevent_allocations(),
+                                        health_report::HealthAlertClassification::suppress_external_alerting(),
                                     ],
                                 }],
                             }

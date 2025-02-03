@@ -67,7 +67,10 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             in_alert_since: None,
             message: "https://jira.example.com/ABC-123".to_string(),
             tenant_message: None,
-            classifications: vec!["PreventAllocations".to_string()]
+            classifications: vec![
+                "PreventAllocations".to_string(),
+                "SuppressExternalAlerting".to_string()
+            ]
         }
     );
 
@@ -376,7 +379,10 @@ async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(
             in_alert_since: None,
             message: "Test".to_string(),
             tenant_message: None,
-            classifications: vec!["PreventAllocations".to_string()]
+            classifications: vec![
+                "PreventAllocations".to_string(),
+                "SuppressExternalAlerting".to_string(),
+            ]
         }
     );
 
@@ -461,7 +467,10 @@ async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
             in_alert_since: None,
             message: "Test".to_string(),
             tenant_message: None,
-            classifications: vec!["PreventAllocations".to_string()]
+            classifications: vec![
+                "PreventAllocations".to_string(),
+                "SuppressExternalAlerting".to_string()
+            ]
         }
     );
 
@@ -508,6 +517,101 @@ async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
         .machines
         .remove(0);
     assert_ne!(host_machine.state, "Ready");
+
+    Ok(())
+}
+
+/// Tests whether old Machines which have the Maintenance alert but no SuppressExternalAlerting classification
+/// set will get it.
+#[crate::sqlx_test]
+async fn test_migrate_legacy_maintenance_mode_add_suppress_paging(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+
+    // Create a machine
+    let (host_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+
+    // Manually enable maintenance mode on the Machine
+    let mut txn = env.pool.begin().await.unwrap();
+    crate::db::machine::Machine::set_maintenance_mode(
+        &mut txn,
+        &host_id,
+        &MaintenanceMode::On {
+            reference: "Test".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // Check that maintenance mode is on, but the alert is missing
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert!(alerts.is_empty());
+
+    // Add the old version of the alert
+    env.api
+        .insert_health_report_override(tonic::Request::new(
+            ::rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(rpc_host_id.clone()),
+                r#override: Some(::rpc::forge::HealthReportOverride {
+                    report: Some(::rpc::health::HealthReport {
+                        source: "maintenance".to_string(),
+                        observed_at: None,
+                        successes: vec![],
+                        alerts: vec![rpc::health::HealthProbeAlert {
+                            id: "Maintenance".to_string(),
+                            target: None,
+                            in_alert_since: None,
+                            message: "Test".to_string(),
+                            tenant_message: None,
+                            classifications: vec!["PreventAllocations".to_string()],
+                        }],
+                    }),
+                    mode: rpc::forge::OverrideMode::Merge as _,
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Now run the state handler. The alert should show up
+    env.run_machine_state_controller_iteration().await;
+
+    let mut host_machine = env
+        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
+    assert_eq!(host_machine.maintenance_reference.clone().unwrap(), "Test");
+    assert!(host_machine.maintenance_start_time.is_some());
+    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert_eq!(alerts.len(), 1);
+    let alert = &mut alerts[0];
+    assert!(alert.in_alert_since.is_some());
+    alert.in_alert_since = None;
+    assert_eq!(
+        *alert,
+        rpc::health::HealthProbeAlert {
+            id: "Maintenance".to_string(),
+            target: None,
+            in_alert_since: None,
+            message: "Test".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                "PreventAllocations".to_string(),
+                "SuppressExternalAlerting".to_string()
+            ]
+        }
+    );
 
     Ok(())
 }

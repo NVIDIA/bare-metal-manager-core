@@ -1811,20 +1811,32 @@ async fn handle_legacy_maintenance_mode(
     let health_alert_mode_for_maintenance_mode = health_report::OverrideMode::Merge;
 
     let is_host_in_maintenance_mode = mh_snapshot.host_snapshot.is_maintenance_mode();
-    let is_health_alert_raised_for_maintenance = mh_snapshot
+    let existing_maintenance_alert = mh_snapshot
         .host_snapshot
         .health_report_overrides
         .merges
         .iter()
-        .any(|(source, report)| {
-            *source == health_alert_source_for_maintenance_mode
-                && report
-                    .alerts
-                    .iter()
-                    .any(|alert| alert.id == health_alert_id_for_maintenance_mode)
+        .find_map(|(source, report)| {
+            if *source != health_alert_source_for_maintenance_mode {
+                return None;
+            }
+            report
+                .alerts
+                .iter()
+                .find(|alert| alert.id == health_alert_id_for_maintenance_mode)
         });
+    let is_health_alert_raised_for_maintenance = existing_maintenance_alert.is_some();
+    let existing_alert_misses_paging_suppression = existing_maintenance_alert
+        .as_ref()
+        .map(|alert| {
+            !alert.classifications.iter().any(|c| {
+                *c == health_report::HealthAlertClassification::suppress_external_alerting()
+            })
+        })
+        .unwrap_or_default();
 
-    let raise_health_alert = is_host_in_maintenance_mode && !is_health_alert_raised_for_maintenance;
+    let raise_health_alert = is_host_in_maintenance_mode
+        && (!is_health_alert_raised_for_maintenance || existing_alert_misses_paging_suppression);
     let clear_health_alert = !is_host_in_maintenance_mode && is_health_alert_raised_for_maintenance;
 
     // Migrate from legacy maintenance mode to health alert
@@ -1845,6 +1857,7 @@ async fn handle_legacy_maintenance_mode(
                 tenant_message: None,
                 classifications: vec![
                     health_report::HealthAlertClassification::prevent_allocations(),
+                    health_report::HealthAlertClassification::suppress_external_alerting(),
                 ],
             }],
         };
