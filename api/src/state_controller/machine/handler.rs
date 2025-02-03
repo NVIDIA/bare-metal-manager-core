@@ -5291,6 +5291,17 @@ async fn restart_dpu(
         .create_client_from_machine_snapshot(machine_snapshot, txn)
         .await?;
 
+    // We have seen the boot order be reset on DPUs in some edge cases (for example, after upgrading the BMC and CEC on BF3s)
+    // This should take care of handling such cases. It is a no-op most of the time
+    if let Err(e) = dpu_redfish_client
+        .boot_once(libredfish::Boot::UefiHttp)
+        .await
+    {
+        // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
+        // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
+        tracing::error!(%e, "Failed to configure DPU {} to boot once", machine_snapshot.machine_id);
+    }
+
     if let Err(e) = dpu_redfish_client
         .power(SystemPowerControl::ForceRestart)
         .await
