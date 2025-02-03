@@ -88,38 +88,37 @@ struct AsStrings {
 pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
     // Source config is hacky, but we just need to have 3 different components in unsorted order
     let src_cfg_str = r#"
-model = "PowerEdge R750"
-vendor = "Dell"
+    model = "PowerEdge R750"
+    vendor = "Dell"
 
-[components.uefi]
-current_version_reported_as = "^Installed-.*__BIOS.Setup."
-preingest_upgrade_when_below = "1.13.3"
+    [components.uefi]
+    current_version_reported_as = "^Installed-.*__BIOS.Setup."
+    preingest_upgrade_when_below = "1.13.3"
 
-[[components.uefi.known_firmware]]
-version = "1.13.3"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
-default = true
+    [[components.uefi.known_firmware]]
+    version = "1.13.3"
+    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/BIOS_T3H20_WN64_1.13.2.EXE"
+    default = true
 
-[components.bmc]
-current_version_reported_as = "^Installed-.*__iDRAC."
+    [components.bmc]
+    current_version_reported_as = "^Installed-.*__iDRAC."
 
-[[components.bmc.known_firmware]]
-version = "7.10.30.00"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
-default = true
+    [[components.bmc.known_firmware]]
+    version = "7.10.30.00"
+    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+    default = true
 
 
-[components.cec]
-current_version_reported_as = "^Installed-.*__iDRAC."
+    [components.cec]
+    current_version_reported_as = "^Installed-.*__iDRAC."
 
-[[components.cec.known_firmware]]
-version = "8.10.30.00"
-url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
-default = true
-    "#;
-
+    [[components.cec.known_firmware]]
+    version = "8.10.30.00"
+    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
+    default = true
+        "#;
     let mut config: FirmwareConfig = Default::default();
-    config.merge_from_string(src_cfg_str.to_string())?;
+    config.add_test_override(src_cfg_str.to_string());
 
     println!("{config:?}");
     let mut txn = pool.begin().await?;

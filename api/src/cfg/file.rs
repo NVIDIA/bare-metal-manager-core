@@ -240,25 +240,24 @@ pub struct AdminFnnConfig {
 
 impl CarbideConfig {
     pub fn get_firmware_config(&self) -> FirmwareConfig {
-        let mut map: HashMap<String, Firmware> = Default::default();
+        let mut base_map: HashMap<String, Firmware> = Default::default();
         for (_, host) in self.host_models.iter() {
-            map.insert(
+            base_map.insert(
                 vendor_model_to_key(host.vendor, host.model.to_owned()),
                 host.clone(),
             );
         }
         for (_, dpu) in self.dpu_config.dpu_models.iter() {
-            map.insert(
+            base_map.insert(
                 vendor_model_to_key(dpu.vendor, DpuModel::from(dpu.model.to_owned()).to_string()),
                 dpu.clone(),
             );
         }
-        let mut config = FirmwareConfig { map };
-        if self.firmware_global.firmware_directory.to_string_lossy() != "" {
-            config.merge_firmware_configs(&self.firmware_global.firmware_directory);
+        FirmwareConfig {
+            base_map,
+            firmware_directory: self.firmware_global.firmware_directory.clone(),
+            test_overrides: vec![],
         }
-
-        config
     }
 }
 
@@ -1221,7 +1220,9 @@ impl Default for FirmwareGlobal {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FirmwareConfig {
-    map: HashMap<String, Firmware>,
+    base_map: HashMap<String, Firmware>,
+    firmware_directory: PathBuf,
+    test_overrides: Vec<String>,
 }
 
 impl FirmwareConfig {
@@ -1232,7 +1233,7 @@ impl FirmwareConfig {
         } else {
             vendor_model_to_key(vendor, model)
         };
-        let ret = self.map.get(&key).map(|x| x.to_owned());
+        let ret = self.map().get(&key).map(|x| x.to_owned());
         tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
         ret
     }
@@ -1258,10 +1259,25 @@ impl FirmwareConfig {
     }
 
     pub fn map(&self) -> HashMap<String, Firmware> {
-        self.map.clone()
+        let mut map = self.base_map.clone();
+        if self.firmware_directory.to_string_lossy() != "" {
+            self.merge_firmware_configs(&mut map, &self.firmware_directory);
+        }
+        // Fake configs to merge for unit tests
+        for ovrd in &self.test_overrides {
+            if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
+                tracing::error!("Bad override {ovrd}: {err}");
+            }
+        }
+
+        map
     }
 
-    pub fn merge_firmware_configs(&mut self, firmware_directory: &PathBuf) {
+    fn merge_firmware_configs(
+        &self,
+        map: &mut HashMap<String, Firmware>,
+        firmware_directory: &PathBuf,
+    ) {
         if !firmware_directory.is_dir() {
             tracing::error!("Missing firmware directory {:?}", firmware_directory);
             return;
@@ -1285,7 +1301,7 @@ impl FirmwareConfig {
                     continue;
                 }
             };
-            if let Err(e) = self.merge_from_string(metadata) {
+            if let Err(e) = self.merge_from_string(map, metadata) {
                 tracing::error!("Failed to merge in metadata from {:?}: {e}", dir.path());
             }
         }
@@ -1294,13 +1310,17 @@ impl FirmwareConfig {
     /// merge_from_string adds the given TOML based config to this Firmware.  Figment based merging won't work for this,
     /// as we want to append new FirmwareEntry instances instead of overwriting.  It is expected that this will be called
     /// on the metadata in order of oldest creation time to newest.
-    pub fn merge_from_string(&mut self, config_str: String) -> eyre::Result<()> {
+    fn merge_from_string(
+        &self,
+        map: &mut HashMap<String, Firmware>,
+        config_str: String,
+    ) -> eyre::Result<()> {
         let cfg: Firmware = toml::from_str(config_str.as_str())?;
         let key = vendor_model_to_key(cfg.vendor, cfg.model.clone());
 
-        let Some(cur_model) = self.map.get_mut(&key) else {
+        let Some(cur_model) = map.get_mut(&key) else {
             // We haven't seen this model before, so use this as given.
-            self.map.insert(key, cfg);
+            map.insert(key, cfg);
             return Ok(());
         };
 
@@ -1341,6 +1361,10 @@ impl FirmwareConfig {
             }
         }
         Ok(())
+    }
+
+    pub fn add_test_override(&mut self, ovrd: String) {
+        self.test_overrides.push(ovrd);
     }
 }
 
@@ -2269,10 +2293,12 @@ url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-wi
 default = true
     "#;
         let mut config: FirmwareConfig = Default::default();
-        config.merge_from_string(cfg1.to_string())?;
-        config.merge_from_string(cfg2.to_string())?;
+        config.add_test_override(cfg1.to_string());
+        config.add_test_override(cfg2.to_string());
+
         println!("{config:#?}");
-        let server = config.map.get("dell:poweredge r750").unwrap();
+        let map = config.map();
+        let server = map.get("dell:poweredge r750").unwrap();
         assert_eq!(
             server
                 .components
