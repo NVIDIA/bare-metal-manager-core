@@ -13,7 +13,7 @@
 //! Contains host related fixtures
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
-use crate::db::machine::Machine;
+use crate::db;
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::{network_prefix, ObjectColumnFilter};
 use crate::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
@@ -40,7 +40,7 @@ pub async fn host_discover_dhcp(
 ) -> rpc::Uuid {
     let mut txn = env.pool.begin().await.unwrap();
     let loopback_ip = super::dpu::loopback_ip(&mut txn, dpu_machine_id).await;
-    let predicted_host = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
+    let predicted_host = db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -49,7 +49,7 @@ pub async fn host_discover_dhcp(
         &mut txn,
         ObjectColumnFilter::One(
             network_prefix::SegmentIdColumn,
-            &predicted_host.interfaces()[0].segment_id,
+            &predicted_host.interfaces[0].segment_id,
         ),
     )
     .await

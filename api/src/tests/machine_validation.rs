@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    db::machine::Machine,
-    model::machine::{
-        machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
-        MachineState, MachineValidationFilter, ManagedHostState,
-    },
+use crate::model::machine::{
+    machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource, MachineState,
+    MachineValidationFilter, ManagedHostState,
 };
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -23,6 +20,7 @@ use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestV
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use crate::db;
 use crate::tests::common;
 use common::api_fixtures::{
     create_host_with_machine_validation, create_test_env, create_test_env_with_overrides,
@@ -44,7 +42,7 @@ async fn test_machine_validation_complete_with_error(
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -126,7 +124,7 @@ async fn test_machine_validation_with_error(
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -252,7 +250,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -523,7 +521,7 @@ async fn test_machine_validation_test_on_demand_filter(
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -1075,7 +1073,7 @@ async fn test_on_demant_un_verified_machine_validation(
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -1226,7 +1224,7 @@ async fn test_on_demant_machine_validation_all_contexts(
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),

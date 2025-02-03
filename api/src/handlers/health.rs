@@ -17,10 +17,8 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     api::{log_machine_id, Api},
-    db::{
-        machine::{Machine, MachineSearchConfig},
-        DatabaseError,
-    },
+    db,
+    db::{machine::MachineSearchConfig, DatabaseError},
     model::machine::machine_id::try_parse_machine_id,
     CarbideError,
 };
@@ -50,7 +48,7 @@ pub async fn record_hardware_health_report(
         return Err(CarbideError::MissingArgument("report").into());
     };
 
-    let host_machine = Machine::find_one(
+    let host_machine = db::machine::find_one(
         &mut txn,
         &machine_id,
         MachineSearchConfig {
@@ -74,8 +72,8 @@ pub async fn record_hardware_health_report(
     report.observed_at = Some(chrono::Utc::now());
 
     // Fix the in_alert times based on the previously stored report
-    report.update_in_alert_since(host_machine.hardware_health_report());
-    Machine::update_hardware_health_report(&mut txn, &machine_id, &report)
+    report.update_in_alert_since(host_machine.hardware_health_report.as_ref());
+    db::machine::update_hardware_health_report(&mut txn, &machine_id, &report)
         .await
         .map_err(CarbideError::from)?;
 
@@ -107,7 +105,7 @@ pub async fn get_hardware_health_report(
     let machine_id = try_parse_machine_id(&machine_id).map_err(CarbideError::from)?;
     log_machine_id(&machine_id);
 
-    let host_machine = Machine::find_one(
+    let host_machine = db::machine::find_one(
         &mut txn,
         &machine_id,
         MachineSearchConfig {
@@ -135,15 +133,16 @@ pub async fn get_hardware_health_report(
         ))
     })?;
 
-    let report =
-        if let Some(mut hardware_health_report) = host_machine.hardware_health_report().cloned() {
-            if let Some(log_parser_health_report) = host_machine.log_parser_health_report() {
-                hardware_health_report.merge(log_parser_health_report);
-            }
-            Some(hardware_health_report)
-        } else {
-            None
-        };
+    let report = if let Some(mut hardware_health_report) =
+        host_machine.hardware_health_report.as_ref().cloned()
+    {
+        if let Some(log_parser_health_report) = host_machine.log_parser_health_report.as_ref() {
+            hardware_health_report.merge(log_parser_health_report);
+        }
+        Some(hardware_health_report)
+    } else {
+        None
+    };
     Ok(Response::new(::rpc::forge::OptionalHealthReport {
         report: report.map(|hr| hr.clone().into()),
     }))
@@ -164,7 +163,7 @@ pub async fn list_health_report_overrides(
     let machine_id = try_parse_machine_id(&machine_id.into_inner()).map_err(CarbideError::from)?;
     log_machine_id(&machine_id);
 
-    let host_machine = Machine::find_one(
+    let host_machine = db::machine::find_one(
         &mut txn,
         &machine_id,
         MachineSearchConfig {
@@ -194,7 +193,7 @@ pub async fn list_health_report_overrides(
 
     Ok(Response::new(rpc::ListHealthReportOverrideResponse {
         overrides: host_machine
-            .health_report_overrides()
+            .health_report_overrides
             .clone()
             .create_iter()
             .map(|o| HealthReportOverride {
@@ -231,7 +230,7 @@ pub async fn record_log_parser_health_report(
 
     let report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
-    Machine::update_log_parser_health_report(&mut txn, &machine_id, &report)
+    db::machine::update_log_parser_health_report(&mut txn, &machine_id, &report)
         .await
         .map_err(CarbideError::from)?;
     txn.commit().await.map_err(|e| {
@@ -251,7 +250,7 @@ async fn remove_by_source(
     machine_id: MachineId,
     source: String,
 ) -> Result<(), CarbideError> {
-    let host_machine = Machine::find_one(
+    let host_machine = db::machine::find_one(
         txn,
         &machine_id,
         MachineSearchConfig {
@@ -274,7 +273,7 @@ async fn remove_by_source(
 
     // Ensure this source already exists in override list
     let mode = if host_machine
-        .health_report_overrides()
+        .health_report_overrides
         .replace
         .as_ref()
         .map(|o| &o.source)
@@ -282,7 +281,7 @@ async fn remove_by_source(
     {
         OverrideMode::Replace
     } else if host_machine
-        .health_report_overrides()
+        .health_report_overrides
         .merges
         .contains_key(&source)
     {
@@ -294,7 +293,7 @@ async fn remove_by_source(
         });
     };
 
-    Machine::remove_health_report_override(txn, &machine_id, mode, &source)
+    db::machine::remove_health_report_override(txn, &machine_id, mode, &source)
         .await
         .map_err(CarbideError::from)?;
 
@@ -355,7 +354,7 @@ pub async fn insert_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    Machine::insert_health_report_override(&mut txn, &machine_id, mode, &report)
+    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report)
         .await
         .map_err(CarbideError::from)?;
 

@@ -23,7 +23,7 @@ use crate::db;
 use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::Instance;
-use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine::MachineSearchConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
@@ -441,7 +441,7 @@ pub(crate) async fn update_agent_reported_inventory(
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
-        Machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory)
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory)
             .await
             .map_err(CarbideError::from)?;
 
@@ -490,7 +490,7 @@ pub(crate) async fn record_dpu_network_status(
 
     // Load the DPU Object. We require it to update the health report based
     // on the last report
-    let dpu_machine = Machine::find_one(
+    let dpu_machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         MachineSearchConfig {
@@ -537,7 +537,7 @@ pub(crate) async fn record_dpu_network_status(
 
     let machine_obs =
         MachineNetworkStatusObservation::try_from(request.clone()).map_err(CarbideError::from)?;
-    Machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
+    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
         .await
         .map_err(CarbideError::from)?;
     tracing::trace!(
@@ -563,9 +563,9 @@ pub(crate) async fn record_dpu_network_status(
     health_report.source = "forge-dpu-agent".to_string();
     health_report.observed_at = Some(chrono::Utc::now());
     // Fix the in_alert times based on the previously stored report
-    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
 
-    Machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
+    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
         .await
         .map_err(CarbideError::from)?;
 
@@ -660,9 +660,10 @@ pub(crate) async fn record_dpu_network_status(
         .await
         .map_err(CarbideError::from)?
     {
-        let _needs_upgrade = Machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id)
-            .await
-            .map_err(CarbideError::from)?;
+        let _needs_upgrade =
+            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id)
+                .await
+                .map_err(CarbideError::from)?;
     }
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -713,7 +714,7 @@ pub(crate) async fn get_all_managed_host_network_status(
         ))
     })?;
 
-    let all_status = Machine::get_all_network_status_observation(&mut txn, 2000)
+    let all_status = db::machine::get_all_network_status_observation(&mut txn, 2000)
         .await
         .map_err(CarbideError::from)?;
 
@@ -762,7 +763,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
             e,
         ))
     })?;
-    let machine = Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
         .map_err(CarbideError::from)?;
     let machine = machine.ok_or(CarbideError::NotFoundError {
@@ -916,7 +917,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
         let initiator = req.initiator().as_str_name();
         if machine_id.machine_type().is_dpu() {
-            Machine::trigger_dpu_reprovisioning_request(
+            db::machine::trigger_dpu_reprovisioning_request(
                 &machine_id,
                 &mut txn,
                 initiator,
@@ -926,7 +927,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .map_err(CarbideError::from)?;
         } else {
             for dpu_snapshot in &snapshot.dpu_snapshots {
-                Machine::trigger_dpu_reprovisioning_request(
+                db::machine::trigger_dpu_reprovisioning_request(
                     &dpu_snapshot.machine_id,
                     &mut txn,
                     initiator,
@@ -938,14 +939,18 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         }
     } else if let rpc::dpu_reprovisioning_request::Mode::Clear = req.mode() {
         if machine_id.machine_type().is_dpu() {
-            Machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true)
+            db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true)
                 .await
                 .map_err(CarbideError::from)?;
         } else {
             for dpu_snapshot in &snapshot.dpu_snapshots {
-                Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.machine_id, true)
-                    .await
-                    .map_err(CarbideError::from)?;
+                db::machine::clear_dpu_reprovisioning_request(
+                    &mut txn,
+                    &dpu_snapshot.machine_id,
+                    true,
+                )
+                .await
+                .map_err(CarbideError::from)?;
             }
         }
     } else if let rpc::dpu_reprovisioning_request::Mode::Restart = req.mode() {
@@ -966,7 +971,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             })
             .collect_vec();
 
-        Machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware)
+        db::machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware)
             .await
             .map_err(CarbideError::from)?;
     } else {

@@ -26,7 +26,6 @@ pub mod tests {
     use sha2::{Digest, Sha256};
 
     use crate::db;
-    use crate::db::machine::Machine;
     use forge_uuid::machine::MachineId;
 
     use rpc::forge::forge_server::Forge;
@@ -82,7 +81,7 @@ pub mod tests {
         // hardware_info is never inserted via MachineTopology::create_or_update thus triggering an error
         let hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let _machine = Machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let _machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -131,7 +130,7 @@ pub mod tests {
         .unwrap();
         let mut hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let machine = Machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -141,7 +140,7 @@ pub mod tests {
 
         // set ek cert to None to trigger an error
         hardware_info.tpm_ek_certificate = None;
-        MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
+        MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
         txn.commit().await?;
 
@@ -1186,7 +1185,7 @@ pub mod tests {
         .unwrap();
         let hardware_info = HardwareInfo::from(&host_sim.config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let machine = Machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -1194,7 +1193,7 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
+        MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
         txn.commit().await?;
 

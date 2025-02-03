@@ -19,12 +19,12 @@ use crate::db::network_segment::NetworkSegment;
 use crate::db::vpc::VpcDpuLoopback;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::DisableSecureBootState;
-use crate::redfish;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::{
     get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
 };
 use crate::state_controller::state_handler::DoNothingDetails;
+use crate::{db, redfish};
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -50,7 +50,7 @@ use crate::{
         MachineValidationConfig,
     },
     db::{
-        explored_endpoints::DbExploredEndpoint, instance::DeleteInstance, machine::Machine,
+        explored_endpoints::DbExploredEndpoint, instance::DeleteInstance,
         machine_topology::MachineTopology, machine_validation::MachineValidation,
     },
     firmware_downloader::FirmwareDownloader,
@@ -418,7 +418,7 @@ impl MachineStateHandler {
                             "forge-dpu-agent".to_string(),
                             message,
                         );
-                        Machine::update_dpu_agent_health_report(
+                        db::machine::update_dpu_agent_health_report(
                             txn,
                             dpu_machine_id,
                             &health_report,
@@ -583,9 +583,13 @@ impl MachineStateHandler {
                                     error = %e,
                                     "find_active_machine_validation_by_machine_id"
                                 );
-                                Machine::set_machine_validation_request(txn, host_machine_id, true)
-                                    .await
-                                    .map_err(StateHandlerError::from)?;
+                                db::machine::set_machine_validation_request(
+                                    txn,
+                                    host_machine_id,
+                                    true,
+                                )
+                                .await
+                                .map_err(StateHandlerError::from)?;
                                 // Health Alert ?
                                 // Rare screnario, if something googfed up in DB
                                 return Ok(StateHandlerOutcome::DoNothingWithDetails(
@@ -615,7 +619,7 @@ impl MachineStateHandler {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         if dpu_snapshot.reprovision_requested.is_some() {
                             handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
-                            Machine::update_dpu_reprovision_start_time(
+                            db::machine::update_dpu_reprovision_start_time(
                                 &dpu_snapshot.machine_id,
                                 txn,
                             )
@@ -677,7 +681,7 @@ impl MachineStateHandler {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
                         netconf.use_admin_network = Some(false);
-                        Machine::try_update_network_config(
+                        db::machine::try_update_network_config(
                             txn,
                             &dpu_snapshot.machine_id,
                             version,
@@ -825,7 +829,7 @@ impl MachineStateHandler {
                                 .machine_reboot_attempts_in_failed_during_discovery =
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
-                            Machine::clear_failure_details(machine_id, txn).await?;
+                            db::machine::clear_failure_details(machine_id, txn).await?;
                             let next_state = handler_host_lockdown(txn, ctx, mh_snapshot).await?;
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
@@ -886,7 +890,7 @@ impl MachineStateHandler {
                             let next_state = ManagedHostState::WaitingForCleanup {
                                 cleanup_state: CleanupState::HostCleanup,
                             };
-                            Machine::clear_failure_details(machine_id, txn)
+                            db::machine::clear_failure_details(machine_id, txn)
                                 .await
                                 .map_err(StateHandlerError::from)?;
                             return Ok(StateHandlerOutcome::Transition(next_state));
@@ -976,7 +980,7 @@ impl MachineStateHandler {
                             )
                             .await?;
                             // Clear the error so that state machine doesnt get into loop
-                            Machine::clear_failure_details(machine_id, txn)
+                            db::machine::clear_failure_details(machine_id, txn)
                                 .await
                                 .map_err(StateHandlerError::from)?;
                             let machine_validation =
@@ -992,7 +996,7 @@ impl MachineStateHandler {
                                         error = %e,
                                         "find_active_machine_validation_by_machine_id"
                                     );
-                                    Machine::set_machine_validation_request(txn, host_machine_id, true)
+                                    db::machine::set_machine_validation_request(txn, host_machine_id, true)
                                         .await
                                         .map_err(StateHandlerError::from)?;
                                     // Health Alert ?
@@ -1173,7 +1177,7 @@ impl MachineStateHandler {
                     .await?;
 
                 for dpu in &dpus_for_reprov {
-                    Machine::clear_failure_details(&dpu.machine_id, txn).await?;
+                    db::machine::clear_failure_details(&dpu.machine_id, txn).await?;
                 }
             }
             ManagedHostState::DPUReprovision { .. } => {
@@ -1203,7 +1207,7 @@ impl MachineStateHandler {
         if next_state.is_some() {
             // Restart all DPUs, sit back and relax.
             for dpu in dpus_for_reprov {
-                Machine::update_dpu_reprovision_start_time(&dpu.machine_id, txn).await?;
+                db::machine::update_dpu_reprovision_start_time(&dpu.machine_id, txn).await?;
                 handler_restart_dpu(dpu, ctx.services, txn).await?;
             }
             return Ok(next_state);
@@ -1320,7 +1324,7 @@ impl MachineStateHandler {
             match ret {
                 ManagedHostState::HostReprovision { .. } => {}
                 _ => {
-                    Machine::clear_host_reprovisioning_request(txn, machine_id).await?;
+                    db::machine::clear_host_reprovisioning_request(txn, machine_id).await?;
                 }
             };
         }
@@ -1862,7 +1866,7 @@ async fn handle_legacy_maintenance_mode(
             }],
         };
 
-        crate::db::machine::Machine::insert_health_report_override(
+        db::machine::insert_health_report_override(
             txn,
             &mh_snapshot.host_snapshot.machine_id,
             health_alert_mode_for_maintenance_mode,
@@ -1875,7 +1879,7 @@ async fn handle_legacy_maintenance_mode(
             DoNothingDetails { line: line!() },
         )));
     } else if clear_health_alert {
-        crate::db::machine::Machine::remove_health_report_override(
+        db::machine::remove_health_report_override(
             txn,
             &mh_snapshot.host_snapshot.machine_id,
             health_alert_mode_for_maintenance_mode,
@@ -2887,7 +2891,7 @@ async fn handle_dpu_reprovision(
 
             // Clear reprovisioning state.
             for dpu_snapshot in &state.dpu_snapshots {
-                Machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.machine_id, false)
+                db::machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.machine_id, false)
                     .await
                     .map_err(StateHandlerError::from)?;
             }
@@ -4224,7 +4228,7 @@ async fn handle_host_uefi_setup(
             }
 
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
-            Machine::update_bios_password_set(&state.host_snapshot.machine_id, txn)
+            db::machine::update_bios_password_set(&state.host_snapshot.machine_id, txn)
                 .await
                 .map_err(|e| {
                     StateHandlerError::GenericError(eyre!(
@@ -4913,7 +4917,7 @@ impl StateHandler for InstanceStateHandler {
                         for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
                                 // User won't be allowed to clear reprovisioning flag after this.
-                                Machine::update_dpu_reprovision_start_time(
+                                db::machine::update_dpu_reprovision_start_time(
                                     &dpu_snapshot.machine_id,
                                     txn,
                                 )
@@ -5047,7 +5051,7 @@ impl StateHandler for InstanceStateHandler {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
                         netconf.use_admin_network = Some(true);
-                        Machine::try_update_network_config(
+                        db::machine::try_update_network_config(
                             txn,
                             &dpu_snapshot.machine_id,
                             version,
@@ -5210,7 +5214,7 @@ async fn handler_restart_dpu(
 ) -> Result<(), StateHandlerError> {
     restart_dpu(machine_snapshot, services, txn).await?;
 
-    Machine::update_reboot_requested_time(
+    db::machine::update_reboot_requested_time(
         &machine_snapshot.machine_id,
         txn,
         crate::model::machine::MachineLastRebootRequestedMode::Reboot,
@@ -5286,7 +5290,7 @@ pub async fn handler_host_power_control(
     // here.
     if action == SystemPowerControl::ForceOff || action == SystemPowerControl::On {
         for dpu_snapshot in &managedhost_snapshot.dpu_snapshots {
-            Machine::update_reboot_requested_time(&dpu_snapshot.machine_id, txn, action.into())
+            db::machine::update_reboot_requested_time(&dpu_snapshot.machine_id, txn, action.into())
                 .await?;
         }
     }

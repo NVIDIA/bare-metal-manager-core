@@ -16,13 +16,10 @@ use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::{
-    db::DatabaseError, model::machine::MachineValidationFilter, CarbideError, CarbideResult,
+    db, db::DatabaseError, model::machine::MachineValidationFilter, CarbideError, CarbideResult,
 };
 
-use super::{
-    machine::{Machine, MachineSearchConfig},
-    machine_validation_suites, ObjectFilter,
-};
+use super::{machine::MachineSearchConfig, machine_validation_suites, ObjectFilter};
 
 use forge_uuid::machine::MachineId;
 
@@ -237,11 +234,12 @@ impl MachineValidation {
         } else if context == "OnDemand" {
             column_name = "on_demand_machine_validation_id".to_string();
         }
-        Machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
+        db::machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
 
         // Reset machine validation health report into initial state
         let health_report = health_report::HealthReport::empty("machine-validation".to_string());
-        Machine::update_machine_validation_health_report(txn, machine_id, &health_report).await?;
+        db::machine::update_machine_validation_health_report(txn, machine_id, &health_report)
+            .await?;
 
         Ok(id)
     }
@@ -254,32 +252,30 @@ impl MachineValidation {
         if include_history {
             return Self::find_by_machine_id(txn, machine_id).await;
         };
-        let machine = match Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
-        {
-            Err(err) => {
-                tracing::warn!(%machine_id, error = %err, "failed loading machine");
-                return Err(CarbideError::InvalidArgument(
-                    "err loading machine".to_string(),
-                ));
-            }
-            Ok(None) => {
-                tracing::info!(%machine_id, "machine not found");
-                return Err(CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: machine_id.to_string(),
-                });
-            }
-            Ok(Some(m)) => m,
-        };
-        let discovery_machine_validation_id = machine
-            .discovery_machine_validation_id()
-            .unwrap_or_default();
+        let machine =
+            match db::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await {
+                Err(err) => {
+                    tracing::warn!(%machine_id, error = %err, "failed loading machine");
+                    return Err(CarbideError::InvalidArgument(
+                        "err loading machine".to_string(),
+                    ));
+                }
+                Ok(None) => {
+                    tracing::info!(%machine_id, "machine not found");
+                    return Err(CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    });
+                }
+                Ok(Some(m)) => m,
+            };
+        let discovery_machine_validation_id =
+            machine.discovery_machine_validation_id.unwrap_or_default();
         let cleanup_machine_validation_id =
-            machine.cleanup_machine_validation_id().unwrap_or_default();
+            machine.cleanup_machine_validation_id.unwrap_or_default();
 
-        let on_demand_machine_validation_id = machine
-            .on_demand_machine_validation_id()
-            .unwrap_or_default();
+        let on_demand_machine_validation_id =
+            machine.on_demand_machine_validation_id.unwrap_or_default();
         MachineValidation::find_by(
             txn,
             ObjectFilter::List(&[
@@ -391,11 +387,11 @@ impl MachineValidation {
         status: MachineValidationStatus,
     ) -> CarbideResult<()> {
         //Mark machine validation request to false
-        Machine::set_machine_validation_request(txn, machine_id, false)
+        db::machine::set_machine_validation_request(txn, machine_id, false)
             .await
             .map_err(CarbideError::from)?;
 
-        Machine::update_machine_validation_time(machine_id, txn)
+        db::machine::update_machine_validation_time(machine_id, txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -554,32 +550,30 @@ impl MachineValidationResult {
             .await
             .map_err(CarbideError::from);
         };
-        let machine = match Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
-        {
-            Err(err) => {
-                tracing::warn!(%machine_id, error = %err, "failed loading machine");
-                return Err(CarbideError::InvalidArgument(
-                    "err loading machine".to_string(),
-                ));
-            }
-            Ok(None) => {
-                tracing::info!(%machine_id, "machine not found");
-                return Err(CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: machine_id.to_string(),
-                });
-            }
-            Ok(Some(m)) => m,
-        };
-        let discovery_machine_validation_id = machine
-            .discovery_machine_validation_id()
-            .unwrap_or_default();
+        let machine =
+            match db::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await {
+                Err(err) => {
+                    tracing::warn!(%machine_id, error = %err, "failed loading machine");
+                    return Err(CarbideError::InvalidArgument(
+                        "err loading machine".to_string(),
+                    ));
+                }
+                Ok(None) => {
+                    tracing::info!(%machine_id, "machine not found");
+                    return Err(CarbideError::NotFoundError {
+                        kind: "machine",
+                        id: machine_id.to_string(),
+                    });
+                }
+                Ok(Some(m)) => m,
+            };
+        let discovery_machine_validation_id =
+            machine.discovery_machine_validation_id.unwrap_or_default();
         let cleanup_machine_validation_id =
-            machine.cleanup_machine_validation_id().unwrap_or_default();
+            machine.cleanup_machine_validation_id.unwrap_or_default();
 
-        let on_demand_machine_validation_id = machine
-            .on_demand_machine_validation_id()
-            .unwrap_or_default();
+        let on_demand_machine_validation_id =
+            machine.on_demand_machine_validation_id.unwrap_or_default();
         MachineValidationResult::find_by(
             txn,
             ObjectFilter::List(&[

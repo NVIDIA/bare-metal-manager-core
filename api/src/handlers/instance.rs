@@ -13,7 +13,6 @@
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
 use crate::db::instance::{self, DeleteInstance, FindInstanceTypeFilter, Instance};
-use crate::db::machine::Machine;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
@@ -492,7 +491,7 @@ pub(crate) async fn invoke_power(
             reprovision_handled = true;
 
             // This will trigger DPU reprovisioning/update via state machine.
-            Machine::approve_dpu_reprovision_request(&dpu_snapshot.machine_id, &mut txn)
+            db::machine::approve_dpu_reprovision_request(&dpu_snapshot.machine_id, &mut txn)
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.

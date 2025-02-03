@@ -13,6 +13,8 @@
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
+use crate::model::machine::Machine;
+use crate::tests::common;
 use crate::tests::common::{
     api_fixtures,
     api_fixtures::{
@@ -30,13 +32,9 @@ use crate::tests::common::{
 use crate::{
     cfg::file::SiteExplorerConfig,
     db::{
-        self,
-        expected_machine::ExpectedMachine,
-        explored_endpoints::DbExploredEndpoint,
-        explored_managed_host::DbExploredManagedHost,
-        machine::{Machine, MachineSearchConfig},
-        machine_topology::MachineTopology,
-        DatabaseError, ObjectColumnFilter, ObjectFilter,
+        self, expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint,
+        explored_managed_host::DbExploredManagedHost, machine::MachineSearchConfig,
+        machine_topology::MachineTopology, DatabaseError, ObjectColumnFilter, ObjectFilter,
     },
     model::{
         hardware_info::HardwareInfo,
@@ -64,8 +62,6 @@ use rpc::{
 };
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
-
-use crate::tests::common;
 
 #[derive(Clone, Debug)]
 struct FakeMachine {
@@ -1211,7 +1207,7 @@ async fn test_site_explorer_creates_managed_host(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(
+    let dpu_machine = db::machine::find_one(
         &mut txn,
         dpu_report.machine_id.as_ref().unwrap(),
         MachineSearchConfig {
@@ -1226,23 +1222,23 @@ async fn test_site_explorer_creates_managed_host(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::Initializing)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
         }
     );
     assert_eq!(
-        dpu_machine.hardware_info().unwrap().machine_type,
+        dpu_machine.hardware_info.as_ref().unwrap().machine_type,
         CpuArchitecture::Aarch64,
     );
     assert_eq!(
-        dpu_machine.bmc_info().ip.clone().unwrap(),
+        dpu_machine.bmc_info.ip.clone().unwrap(),
         response.address.to_string()
     );
 
     assert_eq!(
         format!(
             "BF-{}",
-            dpu_machine.bmc_info().firmware_version.clone().unwrap()
+            dpu_machine.bmc_info.firmware_version.clone().unwrap()
         ),
         InitialDpuConfig::default()
             .find_bf3_entry()
@@ -1251,7 +1247,8 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine
-            .hardware_info()
+            .hardware_info
+            .as_ref()
             .unwrap()
             .dmi_data
             .clone()
@@ -1261,7 +1258,8 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine
-            .hardware_info()
+            .hardware_info
+            .as_ref()
             .unwrap()
             .dpu_info
             .clone()
@@ -1271,7 +1269,8 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine
-            .hardware_info()
+            .hardware_info
+            .as_ref()
             .unwrap()
             .dpu_info
             .clone()
@@ -1280,18 +1279,18 @@ async fn test_site_explorer_creates_managed_host(
         "Bluefield 3 SmartNIC Main Card".to_string()
     );
 
-    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
+    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
         .await?
         .unwrap();
     assert_eq!(
         host_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::Initializing)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
         }
     );
-    assert!(host_machine.bmc_info().ip.is_some());
+    assert!(host_machine.bmc_info.ip.is_some());
 
     // 2nd creation does nothing
     assert!(
@@ -1314,49 +1313,52 @@ async fn test_site_explorer_creates_managed_host(
     env.override_machine_state_controller_handler(handler).await;
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::Configuring)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Configuring)]),
             },
         }
     );
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::EnableRshim,)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::EnableRshim,)]),
             },
         }
     );
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
-                    *dpu_machine.id(),
+                    dpu_machine.id,
                     DpuDiscoveringState::DisableSecureBoot {
                         disable_secure_boot_state: Some(
                             crate::model::machine::DisableSecureBootState::CheckSecureBootStatus
@@ -1370,57 +1372,60 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::SetUefiHttpBoot,)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::SetUefiHttpBoot,)]),
             },
         }
     );
 
     env.run_machine_state_controller_iteration().await;
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuDiscoveringState::RebootAllDPUS)]),
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::RebootAllDPUS)]),
             },
         }
     );
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuInitState::Init,)]),
+                states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         },
     );
 
     let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(!machine_interfaces.is_empty());
-    let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[*dpu_machine.id()]).await?;
-    assert!(topologies.contains_key(dpu_machine.id()));
+    let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    assert!(topologies.contains_key(&dpu_machine.id));
 
-    let topology = &topologies[dpu_machine.id()][0];
+    let topology = &topologies[&dpu_machine.id][0];
     assert!(topology.topology_update_needed());
 
     let hardware_info = &topology.topology().discovery_data.info;
@@ -1445,21 +1450,22 @@ async fn test_site_explorer_creates_managed_host(
     assert!(response.machine_id.is_some());
 
     // Now let's check that DPU and host updated states and updated hardware information.
-    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
 
-    assert!(dpu_machine.loopback_ip().is_some());
+    assert!(dpu_machine.network_config.loopback_ip.is_some());
 
     let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(machine_interfaces[0]
         .machine_id
         .as_ref()
-        .is_some_and(|id| id == dpu_machine.id()));
+        .is_some_and(|id| id == &dpu_machine.id));
 
     let host_machine =
-        Machine::find_one(&mut txn, host_machine.id(), MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap();
@@ -1468,13 +1474,13 @@ async fn test_site_explorer_creates_managed_host(
         host_machine.current_state(),
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(*dpu_machine.id(), DpuInitState::Init,)]),
+                states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         }
     );
 
-    let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[*dpu_machine.id()]).await?;
-    let topology = &topologies[dpu_machine.id()][0];
+    let topologies = MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    let topology = &topologies[&dpu_machine.id][0];
     assert!(!topology.topology_update_needed());
 
     let hardware_info = &topology.topology().discovery_data.info;
@@ -1635,7 +1641,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let mut host_machine = None;
 
     for dpu in explored_dpus {
-        let dpu_machine = Machine::find_one(
+        let dpu_machine = db::machine::find_one(
             &mut txn,
             dpu.report.machine_id.as_ref().unwrap(),
             MachineSearchConfig {
@@ -1647,16 +1653,12 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .unwrap()
         .unwrap();
 
-        let expected_loopback_ip = dpu_machine
-            .network_config()
-            .loopback_ip
-            .unwrap()
-            .to_string();
+        let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
         let network_config_response = env
             .api
             .get_managed_host_network_config(Request::new(
                 rpc::forge::ManagedHostNetworkConfigRequest {
-                    dpu_machine_id: Some((*dpu_machine.id()).into()),
+                    dpu_machine_id: Some((dpu_machine.id).into()),
                 },
             ))
             .await?;
@@ -1670,15 +1672,16 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         );
 
         if host_machine.is_none() {
-            host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id()).await?;
+            host_machine =
+                db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id).await?;
         }
         let hm = host_machine.clone().unwrap();
-        assert!(hm.bmc_info().ip.is_some());
+        assert!(hm.bmc_info.ip.is_some());
         if host_machine_id.is_none() {
-            host_machine_id = Some(*hm.id());
+            host_machine_id = Some(hm.id);
         }
 
-        assert_eq!(hm.id(), host_machine_id.as_ref().unwrap());
+        assert_eq!(&hm.id, host_machine_id.as_ref().unwrap());
         dpu_machines.push(dpu_machine);
     }
 
@@ -1686,7 +1689,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         dpu_states: crate::model::machine::DpuDiscoveringStates {
             states: dpu_machines
                 .iter()
-                .map(|x| (*x.id(), DpuDiscoveringState::Initializing))
+                .map(|x| (x.id, DpuDiscoveringState::Initializing))
                 .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
         },
     };
@@ -1724,9 +1727,9 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     // Try to discover machine with multiple DPUs
     for i in 0..NUM_DPUS {
         let topologies =
-            MachineTopology::find_by_machine_ids(&mut txn, &[*dpu_machines[i].id()]).await?;
+            MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machines[i].id]).await?;
 
-        let topology = &topologies[dpu_machines[i].id()][0];
+        let topology = &topologies[&dpu_machines[i].id][0];
 
         let hardware_info = &topology.topology().discovery_data.info;
 
@@ -1954,9 +1957,10 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     let mut txn = env.pool.begin().await?;
     let mut explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
-    let mut machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    let mut machines =
+        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+            .await
+            .unwrap();
 
     txn.commit().await?;
 
@@ -1981,7 +1985,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
     explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
-    machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
     txn.commit().await?;
@@ -2007,7 +2011,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     for bmc_ip in bmc_ip_addresses {
         assert!(<Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
             .iter()
-            .any(|x| { x.bmc_info().ip.clone().unwrap_or_default() == bmc_ip }));
+            .any(|x| { x.bmc_info.ip.clone().unwrap_or_default() == bmc_ip }));
     }
     Ok(())
 }
@@ -2376,7 +2380,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // At this point, create_managed_hostmust have created machine but can not associate it with to
     // any interface as interface does not exist.
     let mut txn = env.pool.begin().await?;
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         MachineSearchConfig {

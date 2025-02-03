@@ -15,10 +15,8 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use crate::{
-    db::{
-        machine::{Machine, MachineSearchConfig},
-        DatabaseError,
-    },
+    db,
+    db::{machine::MachineSearchConfig, DatabaseError},
     legacy::{
         self,
         states::machine::{migrate_machines, ManagedHostStateV1 as OldStates},
@@ -59,11 +57,11 @@ async fn validate_all_machines(
     host_machine_id: MachineId,
     expected_state: ManagedHostState,
 ) {
-    let host = Machine::find_one(txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    let mut dpus = Machine::find_dpus_by_host_machine_id(txn, &host_machine_id)
+    let mut dpus = db::machine::find_dpus_by_host_machine_id(txn, &host_machine_id)
         .await
         .unwrap();
 
@@ -74,7 +72,7 @@ async fn validate_all_machines(
             machine.current_state(),
             expected_state,
             "Failed machine: {}",
-            machine.id()
+            &machine.id
         );
     }
 }
@@ -97,7 +95,8 @@ async fn test_state_migration_1(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -114,8 +113,9 @@ async fn test_state_migration_1(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
-    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let dpus = db::machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.rollback().await.unwrap();
@@ -157,7 +157,8 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -174,8 +175,9 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
-    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let dpus = db::machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.rollback().await.unwrap();
@@ -216,7 +218,8 @@ async fn test_state_migration_2_1(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -234,8 +237,9 @@ async fn test_state_migration_2_1(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
-    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let dpus = db::machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
@@ -278,7 +282,8 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -296,7 +301,8 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
         ..
@@ -326,7 +332,8 @@ async fn test_state_migration_3(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -343,7 +350,8 @@ async fn test_state_migration_3(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
     txn.rollback().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -371,7 +379,8 @@ async fn test_state_migration_4(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
     txn.rollback().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -401,9 +410,10 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 2);
@@ -446,7 +456,8 @@ async fn test_state_migration_5_1(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
     if let Err(DatabaseError {
         source: sqlx::Error::ColumnDecode { index, .. },
@@ -463,11 +474,12 @@ async fn test_state_migration_5_1(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
     txn.rollback().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
+    let dpus = db::machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     assert!(host.is_ok());
@@ -509,9 +521,10 @@ async fn test_state_migration_6(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.rollback().await.unwrap();
@@ -552,9 +565,10 @@ async fn test_state_migration_7(pool: sqlx::PgPool) {
     migrate_machines(env.pool.clone()).await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let host =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
     txn.rollback().await.unwrap();
@@ -569,7 +583,7 @@ async fn test_state_migration_7(pool: sqlx::PgPool) {
                 states: dpus
                     .clone()
                     .into_iter()
-                    .map(|dpu| (*dpu.id(), ReprovisionState::PowerDown))
+                    .map(|dpu| (dpu.id, ReprovisionState::PowerDown))
                     .collect::<HashMap<MachineId, ReprovisionState>>(),
             },
         },

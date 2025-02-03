@@ -16,7 +16,6 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::db::machine::Machine;
     use crate::db::machine_topology::MachineTopology;
     use crate::measured_boot::db;
     use crate::measured_boot::rpc::bundle;
@@ -1404,16 +1403,20 @@ mod tests {
         // that bit works (which will clean up all reports and journals).
         let mut txn = db_conn.begin().await?;
         assert!(
-            Machine::force_cleanup(&mut txn, &princess_network.machine_id)
+            crate::db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
                 .await
                 .is_ok()
         );
-        assert!(Machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
-            .await
-            .is_ok());
-        assert!(Machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
-            .await
-            .is_ok());
+        assert!(
+            crate::db::machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            crate::db::machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
+                .await
+                .is_ok()
+        );
         txn.commit().await?;
 
         let req = mbrpc::ShowMeasurementJournalsRequest {};
@@ -1452,7 +1455,7 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
                 .unwrap();
-        Machine::create(
+        crate::db::machine::create(
             &mut txn,
             None,
             &machine_id,

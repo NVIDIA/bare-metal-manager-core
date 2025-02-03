@@ -21,6 +21,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::model::machine::Machine;
 use crate::tests::common::api_fixtures::network_segment::{
     create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
@@ -44,7 +45,7 @@ use crate::{
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
-    db::{instance_type::create as create_instance_type, machine::Machine},
+    db::instance_type::create as create_instance_type,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
     ib::{self, IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
@@ -257,15 +258,11 @@ impl TestEnv {
                         total,
                         is_enabled,
                     } => {
-                        let mut id = machine
-                            .discovery_machine_validation_id()
-                            .unwrap_or_default();
+                        let mut id = machine.discovery_machine_validation_id.unwrap_or_default();
                         if context == "Cleanup" {
-                            id = machine.cleanup_machine_validation_id().unwrap_or_default();
+                            id = machine.cleanup_machine_validation_id.unwrap_or_default();
                         } else if context == "OnDemand" {
-                            id = machine
-                                .on_demand_machine_validation_id()
-                                .unwrap_or_default();
+                            id = machine.on_demand_machine_validation_id.unwrap_or_default();
                         }
                         crate::model::machine::MachineState::MachineValidating {
                             context,
@@ -291,7 +288,7 @@ impl TestEnv {
             } => ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: details.cause,
-                    failed_at: machine.failure_details().failed_at,
+                    failed_at: machine.failure_details.failed_at,
                     source: details.source,
                 },
                 machine_id,
@@ -320,7 +317,7 @@ impl TestEnv {
                 .run_single_iteration()
                 .await;
 
-            let machine = Machine::find_one(
+            let machine = db::machine::find_one(
                 txn,
                 host_machine_id,
                 crate::db::machine::MachineSearchConfig::default(),
@@ -336,7 +333,7 @@ impl TestEnv {
             }
         }
 
-        let machine = Machine::find_one(
+        let machine = db::machine::find_one(
             txn,
             host_machine_id,
             crate::db::machine::MachineSearchConfig::default(),
@@ -1446,14 +1443,14 @@ pub async fn update_time_params(
         time: if let Some(last_reboot_requested) = last_reboot_requested {
             last_reboot_requested
         } else {
-            machine.last_reboot_requested().unwrap().time - Duration::minutes(1)
+            machine.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(1)
         },
-        mode: machine.last_reboot_requested().unwrap().mode,
+        mode: machine.last_reboot_requested.as_ref().unwrap().mode,
     };
 
-    let last_reboot_time = machine.last_reboot_time().unwrap() - Duration::minutes(2i64);
+    let last_reboot_time = machine.last_reboot_time.unwrap() - Duration::minutes(2i64);
 
-    let ts = machine.last_reboot_requested().unwrap().time - Duration::minutes(retry_count);
+    let ts = machine.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(retry_count);
     let last_discovery_time = ts - Duration::minutes(1);
 
     let version = format!(
@@ -1465,7 +1462,7 @@ pub async fn update_time_params(
     let query = "UPDATE machines SET last_reboot_requested=$1, controller_state_version=$3, last_reboot_time=$4, last_discovery_time=$5 WHERE id=$2 RETURNING *";
     sqlx::query(query)
         .bind(sqlx::types::Json(&data))
-        .bind(machine.id().to_string())
+        .bind(machine.id.to_string())
         .bind(version)
         .bind(last_reboot_time)
         .bind(last_discovery_time)

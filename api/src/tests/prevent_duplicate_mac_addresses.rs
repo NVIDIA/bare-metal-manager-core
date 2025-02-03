@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use crate::db::{
-    self, address_selection_strategy::AddressSelectionStrategy, machine::Machine, network_segment,
+    self, address_selection_strategy::AddressSelectionStrategy, network_segment,
     network_segment::NetworkSegment, ObjectColumnFilter,
 };
 use crate::model::machine::machine_id::from_hardware_info;
-use crate::CarbideError;
-
 use crate::tests::common::api_fixtures::create_test_env;
+use crate::CarbideError;
 
 #[crate::sqlx_test]
 async fn prevent_duplicate_mac_addresses(
@@ -48,7 +47,7 @@ async fn prevent_duplicate_mac_addresses(
     .await?;
 
     let machine_id = from_hardware_info(&dpu.into()).unwrap();
-    Machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
+    db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
 
     let duplicate_interface = db::machine_interface::create(
         &mut txn,

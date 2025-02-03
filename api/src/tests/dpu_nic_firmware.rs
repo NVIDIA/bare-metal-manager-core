@@ -4,11 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::string::ToString;
 
+use crate::model::machine::Machine;
 use crate::{
-    db::{
-        machine::{Machine, MachineSearchConfig},
-        ObjectFilter,
-    },
+    db,
+    db::{machine::MachineSearchConfig, ObjectFilter},
     machine_update_manager::{
         dpu_nic_firmware::DpuNicFirmwareUpdate,
         machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
@@ -60,13 +59,17 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .unwrap();
     assert_eq!(count, 2);
 
-    let machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
 
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
+    let initiator = &dpu_machine
+        .reprovisioning_requested
+        .as_ref()
+        .unwrap()
+        .initiator;
     assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     Ok(())
@@ -84,7 +87,7 @@ async fn test_start_updates_with_multidpu(
     let host = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![rpc_host_id.clone()],
+            machine_ids: vec![rpc_host_id],
             ..Default::default()
         }))
         .await
@@ -134,13 +137,17 @@ async fn test_start_updates_with_multidpu(
         .unwrap();
     assert_eq!(count, 3);
 
-    let machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
 
     assert_eq!(machines.len(), 3);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
+    let initiator = &dpu_machine
+        .reprovisioning_requested
+        .as_ref()
+        .unwrap()
+        .initiator;
     assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     Ok(())
@@ -254,14 +261,18 @@ async fn test_clear_complated_updates(
     assert!(!started_count.contains(&dpu_machine_id));
     assert!(started_count.contains(&host_machine_id));
 
-    let machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
 
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
-    let reference = dpu_machine.maintenance_reference().unwrap();
+    let initiator = &dpu_machine
+        .reprovisioning_requested
+        .as_ref()
+        .unwrap()
+        .initiator;
+    let reference = dpu_machine.maintenance_reference.as_ref().unwrap();
     assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
     assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
@@ -278,14 +289,18 @@ async fn test_clear_complated_updates(
         .unwrap();
 
     let machines: Vec<Machine> =
-        Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
             .await
             .unwrap();
 
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
-    let reference = dpu_machine.maintenance_reference().unwrap();
+    let initiator = &dpu_machine
+        .reprovisioning_requested
+        .as_ref()
+        .unwrap()
+        .initiator;
+    let reference = dpu_machine.maintenance_reference.as_ref().unwrap();
     assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
     assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
@@ -324,18 +339,18 @@ async fn test_clear_complated_updates(
         .await
         .unwrap();
 
-    let dpu_machine = Machine::find(
+    let dpu_machine = db::machine::find(
         &mut txn,
         ObjectFilter::One(dpu_machine_id),
         MachineSearchConfig::default(),
     )
     .await
     .unwrap()
-    .first()
-    .unwrap()
-    .clone();
+    .into_iter()
+    .next()
+    .unwrap();
 
-    assert_eq!(dpu_machine.maintenance_reference(), None);
+    assert_eq!(dpu_machine.maintenance_reference, None);
 
     Ok(())
 }

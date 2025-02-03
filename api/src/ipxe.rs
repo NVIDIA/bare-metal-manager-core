@@ -7,11 +7,7 @@ use crate::model::machine::{
 };
 use crate::model::storage::OsImage;
 use crate::{
-    db::{
-        self,
-        instance::Instance,
-        machine::{Machine, MachineSearchConfig},
-    },
+    db::{self, instance::Instance, machine::MachineSearchConfig},
     model::machine::{InstanceState, ManagedHostState},
     CarbideError,
 };
@@ -139,7 +135,7 @@ exit ||
             Some(machine_id) => machine_id,
         };
 
-        let machine = Machine::find_one(txn, &machine_id, MachineSearchConfig::default())
+        let machine = db::machine::find_one(txn, &machine_id, MachineSearchConfig::default())
             .await
             .map_err(|e| {
                 CarbideError::InvalidArgument(format!("Get machine failed, Error: {}", e))
@@ -197,7 +193,7 @@ exit ||
             }
         }
 
-        if let Some(hardware_info) = machine.hardware_info() {
+        if let Some(hardware_info) = machine.hardware_info.as_ref() {
             if let Some(dmi_info) = hardware_info.dmi_data.as_ref() {
                 if dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro" {
                     console = "ttyS1";

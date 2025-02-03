@@ -14,12 +14,10 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_test_env, TestEnvOverrides};
 use crate::{
     cfg::file::FirmwareComponentType,
+    db,
     db::{
-        explored_endpoints::DbExploredEndpoint,
-        host_machine_update::HostMachineUpdate,
-        machine::{Machine, MachineSearchConfig},
-        machine_topology::MachineTopology,
-        DatabaseError,
+        explored_endpoints::DbExploredEndpoint, host_machine_update::HostMachineUpdate,
+        machine::MachineSearchConfig, machine_topology::MachineTopology, DatabaseError,
     },
     machine_update_manager::MachineUpdateManager,
     model::{
@@ -429,11 +427,11 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_some());
+    assert!(host.host_reprovisioning_requested.is_some());
     txn.commit().await.unwrap();
 
     // Now we want a tick of the state machine
@@ -441,12 +439,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should have "started" a UEFI upgrade
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    let _ = host.host_reprovisioning_requested().unwrap();
+    assert!(host.host_reprovisioning_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -461,7 +459,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -477,7 +475,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -490,7 +488,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass
     let endpoints =
-        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info().ip_addr().unwrap()]).await?;
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
     let mut endpoint = endpoints.first().unwrap().clone();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -498,7 +496,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .versions
         .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
     DbExploredEndpoint::try_update(
-        host.bmc_info().ip_addr().unwrap(),
+        host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         &mut txn,
@@ -510,7 +508,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -527,12 +525,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should have "started" a BMC upgrade now
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    let _ = host.host_reprovisioning_requested().unwrap();
+    assert!(host.host_reprovisioning_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -547,7 +545,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -560,15 +558,15 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info().ip_addr().unwrap()]).await?;
-    let mut endpoint = endpoints.first().unwrap().clone();
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+    let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
         .report
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
     DbExploredEndpoint::try_update(
-        host.bmc_info().ip_addr().unwrap(),
+        host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         &mut txn,
@@ -576,7 +574,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     .await?;
     MachineTopology::update_firmware_version_by_bmc_address(
         &mut txn,
-        &host.bmc_info().ip_addr().unwrap(),
+        &host.bmc_info.ip_addr().unwrap(),
         "6.00.30.00",
         "1.2.3",
     )
@@ -586,7 +584,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -602,7 +600,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -619,7 +617,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Now we should be back waiting for lockdown to resolve
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -635,11 +633,11 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_none()); // Should be cleared or we'd right back in
+    assert!(host.host_reprovisioning_requested.is_none()); // Should be cleared or we'd right back in
     let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
@@ -659,11 +657,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Validate update_firmware_version_by_bmc_address behavior
     assert_eq!(
-        host.bmc_info().firmware_version,
+        host.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())
     );
     assert_eq!(
-        host.hardware_info()
+        host.hardware_info
+            .as_ref()
             .unwrap()
             .dmi_data
             .clone()
@@ -683,7 +682,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 
     // Check that if it's globally enabled but specifically disabled, we don't request updates.
     let mut txn = env.pool.begin().await.unwrap();
-    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(false)).await?;
+    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(false)).await?;
     txn.commit().await.unwrap();
 
     // Create and start an update manager
@@ -692,23 +691,23 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_none());
+    assert!(host.host_reprovisioning_requested.is_none());
 
     // Now switch it to unspecified and it should get a request
-    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
+    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
     txn.commit().await.unwrap();
 
     update_manager.run_single_iteration().await?;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_some());
+    assert!(host.host_reprovisioning_requested.is_some());
     txn.commit().await.unwrap();
 
     Ok(())
@@ -726,23 +725,23 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
 
     // Globally disabled, so it should not have requested an update
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_none());
+    assert!(host.host_reprovisioning_requested.is_none());
 
     // Now specifically enable it, and an update should be requested.
-    Machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
+    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
     txn.commit().await.unwrap();
 
     update_manager.run_single_iteration().await?;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested().is_some());
+    assert!(host.host_reprovisioning_requested.is_some());
     txn.commit().await.unwrap();
 
     Ok(())

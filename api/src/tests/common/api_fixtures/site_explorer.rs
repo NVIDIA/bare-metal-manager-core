@@ -3,7 +3,6 @@ use super::{
     discovery_completed, dpu::create_machine_inventory, inject_machine_measurements,
     network_configured,
 };
-use crate::db::machine::Machine;
 use crate::db::machine_interface::find_by_mac_address;
 use crate::model::machine::MeasuringState;
 use crate::tests::common::api_fixtures::{
@@ -322,11 +321,11 @@ impl<'a> MockExploredHost<'a> {
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
         let host_machine_id =
-            *Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
                 .await
                 .unwrap()
                 .unwrap()
-                .id();
+                .id;
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, machine_id).await;
@@ -430,11 +429,11 @@ impl<'a> MockExploredHost<'a> {
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
         let host_machine_id =
-            *Machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
+            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
                 .await
                 .unwrap()
                 .unwrap()
-                .id();
+                .id;
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, machine_id).await;
@@ -792,7 +791,7 @@ impl<'a> MockExploredHost<'a> {
                 self.test_env.run_machine_state_controller_iteration().await;
 
                 let mut txn = self.test_env.pool.begin().await.unwrap();
-                let machine = Machine::find_one(
+                let machine = db::machine::find_one(
                     &mut txn,
                     &self.dpu_machine_ids[&0],
                     crate::db::machine::MachineSearchConfig::default(),
@@ -1124,11 +1123,11 @@ pub async fn new_dpu_in_network_install(
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0];
-    let host_machine_id = *Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let host_machine_id = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap()
-        .id();
+        .id;
 
     Ok((dpu_machine_id, host_machine_id))
 }

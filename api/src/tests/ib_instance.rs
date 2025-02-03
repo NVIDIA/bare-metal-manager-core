@@ -15,10 +15,8 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{
     api::Api,
-    db::{
-        instance_address::InstanceAddress,
-        machine::{Machine, MachineSearchConfig},
-    },
+    db,
+    db::{instance_address::InstanceAddress, machine::MachineSearchConfig},
     model::machine::{InstanceState, ManagedHostState},
 };
 use common::api_fixtures::{
@@ -106,7 +104,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -115,15 +113,21 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert_eq!(machine.current_state(), ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info().is_some());
-    assert_eq!(
-        machine.hardware_info().unwrap().infiniband_interfaces.len(),
-        6
-    );
-    assert!(machine.infiniband_status_observation().is_some());
+    assert!(machine.hardware_info.as_ref().is_some());
     assert_eq!(
         machine
-            .infiniband_status_observation()
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .infiniband_interfaces
+            .len(),
+        6
+    );
+    assert!(machine.infiniband_status_observation.as_ref().is_some());
+    assert_eq!(
+        machine
+            .infiniband_status_observation
+            .as_ref()
             .unwrap()
             .ib_interfaces
             .len(),
@@ -180,7 +184,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
     assert_eq!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -306,7 +310,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .expect("Unable to create transaction on database pool");
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -648,7 +652,7 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -657,12 +661,17 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
     assert_eq!(machine.current_state(), ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info().is_some());
+    assert!(machine.hardware_info.as_ref().is_some());
     assert_eq!(
-        machine.hardware_info().unwrap().infiniband_interfaces.len(),
+        machine
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .infiniband_interfaces
+            .len(),
         6
     );
-    assert!(machine.infiniband_status_observation().is_none());
+    assert!(machine.infiniband_status_observation.as_ref().is_none());
 }
 
 /// Tries to create an Instance using the Forge API

@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::{self, machine::Machine};
+use crate::db::{self};
 use crate::model::machine::MachineStateHistory;
 use crate::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
 use common::api_fixtures::create_managed_host;
@@ -49,7 +49,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     for machine_id in &[host_machine_id, dpu_machine_id] {
         let mut txn = env.pool.begin().await?;
 
-        let machine = Machine::find_one(
+        let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
             crate::db::machine::MachineSearchConfig {
@@ -61,18 +61,18 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap();
 
         assert_eq!(
-            json_history(&machine.history()[..expected_initial_states.len()])?,
+            json_history(&machine.history[..expected_initial_states.len()])?,
             expected_initial_states
         );
 
-        let machine = Machine::find_one(
+        let machine = db::machine::find_one(
             &mut txn,
             &dpu_machine_id,
             crate::db::machine::MachineSearchConfig::default(),
         )
         .await?
         .unwrap();
-        assert!(machine.history().is_empty());
+        assert!(machine.history.is_empty());
         txn.commit().await?;
 
         // Check that RPC APIs returns the History if asked for
@@ -145,7 +145,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -157,8 +157,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     for _ in 1..300 {
-        machine
-            .advance(&mut txn, ManagedHostState::Ready, None)
+        db::machine::advance(&machine, &mut txn, ManagedHostState::Ready, None)
             .await
             .unwrap();
     }
@@ -173,7 +172,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Count should not go beyond 250.
     assert_eq!(result.len(), 250);
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -184,7 +183,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .await?
     .unwrap();
 
-    assert_eq!(machine.history().len(), 250);
+    assert_eq!(machine.history.len(), 250);
     Ok(())
 }
 
@@ -210,7 +209,7 @@ async fn test_old_machine_state_history(
         .execute(&mut *txn)
         .await?;
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -222,7 +221,7 @@ async fn test_old_machine_state_history(
     .unwrap();
 
     let states = machine
-        .into_history()
+        .history
         .into_iter()
         .map(|m| serde_json::from_str::<serde_json::Value>(&m.state))
         .collect::<Result<Vec<_>, _>>()?;
