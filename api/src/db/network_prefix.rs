@@ -273,6 +273,21 @@ impl NetworkPrefix {
 
         Ok(())
     }
+
+    // We use this to try to guess whether an associated segment is stretchable
+    // in cases where the database doesn't contain that information.
+    pub fn smells_like_fnn(&self) -> bool {
+        self.vpc_prefix_id.is_some()
+            && match self.prefix {
+                IpNetwork::V4(v4) => v4.prefix() >= 30,
+                IpNetwork::V6(_) => {
+                    // We don't have any IPv6 segment prefixes at the time of
+                    // writing so we don't really expect this arm to match, but
+                    // let's provide a safe value just in case.
+                    false
+                }
+            }
+    }
 }
 
 // Note: we don't implement Serialize/Deserialize intentionally. We don't want to accidentally

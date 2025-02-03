@@ -1002,6 +1002,20 @@ enum NetworkSegmentType {
   HOST_INBAND = 3;
 }
 
+enum NetworkSegmentFlag {
+  // This is the default value with no effect (which could potentially be used
+  // to make an "empty" set of flags that can't be confused with the default
+  // value for a list of flags).
+  NO_OP = 0;
+
+  // This marks a segment as one that can "stretch" between multiple VTEPs
+  // (read: DPUs) within the site. This used to be implicitly true, but segments
+  // created by FNN will not have this flag, which means such a segment exists
+  // at a single VTEP in the fabric, and can't have arbitrary extra instances
+  // attached to it.
+  CAN_STRETCH = 1;
+}
+
 message NetworkSegment {
   common.UUID id = 1;
   common.UUID vpc_id = 2;
@@ -1028,6 +1042,7 @@ message NetworkSegment {
   google.protobuf.Timestamp deleted = 13;
 
   NetworkSegmentType segment_type = 14;
+  repeated NetworkSegmentFlag flags = 15;
 }
 
 message NetworkSegmentCreationRequest {

@@ -89,6 +89,7 @@ async fn test_advance_network_prefix_state(
 
         vlan_id: None,
         vni: None,
+        can_stretch: None,
     }
     .persist(&mut txn, NetworkSegmentControllerState::Provisioning)
     .await?;
