@@ -503,6 +503,7 @@ fn help() {
     println!("Examples:");
     println!("log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor -t 10");
     println!("log-parser -e event_definition.json -m oneshot");
+    println!("log-parser -v for application version");
 }
 
 #[tokio::main]
@@ -544,11 +545,16 @@ async fn main() -> Result<(), anyhow::Error> {
         "Polling time interval in seconds (default=5s)",
         "number in seconds",
     );
+    opts.optflag("v", "version", "Log parser application version");
 
     let args: Vec<String> = std::env::args().collect();
     let args_given = opts.parse(&args[1..])?;
     if args_given.opt_present("h") {
         help();
+        return Ok(());
+    }
+    if args_given.opt_present("v") {
+        println!(env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     let api = args_given.opt_str("c").unwrap_or_default();

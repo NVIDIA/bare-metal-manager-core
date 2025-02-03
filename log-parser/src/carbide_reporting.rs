@@ -110,6 +110,13 @@ async fn send_one_report(
     machine_id: &mut String,
     report: &HealthReport,
 ) -> Result<(), ReportingError> {
+    if (report.alerts.is_empty() && report.successes.is_empty())
+        || report.observed_at.is_none()
+        || machine_id.is_empty()
+    {
+        return Ok(());
+    }
+
     let request = tonic::Request::new(rpc::HardwareHealthReport {
         machine_id: Some(MachineId {
             id: machine_id.to_string(),
@@ -173,6 +180,7 @@ pub(crate) async fn send_health_alerts(
             };
             report.successes.push(success);
         }
+        // observed at is correctly being set
         report.observed_at = Some(event.timestamp);
     }
     if !machine_id.is_empty() {
