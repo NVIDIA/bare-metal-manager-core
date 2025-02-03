@@ -102,6 +102,8 @@ pub struct NetworkSegment {
     pub vni: Option<i32>,
 
     pub segment_type: NetworkSegmentType,
+
+    pub can_stretch: Option<bool>,
 }
 
 impl NetworkSegment {
@@ -142,6 +144,7 @@ pub struct NewNetworkSegment {
     pub vlan_id: Option<i16>,
     pub vni: Option<i32>,
     pub segment_type: NetworkSegmentType,
+    pub can_stretch: Option<bool>,
 }
 
 impl TryFrom<i32> for NetworkSegmentType {
@@ -265,6 +268,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             vlan_id: row.try_get("vlan_id").unwrap_or_default(),
             vni: row.try_get("vni_id").unwrap_or_default(),
             segment_type: row.try_get("network_segment_type")?,
+            can_stretch: row.try_get("can_stretch")?,
         })
     }
 }
@@ -311,6 +315,11 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
+        // This TryFrom implementation is part of the API handler logic for
+        // network segment creation, and is not used by FNN. Therefore, the only
+        // type of tenant segment we could be creating is a stretchable one.
+        let can_stretch = matches!(segment_type, NetworkSegmentType::Tenant).then_some(true);
+
         Ok(NewNetworkSegment {
             id,
             name: value.name,
@@ -330,6 +339,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             vlan_id: None,
             vni: None,
             segment_type,
+            can_stretch,
         })
     }
 }
@@ -364,6 +374,31 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             history.push(rpc::NetworkSegmentStateHistory::try_from(state)?);
         }
 
+        let flags: Vec<i32> = {
+            use rpc::NetworkSegmentFlag::*;
+
+            let mut flags = vec![];
+
+            let can_stretch = src.can_stretch.unwrap_or_else(|| {
+                // If the segment's can_stretch flag is NULL in the database,
+                // we're going to have to go off of what an FNN-created
+                // segment's prefixes would look like, and then assume any such
+                // FNN segment is _not_ stretchable.
+                src.prefixes.iter().all(|p| !p.smells_like_fnn())
+            });
+            if can_stretch {
+                flags.push(CanStretch);
+            }
+
+            // Just so a gRPC client can tell the difference between a missing
+            // `flags` field and an empty one.
+            if flags.is_empty() {
+                flags.push(NoOp);
+            }
+
+            flags.into_iter().map(|flag| flag as i32).collect()
+        };
+
         Ok(rpc::NetworkSegment {
             id: Some(src.id.into()),
             version: src.version.version_string(),
@@ -386,6 +421,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             ),
             history,
             segment_type: src.segment_type as i32,
+            flags,
         })
     }
 }
@@ -414,6 +450,7 @@ impl NewNetworkSegment {
                 NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
                 NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
             },
+            can_stretch: None,
         })
     }
 
@@ -435,8 +472,9 @@ impl NewNetworkSegment {
                 controller_state,
                 vlan_id,
                 vni_id,
-                network_segment_type)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                network_segment_type,
+                can_stretch)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id";
         let segment_id: NetworkSegmentId = sqlx::query_as(query)
             .bind(self.id)
@@ -450,6 +488,7 @@ impl NewNetworkSegment {
             .bind(self.vlan_id)
             .bind(self.vni)
             .bind(self.segment_type)
+            .bind(self.can_stretch)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

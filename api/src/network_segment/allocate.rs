@@ -90,6 +90,7 @@ impl Ipv4PrefixAllocator {
         }
     }
 
+    // This should only be used by FNN code.
     pub async fn allocate_network_segment(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -117,6 +118,7 @@ impl Ipv4PrefixAllocator {
             vlan_id,
             vni,
             segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
+            can_stretch: Some(false), // All segments allocated here are FNN linknets.
         };
 
         let mut segment = ns

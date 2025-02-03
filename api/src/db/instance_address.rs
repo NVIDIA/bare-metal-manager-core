@@ -578,6 +578,7 @@ mod tests {
                     vlan_id: None,
                     vni: None,
                     segment_type: NetworkSegmentType::Tenant,
+                    can_stretch: None,
                 }
             })
             .collect_vec();
