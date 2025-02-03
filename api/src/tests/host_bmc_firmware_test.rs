@@ -806,12 +806,12 @@ known_firmware = [
     let mut cfg = api_fixtures::get_config();
     cfg.firmware_global.firmware_directory = tmpdir.path().to_path_buf();
     let cfg = cfg.get_firmware_config();
-    // Clean up tmpdir before any possible failures so we don't leave it behind
-    drop(tmpdir);
 
     let model = cfg
         .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
         .unwrap();
+
+    drop(tmpdir);
 
     assert_eq!(
         model
