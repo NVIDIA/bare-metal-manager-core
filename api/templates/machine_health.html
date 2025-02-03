@@ -20,10 +20,16 @@
 	</p>
 	<p>
 		<b>Presets:</b>
-			<input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)">
-			<input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">
-			<input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">
-			<input type="submit" value="Replace: Mark machine as healthy" onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">
+		<ul>
+			<li><input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)"></li>
+			<li><input type="submit" value="Internal Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)"></li>
+			<li><input type="submit" value="Out For Repair Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)"></li>
+			<li><input type="submit" value="Degraded" onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)"></li>
+			<li><input type="submit" value="Suppress External Alerting Only" onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)"></li>
+			<li><input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)"></li>
+			<li><input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)"></li>
+			<li><input type="submit" value="Replace: Mark machine as healthy" onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)"></li>
+		</ul>
 	</p>
 	<textarea id="override" rows="20" style="width: 100%">
 	</textarea>
@@ -116,6 +122,42 @@ const templateHealthReport = {
 		source: "carbide-web",
 		successes: [{id: "", target: null}],
 		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: [""]}]
+	}
+};
+
+const templateMergeInternalMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeOfrMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "OutForRepair", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeDegradedMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "Degraded", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeSuppressExternalAlerting = {
+	mode: "Merge",
+	health_report: {
+		source: "suppress-paging",
+		successes: [],
+		alerts: [{id: "SuppressExternalAlerting", target: None, message: "Paging is suppressed for this Host", tenant_message: null, classifications: ["SuppressExternalAlerting"]}]
 	}
 };
 

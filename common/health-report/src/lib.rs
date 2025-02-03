@@ -442,6 +442,13 @@ impl HealthAlertClassification {
     pub fn prevent_allocations() -> Self {
         Self("PreventAllocations".to_string())
     }
+
+    /// The threshold that is used to externally alert on unhealthy hosts in the datacenter
+    /// (e.g. via Prometheus/AlertManager alerts)
+    /// will not take hosts with this classification into account
+    pub fn suppress_external_alerting() -> Self {
+        Self("SuppressExternalAlerting".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format
