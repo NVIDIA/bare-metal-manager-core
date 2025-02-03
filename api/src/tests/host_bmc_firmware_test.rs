@@ -195,15 +195,32 @@ async fn test_preingestion_bmc_upgrade(
 
     // Check DPU update during pre-ingestion
     let mut txn = pool.begin().await.unwrap();
-    DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    let dpu_ip = IpAddr::from_str(addr).unwrap();
+    let cec_version = "4-12";
+    DbExploredEndpoint::delete(&mut txn, dpu_ip).await?;
     insert_dpu_endpoint(
         &mut txn,
         addr,
         "fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg",
         "23.07",
+        cec_version,
     )
     .await?;
     txn.commit().await?;
+    let mut txn = pool.begin().await.unwrap();
+
+    let dpu_ep = DbExploredEndpoint::find_all_by_ip(dpu_ip, &mut txn).await?;
+    txn.commit().await?;
+    assert_eq!(dpu_ep.len(), 1);
+    assert_eq!(
+        dpu_ep[0]
+            .find_version(
+                &env.config.dpu_config.dpu_models["bluefield3"],
+                FirmwareComponentType::Cec
+            )
+            .unwrap(),
+        cec_version
+    );
 
     mgr.run_single_iteration().await?;
 
@@ -339,10 +356,11 @@ async fn insert_dpu_endpoint(
     addr: &str,
     machine_id_str: &str,
     bmc_version: &str,
+    cec_version: &str,
 ) -> Result<(), DatabaseError> {
     DbExploredEndpoint::insert(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
-        &build_dpu_exploration_report(machine_id_str, bmc_version),
+        &build_dpu_exploration_report(machine_id_str, bmc_version, cec_version),
         txn,
     )
     .await
@@ -351,6 +369,7 @@ async fn insert_dpu_endpoint(
 fn build_dpu_exploration_report(
     machine_id_str: &str,
     bmc_version: &str,
+    cec_version: &str,
 ) -> EndpointExplorationReport {
     let machine_id = if machine_id_str.is_empty() {
         None
@@ -374,13 +393,21 @@ fn build_dpu_exploration_report(
             network_adapters: vec![],
         }],
         service: vec![Service {
-            id: "".to_string(),
-            inventories: vec![Inventory {
-                id: "Nvidia".to_string(),
-                description: None,
-                version: Some(bmc_version.to_string()),
-                release_date: None,
-            }],
+            id: "Nvidia".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: None,
+                    version: Some(bmc_version.to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "Bluefield_FW_ERoT".to_string(),
+                    description: None,
+                    version: Some(cec_version.to_string()),
+                    release_date: None,
+                },
+            ],
         }],
         machine_id,
         versions: HashMap::default(),
