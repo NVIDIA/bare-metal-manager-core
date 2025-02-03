@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
-    db::{machine::Machine, DatabaseError},
+    db,
+    db::DatabaseError,
     model::machine::{
         self as new_machine, CleanupState, DpuDiscoveringState, DpuInitState, FailureDetails,
         LockdownInfo, ManagedHostState as NewManagedHostState, MeasuringState, ReprovisionState,
@@ -159,9 +160,10 @@ pub async fn migrate_machines(db: sqlx::PgPool) -> CarbideResult<()> {
         ))
     })?;
 
-    let all_hosts = Machine::get_host_machine_ids_for_state_model_version(&mut txn, migrate_from)
-        .await
-        .map_err(CarbideError::from)?;
+    let all_hosts =
+        db::machine::get_host_machine_ids_for_state_model_version(&mut txn, migrate_from)
+            .await
+            .map_err(CarbideError::from)?;
 
     _ = txn.rollback().await;
 
@@ -275,7 +277,7 @@ async fn migrate_machine_to_v2(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "migration fetch", e))?;
 
-    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(txn, host_id).await?;
+    let dpus = db::machine::find_dpu_machine_ids_by_host_machine_id(txn, host_id).await?;
     let new_state = match &old_machine.controller_state {
         ManagedHostStateV1::DpuDiscoveringState { discovering_state } => {
             NewManagedHostState::DpuDiscoveringState {
@@ -355,7 +357,7 @@ async fn migrate_machine_to_v2(
         ManagedHostStateV1::Created => NewManagedHostState::Created,
     };
 
-    Machine::update_state_with_state_model_version_update(
+    db::machine::update_state_with_state_model_version_update(
         txn,
         host_id,
         &dpus,

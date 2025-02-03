@@ -23,13 +23,13 @@ use sqlx::Pool;
 pub use tpm_ca_cert::extract_ca_fields;
 pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
 
-use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine::MachineSearchConfig;
 use crate::db::machine_topology::MachineTopology;
 use crate::db::DatabaseError;
 use crate::db::ObjectFilter;
 use crate::model::hardware_info::TpmEkCertificate;
-use crate::CarbideError;
 use crate::CarbideResult;
+use crate::{db, CarbideError};
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 
@@ -38,7 +38,7 @@ pub async fn get_ek_cert_by_machine_id(
     machine_id: &MachineId,
 ) -> CarbideResult<TpmEkCertificate> {
     // fetch machine from the db
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         txn,
         machine_id,
         MachineSearchConfig {
@@ -52,7 +52,8 @@ pub async fn get_ek_cert_by_machine_id(
 
     // obtain an ek cert
     let tpm_ek_cert = machine
-        .hardware_info()
+        .hardware_info
+        .as_ref()
         .ok_or_else(|| CarbideError::internal("Hardware Info not found.".to_string()))?
         .tpm_ek_certificate
         .as_ref()
@@ -74,7 +75,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin backfill ek cert status", e))?;
 
-    let machines: Vec<forge_uuid::machine::MachineId> = Machine::find(
+    let machines: Vec<forge_uuid::machine::MachineId> = db::machine::find(
         &mut txn,
         ObjectFilter::All,
         MachineSearchConfig {
@@ -88,7 +89,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
     )
     .await?
     .iter()
-    .map(|machine| *machine.id())
+    .map(|machine| machine.id)
     .collect();
 
     if !machines.is_empty() {

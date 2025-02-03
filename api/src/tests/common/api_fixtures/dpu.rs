@@ -17,13 +17,15 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use super::site_explorer;
 use crate::tests::common::{
     api_fixtures::{managed_host::ManagedHostConfig, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS},
     mac_address_pool,
 };
 use crate::{
     cfg::file::DpuConfig as InitialDpuConfig,
-    db::machine::{Machine, MachineSearchConfig},
+    db,
+    db::machine::MachineSearchConfig,
     model::{
         hardware_info::HardwareInfo,
         site_explorer::{
@@ -41,8 +43,6 @@ use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 use tonic::Request;
-
-use super::site_explorer;
 
 /// The version identifier that is used by dpu-agent in unit-tests
 pub const TEST_DPU_AGENT_VERSION: &str = "test";
@@ -331,9 +331,9 @@ pub async fn loopback_ip(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     dpu_machine_id: &MachineId,
 ) -> IpAddr {
-    let dpu = Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+    let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    IpAddr::V4(dpu.loopback_ip().unwrap())
+    IpAddr::V4(dpu.network_config.loopback_ip.unwrap())
 }

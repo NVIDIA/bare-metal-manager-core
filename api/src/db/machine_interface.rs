@@ -24,14 +24,13 @@ use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use super::dhcp_entry::DhcpEntry;
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
-use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::NetworkSegment;
 use crate::db::predicted_machine_interface::PredictedMachineInterface;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineInterfaceSnapshot;
-use crate::{CarbideError, CarbideResult};
+use crate::{db, CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
 use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
@@ -705,7 +704,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
             id: dpu_id.to_string(),
         })??;
 
-    let existing_machine = Machine::find_existing_machine(txn, host_mac, gateway)
+    let existing_machine = db::machine::find_existing_machine(txn, host_mac, gateway)
         .await
         .map_err(CarbideError::from)?;
 

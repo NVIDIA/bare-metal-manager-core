@@ -13,7 +13,8 @@
 use super::machine_update_module::MachineUpdateModule;
 use crate::{
     cfg::file::{CarbideConfig, FirmwareConfig},
-    db::{desired_firmware, host_machine_update::HostMachineUpdate, machine::Machine},
+    db,
+    db::{desired_firmware, host_machine_update::HostMachineUpdate},
     CarbideResult,
 };
 use async_trait::async_trait;
@@ -37,9 +38,9 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<HashSet<MachineId>> {
-        let current_updating_machines = Machine::get_host_reprovisioning_machines(txn).await?;
+        let current_updating_machines = db::machine::get_host_reprovisioning_machines(txn).await?;
 
-        Ok(current_updating_machines.iter().map(|m| *m.id()).collect())
+        Ok(current_updating_machines.iter().map(|m| m.id).collect())
     }
 
     async fn start_updates(
@@ -69,7 +70,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
             tracing::debug!("Moving {} to host reprovision", machine_update);
 
-            Machine::trigger_host_reprovisioning_request(txn, machine_update).await?;
+            db::machine::trigger_host_reprovisioning_request(txn, machine_update).await?;
 
             updates_started.insert(*machine_update);
         }

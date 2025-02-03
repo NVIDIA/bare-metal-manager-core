@@ -30,7 +30,7 @@ use crate::{
         self,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
-        machine::{Machine, MachineSearchConfig},
+        machine::MachineSearchConfig,
         managed_host::LoadSnapshotOptions,
         network_segment::NetworkSegment,
         DatabaseError, ObjectFilter,
@@ -254,7 +254,7 @@ pub async fn allocate_instance(
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
     // Grab a row-level lock on the requested machine
-    let machines = Machine::find(
+    let machines = db::machine::find(
         &mut txn,
         ObjectFilter::List(&[request.machine_id]),
         MachineSearchConfig {

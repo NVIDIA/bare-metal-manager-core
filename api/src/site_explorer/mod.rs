@@ -33,7 +33,7 @@ use crate::{
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
-        machine::{Machine, MachineSearchConfig},
+        machine::MachineSearchConfig,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError, ObjectFilter,
@@ -73,6 +73,7 @@ use crate::db::predicted_machine_interface::{
     NewPredictedMachineInterface, PredictedMachineInterface,
 };
 use crate::db::{predicted_machine_interface, ObjectColumnFilter};
+use crate::model::machine::Machine;
 pub use managed_host::is_endpoint_in_managed_host;
 
 #[derive(Debug, Clone)]
@@ -333,9 +334,9 @@ impl SiteExplorer {
                     e,
                 )
             })?;
-            let machine_id = db::machine::Machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
+            let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
             let machine = match machine_id.as_ref() {
-                Some(id) => db::machine::Machine::find(
+                Some(id) => db::machine::find(
                     &mut txn,
                     ObjectFilter::One(*id),
                     MachineSearchConfig {
@@ -354,7 +355,7 @@ impl SiteExplorer {
             };
             let previous_health_report = machine
                 .as_ref()
-                .and_then(|machine| machine.site_explorer_health_report());
+                .and_then(|machine| machine.site_explorer_health_report.as_ref());
             let mut new_health_report: health_report::HealthReport =
                 health_report::HealthReport::empty("site-explorer".to_string());
 
@@ -465,12 +466,8 @@ impl SiteExplorer {
 
             new_health_report.update_in_alert_since(previous_health_report);
             if let Some(id) = machine_id.as_ref() {
-                db::machine::Machine::update_site_explorer_health_report(
-                    &mut txn,
-                    id,
-                    &new_health_report,
-                )
-                .await?;
+                db::machine::update_site_explorer_health_report(&mut txn, id, &new_health_report)
+                    .await?;
             }
 
             txn.commit().await.map_err(|e| {
@@ -648,7 +645,7 @@ impl SiteExplorer {
                 managed_host
             )))?;
 
-        Machine::update_state(
+        db::machine::update_state(
             &mut txn,
             &host_machine_id,
             ManagedHostState::DpuDiscoveringState {
@@ -1371,7 +1368,7 @@ impl SiteExplorer {
         // already.
         let mac_addresses = report.all_mac_addresses();
         for mac_address in &mac_addresses {
-            if Machine::find_by_mac_address(txn, mac_address)
+            if db::machine::find_by_mac_address(txn, mac_address)
                 .await?
                 .is_some()
             {
@@ -1401,7 +1398,7 @@ impl SiteExplorer {
 
         tracing::info!(%machine_id, "Minted predicted host ID for zero-DPU machine");
 
-        let existing_machine = Machine::find_one(
+        let existing_machine = db::machine::find_one(
             txn,
             machine_id,
             MachineSearchConfig {
@@ -1416,7 +1413,8 @@ impl SiteExplorer {
             // the same MAC address as this one, so something's weird here. Log this host's mac
             // addresses and the ones from the colliding hosts to help in diagnosis.
             let existing_macs = existing_machine
-                .hardware_info()
+                .hardware_info
+                .as_ref()
                 .map(|hw| hw.all_mac_addresses())
                 .unwrap_or_default();
             tracing::warn!(
@@ -1445,7 +1443,7 @@ impl SiteExplorer {
             {
                 // There's already a machine_interface with this MAC...
                 if let Some(existing_machine_id) = machine_interface.machine_id {
-                    // ...If it has a MachineId, something's gone wrong. We already checked Machine::find_by_mac()
+                    // ...If it has a MachineId, something's gone wrong. We already checked db::machine::find_by_mac()
                     // above for all mac addresses, and returned Ok(false) if any were found. Finding an interface
                     // with this MAC with a non-nil machine_id is a contradiction.
                     tracing::error!(
@@ -1540,10 +1538,10 @@ impl SiteExplorer {
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-        match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
+        match db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
-            None => match Machine::create(
+            None => match db::machine::create(
                 txn,
                 Some(&self.common_pools),
                 dpu_machine_id,
@@ -1572,18 +1570,18 @@ impl SiteExplorer {
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine: &Machine,
     ) -> CarbideResult<()> {
-        let (mut network_config, version) = dpu_machine.network_config().clone().take();
+        let (mut network_config, version) = dpu_machine.network_config.clone().take();
         if network_config.loopback_ip.is_none() {
-            let loopback_ip = Machine::allocate_loopback_ip(
+            let loopback_ip = db::machine::allocate_loopback_ip(
                 &self.common_pools,
                 txn,
-                &dpu_machine.id().to_string(),
+                &dpu_machine.id.to_string(),
             )
             .await?;
             network_config.loopback_ip = Some(loopback_ip);
         }
         network_config.use_admin_network = Some(true);
-        Machine::try_update_network_config(txn, dpu_machine.id(), version, &network_config)
+        db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
             .await
             .map_err(CarbideError::from)?;
 
@@ -1723,7 +1721,7 @@ impl SiteExplorer {
             metadata.name = predicted_machine_id.to_string();
         }
 
-        let _host_machine = Machine::create(
+        let _host_machine = db::machine::create(
             txn,
             Some(&self.common_pools),
             &predicted_machine_id,
@@ -1758,7 +1756,7 @@ impl SiteExplorer {
             metadata.name = predicted_machine_id.to_string();
         }
 
-        _ = Machine::create(
+        _ = db::machine::create(
             txn,
             Some(&self.common_pools),
             predicted_machine_id,

@@ -71,7 +71,7 @@ use crate::model::machine::machine_id::{
 };
 use crate::model::machine::{
     get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    FailureSource, Machine, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::tenant::Tenant;
@@ -86,7 +86,6 @@ use crate::{
         self,
         explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
-        machine::Machine,
         machine_topology::MachineTopology,
         DatabaseError, ObjectFilter,
     },
@@ -699,7 +698,7 @@ impl Forge for Api {
         let machine_id = if hardware_info.is_dpu() {
             // if site explorer is creating machine records and there isn't one for this machine return an error
             if **self.runtime_config.site_explorer.create_machines.load() {
-                Machine::find_one(
+                db::machine::find_one(
                     &mut txn,
                     &stable_machine_id,
                     MachineSearchConfig {
@@ -717,7 +716,7 @@ impl Forge for Api {
             }
 
             let db_machine = if machine_discovery_info.create_machine {
-                Machine::get_or_create(
+                db::machine::get_or_create(
                     &mut txn,
                     Some(&self.common_pools),
                     &stable_machine_id,
@@ -725,7 +724,7 @@ impl Forge for Api {
                 )
                 .await?
             } else {
-                Machine::find_one(
+                db::machine::find_one(
                     &mut txn,
                     &stable_machine_id,
                     MachineSearchConfig {
@@ -748,19 +747,19 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-            let (network_config, _version) = db_machine.network_config().clone().take();
+            let (network_config, _version) = db_machine.network_config.clone().take();
             if network_config.loopback_ip.is_none() {
-                let loopback_ip = Machine::allocate_loopback_ip(
+                let loopback_ip = db::machine::allocate_loopback_ip(
                     &self.common_pools,
                     &mut txn,
                     &stable_machine_id.to_string(),
                 )
                 .await?;
 
-                let (mut network_config, version) = db_machine.network_config().clone().take();
+                let (mut network_config, version) = db_machine.network_config.clone().take();
                 network_config.loopback_ip = Some(loopback_ip);
                 network_config.use_admin_network = Some(true);
-                Machine::try_update_network_config(
+                db::machine::try_update_network_config(
                     &mut txn,
                     &stable_machine_id,
                     version,
@@ -769,10 +768,10 @@ impl Forge for Api {
                 .await
                 .map_err(CarbideError::from)?;
             }
-            db_machine.into_id()
+            db_machine.id
         } else {
             // Now we know stable machine id for host. Let's update it in db.
-            Machine::try_sync_stable_id_with_current_machine_id_for_host(
+            db::machine::try_sync_stable_id_with_current_machine_id_for_host(
                 &mut txn,
                 &interface.machine_id,
                 &stable_machine_id,
@@ -801,7 +800,7 @@ impl Forge for Api {
                         CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;
-                let proactive_machine = Machine::get_or_create(
+                let proactive_machine = db::machine::get_or_create(
                     &mut txn,
                     Some(&self.common_pools),
                     &predicted_machine_id,
@@ -810,7 +809,7 @@ impl Forge for Api {
                 .await?;
 
                 // Update host and DPUs state correctly.
-                Machine::update_state(
+                db::machine::update_state(
                     &mut txn,
                     &predicted_machine_id,
                     ManagedHostState::DPUInit {
@@ -824,7 +823,7 @@ impl Forge for Api {
 
                 tracing::info!(
                     ?mi_id,
-                    machine_id = %proactive_machine.id(),
+                    machine_id = %proactive_machine.id,
                     "Created host machine proactively",
                 );
             }
@@ -947,8 +946,7 @@ impl Forge for Api {
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine
-            .update_discovery_time(&mut txn)
+        db::machine::update_discovery_time(&machine, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -994,27 +992,26 @@ impl Forge for Api {
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine
-            .update_cleanup_time(&mut txn)
+        db::machine::update_cleanup_time(&machine, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 
         if let Some(nvme_result) = cleanup_info.nvme {
             if rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result {
                 // NVME Cleanup failed. Move machine to failed state.
-                machine
-                    .update_failure_details(
-                        &mut txn,
-                        FailureDetails {
-                            cause: FailureCause::NVMECleanFailed {
-                                err: nvme_result.message.to_string(),
-                            },
-                            failed_at: chrono::Utc::now(),
-                            source: FailureSource::Scout,
+                db::machine::update_failure_details(
+                    &machine,
+                    &mut txn,
+                    FailureDetails {
+                        cause: FailureCause::NVMECleanFailed {
+                            err: nvme_result.message.to_string(),
                         },
-                    )
-                    .await
-                    .map_err(CarbideError::from)?;
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::Scout,
+                    },
+                )
+                .await
+                .map_err(CarbideError::from)?;
             }
         }
 
@@ -1121,7 +1118,7 @@ impl Forge for Api {
 
         let search_config = request.into_inner().into();
 
-        let machine_ids = Machine::find_machine_ids(&mut txn, search_config)
+        let machine_ids = db::machine::find_machine_ids(&mut txn, search_config)
             .await
             .map_err(CarbideError::from)?;
 
@@ -1300,7 +1297,7 @@ impl Forge for Api {
                 vec![machine_id]
             }
             (None, Some(fqdn)) => {
-                match Machine::find_id_by_fqdn(&mut txn, &fqdn)
+                match db::machine::find_id_by_fqdn(&mut txn, &fqdn)
                     .await
                     .map_err(CarbideError::from)?
                 {
@@ -1308,7 +1305,7 @@ impl Forge for Api {
                     None => vec![],
                 }
             }
-            (None, None) => Machine::find_machine_ids(&mut txn, search_config)
+            (None, None) => db::machine::find_machine_ids(&mut txn, search_config)
                 .await
                 .map_err(CarbideError::from)?,
         };
@@ -1663,7 +1660,7 @@ impl Forge for Api {
         let host_machine = if !is_dpu {
             machine.clone()
         } else {
-            Machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
+            db::machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or(CarbideError::NotFoundError {
@@ -1777,7 +1774,7 @@ impl Forge for Api {
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
-                        machine_id = %machine.id(),
+                        machine_id = %machine.id,
                         machine_type = "Host",
                         %state,
                         "forge agent control",
@@ -1787,7 +1784,7 @@ impl Forge for Api {
             }
         };
         tracing::info!(
-            machine_id = %machine.id(),
+            machine_id = %machine.id,
             action = action.as_str_name(),
             "forge agent control",
         );
@@ -1835,7 +1832,7 @@ impl Forge for Api {
             ))
         })?;
 
-        let machine = match Machine::find_by_query(&mut txn, &query)
+        let machine = match db::machine::find_by_query(&mut txn, &query)
             .await
             .map_err(CarbideError::from)?
         {
@@ -1846,20 +1843,20 @@ impl Forge for Api {
                 return Ok(Response::new(response));
             }
         };
-        log_machine_id(machine.id());
+        log_machine_id(&machine.id);
 
         // TODO: This should maybe just use the snapshot loading functionality that the
         // state controller will use - which already contains the combined state
         let host_machine;
         let dpu_machines;
         if machine.is_dpu() {
-            if let Some(host) = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id())
+            if let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id)
                 .await
                 .map_err(CarbideError::from)?
             {
-                tracing::info!("Found host Machine {:?}", machine.id().to_string());
+                tracing::info!("Found host Machine {:?}", machine.id.to_string());
                 // Get all DPUs attached to this host, in case there are more than one.
-                dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, host.id())
+                dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id)
                     .await
                     .map_err(CarbideError::from)?;
                 host_machine = Some(host);
@@ -1868,40 +1865,40 @@ impl Forge for Api {
                 dpu_machines = vec![machine];
             }
         } else {
-            dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, machine.id())
+            dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id)
                 .await
                 .map_err(CarbideError::from)?;
             tracing::info!(
                 "Found dpu Machines {:?}",
-                dpu_machines.iter().map(|m| m.id().to_string()).join(", ")
+                dpu_machines.iter().map(|m| m.id.to_string()).join(", ")
             );
             host_machine = Some(machine);
         }
 
         let mut instance_id = None;
         if let Some(host_machine) = &host_machine {
-            instance_id = Instance::find_id_by_machine_id(&mut txn, host_machine.id())
+            instance_id = Instance::find_id_by_machine_id(&mut txn, &host_machine.id)
                 .await
                 .map_err(CarbideError::from)?;
         }
 
         if let Some(host_machine) = &host_machine {
-            response.managed_host_machine_id = host_machine.id().to_string();
-            if let Some(iface) = host_machine.interfaces().first() {
+            response.managed_host_machine_id = host_machine.id.to_string();
+            if let Some(iface) = host_machine.interfaces.first() {
                 response.managed_host_machine_interface_id = iface.id.to_string();
             }
-            if let Some(ip) = host_machine.bmc_info().ip.as_ref() {
+            if let Some(ip) = host_machine.bmc_info.ip.as_ref() {
                 response.managed_host_bmc_ip = ip.to_string();
             }
         }
         if let Some(dpu_machine) = dpu_machines.first() {
-            response.dpu_machine_ids = dpu_machines.iter().map(|m| m.id().to_string()).collect();
+            response.dpu_machine_ids = dpu_machines.iter().map(|m| m.id.to_string()).collect();
             // deprecated field:
-            response.dpu_machine_id = dpu_machine.id().to_string();
+            response.dpu_machine_id = dpu_machine.id.to_string();
 
             let dpu_interfaces = dpu_machines
                 .iter()
-                .flat_map(|m| m.interfaces().clone())
+                .flat_map(|m| m.interfaces.clone())
                 .collect::<Vec<_>>();
             if let Some(iface) = dpu_interfaces.first() {
                 response.dpu_machine_interface_ids =
@@ -1909,7 +1906,7 @@ impl Forge for Api {
                 // deprecated field:
                 response.dpu_machine_interface_id = iface.id.to_string();
             }
-            if let Some(ip) = dpu_machine.bmc_info().ip.as_ref() {
+            if let Some(ip) = dpu_machine.bmc_info.ip.as_ref() {
                 response.dpu_bmc_ip = ip.to_string();
             }
         }
@@ -1920,14 +1917,17 @@ impl Forge for Api {
         // So far we only inspected state - now we start the deletion process
         // TODO: In the new model we might just need to move one Machine to this state
         if let Some(host_machine) = &host_machine {
-            host_machine
-                .advance(&mut txn, ManagedHostState::ForceDeletion, None)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine::advance(
+                host_machine,
+                &mut txn,
+                ManagedHostState::ForceDeletion,
+                None,
+            )
+            .await
+            .map_err(CarbideError::from)?;
         }
         for dpu_machine in dpu_machines.iter() {
-            dpu_machine
-                .advance(&mut txn, ManagedHostState::ForceDeletion, None)
+            db::machine::advance(dpu_machine, &mut txn, ManagedHostState::ForceDeletion, None)
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -2028,11 +2028,11 @@ impl Forge for Api {
         }
 
         if let Some(machine) = &host_machine {
-            if let Some(ip) = machine.bmc_info().ip.as_deref() {
-                if let Some(bmc_mac_address) = machine.bmc_info().mac {
+            if let Some(ip) = machine.bmc_info.ip.as_deref() {
+                if let Some(bmc_mac_address) = machine.bmc_info.mac {
                     tracing::info!(
                         ip,
-                        machine_id = %machine.id(),
+                        machine_id = %machine.id,
                         "BMC IP and MAC address for machine was found. Trying to perform Bios unlock",
                     );
 
@@ -2040,7 +2040,7 @@ impl Forge for Api {
                         .redfish_pool
                         .create_client(
                             ip,
-                            machine.bmc_info().port,
+                            machine.bmc_info.port,
                             RedfishAuth::Key(CredentialKey::BmcCredentials {
                                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                             }),
@@ -2049,7 +2049,7 @@ impl Forge for Api {
                         .await
                     {
                         Ok(client) => {
-                            let machine_id = *machine.id();
+                            let machine_id = machine.id;
                             match client.lockdown_status().await {
                                 Ok(status) if status.is_fully_disabled() => {
                                     tracing::info!(%machine_id, "Bios is not locked down");
@@ -2076,7 +2076,7 @@ impl Forge for Api {
                                 }
                             }
 
-                            if machine.bios_password_set_time().is_some() {
+                            if machine.bios_password_set_time.is_some() {
                                 if let Err(e) = crate::redfish::clear_host_uefi_password(
                                     client.as_ref(),
                                     self.redfish_pool.clone(),
@@ -2098,7 +2098,7 @@ impl Forge for Api {
                         }
                         Err(e) => {
                             tracing::warn!(
-                                machine_id = %machine.id(),
+                                machine_id = %machine.id,
                                 error = %e,
                                 "Failed to create Redfish client. Skipping bios unlock",
                             );
@@ -2107,20 +2107,20 @@ impl Forge for Api {
                 } else {
                     tracing::warn!(
                         "Failed to unlock this host because Forge could not retrieve the BMC MAC address for machine {}",
-                        machine.id()
+                        machine.id
                     );
                 }
             } else {
                 tracing::warn!(
                     "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
-                    machine.id()
+                    machine.id
                 );
             }
         }
 
         if let Some(machine) = &host_machine {
             if request.delete_bmc_interfaces {
-                if let Some(bmc_ip) = &machine.bmc_info().ip {
+                if let Some(bmc_ip) = &machine.bmc_info.ip {
                     response.host_bmc_interface_associated = true;
                     if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
                         if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
@@ -2133,12 +2133,12 @@ impl Forge for Api {
                     }
                 }
             }
-            Machine::force_cleanup(&mut txn, machine.id())
+            db::machine::force_cleanup(&mut txn, &machine.id)
                 .await
                 .map_err(CarbideError::from)?;
 
             if request.delete_interfaces {
-                for interface in machine.interfaces() {
+                for interface in &machine.interfaces {
                     db::machine_interface::delete(&interface.id, &mut txn)
                         .await
                         .map_err(CarbideError::from)?;
@@ -2146,9 +2146,9 @@ impl Forge for Api {
                 response.host_interfaces_deleted = true;
             }
 
-            if let Some(addr) = &machine.bmc_info().ip {
+            if let Some(addr) = &machine.bmc_info.ip {
                 if let Ok(addr) = IpAddr::from_str(addr) {
-                    tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id());
+                    tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
 
                     DbExploredEndpoint::delete(&mut txn, addr)
                         .await
@@ -2167,14 +2167,14 @@ impl Forge for Api {
             if let Err(e) =
                 db_attest::EkCertVerificationStatus::delete_ca_verification_status_by_machine_id(
                     &mut txn,
-                    machine.id(),
+                    &machine.id,
                 )
                 .await
             {
                 // just log the error and carry on
                 tracing::error!(
                     "Could not remove EK cert status for machine with id {}: {}",
-                    machine.id(),
+                    machine.id,
                     e
                 );
             }
@@ -2202,14 +2202,14 @@ impl Forge for Api {
             // Free up all loopback IPs allocated for this DPU.
             db::vpc::VpcDpuLoopback::delete_and_deallocate(
                 &self.common_pools,
-                dpu_machine.id(),
+                &dpu_machine.id,
                 &mut txn,
                 true,
             )
             .await
             .map_err(CarbideError::from)?;
 
-            if let Some(loopback_ip) = dpu_machine.loopback_ip() {
+            if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
                 self.common_pools
                     .ethernet
                     .pool_loopback_ip
@@ -2217,12 +2217,12 @@ impl Forge for Api {
                     .await
                     .map_err(CarbideError::from)?
             }
-            DpuToNetworkDeviceMap::delete(&mut txn, dpu_machine.id())
+            DpuToNetworkDeviceMap::delete(&mut txn, &dpu_machine.id)
                 .await
                 .map_err(CarbideError::from)?;
 
             if request.delete_bmc_interfaces {
-                if let Some(bmc_ip) = &dpu_machine.bmc_info().ip {
+                if let Some(bmc_ip) = &dpu_machine.bmc_info.ip {
                     response.dpu_bmc_interface_associated = true;
                     if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
                         if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
@@ -2236,7 +2236,7 @@ impl Forge for Api {
                 }
             }
 
-            if let Some(asn) = dpu_machine.asn() {
+            if let Some(asn) = dpu_machine.asn {
                 self.common_pools
                     .ethernet
                     .pool_fnn_asn
@@ -2244,12 +2244,12 @@ impl Forge for Api {
                     .await
                     .map_err(CarbideError::from)?;
             }
-            Machine::force_cleanup(&mut txn, dpu_machine.id())
+            db::machine::force_cleanup(&mut txn, &dpu_machine.id)
                 .await
                 .map_err(CarbideError::from)?;
 
             if request.delete_interfaces {
-                for interface in dpu_machine.interfaces() {
+                for interface in &dpu_machine.interfaces {
                     db::machine_interface::delete(&interface.id, &mut txn)
                         .await
                         .map_err(CarbideError::from)?;
@@ -2257,12 +2257,9 @@ impl Forge for Api {
                 response.dpu_interfaces_deleted = true;
             }
 
-            if let Some(addr) = &dpu_machine.bmc_info().ip {
+            if let Some(addr) = &dpu_machine.bmc_info.ip {
                 if let Ok(addr) = IpAddr::from_str(addr) {
-                    tracing::info!(
-                        "Cleaning up explored endpoint at {addr} {}",
-                        dpu_machine.id()
-                    );
+                    tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
 
                     DbExploredEndpoint::delete(&mut txn, addr)
                         .await
@@ -2352,10 +2349,10 @@ impl Forge for Api {
 
         let expected_version: config_version::ConfigVersion = match request.if_version_match {
             Some(version) => version.parse().map_err(CarbideError::from)?,
-            None => *machine.version(),
+            None => machine.version,
         };
 
-        Machine::update_metadata(&mut txn, &machine_id, expected_version, metadata)
+        db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata)
             .await
             .map_err(CarbideError::from)?;
 
@@ -2397,7 +2394,7 @@ impl Forge for Api {
                 "DPU ID provided. Need managed host.",
             ));
         }
-        let dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, &machine_id)
+        let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?;
 
@@ -2450,10 +2447,10 @@ impl Forge for Api {
             }
             rpc::MaintenanceOperation::Disable => {
                 for dpu_machine in dpu_machines.iter() {
-                    if dpu_machine.reprovisioning_requested().is_some() {
+                    if dpu_machine.reprovisioning_requested.is_some() {
                         return Err(Status::invalid_argument(format!(
                             "Reprovisioning request is set on DPU: {}. Clear it first.",
-                            dpu_machine.id()
+                            &dpu_machine.id
                         )));
                     }
                 }
@@ -2476,12 +2473,12 @@ impl Forge for Api {
             }
         };
 
-        Machine::set_maintenance_mode(&mut txn, host_machine.id(), &mode)
+        db::machine::set_maintenance_mode(&mut txn, &host_machine.id, &mode)
             .await
             .map_err(CarbideError::from)?;
 
         for dpu_machine in &dpu_machines {
-            Machine::set_maintenance_mode(&mut txn, dpu_machine.id(), &mode)
+            db::machine::set_maintenance_mode(&mut txn, &dpu_machine.id, &mode)
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -2550,31 +2547,38 @@ impl Forge for Api {
             ))
         })?;
 
-        let dpus = Machine::list_machines_requested_for_reprovisioning(&mut txn)
+        let dpus = db::machine::list_machines_requested_for_reprovisioning(&mut txn)
             .await
             .map_err(CarbideError::from)?
             .into_iter()
             .map(
                 |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
                     id: Some(::rpc::common::MachineId {
-                        id: x.id().to_string(),
+                        id: x.id.to_string(),
                     }),
                     state: x.current_state().to_string(),
-                    requested_at: x.reprovisioning_requested().map(|a| a.requested_at.into()),
+                    requested_at: x
+                        .reprovisioning_requested
+                        .as_ref()
+                        .map(|a| a.requested_at.into()),
                     initiator: x
-                        .reprovisioning_requested()
-                        .map(|a| a.initiator)
+                        .reprovisioning_requested
+                        .as_ref()
+                        .map(|a| a.initiator.clone())
                         .unwrap_or_default(),
                     update_firmware: x
-                        .reprovisioning_requested()
+                        .reprovisioning_requested
+                        .as_ref()
                         .map(|a| a.update_firmware)
                         .unwrap_or_default(),
                     initiated_at: x
-                        .reprovisioning_requested()
+                        .reprovisioning_requested
+                        .as_ref()
                         .map(|a| a.started_at.map(|x| x.into()))
                         .unwrap_or_default(),
                     user_approval_received: x
-                        .reprovisioning_requested()
+                        .reprovisioning_requested
+                        .as_ref()
                         .map(|x| x.user_approval_received)
                         .unwrap_or_default(),
                 },
@@ -2602,7 +2606,7 @@ impl Forge for Api {
             ))
         })?;
 
-        let dpu_list = Machine::find_dpu_ids_and_loopback_ips(&mut txn)
+        let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -3315,11 +3319,11 @@ impl Forge for Api {
             CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
         })?;
 
-        let attest = Attest::unmarshall(&(request.get_ref()).attestation).map_err(|e| {
+        let attest = Attest::unmarshall(&request.get_ref().attestation).map_err(|e| {
             CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {0}", e))
         })?;
 
-        let signature = Signature::unmarshall(&(request.get_ref()).signature).map_err(|e| {
+        let signature = Signature::unmarshall(&request.get_ref().signature).map_err(|e| {
             CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {0}", e))
         })?;
 
@@ -3997,8 +4001,7 @@ impl Forge for Api {
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        machine
-            .update_reboot_time(&mut txn)
+        db::machine::update_reboot_time(&machine, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -4056,20 +4059,20 @@ impl Forge for Api {
             }
         };
         let Some(machine) =
-            Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
                 .await
                 .map_err(CarbideError::from)?
         else {
             return Err(Status::not_found("The machine ID was not found"));
         };
-        log_machine_id(machine.id());
+        log_machine_id(&machine.id);
 
         let state = match request.action() {
             rpc::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
             rpc::machine_set_auto_update_request::SetAutoupdateAction::Disable => Some(false),
             rpc::machine_set_auto_update_request::SetAutoupdateAction::Clear => None,
         };
-        Machine::set_firmware_autoupdate(&mut txn, &machine_id, state)
+        db::machine::set_firmware_autoupdate(&mut txn, &machine_id, state)
             .await
             .map_err(CarbideError::from)?;
 
@@ -4609,7 +4612,7 @@ impl Api {
                 e,
             ))
         })?;
-        let machine = match Machine::find_one(&mut txn, machine_id, search_config).await {
+        let machine = match db::machine::find_one(&mut txn, machine_id, search_config).await {
             Err(err) => {
                 tracing::warn!(%machine_id, error = %err, "failed loading machine");
                 return Err(CarbideError::InvalidArgument(
@@ -4694,11 +4697,11 @@ impl Api {
     }
 
     async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {
-        if let Some(mac_address) = machine.bmc_info().mac {
+        if let Some(mac_address) = machine.bmc_info.mac {
             tracing::info!(
                 "Cleaning up BMC credentials in vault at {} for machine {}",
                 mac_address,
-                machine.id()
+                machine.id
             );
             crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
                 .await

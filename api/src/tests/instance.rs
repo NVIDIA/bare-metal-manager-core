@@ -17,11 +17,12 @@ use std::{
 };
 
 use crate::{
+    db,
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
-        machine::{Machine, MachineSearchConfig},
+        machine::MachineSearchConfig,
         network_prefix::NetworkPrefix,
         network_segment::{IdColumn, NetworkSegment, NetworkSegmentSearchConfig},
         vpc::{UpdateVpcVirtualization, Vpc},
@@ -109,7 +110,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         0
     );
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -257,7 +258,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     );
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -278,7 +279,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .expect("Unable to create transaction on database pool");
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -337,7 +338,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         0
     );
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -485,7 +486,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     );
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -539,7 +540,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // handle_delete_post_bootingwithdiscoveryimage()
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -550,7 +551,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     // Run state machine twice.
@@ -602,7 +605,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // check that it has failed as intended due to the lack of ca cert
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -641,7 +644,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -652,8 +655,12 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
-    machine.update_cleanup_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    db::machine::update_cleanup_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -704,7 +711,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    Machine::update_machine_validation_time(&host_machine_id, &mut txn)
+    db::machine::update_machine_validation_time(&host_machine_id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -724,7 +731,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -735,7 +742,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -766,7 +775,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Unable to create transaction on database pool");
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -1541,12 +1550,12 @@ async fn test_instance_cloud_init_metadata(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await?
         .unwrap();
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
-        ip: machine.interfaces()[0].addresses[0].to_string(),
+        ip: machine.interfaces[0].addresses[0].to_string(),
     });
 
     let response = env.api.get_cloud_init_instructions(request).await?;
@@ -2251,7 +2260,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -2627,7 +2636,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         0
     );
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -2804,7 +2813,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -2846,7 +2855,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(network_segments.is_empty());
 
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()

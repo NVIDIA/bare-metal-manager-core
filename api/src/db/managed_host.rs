@@ -21,7 +21,6 @@ use crate::{
     db::{
         self,
         instance::{FindInstanceTypeFilter, Instance},
-        machine::Machine,
         DatabaseError,
     },
     model::{
@@ -64,7 +63,7 @@ pub async fn load_by_machine_ids(
         } else {
             // TODO: This is slow. We should have an API which loads us all the associated host IDs
             // However the Method is not used in a hot path - only debug tools query for DPU information
-            match Machine::find_host_machine_id_by_dpu_machine_id(txn, machine_id).await? {
+            match db::machine::find_host_machine_id_by_dpu_machine_id(txn, machine_id).await? {
                 Some(host_id) => {
                     host_ids_by_requested_dpu_ids.insert(*machine_id, host_id);
                     all_host_ids.insert(host_id);
@@ -229,7 +228,7 @@ async fn load_host_and_dpu_machine_states(
     host_machine_ids: &[MachineId],
     include_history: bool,
 ) -> Result<LoadHostAndDpuMachinesResult, DatabaseError> {
-    let hosts = Machine::find(
+    let hosts = db::machine::find(
         txn,
         super::ObjectFilter::List(host_machine_ids),
         crate::db::machine::MachineSearchConfig::default(),
@@ -240,23 +239,21 @@ async fn load_host_and_dpu_machine_states(
         HashMap::with_capacity(host_machine_ids.len());
     let mut dpu_machine_ids = Vec::with_capacity(hosts.len());
     for host_machine in hosts.into_iter() {
-        for iface in host_machine.interfaces().iter() {
+        for iface in host_machine.interfaces.iter() {
             if let Some(dpu_id) = &iface.attached_dpu_machine_id {
                 dpu_machine_ids.push(*dpu_id);
             }
         }
-        hosts_by_id.insert(*host_machine.id(), host_machine.into());
+        hosts_by_id.insert(host_machine.id, host_machine.into());
     }
-    let dpus = Machine::find(
+    let dpus = db::machine::find(
         txn,
         super::ObjectFilter::List(dpu_machine_ids.as_ref()),
         crate::db::machine::MachineSearchConfig::default(),
     )
     .await?;
-    let mut dpus_by_id: HashMap<MachineId, MachineSnapshot> = dpus
-        .into_iter()
-        .map(|dpu| (*dpu.id(), dpu.into()))
-        .collect();
+    let mut dpus_by_id: HashMap<MachineId, MachineSnapshot> =
+        dpus.into_iter().map(|dpu| (dpu.id, dpu.into())).collect();
 
     if include_history {
         let mut all_machine_ids: Vec<MachineId> = host_machine_ids.to_vec();

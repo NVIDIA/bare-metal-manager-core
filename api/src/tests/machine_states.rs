@@ -13,7 +13,7 @@ use crate::tests::common;
 
 use crate::cfg::file::DpuConfig;
 use crate::db;
-use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine::MachineSearchConfig;
 use crate::measured_boot::db as mbdb;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::TpmEkCertificate;
@@ -57,7 +57,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -153,12 +153,13 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    host.update_failure_details(
+    db::machine::update_failure_details(
+        &host,
         &mut txn,
         FailureDetails {
             cause: crate::model::machine::FailureCause::NVMECleanFailed {
@@ -176,7 +177,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -192,7 +193,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -222,13 +223,13 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         &env.pool,
         &host,
         1,
-        Some(host.last_reboot_requested().unwrap().time - Duration::seconds(59)),
+        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
     )
     .await;
     // let state machine check the failure condition.
     env.run_machine_state_controller_iteration().await;
 
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -271,7 +272,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -309,7 +310,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 
     // Check that we've moved the machine to the WaitingForCleanup state.
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -328,12 +329,13 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let mut txn = env.pool.begin().await.unwrap();
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
-    let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
+    let dpu_machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert!(dpu_machine
-        .dpu_agent_health_report()
+        .dpu_agent_health_report
+        .as_ref()
         .as_ref()
         .unwrap()
         .alerts
@@ -386,19 +388,24 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     env.run_machine_state_controller_iteration().await;
 
     // Now the network should be marked unhealthy
-    let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
+    let dpu_machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert!(
         !dpu_machine
-            .dpu_agent_health_report()
+            .dpu_agent_health_report
+            .as_ref()
             .as_ref()
             .unwrap()
             .alerts
             .is_empty(),
         "DPU is not healthy: {:?}",
-        dpu_machine.dpu_agent_health_report().as_ref().unwrap()
+        dpu_machine
+            .dpu_agent_health_report
+            .as_ref()
+            .as_ref()
+            .unwrap()
     );
 
     // The up count reflects the heartbeat timeout.
@@ -447,12 +454,13 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    host.update_failure_details(
+    db::machine::update_failure_details(
+        &host,
         &mut txn,
         FailureDetails {
             cause: crate::model::machine::FailureCause::Discovery {
@@ -471,7 +479,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -486,7 +494,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -503,7 +511,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
             interface_id: Some(rpc::Uuid {
-                value: host.interfaces()[0].id.clone().to_string(),
+                value: host.interfaces[0].id.clone().to_string(),
             }),
         }))
         .await
@@ -533,13 +541,13 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    assert!(host.last_reboot_requested().is_some());
-    let last_reboot_requested_time = host.last_reboot_requested().unwrap().time;
+    assert!(host.last_reboot_requested.is_some());
+    let last_reboot_requested_time = host.last_reboot_requested.as_ref().unwrap().time;
 
     assert!(matches!(
         host.current_state(),
@@ -587,14 +595,14 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     .await;
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
     assert_ne!(
         last_reboot_requested_time,
-        host.last_reboot_requested().unwrap().time
+        host.last_reboot_requested.as_ref().unwrap().time
     );
     txn.commit().await.unwrap();
 
@@ -755,7 +763,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         create_dpu_machine_in_waiting_for_network_install(&env, host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -768,7 +776,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     assert!(matches!(host_machine.current_state(), _expected_state));
     assert!(
         matches!(
-            host_machine.current_state_iteration_outcome(),
+            host_machine.controller_state_outcome,
             Some(PersistentStateHandlerOutcome::Transition)
         ),
         "Machine should have just transitioned into WaitingForNetworkConfig"
@@ -781,12 +789,12 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     // Now we're stuck waiting for DPU agent to run
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
     txn.rollback().await.unwrap();
-    let outcome = host_machine.current_state_iteration_outcome().unwrap();
+    let outcome = host_machine.controller_state_outcome.unwrap();
     assert!(
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason } if !reason.is_empty()),
         "Third iteration should be waiting for DPU agent, and include a wait reason",
@@ -810,7 +818,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 
     // Now do a Hack and move the Machine into a failed state - which has a SLA
     let mut txn = env.pool.begin().await.unwrap();
-    Machine::update_state(
+    db::machine::update_state(
         &mut txn,
         &host_machine_id,
         ManagedHostState::Failed {
@@ -876,7 +884,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -912,7 +920,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -946,7 +954,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -984,7 +992,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1022,7 +1030,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // make sure the machine is in retired state
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1067,7 +1075,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // check that it has failed as intended due to the lack of ca cert
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1108,7 +1116,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // check we are in revoked state
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1140,7 +1148,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     }
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1188,7 +1196,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
 
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1218,7 +1226,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.run_machine_state_controller_iteration().await;
 
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1262,7 +1270,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     }
 
     // now we should be in pending bundle state
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();

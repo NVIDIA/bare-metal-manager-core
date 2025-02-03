@@ -18,7 +18,8 @@ use chrono::Utc;
 
 use crate::db::ObjectColumnFilter;
 use crate::{
-    db::{ib_partition, machine::Machine},
+    db,
+    db::ib_partition,
     ib::{
         self,
         types::{IBNetwork, IBPortState},
@@ -154,7 +155,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
     // from hardware_info.infiniband_interfaces[]
     // So it guarantees stable order between function calls
     if prev != cur {
-        Machine::update_infiniband_status_observation(txn, machine_id, &cur).await?;
+        db::machine::update_infiniband_status_observation(txn, machine_id, &cur).await?;
     }
 
     Ok(())

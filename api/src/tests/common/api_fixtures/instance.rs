@@ -12,18 +12,15 @@
 
 use std::time::SystemTime;
 
-use crate::{
-    db::machine::Machine,
-    model::machine::{CleanupState, MachineState, ManagedHostState},
+use super::{
+    forge_agent_control, inject_machine_measurements, persist_machine_validation_result, TestEnv,
 };
+use crate::db;
+use crate::model::machine::{CleanupState, MachineState, ManagedHostState};
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
     InstanceReleaseRequest, Timestamp,
-};
-
-use super::{
-    forge_agent_control, inject_machine_measurements, persist_machine_validation_result, TestEnv,
 };
 
 pub async fn create_instance(
@@ -332,10 +329,10 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     host_machine_id: &MachineId,
 ) {
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         host_machine_id,
-        crate::db::machine::MachineSearchConfig {
+        db::machine::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -343,7 +340,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     // Run state machine twice.
@@ -381,7 +380,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -392,8 +391,12 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
-    machine.update_cleanup_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
+    db::machine::update_cleanup_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -444,7 +447,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    Machine::update_machine_validation_time(host_machine_id, &mut txn)
+    db::machine::update_machine_validation_time(host_machine_id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -464,7 +467,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         host_machine_id,
         crate::db::machine::MachineSearchConfig {
@@ -475,7 +478,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await
     .unwrap()
     .unwrap();
-    machine.update_reboot_time(&mut txn).await.unwrap();
+    db::machine::update_reboot_time(&machine, &mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();

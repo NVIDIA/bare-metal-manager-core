@@ -11,8 +11,9 @@
  */
 use crate::{
     api::{log_machine_id, log_request_data, Api},
+    db,
     db::{
-        machine::{Machine, MachineSearchConfig},
+        machine::MachineSearchConfig,
         machine_validation::{
             MachineValidation, MachineValidationResult, MachineValidationState,
             MachineValidationStatus,
@@ -64,7 +65,7 @@ pub(crate) async fn mark_machine_validation_complete(
         ))
     })?;
 
-    let machine = match Machine::find_by_validation_id(&mut txn, &uuid)
+    let machine = match db::machine::find_by_validation_id(&mut txn, &uuid)
         .await
         .map_err(CarbideError::from)?
     {
@@ -75,7 +76,7 @@ pub(crate) async fn mark_machine_validation_complete(
         }
     };
 
-    if *machine.id() != machine_id {
+    if machine.id != machine_id {
         tracing::error!(validation_id = %uuid, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
         return Err(Status::invalid_argument(
             "Validation ID does not belong to provided Machine ID",
@@ -94,7 +95,7 @@ pub(crate) async fn mark_machine_validation_complete(
     .map_err(CarbideError::from)?;
     let machine_validation_results = match req.machine_validation_error {
         Some(machine_validation_error) => {
-            Machine::update_failure_details_by_machine_id(
+            db::machine::update_failure_details_by_machine_id(
                 &machine_id,
                 &mut txn,
                 FailureDetails {
@@ -111,7 +112,7 @@ pub(crate) async fn mark_machine_validation_complete(
             // Update the Machine validation health report to include that the
             // validation failed
             let mut updated_validation_health_report =
-                machine.machine_validation_health_report().clone();
+                machine.machine_validation_health_report.clone();
             updated_validation_health_report.observed_at = Some(chrono::Utc::now());
             updated_validation_health_report
                 .alerts
@@ -128,9 +129,9 @@ pub(crate) async fn mark_machine_validation_complete(
                     ],
                 });
 
-            Machine::update_machine_validation_health_report(
+            db::machine::update_machine_validation_health_report(
                 &mut txn,
-                machine.id(),
+                &machine.id,
                 &updated_validation_health_report,
             )
             .await
@@ -143,7 +144,7 @@ pub(crate) async fn mark_machine_validation_complete(
 
     let result = match MachineValidationResult::validate_current_context(&mut txn, rpc_id).await? {
         Some(error_message) => {
-            Machine::update_failure_details_by_machine_id(
+            db::machine::update_failure_details_by_machine_id(
                 &machine_id,
                 &mut txn,
                 FailureDetails {
@@ -200,16 +201,17 @@ pub(crate) async fn persist_validation_result(
             e,
         ))
     })?;
-    let machine = match Machine::find_by_validation_id(&mut txn, &validation_result.validation_id)
-        .await
-        .map_err(CarbideError::from)?
-    {
-        Some(machine) => machine,
-        None => {
-            tracing::error!(%validation_result.validation_id, "validation id not found");
-            return Err(Status::invalid_argument("wrong validation ID"));
-        }
-    };
+    let machine =
+        match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(machine) => machine,
+            None => {
+                tracing::error!(%validation_result.validation_id, "validation id not found");
+                return Err(Status::invalid_argument("wrong validation ID"));
+            }
+        };
     // Check state
     match machine.current_state() {
         ManagedHostState::HostInit { machine_state } => {
@@ -231,7 +233,7 @@ pub(crate) async fn persist_validation_result(
     }
 
     // Update the Machine validation health report based on the result
-    let mut updated_validation_health_report = machine.machine_validation_health_report().clone();
+    let mut updated_validation_health_report = machine.machine_validation_health_report.clone();
     updated_validation_health_report.observed_at = Some(chrono::Utc::now());
     if validation_result.exit_code != 0 {
         updated_validation_health_report
@@ -251,9 +253,9 @@ pub(crate) async fn persist_validation_result(
             });
     }
 
-    Machine::update_machine_validation_health_report(
+    db::machine::update_machine_validation_health_report(
         &mut txn,
-        machine.id(),
+        &machine.id,
         &updated_validation_health_report,
     )
     .await
@@ -456,7 +458,7 @@ pub(crate) async fn on_demand_machine_validation(
                     e,
                 ))
             })?;
-            let machine = Machine::find_one(
+            let machine = db::machine::find_one(
                 &mut txn,
                 &machine_id,
                 MachineSearchConfig {
@@ -470,7 +472,7 @@ pub(crate) async fn on_demand_machine_validation(
                 Status::invalid_argument(format!("Machine id {machine_id} not found."))
             })?;
             if machine
-                .on_demand_machine_validation_request()
+                .on_demand_machine_validation_request
                 .unwrap_or_default()
             {
                 let msg =
@@ -497,7 +499,7 @@ pub(crate) async fn on_demand_machine_validation(
                     tracing::trace!(validation_id = %validation_id);
 
                     // Update machine_validation_request.
-                    Machine::set_machine_validation_request(&mut txn, &machine_id, true)
+                    db::machine::set_machine_validation_request(&mut txn, &machine_id, true)
                         .await
                         .map_err(CarbideError::from)?;
 

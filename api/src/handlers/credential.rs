@@ -19,10 +19,9 @@ use tonic::Response;
 
 use crate::api::Api;
 use crate::credentials::UpdateCredentials;
-use crate::db::machine::Machine;
 use crate::db::DatabaseError;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::CarbideError;
+use crate::{db, CarbideError};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -319,19 +318,19 @@ pub(crate) async fn get_dpu_ssh_credential(
             e,
         ))
     })?;
-    let machine_id = match Machine::find_by_query(&mut txn, &query)
+    let machine_id = match db::machine::find_by_query(&mut txn, &query)
         .await
         .map_err(CarbideError::from)?
     {
         Some(machine) => {
-            crate::api::log_machine_id(machine.id());
+            crate::api::log_machine_id(&machine.id);
             if !machine.is_dpu() {
                 return Err(tonic::Status::not_found(format!(
                     "Searching for machine {} was found for '{query}', but it is not a DPU",
-                    machine.id()
+                    &machine.id
                 )));
             }
-            *machine.id()
+            machine.id
         }
         None => {
             return Err(CarbideError::NotFoundError {

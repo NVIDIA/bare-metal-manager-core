@@ -10,10 +10,8 @@ use std::{
 use crate::tests::common::api_fixtures::create_managed_host;
 use crate::{
     cfg::file::CarbideConfig,
-    db::{
-        dpu_machine_update::DpuMachineUpdate,
-        machine::{Machine, MaintenanceMode},
-    },
+    db,
+    db::{dpu_machine_update::DpuMachineUpdate, machine::MaintenanceMode},
     machine_update_manager::{
         machine_update_module::{
             AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
@@ -340,7 +338,7 @@ async fn test_get_machines_in_maintenance(
         .await
         .unwrap();
 
-    Machine::set_maintenance_mode(
+    db::machine::set_maintenance_mode(
         &mut txn,
         &host_machine_id2,
         &MaintenanceMode::On {
@@ -350,7 +348,7 @@ async fn test_get_machines_in_maintenance(
     .await
     .unwrap();
 
-    Machine::set_maintenance_mode(
+    db::machine::set_maintenance_mode(
         &mut txn,
         &dpu_machine_id2,
         &MaintenanceMode::On {

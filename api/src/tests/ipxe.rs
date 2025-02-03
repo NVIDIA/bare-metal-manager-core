@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    db::{self, machine::Machine},
+    db::{self},
     model::machine::{DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
@@ -11,12 +11,11 @@ use rpc::forge::{forge_server::Forge, CloudInitInstructionsRequest, DhcpDiscover
 
 use crate::tests::common;
 
+use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use common::api_fixtures::{
     instance::{create_instance, single_interface_network_config},
     TestEnv,
 };
-
-use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 
 async fn move_machine_to_needed_state(
     machine_id: MachineId,
@@ -27,7 +26,7 @@ async fn move_machine_to_needed_state(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -36,7 +35,9 @@ async fn move_machine_to_needed_state(
     .unwrap()
     .unwrap();
 
-    machine.advance(&mut txn, state, None).await.unwrap();
+    db::machine::advance(&machine, &mut txn, state, None)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 }
 
@@ -90,7 +91,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine = Machine::find_one(
+    let machine = db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -110,7 +111,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        machine.interfaces().first().unwrap().id,
+        machine.interfaces.first().unwrap().id,
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;

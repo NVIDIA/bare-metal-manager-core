@@ -24,7 +24,6 @@ use crate::{
         dhcp_entry::DhcpEntry,
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
-        machine::Machine,
         managed_host::LoadSnapshotOptions,
         DatabaseError,
     },
@@ -158,7 +157,7 @@ pub async fn discover_dhcp(
         .map_err(CarbideError::from)?;
 
     let existing_machine_id =
-        match Machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
+        match db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
             .await
             .map_err(CarbideError::from)?
         {

@@ -28,9 +28,10 @@ use self::{
 };
 use crate::{
     cfg::file::CarbideConfig,
+    db,
     db::{
         dpu_machine_update::DpuMachineUpdate,
-        machine::{Machine, MachineSearchConfig, MaintenanceMode},
+        machine::{MachineSearchConfig, MaintenanceMode},
         DatabaseError, ObjectFilter,
     },
     CarbideError, CarbideResult,
@@ -234,7 +235,7 @@ impl MachineUpdateManager {
         machine_update: &DpuMachineUpdate,
         reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
     ) -> CarbideResult<()> {
-        Machine::set_maintenance_mode(
+        db::machine::set_maintenance_mode(
             txn,
             &machine_update.host_machine_id,
             &MaintenanceMode::On {
@@ -244,7 +245,7 @@ impl MachineUpdateManager {
         .await
         .map_err(CarbideError::from)?;
 
-        Machine::set_maintenance_mode(
+        db::machine::set_maintenance_mode(
             txn,
             &machine_update.dpu_machine_id,
             &MaintenanceMode::On {
@@ -260,13 +261,21 @@ impl MachineUpdateManager {
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        Machine::set_maintenance_mode(txn, &machine_update.host_machine_id, &MaintenanceMode::Off)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::set_maintenance_mode(
+            txn,
+            &machine_update.host_machine_id,
+            &MaintenanceMode::Off,
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
-        Machine::set_maintenance_mode(txn, &machine_update.dpu_machine_id, &MaintenanceMode::Off)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::set_maintenance_mode(
+            txn,
+            &machine_update.dpu_machine_id,
+            &MaintenanceMode::Off,
+        )
+        .await
+        .map_err(CarbideError::from)?;
         Ok(())
     }
 
@@ -274,7 +283,7 @@ impl MachineUpdateManager {
     pub async fn get_machines_in_maintenance(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
-        let machines = Machine::find(
+        let machines = db::machine::find(
             txn,
             ObjectFilter::All,
             MachineSearchConfig {
@@ -292,11 +301,11 @@ impl MachineUpdateManager {
             .into_iter()
             .filter_map(|m| {
                 if !m.is_dpu()
-                    && m.maintenance_reference().is_some_and(|maint_ref| {
+                    && m.maintenance_reference.as_ref().is_some_and(|maint_ref| {
                         maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
                     })
                 {
-                    Some(*m.id())
+                    Some(m.id)
                 } else {
                     None
                 }

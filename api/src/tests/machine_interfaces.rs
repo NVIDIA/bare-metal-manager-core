@@ -18,7 +18,6 @@ use crate::{
         address_selection_strategy::AddressSelectionStrategy,
         dhcp_entry::DhcpEntry,
         domain::{self, Domain},
-        machine::Machine,
         network_segment::NetworkSegment,
     },
     model::machine::{
@@ -64,7 +63,7 @@ async fn only_one_primary_interface_per_machine(
     .await?;
 
     let machine_id = from_hardware_info(&host_sim.config.borrow().into()).unwrap();
-    let new_machine = Machine::get_or_create(&mut txn, None, &machine_id, &new_interface)
+    let new_machine = db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");
 
@@ -84,7 +83,7 @@ async fn only_one_primary_interface_per_machine(
 
     let output = db::machine_interface::associate_interface_with_machine(
         &should_failed_machine_interface.id,
-        new_machine.id(),
+        &new_machine.id,
         &mut txn,
     )
     .await;

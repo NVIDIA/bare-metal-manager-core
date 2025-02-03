@@ -2,13 +2,13 @@ use crate::tests::common;
 
 use std::collections::HashMap;
 
+use crate::model::machine::Machine;
+use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use crate::{
-    db::{dpu_machine_update::DpuMachineUpdate, machine::Machine},
+    db, db::dpu_machine_update::DpuMachineUpdate,
     model::machine::network::MachineNetworkStatusObservation,
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
-
-use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 
 #[crate::sqlx_test]
 async fn test_find_available_outdated_dpus(
@@ -88,8 +88,8 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         .await
         .expect("Failed to create transaction");
     let dpu_machine_id = dpu_machine_ids.first().unwrap();
-    Machine::update_network_status_observation(&mut txn, dpu_machine_id, &machine_obs).await?;
-    Machine::update_dpu_agent_health_report(&mut txn, dpu_machine_id, &health_report).await?;
+    db::machine::update_network_status_observation(&mut txn, dpu_machine_id, &machine_obs).await?;
+    db::machine::update_dpu_agent_health_report(&mut txn, dpu_machine_id, &health_report).await?;
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -228,7 +228,7 @@ async fn test_find_available_outdated_dpus_multidpu(
     )
     .await?;
 
-    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
@@ -252,17 +252,17 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     );
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
-    let dpu_machine_id = *all_dpus[0].id();
+    let dpu_machine_id = all_dpus[0].id;
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &host_machine_id,
         &[DpuMachineUpdate {
             host_machine_id,
-            dpu_machine_id: *all_dpus[0].id(),
+            dpu_machine_id: all_dpus[0].id,
             firmware_version: "test_version".to_string(),
             product_name: "BlueField SoC".to_string(),
         }],
@@ -284,16 +284,16 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     assert!(dpus.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()
-        .partition(|x| x.reprovisioning_requested().is_some());
+        .partition(|x| x.reprovisioning_requested.is_some());
     assert_eq!(dpu_under_reprov.len(), 1);
     assert_eq!(dpu_not_under_reprov.len(), 1);
-    assert_eq!(dpu_under_reprov[0].id().clone(), dpu_machine_id);
+    assert_eq!(dpu_under_reprov[0].id, dpu_machine_id);
 
     Ok(())
 }
@@ -314,7 +314,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     );
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
@@ -324,13 +324,13 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
         &[
             DpuMachineUpdate {
                 host_machine_id,
-                dpu_machine_id: *all_dpus[1].id(),
+                dpu_machine_id: all_dpus[1].id,
                 firmware_version: "test_version".to_string(),
                 product_name: "BlueField SoC".to_string(),
             },
             DpuMachineUpdate {
                 host_machine_id,
-                dpu_machine_id: *all_dpus[0].id(),
+                dpu_machine_id: all_dpus[0].id,
                 firmware_version: "test_version".to_string(),
                 product_name: "BlueField SoC".to_string(),
             },
@@ -353,13 +353,13 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     assert!(dpus.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
+    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()
-        .partition(|x| x.reprovisioning_requested().is_some());
+        .partition(|x| x.reprovisioning_requested.is_some());
     assert_eq!(dpu_under_reprov.len(), 2);
     assert_eq!(dpu_not_under_reprov.len(), 0);
     Ok(())

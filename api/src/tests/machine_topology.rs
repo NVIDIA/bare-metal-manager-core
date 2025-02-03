@@ -11,10 +11,8 @@
  */
 use crate::{
     db::{
-        self,
-        machine::{Machine, MachineSearchConfig},
-        machine_interface::associate_interface_with_dpu_machine,
-        machine_topology::MachineTopology,
+        self, machine::MachineSearchConfig,
+        machine_interface::associate_interface_with_dpu_machine, machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
     model::hardware_info::HardwareInfo,
@@ -79,7 +77,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let hardware_info = HardwareInfo::from(&host_sim.config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
-    let machine = Machine::get_or_create(&mut txn, None, &machine_id, &iface)
+    let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await
         .unwrap();
 
@@ -90,17 +88,17 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
+    MachineTopology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[*machine.id()])
+    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
-    let topo = topos.get(machine.id()).unwrap();
+    let topo = topos.get(&machine.id).unwrap();
     assert_eq!(topo.len(), 1);
 
     let returned_hw_info = topo[0].topology().discovery_data.info.clone();
@@ -111,7 +109,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let rpc_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine.id().to_string().into()],
+            machine_ids: vec![machine.id.to_string().into()],
             ..Default::default()
         }))
         .await
@@ -131,7 +129,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut new_info = hardware_info.clone();
     new_info.cpus[0].model = "SnailSpeedCpu".to_string();
 
-    let topology = MachineTopology::create_or_update(&mut txn, machine.id(), &new_info)
+    let topology = MachineTopology::create_or_update(&mut txn, &machine.id, &new_info)
         .await
         .unwrap();
     //
@@ -141,10 +139,10 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         topology.topology().discovery_data.info.cpus[0].model
     );
 
-    MachineTopology::set_topology_update_needed(&mut txn, machine.id(), true)
+    MachineTopology::set_topology_update_needed(&mut txn, &machine.id, true)
         .await
         .unwrap();
-    let topology = MachineTopology::create_or_update(&mut txn, machine.id(), &new_info)
+    let topology = MachineTopology::create_or_update(&mut txn, &machine.id, &new_info)
         .await
         .unwrap();
 
@@ -160,7 +158,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let rpc_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine.id().to_string().into()],
+            machine_ids: vec![machine.id.to_string().into()],
             ..Default::default()
         }))
         .await
@@ -181,19 +179,19 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    assert!(host.hardware_info().is_some());
+    assert!(host.hardware_info.as_ref().is_some());
 
     let mut txn = env.pool.begin().await.unwrap();
 
     let query = r#"UPDATE machines SET id = $2 WHERE id=$1;"#;
 
     sqlx::query(query)
-        .bind(host.id().to_string())
+        .bind(host.id.to_string())
         .bind("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg")
         .execute(&mut *txn)
         .await
@@ -203,17 +201,17 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let m_id =
         MachineId::from_str("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg").unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap();
     assert!(host.is_none());
 
-    let host = Machine::find_one(&mut txn, &m_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, &m_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
-    assert!(host.hardware_info().is_some());
+    assert!(host.hardware_info.as_ref().is_some());
 }
 
 #[crate::sqlx_test]

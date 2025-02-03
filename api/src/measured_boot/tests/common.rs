@@ -15,7 +15,7 @@
 //! Shared code by measured boot tests.
 
 use crate::{
-    db::{machine::Machine, machine_topology::MachineTopology},
+    db::machine_topology::MachineTopology,
     measured_boot::db,
     model::{hardware_info::HardwareInfo, machine::ManagedHostState, metadata::Metadata},
 };
@@ -41,7 +41,7 @@ pub async fn create_test_machine(
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {
     let machine_id = MachineId::from_str(machine_id)?;
-    Machine::create(
+    crate::db::machine::create(
         txn,
         None,
         &machine_id,

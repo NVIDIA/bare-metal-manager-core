@@ -27,8 +27,8 @@ use crate::{
     api::Api,
     db::{
         explored_endpoints::DbExploredEndpoint, instance_address::InstanceAddress,
-        machine::Machine, machine_interface_address::MachineInterfaceAddress,
-        machine_topology::MachineTopology, network_prefix::NetworkPrefix, DatabaseError,
+        machine_interface_address::MachineInterfaceAddress, machine_topology::MachineTopology,
+        network_prefix::NetworkPrefix, DatabaseError,
     },
     model::resource_pool::ResourcePoolEntryState,
     CarbideError,
@@ -350,11 +350,11 @@ async fn search(
 
         // Loopback IP of a DPU
         LoopbackIp => {
-            let out = Machine::find_by_loopback_ip(&mut txn, ip).await?;
+            let out = db::machine::find_by_loopback_ip(&mut txn, ip).await?;
             out.map(|machine| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::LoopbackIp as i32,
-                owner_id: Some(machine.id().to_string()),
-                message: format!("{ip} is the loopback for {}", machine.id()),
+                owner_id: Some(machine.id.to_string()),
+                message: format!("{ip} is the loopback for {}", &machine.id),
             })
         }
 

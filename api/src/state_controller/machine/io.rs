@@ -16,11 +16,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     cfg::file::HardwareHealthReportsConfig,
-    db::{
-        self,
-        machine::{Machine, MachineSearchConfig},
-        DatabaseError,
-    },
+    db::{self, machine::MachineSearchConfig, DatabaseError},
     model::{
         controller_outcome::PersistentStateHandlerOutcome,
         machine::{
@@ -61,7 +57,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        Ok(crate::db::machine::Machine::find_machine_ids(
+        Ok(crate::db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
                 include_dpus: false,
@@ -111,7 +107,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        Machine::update_state(txn, object_id, new_state).await?;
+        db::machine::update_state(txn, object_id, new_state).await?;
 
         Ok(())
     }
@@ -122,7 +118,7 @@ impl StateControllerIO for MachineStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        Machine::update_controller_state_outcome(txn, object_id, outcome).await
+        db::machine::update_controller_state_outcome(txn, object_id, outcome).await
     }
 
     fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {

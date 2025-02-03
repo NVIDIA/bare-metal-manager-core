@@ -334,7 +334,7 @@ async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(
 
     // Manually enable maintenance mode on the Machine
     let mut txn = env.pool.begin().await.unwrap();
-    crate::db::machine::Machine::set_maintenance_mode(
+    crate::db::machine::set_maintenance_mode(
         &mut txn,
         &host_id,
         &MaintenanceMode::On {
@@ -388,7 +388,7 @@ async fn test_migrate_legacy_maintenance_mode(db_pool: sqlx::PgPool) -> Result<(
 
     // disable maintenance mode
     txn = env.pool.begin().await.unwrap();
-    crate::db::machine::Machine::set_maintenance_mode(&mut txn, &host_id, &MaintenanceMode::Off)
+    crate::db::machine::set_maintenance_mode(&mut txn, &host_id, &MaintenanceMode::Off)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -422,7 +422,7 @@ async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
 
     // Manually enable maintenance mode on the Machine
     let mut txn = env.pool.begin().await.unwrap();
-    crate::db::machine::Machine::set_maintenance_mode(
+    crate::db::machine::set_maintenance_mode(
         &mut txn,
         &host_id,
         &MaintenanceMode::On {
@@ -535,7 +535,7 @@ async fn test_migrate_legacy_maintenance_mode_add_suppress_paging(
 
     // Manually enable maintenance mode on the Machine
     let mut txn = env.pool.begin().await.unwrap();
-    crate::db::machine::Machine::set_maintenance_mode(
+    crate::db::machine::set_maintenance_mode(
         &mut txn,
         &host_id,
         &MaintenanceMode::On {

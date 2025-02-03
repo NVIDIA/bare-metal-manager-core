@@ -18,15 +18,13 @@ use uuid::Uuid;
 
 use crate::api::{log_request_data, Api};
 use crate::db::{
-    instance, instance_type,
-    machine::{Machine, MachineSearchConfig},
-    DatabaseError, ObjectFilter,
+    instance, instance_type, machine::MachineSearchConfig, DatabaseError, ObjectFilter,
 };
 use crate::model::{
     instance_type::InstanceTypeMachineCapabilityFilter, machine::MachineSnapshot,
     metadata::Metadata,
 };
-use crate::CarbideError;
+use crate::{db, CarbideError};
 
 pub(crate) async fn create(
     api: &Api,
@@ -311,9 +309,10 @@ pub(crate) async fn update(
     // Still, users might get annoyed if an instance type becomes totally immutable
     // as soon as machines are associated with it.
     // We could split update endpoints into one for metadata and one for capabilities.
-    let existing_associated_machines = Machine::find_ids_by_instance_type_id(&mut txn, &id, true)
-        .await
-        .map_err(CarbideError::from)?;
+    let existing_associated_machines =
+        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
+            .await
+            .map_err(CarbideError::from)?;
 
     if !existing_associated_machines.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
@@ -381,9 +380,10 @@ pub(crate) async fn delete(
     // with machines should not be deleted.  This could be a
     // subquery, but we want the caller to know the actual reason
     // for failure.
-    let existing_associated_machines = Machine::find_ids_by_instance_type_id(&mut txn, &id, true)
-        .await
-        .map_err(CarbideError::from)?;
+    let existing_associated_machines =
+        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
+            .await
+            .map_err(CarbideError::from)?;
 
     if !existing_associated_machines.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
@@ -526,7 +526,7 @@ pub(crate) async fn associate_machines(
     // Grab the requested machines so we can row-lock and
     // also get their most recent snapshots so we can check
     // their capabilities.
-    let machines = Machine::find(
+    let machines = db::machine::find(
         &mut txn,
         ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
@@ -555,7 +555,7 @@ pub(crate) async fn associate_machines(
     // Go through the requested machines and make sure they
     //actually meet the requirements of the instance type.
     for machine in machines {
-        let machine_id = machine.id().to_owned();
+        let machine_id = machine.id.to_owned();
         let snapshot = MachineSnapshot::from(machine);
         let capabilities = snapshot
             .capabilities
@@ -575,10 +575,13 @@ pub(crate) async fn associate_machines(
     }
 
     // Make our DB query for the association
-    let _ids =
-        Machine::associate_machines_with_instance_type(&mut txn, &instance_type_id, &machine_ids)
-            .await
-            .map_err(CarbideError::from)?;
+    let _ids = db::machine::associate_machines_with_instance_type(
+        &mut txn,
+        &instance_type_id,
+        &machine_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Prepare the response message
     let rpc_out = rpc::AssociateMachinesWithInstanceTypeResponse {};
@@ -622,7 +625,7 @@ pub(crate) async fn remove_machine_association(
     // Grab a row lock on the requested machine so we can
     // coordinate with the instance allocation handler and
     // check for the existence of instances.
-    let mut machines = Machine::find(
+    let mut machines = db::machine::find(
         &mut txn,
         ObjectFilter::List(&[machine_id]),
         MachineSearchConfig {
@@ -649,13 +652,13 @@ pub(crate) async fn remove_machine_association(
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
             "machine {} has instance assigned",
-            machine.id()
+            &machine.id
         ))
         .into());
     }
 
     // Make our DB query to remove the association
-    let _id = Machine::remove_instance_type_association(&mut txn, &machine_id)
+    let _id = db::machine::remove_instance_type_association(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?;
 

@@ -20,13 +20,12 @@ use forge_uuid::machine::MachineId;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use super::machine::Machine;
 use super::network_segment::NetworkSegment;
 use super::{
     network_segment, vpc, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter,
 };
 use crate::model::metadata::Metadata;
-use crate::{CarbideError, CarbideResult};
+use crate::{db, CarbideError, CarbideResult};
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
 use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
@@ -703,7 +702,7 @@ impl VpcDpuLoopback {
             },
             None => {
                 let loopback_ip =
-                    Machine::allocate_vpc_dpu_loopback(common_pools, txn, &dpu_id.to_string())
+                    db::machine::allocate_vpc_dpu_loopback(common_pools, txn, &dpu_id.to_string())
                         .await?;
                 let vpc_dpu_loopback =
                     VpcDpuLoopback::new(*dpu_id, *vpc_id, IpAddr::V4(loopback_ip));

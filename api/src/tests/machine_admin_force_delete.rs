@@ -14,9 +14,7 @@ use crate::{
     api::Api,
     cfg::file::IBFabricConfig,
     db::{
-        self,
-        explored_endpoints::DbExploredEndpoint,
-        machine::{Machine, MachineSearchConfig},
+        self, explored_endpoints::DbExploredEndpoint, machine::MachineSearchConfig,
         machine_topology::MachineTopology,
     },
     ib::{self, DEFAULT_IB_FABRIC_NAME},
@@ -72,10 +70,11 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
     assert!(
         !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
@@ -89,7 +88,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
             .is_empty()
     );
 
-    let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -97,10 +96,10 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
 
     let response = force_delete(&env, &dpu_machine_id).await;
-    validate_delete_response(&response, Some(host.id()), &dpu_machine_id);
+    validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
-        dpu_machine.interfaces()[0].id.to_string()
+        dpu_machine.interfaces[0].id.to_string()
     );
 
     assert!(response.all_done, "DPU must be deleted");
@@ -253,14 +252,14 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+    let host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
     txn.commit().await.unwrap();
 
     let response = force_delete(&env, &dpu_machine_id).await;
-    validate_delete_response(&response, Some(host.id()), &dpu_machine_id);
+    validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
     assert!(response.all_done, "DPU must be deleted");
 
     validate_machine_deletion(&env, &dpu_machine_id, None).await;
@@ -361,7 +360,7 @@ async fn validate_machine_deletion(
     // And it should also be gone on the DB layer
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .is_none()
@@ -447,7 +446,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -462,15 +461,21 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert_eq!(machine.current_state(), ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info().is_some());
-    assert_eq!(
-        machine.hardware_info().unwrap().infiniband_interfaces.len(),
-        6
-    );
-    assert!(machine.infiniband_status_observation().is_some());
+    assert!(machine.hardware_info.as_ref().is_some());
     assert_eq!(
         machine
-            .infiniband_status_observation()
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .infiniband_interfaces
+            .len(),
+        6
+    );
+    assert!(machine.infiniband_status_observation.as_ref().is_some());
+    assert_eq!(
+        machine
+            .infiniband_status_observation
+            .as_ref()
             .unwrap()
             .ib_interfaces
             .len(),
@@ -505,7 +510,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap()
@@ -729,7 +734,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
 
-    let host_machine = Machine::find_one(
+    let host_machine = db::machine::find_one(
         &mut txn,
         &host_machine_id,
         crate::db::machine::MachineSearchConfig::default(),
@@ -738,10 +743,14 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     .expect("Cannot look up the host machine we just created")
     .unwrap();
 
-    host_machine
-        .advance(&mut txn, ManagedHostState::ForceDeletion, None)
-        .await
-        .unwrap();
+    db::machine::advance(
+        &host_machine,
+        &mut txn,
+        ManagedHostState::ForceDeletion,
+        None,
+    )
+    .await
+    .unwrap();
 
     txn.commit().await.unwrap();
 

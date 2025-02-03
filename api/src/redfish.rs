@@ -43,7 +43,7 @@ use tokio::time;
 use utils::HostPortPair;
 
 use crate::{
-    db::{self, machine::Machine},
+    db::{self},
     ipmitool::IPMITool,
     model::machine::MachineSnapshot,
     CarbideError, CarbideResult,
@@ -1275,7 +1275,8 @@ pub async fn host_power_control(
             .map_err(CarbideError::RedfishError)?,
     }
 
-    Machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into()).await?;
+    db::machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into())
+        .await?;
     Ok(())
 }
 
