@@ -1,5 +1,12 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.20-rc6-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...trunk)
+
+### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2025.01.31-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...v2025.01.31-rc2-0)
 
 ### Added
 
@@ -16,25 +23,120 @@
   Creation and Update of any of these objects will now use the same test-cases for rejecting
   invalid Metadata.
 - [FORGE-2851](https://jirasw.nvidia.com/browse/FORGE-2851) Carbide now returns machine capabilities in
-  snapshot data when querying for machines, and capabilities are compared when adding machines to instance types. Machine capabilities are displayed on the `/machine` endpoints of the Admin Web UI.
-- New health override templates have been added to the `/admin/machine/health/machine_id` endpoint of the Admin Web UI. These allow operators to add new "Maintenance" health alerts with different targets. The targets are defines as follows:
-  - `null` (no target): Describes that the host is in maintenance by Forge internal workflows. This mode is used by setting the currently existing Maintenance mode on hosts, as well as by update workflows.
-  - `"OutForRepair"`: Describes that a Machine is out for repair and requires intervention by an external party.
-  - `"Degraded"`: Describes that a Machine is still in use by a Tenant, but is known to have issues.
-  The usage of different targets in Maintenance will allow for better accounting which party is currently required to resolve an issue with a Host.
-- A new health alert classification with name `SuppressExternalAlerting` will get added to Maintenance alerts.
-  The presence of the classification can be used for excluding machines from alerting&paging thresholds (via Prometheus->AlertManager->Pagerduty path).
-
+  snapshot data when querying for machines, and capabilities are compared when adding machines to instance types.
+- A new extensible log parser for serial console logs and bmc sel logs.
+- [FORGE-5325](https://jirasw.nvidia.com/browse/FORGE-5325) Support for admin VPC for FNN.
+  Can be enabled in the site config file:
+  ```
+  [fnn]
+  [fnn.admin_vpc]
+  enabled = true
+  vpc_vni = 60100
+  ```
+- Updated parameters to support FNN over admin network in managedhostnetworkconfigresponse message.
+- [Machine-Validation] add support for Lenovo 655v3, 665 and 675
+- Added support of RHEL OS to qcow imager, as well as ability to specify boot and efi fs uuid.
+- Add types for IP prefixes and IP sets
+  - `IpPrefix`: a representation of an IP prefix with the trailing bits guaranteed to be zero (neither `ipnetwork` nor `ipnet` can provide this guarantee, and technically PostgreSQL's `cidr` type requires it).
+  - `IpSet`: a set type designed for IP resources, with aggregation built in and a single type to cover both address families.
+  - `IpAddressFamily`: just an enum so we can construct IPv4 or IPv6 as a type.
+  - `IdentifyAddressFamily`: a trait with some utility methods so we don't have to keep reimplementing the logic for "IPv6 is not supported".
+- Updated the admin-cli 'instance allocate' command to allow pxe script and user data,
+- Site explorer will only update the BMC Admin account password and keep the factory username.
+- [FORGE-5382](https://jirasw.nvidia.com/browse/FORGE-5382) Improved waitingformeasurement details in admin-cli mh show output
+- Improved reporting for preingestion host firmware upgrade failures, and retries for post ingestion host firmware upgrade failures.
+- Show Machine Capabilities in admin UI
+  With this change, we show the carbide derived set of capabilities for Machines on the /machine page of the admin web UI.
+  This will make it easier to check whether the capability generation works as expected.
+- Added health overrride template that allows operators to add new "Maintenance" health alerts with different targets. The targets are defines as follows:
+  - null (no target): Describes that the host is in maintenance by Forge internal workflows. This mode is used by setting the currently existing Maintenance mode on hosts, as well as by update workflows.
+  - "OutForRepair": Describes that a Machine is out for repair and requires intervention by an external party.
+  - "Degraded": Describes that a Machine is still in use by a Tenant, but is known to have issues.
 
 ### Changed
 
+- Event definitions file moved to ssh-console repo
+- Rename CarbideOptions to CliOptions in admin-cli
+- Refactored the pxe service to be based on the axum web framework, rather than rocket.
+- Static configs for dpus moved internally to carbide from site config file.
+- Updated libredfish to 0.28.8
+- Updated sqlx version to 0.8.3
+- Default the static-pxe-url to the carbide-pxe-url if it's not configured in the environment.
+- Use inline sql queries instead of postgresql views.
+
 ### Fixed
-- Machine name must use a minimum length of 2 characters - similar to Instance and VPC names (https://nvbugspro.nvidia.com/bug/5075669).
+
+- [FORGE-5371](https://jirasw.nvidia.com/browse/FORGE-5371) Machine name must use a minimum length of 2 characters - similar to Instance and VPC names.
 - Add validation that description length is smaller or equal than 1024 bytes in order to prevent internal/database errors on overlong descriptions.
 - Fix missing validations for duplicated labels during VPC creation.
 - Ensure that Metadata validation in the VPC creation workflow happens before actually trying to persist metadata to the DB. This prevents the Internal Errors that will happen if overlong metadata is passed to the DB layer.
 - When checking if host firmware is up to date and deciding that there is no change, we properly clean the reprovisioning request.  This prevents cerain situations of machines getting stuck in Ready.
+- [FORGE-5320](https://jirasw.nvidia.com/browse/FORGE-5320) Handle null values in PowerMetrics returned by redfish with Lenovo 675 V3 servers.
+- Do not update infiniband status when IB Manager is disabled.
+- Wait for the cec background to complete after updating the BMC firmware on a BF3 before proceeding to update the ERoT firmware.
+- Check for use_custom_pxe_on_boot to be honored for qcow imager as well as custom ipxe boot.
+- Fixed Machine Lifecycle Test multi-DPU bug.
+- mkosi now uses /tmp folder for output instead of git tree
+- [Machine-Validation] Fixed ray tracing install issue.
+- Skip fans 5/6 in Lenovo SR655 V3 OVX when creating hardware health reports.
+- [dpu-agent] Modify self-upgrade command for better resiliency.
+- Avoid back to back restarts of the same DPU.
+- Combined MachineSnapshot's reprovision_requested and reprovisioning_requested
+- Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
+  - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+  ```
+  curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
+  {
+  "@Redfish.Settings": {
+      "@odata.type": "#Settings.v1_3_5.Settings",
+      "SettingsObject": {
+      "@odata.id": "/redfish/v1/Systems/Bluefield/Settings"
+      }
+  },
+  ...
+  "BootOrder": [
+              "Boot0009",
+              "Boot0000",
+              ...
+  }
+  ...
+  }
+  ```
+- [FORGE-5387](https://jirasw.nvidia.com/browse/FORGE-5387) Fix logic for infiniband/ethernet device detection.
+  -  Mellanox network device consists of two ports.
+     port is presented as a separate network interface inside system.
+     Port can be configured as IB or ETH. Single Mellanox device can have configuration when one port has IB type the other ETH type.
+     Type detection is based on udev report.
+     ```
+     SUBSYSTEM=[net|infiniband]
+     ID_PCI_CLASS_FROM_DATABASE='Network controller'
+      - It is assumption for SUBSYSTEM=[net|infiniband]
+     ID_PCI_SUBCLASS_FROM_DATABASE='Infiniband controller' or 'Ethernet controller'
+      - because ports for VPI device can be configured in IB(1) or ETH(2) types
+     ```
+- Fix content-length header to work with 24.07 release, allowing the update of UEFI FW from 24.07 to 24.10.
+- Report the FW update type during preingestion.
+
 ### Removed
+
+- Removed OpenTelemetry DPU agent to renew mTLS certs.
+
+## [v2025.01.17-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc4-0...v2025.01.17-rc5-0)
+
+### Added
+
+- Site explorer will only update the BMC Admin account password and keep the factory username.
+
+
+## [v2025.01.17-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc3-0...v2025.01.17-rc4-0)
+
+### Fixed
+
+- Skip fans 5/6 in Lenovo SR655 V3 OVX when creating hardware health reports.
+
+### Removed
+
+- OpenTelemetry DPU agent to renew mTLS certificates.
 
 ## [v2025.01.17-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc2-0...v2025.01.17-rc3-0)
 
@@ -106,6 +208,18 @@
 ### Removed
 
 - Removed FNN mmode from dhcp-server.
+
+## [v2024.12.20-rc6-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-1...v2024.12.20-rc6-2)
+
+### Added
+
+- Site explorer will only update the BMC Admin account password and keep the factory username.
+
+## [v2024.12.20-rc6-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-0...v2024.12.20-rc6-1)
+
+### Fixed
+
+- skip fans 5/6 in Lenovo SR655 V3 OVX when creating hardware health reports.
 
 ## [v2024.12.20-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc5-0...v2024.12.20-rc6-0)
 
