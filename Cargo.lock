@@ -1119,6 +1119,7 @@ dependencies = [
  "pin-project-lite",
  "rpc",
  "serde",
+ "tempfile",
  "tera",
  "tokio",
  "toml 0.8.19",

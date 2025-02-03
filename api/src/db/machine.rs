@@ -1429,7 +1429,18 @@ impl Machine {
         machine_id: &MachineId,
         health_report: &HealthReport,
     ) -> Result<(), DatabaseError> {
-        Self::update_health_report(txn, machine_id, "log_parser_health_report", health_report).await
+        let query = String::from(
+            "UPDATE machines SET log_parser_health_report = $1::json WHERE id = $2
+            RETURNING id",
+        );
+        let _id: (MachineId,) = sqlx::query_as(&query)
+            .bind(sqlx::types::Json(&health_report))
+            .bind(machine_id.to_string())
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))?;
+
+        Ok(())
     }
 
     pub async fn update_machine_validation_health_report(
