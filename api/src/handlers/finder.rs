@@ -18,7 +18,6 @@ use ::rpc::protos::forge as rpc;
 use crate::db;
 use crate::db::domain::{self, Domain};
 use crate::db::expected_machine::ExpectedMachine;
-use crate::db::instance::FindInstanceTypeFilter;
 use crate::db::instance::Instance;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::Vpc;
@@ -417,7 +416,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     if let Ok(instance_id) = InstanceId::try_from(u.clone()) {
         let instances = Instance::find(
             &mut txn,
-            FindInstanceTypeFilter::Id(ObjectColumnFilter::One(instance::IdColumn, &instance_id)),
+            ObjectColumnFilter::One(instance::IdColumn, &instance_id),
         )
         .await?;
         if instances.len() == 1 {

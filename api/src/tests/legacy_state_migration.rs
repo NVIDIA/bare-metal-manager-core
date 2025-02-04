@@ -98,15 +98,13 @@ async fn test_state_migration_1(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     txn.rollback().await.unwrap();
 
@@ -160,15 +158,13 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     txn.rollback().await.unwrap();
 
@@ -221,15 +217,13 @@ async fn test_state_migration_2_1(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 1);
     txn.rollback().await.unwrap();
@@ -285,15 +279,13 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     txn.rollback().await.unwrap();
 
@@ -303,15 +295,13 @@ async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 }
 
 #[crate::sqlx_test]
@@ -335,15 +325,13 @@ async fn test_state_migration_3(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     txn.rollback().await.unwrap();
 
@@ -459,15 +447,13 @@ async fn test_state_migration_5_1(pool: sqlx::PgPool) {
     let host =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
 
-    if let Err(DatabaseError {
-        source: sqlx::Error::ColumnDecode { index, .. },
+    let Err(DatabaseError {
+        source: sqlx::Error::Decode(_),
         ..
     }) = host
-    {
-        assert_eq!(index, "\"controller_state\"");
-    } else {
+    else {
         panic!("Unexpected value: {:?}", host);
-    }
+    };
 
     txn.rollback().await.unwrap();
 

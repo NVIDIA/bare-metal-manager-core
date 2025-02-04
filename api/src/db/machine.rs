@@ -12,6 +12,7 @@
 //!
 //! Machine - represents a database-backed Machine object
 //!
+
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::{Deref, DerefMut};
@@ -28,15 +29,14 @@ use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Column, FromRow, Pool, Postgres, Row, Transaction};
+use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
 use crate::db::machine_interface::MACHINE_INTERFACE_SNAPSHOT_QUERY;
-use crate::db::machine_state_history::DbMachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -137,7 +137,7 @@ lazy_static! {
     // the machine_interfaces table. Use that as a subquery for machine snapshots.
         .replace("__INTERFACE_SNAPSHOTS__", MACHINE_INTERFACE_SNAPSHOT_QUERY);
 
-    static ref MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
+    pub static ref MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
         .replace(
             "__HISTORY_AGG__",
             r#", history_agg AS (
@@ -148,177 +148,196 @@ lazy_static! {
         .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]') AS history")
         .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.machine_id = m.id");
 
-    static ref MACHINE_SNAPSHOT_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
+    pub static ref MACHINE_SNAPSHOT_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
         .replace("__HISTORY_AGG__", "")
         .replace("__HISTORY_SELECT__", "")
         .replace("__HISTORY_JOIN__", "");
+
+    pub static ref JSON_MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = format!("WITH machine_snapshots AS ({}) SELECT row_to_json(m.*) FROM machine_snapshots m", MACHINE_SNAPSHOT_QUERY_TEMPLATE.deref())
+        .replace(
+            "__HISTORY_AGG__",
+            r#", history_agg AS (
+                SELECT mh.machine_id, JSON_AGG(json_build_object('machine_id', mh.machine_id, 'state', mh.state::TEXT, 'state_version', mh.state_version)) AS json
+                FROM machine_state_history mh
+                GROUP BY machine_id
+            )"#)
+        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]') AS history")
+        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.machine_id = m.id");
+
+    pub static ref JSON_MACHINE_SNAPSHOT_QUERY: String = format!("WITH machine_snapshots AS ({}) SELECT row_to_json(m.*) FROM machine_snapshots m", MACHINE_SNAPSHOT_QUERY_TEMPLATE.deref())
+        .replace("__HISTORY_AGG__", "")
+        .replace("__HISTORY_SELECT__", "")
+        .replace("__HISTORY_JOIN__", "");
+}
+
+/// This represents the structure of a machine we get from postgres via the row_to_json or
+/// JSONB_AGG functions. Its fields need to match the column names of the machine_snapshots query
+/// exactly. It's expected that we read this directly from the JSON returned by the query, and then
+/// convert it into a Machine.
+#[derive(Serialize, Deserialize)]
+pub struct MachineSnapshotPgJson {
+    id: MachineId,
+    created: DateTime<Utc>,
+    updated: DateTime<Utc>,
+    deployed: Option<DateTime<Utc>>,
+    agent_reported_inventory: Option<MachineInventory>,
+    network_config_version: String,
+    network_config: ManagedHostNetworkConfig,
+    network_status_observation: Option<MachineNetworkStatusObservation>,
+    infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
+    controller_state_version: String,
+    controller_state: ManagedHostState,
+    last_discovery_time: Option<DateTime<Utc>>,
+    last_reboot_time: Option<DateTime<Utc>>,
+    last_reboot_requested: Option<MachineLastRebootRequested>,
+    last_cleanup_time: Option<DateTime<Utc>>,
+    maintenance_reference: Option<String>,
+    maintenance_start_time: Option<DateTime<Utc>>,
+    failure_details: FailureDetails,
+    reprovisioning_requested: Option<ReprovisionRequest>,
+    host_reprovisioning_requested: Option<HostReprovisionRequest>,
+    bios_password_set_time: Option<DateTime<Utc>>,
+    last_machine_validation_time: Option<DateTime<Utc>>,
+    discovery_machine_validation_id: Option<uuid::Uuid>,
+    cleanup_machine_validation_id: Option<uuid::Uuid>,
+    dpu_agent_health_report: Option<HealthReport>,
+    dpu_agent_upgrade_requested: Option<UpgradeDecision>,
+    machine_validation_health_report: HealthReport,
+    site_explorer_health_report: Option<HealthReport>,
+    firmware_autoupdate: Option<bool>,
+    hardware_health_report: Option<HealthReport>,
+    health_report_overrides: Option<HealthReportOverrides>,
+    on_demand_machine_validation_id: Option<uuid::Uuid>,
+    on_demand_machine_validation_request: Option<bool>,
+    asn: Option<u32>,
+    controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    current_machine_validation_id: Option<uuid::Uuid>,
+    machine_state_model_version: i32,
+    instance_type_id: Option<InstanceTypeId>,
+    interfaces: Vec<MachineInterfaceSnapshot>,
+    topology: Vec<MachineTopology>,
+    log_parser_health_report: Option<HealthReport>,
+    labels: HashMap<String, String>,
+    name: String,
+    description: String,
+    #[serde(default)] // History is only brought in if the search config requested it
+    history: Vec<MachineStateHistory>,
+    version: String,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let controller_state: sqlx::types::Json<ManagedHostState> =
-            row.try_get("controller_state")?;
+        let json: serde_json::value::Value = row.try_get(0)?;
+        MachineSnapshotPgJson::deserialize(json)
+            .map_err(|err| sqlx::Error::Decode(err.into()))?
+            .try_into()
+    }
+}
 
-        let stable_string: String = row.try_get("id")?;
-        let id = MachineId::from_str(&stable_string).unwrap();
+impl TryFrom<MachineSnapshotPgJson> for Machine {
+    type Error = sqlx::Error;
 
-        let network_config: sqlx::types::Json<ManagedHostNetworkConfig> =
-            row.try_get("network_config")?;
-
-        let network_status_observation: Option<sqlx::types::Json<MachineNetworkStatusObservation>> =
-            row.try_get("network_status_observation")?;
-        let network_status_observation = network_status_observation.map(|n| n.0);
-
-        let infiniband_status_observation: Option<
-            sqlx::types::Json<MachineInfinibandStatusObservation>,
-        > = row.try_get("infiniband_status_observation")?;
-        let infiniband_status_observation = infiniband_status_observation.map(|n| n.0);
-
-        let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
-        let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
-            row.try_get("reprovisioning_requested")?;
-        let host_reprovision_req: Option<sqlx::types::Json<HostReprovisionRequest>> =
-            row.try_get("host_reprovisioning_requested")?;
-
-        let dpu_agent_health_report = row
-            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("dpu_agent_health_report")?
-            .map(|j| j.0);
-
-        let hardware_health_report = row
-            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("hardware_health_report")?
-            .map(|j| j.0);
-
-        let log_parser_health_report = row
-            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("log_parser_health_report")?
-            .map(|j| j.0);
-
-        let machine_validation_health_report = row
-            .try_get::<sqlx::types::Json<HealthReport>, _>("machine_validation_health_report")?
-            .0;
-
-        let site_explorer_health_report = row
-            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("site_explorer_health_report")?
-            .map(|j| j.0);
-
-        let health_report_overrides = row
-            .try_get::<Option<sqlx::types::Json<HealthReportOverrides>>, _>(
-                "health_report_overrides",
-            )?
-            .map(|os| os.0)
-            .unwrap_or_default();
-
-        let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
-            row.try_get("dpu_agent_upgrade_requested")?;
-        let last_reboot_requested: Option<sqlx::types::Json<MachineLastRebootRequested>> =
-            row.try_get("last_reboot_requested")?;
-
-        let machine_inventory: Option<sqlx::types::Json<MachineInventory>> =
-            row.try_get("agent_reported_inventory")?;
-
-        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
-            row.try_get("controller_state_outcome")?;
-
-        let instance_type_id: Option<InstanceTypeId> = row.try_get("instance_type_id")?;
-        let asn: Option<u32> = row.try_get::<Option<i64>, _>("asn")?.map(|v| v as u32);
-
-        let topology_json: sqlx::types::Json<Vec<Option<MachineTopology>>> =
-            row.try_get("topology")?;
-        let (hardware_info, bmc_info) = if let Some(topology_data) = topology_json
-            .0
+    fn try_from(value: MachineSnapshotPgJson) -> sqlx::Result<Self> {
+        let (hardware_info, bmc_info) = value
+            .topology
             .into_iter()
-            .flatten()
+            .map(|t| {
+                let topology = t.into_topology();
+                (
+                    Some(topology.discovery_data.info.clone()),
+                    topology.bmc_info,
+                )
+            })
             .next()
-            .map(|m| m.into_topology())
-        {
-            (
-                Some(topology_data.discovery_data.info),
-                topology_data.bmc_info,
-            )
-        } else {
-            (None, BmcInfo::default())
-        };
+            .unwrap_or((None, BmcInfo::default()));
 
-        let interfaces_json: sqlx::types::Json<Vec<Option<MachineInterfaceSnapshot>>> =
-            row.try_get("interfaces")?;
-        let interfaces = interfaces_json
-            .0
-            .into_iter()
-            .flatten()
-            .map(Into::into)
-            .collect::<Vec<_>>();
-
-        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
         let metadata = Metadata {
-            name: row.try_get("name")?,
-            description: row.try_get("description")?,
-            labels: labels.0,
+            name: value.name,
+            description: value.description,
+            labels: value.labels,
         };
 
-        // History is only brought in if the search config requested it
-        let history = if let Some(column) = row.columns().iter().find(|c| c.name() == "history") {
-            let json: sqlx::types::Json<Vec<Option<DbMachineStateHistory>>> =
-                row.try_get(column.ordinal())?;
-            json.0
-                .into_iter()
-                .flatten()
-                .map(Into::into)
-                .sorted_by(|s1: &MachineStateHistory, s2: &MachineStateHistory| {
+        let version: ConfigVersion =
+            value
+                .version
+                .try_into()
+                .map_err(|e| sqlx::error::Error::ColumnDecode {
+                    index: "version".to_string(),
+                    source: Box::new(e),
+                })?;
+
+        let history = value
+            .history
+            .into_iter()
+            .sorted_by(
+                |s1: &crate::model::machine::MachineStateHistory,
+                 s2: &crate::model::machine::MachineStateHistory| {
                     Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-                })
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+                },
+            )
+            .collect();
 
-        Ok(Machine {
-            id,
-            state: Versioned::new(controller_state.0, row.try_get("controller_state_version")?),
-            network_config: Versioned::new(
-                network_config.0,
-                row.try_get("network_config_version")?,
-            ),
-            network_status_observation,
-            infiniband_status_observation,
+        Ok(Self {
+            id: value.id,
+            state: Versioned {
+                value: value.controller_state,
+                version: value.controller_state_version.try_into().map_err(|e| {
+                    sqlx::error::Error::ColumnDecode {
+                        index: "controller_state_version".to_string(),
+                        source: Box::new(e),
+                    }
+                })?,
+            },
+            network_config: Versioned {
+                value: value.network_config,
+                version: value.network_config_version.try_into().map_err(|e| {
+                    sqlx::error::Error::ColumnDecode {
+                        index: "network_config_version".to_string(),
+                        source: Box::new(e),
+                    }
+                })?,
+            },
+            network_status_observation: value.network_status_observation,
+            infiniband_status_observation: value.infiniband_status_observation,
             history,
-            interfaces,
+            interfaces: value.interfaces,
             hardware_info,
             bmc_info,
-            maintenance_reference: row.try_get("maintenance_reference")?,
-            maintenance_start_time: row.try_get("maintenance_start_time")?,
-            last_reboot_time: row.try_get("last_reboot_time")?,
-            last_reboot_requested: last_reboot_requested.map(|x| x.0),
-            last_cleanup_time: row.try_get("last_cleanup_time")?,
-            last_discovery_time: row.try_get("last_discovery_time")?,
-            failure_details: failure_details.0,
-            reprovision_requested: reprovision_req.map(|x| x.0),
-            host_reprovision_requested: host_reprovision_req.map(|x| x.0),
-            dpu_agent_health_report,
-            hardware_health_report,
-            log_parser_health_report,
-            machine_validation_health_report,
-            site_explorer_health_report,
-            health_report_overrides,
-            dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
-            inventory: machine_inventory.map(|x| x.0),
-            controller_state_outcome: state_outcome.map(|x| x.0),
-            bios_password_set_time: row.try_get("bios_password_set_time")?,
-            last_machine_validation_time: row.try_get("last_machine_validation_time")?,
-            discovery_machine_validation_id: row.try_get("discovery_machine_validation_id")?,
-            cleanup_machine_validation_id: row.try_get("cleanup_machine_validation_id")?,
-            firmware_autoupdate: row.try_get("firmware_autoupdate")?,
-            on_demand_machine_validation_id: row.try_get("on_demand_machine_validation_id")?,
-            on_demand_machine_validation_request: row
-                .try_get("on_demand_machine_validation_request")?,
-            instance_type_id,
-            asn,
+            maintenance_reference: value.maintenance_reference,
+            maintenance_start_time: value.maintenance_start_time,
+            last_reboot_time: value.last_reboot_time,
+            last_cleanup_time: value.last_cleanup_time,
+            last_discovery_time: value.last_discovery_time,
+            failure_details: value.failure_details,
+            reprovision_requested: value.reprovisioning_requested,
+            host_reprovision_requested: value.host_reprovisioning_requested,
+            dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
+            dpu_agent_health_report: value.dpu_agent_health_report,
+            hardware_health_report: value.hardware_health_report,
+            machine_validation_health_report: value.machine_validation_health_report,
+            site_explorer_health_report: value.site_explorer_health_report,
+            health_report_overrides: value.health_report_overrides.unwrap_or_default(),
+            inventory: value.agent_reported_inventory,
+            last_reboot_requested: value.last_reboot_requested,
+            controller_state_outcome: value.controller_state_outcome,
+            bios_password_set_time: value.bios_password_set_time,
+            last_machine_validation_time: value.last_machine_validation_time,
+            discovery_machine_validation_id: value.discovery_machine_validation_id,
+            cleanup_machine_validation_id: value.cleanup_machine_validation_id,
+            firmware_autoupdate: value.firmware_autoupdate,
+            on_demand_machine_validation_id: value.on_demand_machine_validation_id,
+            on_demand_machine_validation_request: value.on_demand_machine_validation_request,
+            asn: value.asn,
             metadata,
-            version: row.try_get("version")?,
+            instance_type_id: value.instance_type_id,
+            log_parser_health_report: value.log_parser_health_report,
+            version,
             // Columns for these exist, but are unused in rust code
-            // deployed: row.try_get("deployed")?,
-            // created: row.try_get("created")?,
-            // updated: row.try_get("updated")?,
+            // deployed: value.deployed,
+            // created: value.created,
+            // updated: value.updated,
         })
     }
 }
@@ -476,9 +495,11 @@ pub async fn find(
     // but it simplifies the rest of the building for us.
     lazy_static! {
         static ref query_no_history: String =
-            format!("{} WHERE TRUE", MACHINE_SNAPSHOT_QUERY.deref());
-        static ref query_with_history: String =
-            format!("{} WHERE TRUE", MACHINE_SNAPSHOT_WITH_HISTORY_QUERY.deref());
+            format!("{} WHERE TRUE", JSON_MACHINE_SNAPSHOT_QUERY.deref());
+        static ref query_with_history: String = format!(
+            "{} WHERE TRUE",
+            JSON_MACHINE_SNAPSHOT_WITH_HISTORY_QUERY.deref()
+        );
     }
 
     let mut builder = sqlx::QueryBuilder::new(if search_config.include_history {
@@ -531,7 +552,7 @@ pub async fn find_by_ip(
                 INNER JOIN machine_interfaces mi ON mi.machine_id = m.id
                 INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
                 WHERE mia.address = $1::inet"#,
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machine = sqlx::query_as(&query)
@@ -622,7 +643,7 @@ pub async fn find_by_hostname(
     lazy_static! {
         static ref query: String = format!(
             "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.hostname = $1",
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
 
@@ -642,7 +663,7 @@ pub async fn find_by_mac_address(
     lazy_static! {
         static ref query: String = format!(
             "{} JOIN machine_interfaces mi ON m.id = mi.machine_id WHERE mi.mac_address = $1::macaddr",
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machine = sqlx::query_as(&query)
@@ -661,7 +682,7 @@ pub async fn find_by_loopback_ip(
     lazy_static! {
         static ref query: String = format!(
             "{} WHERE m.network_config->>'loopback_ip' = $1",
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machine = sqlx::query_as(&query)
@@ -787,23 +808,6 @@ pub async fn update_discovery_time(
     Ok(())
 }
 
-pub async fn find_host_machine_id_by_dpu_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
-    dpu_machine_id: &MachineId,
-) -> Result<Option<MachineId>, DatabaseError> {
-    let query = r#"SELECT machine_id FROM machine_interfaces
-                WHERE attached_dpu_machine_id=$1
-                AND attached_dpu_machine_id != machine_id"#;
-
-    let machine_id: Option<MachineId> = sqlx::query_as(query)
-        .bind(dpu_machine_id.to_string())
-        .fetch_optional(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-    Ok(machine_id)
-}
-
 pub async fn find_host_by_dpu_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     dpu_machine_id: &MachineId,
@@ -813,7 +817,7 @@ pub async fn find_host_by_dpu_machine_id(
             r#"{} INNER JOIN machine_interfaces mi ON m.id = mi.machine_id
                     WHERE mi.attached_dpu_machine_id=$1
                     AND mi.attached_dpu_machine_id != mi.machine_id"#,
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machine = sqlx::query_as(&query)
@@ -835,7 +839,7 @@ pub async fn find_dpus_by_host_machine_id(
                     INNER JOIN machine_interfaces mi
                       ON m.id = mi.attached_dpu_machine_id
                     WHERE mi.machine_id=$1"#,
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machines = sqlx::query_as(&query)
@@ -1460,7 +1464,7 @@ pub async fn get_host_reprovisioning_machines(
         static ref query: String = format!(
             "{}
                 WHERE m.host_reprovisioning_requested IS NOT NULL",
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     sqlx::query_as(&query)
@@ -1564,7 +1568,7 @@ pub async fn list_machines_requested_for_reprovisioning(
     lazy_static! {
         static ref query: String = format!(
             "{} WHERE m.reprovisioning_requested IS NOT NULL",
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     sqlx::query_as(&query)
@@ -1926,7 +1930,7 @@ pub async fn find_by_validation_id(
                 WHERE m.discovery_machine_validation_id = $1
                 OR m.cleanup_machine_validation_id = $1
                 OR m.on_demand_machine_validation_id = $1"#,
-            MACHINE_SNAPSHOT_QUERY.deref()
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
     let machine = sqlx::query_as(&query)
