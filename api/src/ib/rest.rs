@@ -16,10 +16,7 @@ use std::{path::Path, sync::Arc};
 use async_trait::async_trait;
 
 use super::iface::Filter;
-use super::types::{
-    IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
-    IBNETWORK_DEFAULT_MEMBERSHIP,
-};
+use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
     UFMCert, UFMConfig, UFMError, Ufm,
@@ -202,13 +199,14 @@ impl TryFrom<&Partition> for IBNetwork {
         Ok(IBNetwork {
             name: p.name.clone(),
             pkey: p.pkey.clone().into(),
-            enable_sharp: false,
             mtu: IBMtu::try_from(p.qos.mtu_limit as i32)?,
             ipoib: p.ipoib,
             service_level: IBServiceLevel::try_from(p.qos.service_level as i32)?,
             rate_limit: IBRateLimit::try_from(rate_limit_value)?,
-            membership: IBNETWORK_DEFAULT_MEMBERSHIP,
-            index0: IBNETWORK_DEFAULT_INDEX0,
+            // Not implemented yet
+            // enable_sharp: false,
+            // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
+            // index0: IBNETWORK_DEFAULT_INDEX0,
         })
     }
 }

@@ -80,6 +80,7 @@ impl InterfaceFunctionId {
     ///
     /// The first returned item is the `Physical`.
     /// Then the list of `Virtual`s will follow
+    #[cfg(test)]
     pub fn iter_all() -> impl Iterator<Item = InterfaceFunctionId> {
         debug_assert!(INTERFACE_VFID_MAX <= i32::MAX as usize);
 
@@ -126,6 +127,7 @@ pub struct InstanceNetworkConfig {
 
 impl InstanceNetworkConfig {
     /// Returns a network configuration for a single physical interface
+    #[cfg(test)]
     pub fn for_segment_id(network_segment_id: NetworkSegmentId) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {
@@ -141,6 +143,7 @@ impl InstanceNetworkConfig {
     }
 
     /// Returns a network configuration for a single physical interface
+    #[cfg(test)]
     pub fn for_vpc_prefix_id(vpc_prefix_id: uuid::Uuid) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {

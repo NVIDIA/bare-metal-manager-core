@@ -516,23 +516,6 @@ impl PolicyEngine for PermissiveWrapper {
     }
 }
 
-pub struct NoopEngine {}
-
-impl PolicyEngine for NoopEngine {
-    fn authorize(
-        &self,
-        _principals: &[Principal],
-        predicate: Predicate,
-    ) -> Result<Authorization, AuthorizationError> {
-        // FIXME: same problem again as the PermissiveWrapper implementation.
-        // Figure out a name for this use case, and use that instead.
-        Ok(Authorization {
-            _principal: Principal::Anonymous,
-            _predicate: predicate,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

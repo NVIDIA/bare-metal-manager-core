@@ -62,9 +62,6 @@ pub enum DhcpError {
     #[error("Prefix: {0} has exhausted all address space")]
     PrefixExhausted(IpAddr),
 
-    #[error("Strategy not implemented yet.")]
-    StrategyNotImplemented,
-
     #[error("Only IPV4 is supported. Got prefix: {0}")]
     OnlyIpv4Supported(IpNetwork),
 }

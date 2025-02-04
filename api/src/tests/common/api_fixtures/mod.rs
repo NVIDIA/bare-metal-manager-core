@@ -58,7 +58,7 @@ use crate::{
         },
         metadata::Metadata,
     },
-    redfish::RedfishSim,
+    redfish::test_support::RedfishSim,
     resource_pool::{self, common::CommonPools},
     site_explorer::SiteExplorer,
     state_controller::{
@@ -84,7 +84,7 @@ use crate::{
     state_controller::state_handler::{
         StateHandlerContext, StateHandlerError, StateHandlerOutcome,
     },
-    storage::{NvmeshClientPool, NvmeshSimClient},
+    storage::{test_support::NvmeshSimClient, NvmeshClientPool},
 };
 use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Duration, Utc};

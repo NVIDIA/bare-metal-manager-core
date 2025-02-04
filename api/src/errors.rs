@@ -86,9 +86,6 @@ pub enum CarbideError {
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
 
-    #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
-    NetworkSegmentsExhausted(String),
-
     #[error("Admin network is not configured.")]
     AdminNetworkNotConfigured,
 
@@ -176,9 +173,6 @@ pub enum CarbideError {
 
     #[error("Lldp handling error: {0}")]
     LldpError(#[from] LldpError),
-
-    #[error("Unsupported firmware version: {0}")]
-    UnsupportedFirmwareVersion(String),
 
     #[error("DPU {0} is missing from host snapshot")]
     MissingDpu(MachineId),

@@ -35,38 +35,18 @@ use forge_uuid::machine::MachineId;
 pub enum StorageError {
     #[error("Failed to look up credentials {0}")]
     MissingCredentials(eyre::Report),
-    #[error("Failed to store credentials {0}")]
-    StoringCredentials(eyre::Report),
     #[error("Failed nvmesh api request {0}")]
     NvmeshApiError(NvmeshApiError),
-    #[error("Failed subtask to create nvmesh client  {0}")]
-    SubtaskError(tokio::task::JoinError),
     #[error("Database error {0}")]
     DbError(DatabaseError),
     #[error("{0}: {1} in use / busy")]
     ObjectInUse(String, String),
-    #[error("{0} is unhealthy, cannot proceed for {1}")]
-    ObjectUnhealthy(String, String),
-    #[error("{0}: {1} missing {2}")]
-    ObjectIncomplete(String, String, String),
-    #[error("{0}: {1} Busy, retry later")]
-    ObjectBusy(String, String),
-    #[error("Not empty: {0}")]
-    NotEmpty(String),
     #[error("Not found: {0}")]
     NotFound(String),
-    #[error("No allocation for {0}")]
-    NoAllocation(String),
-    #[error("Mismatch {0}: {1} != {2}")]
-    Mismatch(String, String, String),
-    #[error("Cannot shrink {0}: new size {1} < current size {2}")]
-    NoShrinking(String, String, String),
     #[error("Invalid arguments")]
     InvalidArguments,
     #[error("Invalid API response")]
     InvalidApiResponse,
-    #[error("Not implemented")]
-    NotImplemented,
 }
 
 #[async_trait]
@@ -1337,548 +1317,559 @@ pub(crate) async fn update_os_image(
     Ok(Response::new(resp))
 }
 
-// mock similar to RedfishSim
-#[derive(Debug, Default)]
-pub struct NvmeshSimClient {
-    _state: u32,
-}
-
-#[async_trait]
-impl Nvmesh for NvmeshSimClient {
-    async fn login(
-        &self,
-        _endpoint: libnvmesh::Endpoint,
-    ) -> Result<Box<dyn Nvmesh>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn logout(&self) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    fn api_response_decode(
-        &self,
-        _response: Option<libnvmesh::nvmesh_model::ApiReply>,
-        _url: &str,
-        _status: http::StatusCode,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    fn api_response_decode_return(
-        &self,
-        _response: Option<libnvmesh::nvmesh_model::ApiReply>,
-        _url: &str,
-        _status: http::StatusCode,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    fn post_api_response_decode(
-        &self,
-        _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
-        _url: &str,
-        _status: http::StatusCode,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    fn post_api_response_decode_return(
-        &self,
-        _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
-        _url: &str,
-        _status: http::StatusCode,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn access_token_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn access_token_create(
-        &self,
-        _id: String,
-        _description: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn access_token_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn access_token_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::AccessToken>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn access_token_set(
-        &self,
-        _id: String,
-        _description: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn alerts_ack(&self, _id: Option<String>) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn alerts_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn alerts_get(
-        &self,
-        _filter: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::LogEntry>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn clients_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn clients_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn clients_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::Client>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn conf_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn conf_create(
-        &self,
-        _config: libnvmesh::nvmesh_model::ConfigurationSettings,
-        _name: String,
-        _description: Option<String>,
-        _labels: Vec<String>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn conf_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn conf_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::ConfigurationProfile>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn conf_set(
-        &self,
-        _config: libnvmesh::nvmesh_model::ConfigurationSettings,
-        _name: String,
-        _description: Option<String>,
-        _labels: Vec<String>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_get_id(&self) -> Result<libnvmesh::nvmesh_model::ClusterId, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_set_id(&self, _id: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_get_capacity(
-        &self,
-    ) -> Result<libnvmesh::nvmesh_model::ClusterCapacity, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_get_settings(
-        &self,
-    ) -> Result<libnvmesh::nvmesh_model::ClusterSettings, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_set_settings(
-        &self,
-        _settings: libnvmesh::nvmesh_model::ClusterSettings,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn cluster_get_status(
-        &self,
-    ) -> Result<libnvmesh::nvmesh_model::ClusterStatus, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disk_class_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disk_class_create(
-        &self,
-        _class: libnvmesh::nvmesh_model::DiskClassSet,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disk_class_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disk_class_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::DiskClass>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disk_class_set(
-        &self,
-        _class: libnvmesh::nvmesh_model::DiskClassSet,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disks_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disks_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disks_evict(
-        &self,
-        _disks: Vec<libnvmesh::nvmesh_model::DiskId>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disks_format(
-        &self,
-        _id: Vec<String>,
-        _format_type: libnvmesh::nvmesh_model::DiskFormatTypes,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn disks_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::Disk>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn logs_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn logs_get(
-        &self,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::LogEntry>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn security_group_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn security_group_create(
-        &self,
-        _id: String,
-        _description: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn security_group_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-    async fn security_group_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn security_group_set(
-        &self,
-        _vsgs: Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn server_class_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn server_class_create(
-        &self,
-        _servers: Vec<String>,
-        _name: String,
-        _description: Option<String>,
-        _domains: Vec<libnvmesh::nvmesh_model::Domain>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn server_class_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn server_class_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::ServerClass>, NvmeshApiError> {
-        todo!()
-    }
-    async fn server_class_set(
-        &self,
-        _id: String,
-        _servers: Vec<String>,
-        _description: Option<String>,
-        _domains: Vec<libnvmesh::nvmesh_model::Domain>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn servers_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn servers_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn servers_evict(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn servers_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::Server>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn users_create(
-        &self,
-        _email: String,
-        _role: libnvmesh::nvmesh_model::UserRoles,
-        _notification_level: libnvmesh::nvmesh_model::UserNotification,
-        _password: String,
-        _relogin: Option<bool>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn users_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn users_get(&self) -> Result<Vec<libnvmesh::nvmesh_model::User>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn users_set(
-        &self,
-        _id: String,
-        _uuid: String,
-        _role: libnvmesh::nvmesh_model::UserRoles,
-        _notification_level: libnvmesh::nvmesh_model::UserNotification,
-        _relogin: Option<bool>,
-        _reset_password: Option<bool>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn users_set_password(
-        &self,
-        _id: String,
-        _uuid: String,
-        _password: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_create(
-        &self,
-        _name: String,
-        _raid_level: libnvmesh::nvmesh_model::RaidLevels,
-        _capacity: u64,
-        _description: Option<String>,
-        _single_node: bool,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_create_advanced(
-        &self,
-        _vpg_conf: libnvmesh::nvmesh_model::VolumeProvisioningGroupAttrs,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_extend(
-        &self,
-        _id: String,
-        _uuid: String,
-        _capacity: u64,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::VolumeProvisioningGroup>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volume_group_set(
-        &self,
-        _id: String,
-        _uuid: String,
-        _description: String,
-        _vsg_id: Vec<String>,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_attach(
-        &self,
-        _client: String,
-        _id: String,
-        _uuid: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_count(&self) -> Result<u32, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_create(
-        &self,
-        _name: String,
-        _capacity: u64,
-        _vpg: libnvmesh::nvmesh_model::VolumeProvisioningGroup,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_create_advanced(
-        &self,
-        _attrs: libnvmesh::nvmesh_model::VolumeCreate,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_create_snapshot(
-        &self,
-        _name: String,
-        _capacity: u64,
-        _source_id: String,
-        _source_uuid: String,
-        _vpg: libnvmesh::nvmesh_model::VolumeProvisioningGroup,
-    ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_detach(
-        &self,
-        _client: String,
-        _id: String,
-        _uuid: String,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_extend(
-        &self,
-        _id: String,
-        _uuid: String,
-        _capacity: u64,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_get(
-        &self,
-        _id: Option<String>,
-        _page: Option<u32>,
-        _items: Option<u32>,
-    ) -> Result<Vec<libnvmesh::nvmesh_model::Volume>, NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_rebuild(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-
-    async fn volumes_set(
-        &self,
-        _attrs: libnvmesh::nvmesh_model::VolumeUpdate,
-    ) -> Result<(), NvmeshApiError> {
-        todo!()
-    }
-}
-
-#[async_trait]
-impl NvmeshClientPool for NvmeshSimClient {
-    async fn create_client(
-        &self,
-        _host: &str,
-        _port: Option<u16>,
-        _username: Option<String>,
-        _password: Option<String>,
-        _cluster_id: Option<Uuid>,
-    ) -> Result<Box<dyn Nvmesh>, StorageError> {
-        Ok(Box::new(NvmeshSimClient { _state: 0 }))
+#[cfg(test)]
+pub mod test_support {
+    use super::*;
+
+    // mock similar to RedfishSim
+    #[derive(Debug, Default)]
+    pub struct NvmeshSimClient {
+        _state: u32,
+    }
+
+    #[async_trait]
+    impl Nvmesh for NvmeshSimClient {
+        async fn login(
+            &self,
+            _endpoint: libnvmesh::Endpoint,
+        ) -> Result<Box<dyn Nvmesh>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn logout(&self) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        fn api_response_decode(
+            &self,
+            _response: Option<libnvmesh::nvmesh_model::ApiReply>,
+            _url: &str,
+            _status: http::StatusCode,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        fn api_response_decode_return(
+            &self,
+            _response: Option<libnvmesh::nvmesh_model::ApiReply>,
+            _url: &str,
+            _status: http::StatusCode,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        fn post_api_response_decode(
+            &self,
+            _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
+            _url: &str,
+            _status: http::StatusCode,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        fn post_api_response_decode_return(
+            &self,
+            _response: Option<Vec<libnvmesh::nvmesh_model::ApiReply>>,
+            _url: &str,
+            _status: http::StatusCode,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn access_token_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn access_token_create(
+            &self,
+            _id: String,
+            _description: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn access_token_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn access_token_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::AccessToken>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn access_token_set(
+            &self,
+            _id: String,
+            _description: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn alerts_ack(&self, _id: Option<String>) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn alerts_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn alerts_get(
+            &self,
+            _filter: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::LogEntry>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn clients_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn clients_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn clients_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::Client>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn conf_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn conf_create(
+            &self,
+            _config: libnvmesh::nvmesh_model::ConfigurationSettings,
+            _name: String,
+            _description: Option<String>,
+            _labels: Vec<String>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn conf_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn conf_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::ConfigurationProfile>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn conf_set(
+            &self,
+            _config: libnvmesh::nvmesh_model::ConfigurationSettings,
+            _name: String,
+            _description: Option<String>,
+            _labels: Vec<String>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_get_id(
+            &self,
+        ) -> Result<libnvmesh::nvmesh_model::ClusterId, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_set_id(&self, _id: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_get_capacity(
+            &self,
+        ) -> Result<libnvmesh::nvmesh_model::ClusterCapacity, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_get_settings(
+            &self,
+        ) -> Result<libnvmesh::nvmesh_model::ClusterSettings, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_set_settings(
+            &self,
+            _settings: libnvmesh::nvmesh_model::ClusterSettings,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn cluster_get_status(
+            &self,
+        ) -> Result<libnvmesh::nvmesh_model::ClusterStatus, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disk_class_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disk_class_create(
+            &self,
+            _class: libnvmesh::nvmesh_model::DiskClassSet,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disk_class_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disk_class_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::DiskClass>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disk_class_set(
+            &self,
+            _class: libnvmesh::nvmesh_model::DiskClassSet,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disks_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disks_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disks_evict(
+            &self,
+            _disks: Vec<libnvmesh::nvmesh_model::DiskId>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disks_format(
+            &self,
+            _id: Vec<String>,
+            _format_type: libnvmesh::nvmesh_model::DiskFormatTypes,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn disks_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::Disk>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn logs_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn logs_get(
+            &self,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::LogEntry>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn security_group_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn security_group_create(
+            &self,
+            _id: String,
+            _description: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn security_group_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+        async fn security_group_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn security_group_set(
+            &self,
+            _vsgs: Vec<libnvmesh::nvmesh_model::VolumeSecurityGroup>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn server_class_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn server_class_create(
+            &self,
+            _servers: Vec<String>,
+            _name: String,
+            _description: Option<String>,
+            _domains: Vec<libnvmesh::nvmesh_model::Domain>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn server_class_delete(&self, _id: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn server_class_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::ServerClass>, NvmeshApiError> {
+            todo!()
+        }
+        async fn server_class_set(
+            &self,
+            _id: String,
+            _servers: Vec<String>,
+            _description: Option<String>,
+            _domains: Vec<libnvmesh::nvmesh_model::Domain>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn servers_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn servers_delete(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn servers_evict(&self, _id: Vec<String>) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn servers_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::Server>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn users_create(
+            &self,
+            _email: String,
+            _role: libnvmesh::nvmesh_model::UserRoles,
+            _notification_level: libnvmesh::nvmesh_model::UserNotification,
+            _password: String,
+            _relogin: Option<bool>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn users_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn users_get(&self) -> Result<Vec<libnvmesh::nvmesh_model::User>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn users_set(
+            &self,
+            _id: String,
+            _uuid: String,
+            _role: libnvmesh::nvmesh_model::UserRoles,
+            _notification_level: libnvmesh::nvmesh_model::UserNotification,
+            _relogin: Option<bool>,
+            _reset_password: Option<bool>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn users_set_password(
+            &self,
+            _id: String,
+            _uuid: String,
+            _password: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_create(
+            &self,
+            _name: String,
+            _raid_level: libnvmesh::nvmesh_model::RaidLevels,
+            _capacity: u64,
+            _description: Option<String>,
+            _single_node: bool,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_create_advanced(
+            &self,
+            _vpg_conf: libnvmesh::nvmesh_model::VolumeProvisioningGroupAttrs,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_delete(
+            &self,
+            _id: String,
+            _uuid: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_extend(
+            &self,
+            _id: String,
+            _uuid: String,
+            _capacity: u64,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::VolumeProvisioningGroup>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volume_group_set(
+            &self,
+            _id: String,
+            _uuid: String,
+            _description: String,
+            _vsg_id: Vec<String>,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_attach(
+            &self,
+            _client: String,
+            _id: String,
+            _uuid: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_count(&self) -> Result<u32, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_create(
+            &self,
+            _name: String,
+            _capacity: u64,
+            _vpg: libnvmesh::nvmesh_model::VolumeProvisioningGroup,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_create_advanced(
+            &self,
+            _attrs: libnvmesh::nvmesh_model::VolumeCreate,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_create_snapshot(
+            &self,
+            _name: String,
+            _capacity: u64,
+            _source_id: String,
+            _source_uuid: String,
+            _vpg: libnvmesh::nvmesh_model::VolumeProvisioningGroup,
+        ) -> Result<libnvmesh::nvmesh_model::ApiReply, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_delete(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_detach(
+            &self,
+            _client: String,
+            _id: String,
+            _uuid: String,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_extend(
+            &self,
+            _id: String,
+            _uuid: String,
+            _capacity: u64,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_get(
+            &self,
+            _id: Option<String>,
+            _page: Option<u32>,
+            _items: Option<u32>,
+        ) -> Result<Vec<libnvmesh::nvmesh_model::Volume>, NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_rebuild(&self, _id: String, _uuid: String) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+
+        async fn volumes_set(
+            &self,
+            _attrs: libnvmesh::nvmesh_model::VolumeUpdate,
+        ) -> Result<(), NvmeshApiError> {
+            todo!()
+        }
+    }
+
+    #[async_trait]
+    impl NvmeshClientPool for NvmeshSimClient {
+        async fn create_client(
+            &self,
+            _host: &str,
+            _port: Option<u16>,
+            _username: Option<String>,
+            _password: Option<String>,
+            _cluster_id: Option<Uuid>,
+        ) -> Result<Box<dyn Nvmesh>, StorageError> {
+            Ok(Box::new(NvmeshSimClient { _state: 0 }))
+        }
     }
 }

@@ -52,7 +52,6 @@ pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
 use crate::db::network_segment::NetworkSegmentType;
-use forge_uuid::machine::MachineType;
 use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
@@ -85,7 +84,8 @@ pub struct ManagedHostStateSnapshot {
 pub enum NotAllocatableReason {
     #[error("The Machine is in a state other than `Ready`: {0:?}")]
     InvalidState(Box<ManagedHostState>),
-    #[error("The Machine has a pending instance creation request, that has not yet been processed by the state handler")]
+    #[error("The Machine has a pending instance creation request, that has not yet been processed by the state handler"
+    )]
     PendingInstanceCreation,
     #[error("There are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
     NoDpuSnapshots,
@@ -442,15 +442,6 @@ pub struct Machine {
     /// all machines managed by this instance of carbide.
     pub id: MachineId,
 
-    /// When this machine record was created
-    pub created: DateTime<Utc>,
-
-    /// When the machine record was last modified
-    pub updated: DateTime<Utc>,
-
-    /// When the machine was last deployed
-    pub _deployed: Option<DateTime<Utc>>,
-
     /// The current state of the machine.
     pub state: Versioned<ManagedHostState>,
 
@@ -566,6 +557,13 @@ pub struct Machine {
     /// Version field that tracks changes to
     /// - Metadata
     pub version: ConfigVersion,
+    // Columns for these exist, but are unused in rust code
+    // /// When this machine record was created
+    // pub created: DateTime<Utc>,
+    // /// When the machine record was last modified
+    // pub updated: DateTime<Utc>,
+    // /// When the machine was last deployed
+    // pub deployed: Option<DateTime<Utc>>,
 }
 
 impl Machine {
@@ -579,13 +577,6 @@ impl Machine {
         match self.hardware_info.as_ref() {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
-        }
-    }
-
-    pub fn model(&self) -> String {
-        match self.hardware_info.as_ref() {
-            Some(hw) => hw.model().unwrap_or("Unknown".to_string()),
-            None => "Unknown".to_string(),
         }
     }
 
@@ -609,16 +600,6 @@ impl Machine {
     /// Return the current version of state of the machine.
     pub fn current_version(&self) -> ConfigVersion {
         self.state.version
-    }
-
-    /// Does this host have an instance assigned to it?
-    pub fn has_instance(&self) -> bool {
-        matches!(self.state.value, ManagedHostState::Assigned { .. })
-    }
-
-    /// Returns the MachineType based on hardware info.
-    pub fn machine_type(&self) -> MachineType {
-        self.id.machine_type()
     }
 
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
@@ -1048,53 +1029,6 @@ impl ReprovisionState {
         }
     }
 
-    pub fn next_state(
-        self,
-        current_state: &ManagedHostState,
-        dpu_id: &MachineId,
-    ) -> Result<ManagedHostState, StateHandlerError> {
-        match current_state {
-            ManagedHostState::DPUReprovision { dpu_states } => {
-                let mut states = dpu_states.states.clone();
-                let entry = states.entry(*dpu_id).or_insert(self.clone());
-                *entry = self;
-
-                Ok(ManagedHostState::DPUReprovision {
-                    dpu_states: DpuReprovisionStates { states },
-                })
-            }
-
-            ManagedHostState::Assigned { instance_state } => match instance_state {
-                InstanceState::DPUReprovision { dpu_states } => {
-                    let mut states = dpu_states.states.clone();
-                    let entry = states.entry(*dpu_id).or_insert(self.clone());
-                    *entry = self;
-
-                    Ok(ManagedHostState::Assigned {
-                        instance_state: InstanceState::DPUReprovision {
-                            dpu_states: DpuReprovisionStates { states },
-                        },
-                    })
-                }
-                InstanceState::BootingWithDiscoveryImage { retry: _ } => {
-                    Ok(ManagedHostState::Assigned {
-                        instance_state: InstanceState::DPUReprovision {
-                            dpu_states: DpuReprovisionStates {
-                                states: HashMap::from([(*dpu_id, self.clone())]),
-                            },
-                        },
-                    })
-                }
-                _ => Err(StateHandlerError::InvalidState(
-                    "Invalid State passed to Reprovision::Assigned::next_state.".to_string(),
-                )),
-            },
-            _ => Err(StateHandlerError::InvalidState(
-                "Invalid State passed to Reprovision::next_state.".to_string(),
-            )),
-        }
-    }
-
     pub fn next_bmc_upgrade_step(
         &self,
         current_state: &ManagedHostStateSnapshot,
@@ -1315,28 +1249,6 @@ impl DpuDiscoveringState {
             }
             _ => Err(StateHandlerError::InvalidState(
                 "Invalid State passed to DpuDiscoveringState::next_state.".to_string(),
-            )),
-        }
-    }
-
-    pub fn next_state_with_all_dpus_updated(
-        self,
-        current_state: &ManagedHostState,
-    ) -> Result<ManagedHostState, StateHandlerError> {
-        match current_state {
-            ManagedHostState::DpuDiscoveringState { dpu_states } => {
-                let states = dpu_states
-                    .states
-                    .keys()
-                    .map(|x| (*x, self.clone()))
-                    .collect::<HashMap<MachineId, DpuDiscoveringState>>();
-
-                Ok(ManagedHostState::DpuDiscoveringState {
-                    dpu_states: DpuDiscoveringStates { states },
-                })
-            }
-            _ => Err(StateHandlerError::InvalidState(
-                "Invalid State passed to DpuDiscoveringState::next_state_all_dpu.".to_string(),
             )),
         }
     }
@@ -1876,7 +1788,7 @@ pub trait NextReprovisionState {
         current_reprovision_state: &ReprovisionState,
     ) -> Result<ManagedHostState, StateHandlerError> {
         let dpu_ids_for_reprov =
-        // EnumIter conflicts with Itertool, don't know why?
+            // EnumIter conflicts with Itertool, don't know why?
             itertools::Itertools::collect_vec(state.dpu_snapshots.iter().filter_map(|x| {
                 if x.reprovision_requested.is_some() {
                     Some(&x.id)

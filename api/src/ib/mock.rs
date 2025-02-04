@@ -177,7 +177,6 @@ impl IBFabric for MockIBFabric {
     }
 }
 
-#[cfg(test)]
 pub fn mock_ibfabric_desc(ibports: Option<HashMap<String, IBPort>>) -> HashMap<String, IBPort> {
     match ibports {
         Some(ibports) => {

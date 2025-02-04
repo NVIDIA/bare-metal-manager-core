@@ -803,19 +803,7 @@ pub(crate) fn map_redfish_client_creation_error(
                 cause: format!("{cause:#}"),
             }
         }
-        RedfishClientCreationError::SetCredentials { key, cause } => {
-            EndpointExplorationError::SetCredentials {
-                key,
-                cause: format!("{cause:#}"),
-            }
-        }
         RedfishClientCreationError::RedfishError(e) => map_redfish_error(e),
-        RedfishClientCreationError::SubtaskError(e) => EndpointExplorationError::Other {
-            details: format!("Error joining tokio task: {e}"),
-        },
-        RedfishClientCreationError::NotImplemented => EndpointExplorationError::Other {
-            details: "RedfishClientCreationError::NotImplemented".to_string(),
-        },
         RedfishClientCreationError::InvalidHeader(original_error) => {
             EndpointExplorationError::Other {
                 details: format!("RedfishClientError::InvalidHeader: {}", original_error),
@@ -825,11 +813,6 @@ pub(crate) fn map_redfish_client_creation_error(
         | RedfishClientCreationError::MissingArgument(argument) => {
             EndpointExplorationError::Other {
                 details: format!("Missing argument to RedFish client: {0}", argument),
-            }
-        }
-        RedfishClientCreationError::InvalidArgument(key, value) => {
-            EndpointExplorationError::Other {
-                details: format!("Invalid Argument to RedFish client: {}={}", key, value),
             }
         }
         RedfishClientCreationError::MachineInterfaceLoadError(db_error) => {

@@ -141,6 +141,7 @@ pub async fn get_segments(
     .into_inner()
 }
 
+#[cfg(test)]
 pub async fn text_history(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     segment_id: NetworkSegmentId,

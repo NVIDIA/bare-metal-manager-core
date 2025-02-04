@@ -274,9 +274,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 
         Ok(Machine {
             id,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-            _deployed: row.try_get("deployed")?,
             state: Versioned::new(controller_state.0, row.try_get("controller_state_version")?),
             network_config: Versioned::new(
                 network_config.0,
@@ -318,6 +315,10 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             asn,
             metadata,
             version: row.try_get("version")?,
+            // Columns for these exist, but are unused in rust code
+            // deployed: row.try_get("deployed")?,
+            // created: row.try_get("created")?,
+            // updated: row.try_get("updated")?,
         })
     }
 }

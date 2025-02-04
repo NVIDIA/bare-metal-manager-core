@@ -116,13 +116,6 @@ pub enum StatusValidationError {
     InvalidValue(String),
 }
 
-impl StatusValidationError {
-    /// Creates a [StatusValidationError::InvalidValue] variant
-    pub fn invalid_value<T: Into<String>>(value: T) -> Self {
-        Self::InvalidValue(value.into())
-    }
-}
-
 /// A transparent wrapper around [`MacAddress`] that enables serde serialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SerializableMacAddress(MacAddress);
@@ -153,6 +146,7 @@ impl From<SerializableMacAddress> for MacAddress {
     }
 }
 
+#[cfg(test)]
 impl SerializableMacAddress {
     /// Converts the wrapper into a plain `MacAddress`
     pub fn into_inner(self) -> MacAddress {

@@ -62,7 +62,10 @@ impl ColumnInfo<'_> for MacAddressColumn {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
 pub struct MachineIdColumn;
+
+#[cfg(test)]
 impl ColumnInfo<'_> for MachineIdColumn {
     type TableType = MachineInterfaceSnapshot;
     type ColumnType = MachineId;

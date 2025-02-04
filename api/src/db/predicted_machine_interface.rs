@@ -21,8 +21,11 @@ pub struct NewPredictedMachineInterface<'a> {
     pub expected_network_segment_type: NetworkSegmentType,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub struct MachineIdColumn;
+
+#[cfg(test)]
 impl ColumnInfo<'_> for crate::db::predicted_machine_interface::MachineIdColumn {
     type TableType = PredictedMachineInterface;
     type ColumnType = MachineId;

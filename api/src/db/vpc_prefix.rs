@@ -166,17 +166,6 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct VpcIdColumn;
-impl ColumnInfo<'_> for VpcIdColumn {
-    type TableType = VpcPrefix;
-    type ColumnType = VpcId;
-
-    fn column_name(&self) -> &'static str {
-        "vpc_id"
-    }
-}
-
 #[derive(Clone, Debug)]
 pub enum PrefixMatch {
     Exact(IpNetwork),

@@ -75,12 +75,6 @@ pub enum DpuLocalPorts {
     P1,
 }
 
-impl DpuLocalPorts {
-    pub fn ports() -> [DpuLocalPorts; 3] {
-        [DpuLocalPorts::OobNet0, DpuLocalPorts::P0, DpuLocalPorts::P1]
-    }
-}
-
 impl Display for NetworkDeviceDiscoveredVia {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt::Debug::fmt(&self, f)

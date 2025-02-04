@@ -66,12 +66,12 @@ pub struct InstanceSnapshot {
     /// Whether the next boot attempt should run the tenants iPXE script
     pub use_custom_pxe_on_boot: bool,
 
-    pub requested: chrono::DateTime<chrono::Utc>,
-    pub started: chrono::DateTime<chrono::Utc>,
-    pub finished: Option<chrono::DateTime<chrono::Utc>>,
-
     /// The timestamp when deletion for this instance was requested
     pub deleted: Option<chrono::DateTime<chrono::Utc>>,
+    // There are columns for these but they're unused as of today.
+    // pub(crate) requested: chrono::DateTime<chrono::Utc>,
+    // pub(crate) started: chrono::DateTime<chrono::Utc>,
+    // pub(crate) finished: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl InstanceSnapshot {

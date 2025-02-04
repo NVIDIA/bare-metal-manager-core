@@ -85,14 +85,6 @@ impl EndpointExplorationReport {
         false
     }
 
-    pub fn is_missing_credentials(&self) -> bool {
-        if let Some(ref e) = self.last_exploration_error {
-            return matches!(e, EndpointExplorationError::MissingCredentials { .. });
-        };
-
-        false
-    }
-
     /// model does a best effort to find a model name within the report
     pub fn model(&self) -> Option<String> {
         // Prefer Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
@@ -176,10 +168,6 @@ impl Display for ExploredEndpoint {
 }
 
 impl ExploredEndpoint {
-    pub fn cannot_login(&self) -> bool {
-        self.report.cannot_login()
-    }
-
     /// find_version will locate a version number within an ExploredEndpoint
     pub fn find_version(
         &self,
@@ -1158,19 +1146,6 @@ impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
             part_number: adapter.part_number,
             serial_number: adapter.serial_number,
         }
-    }
-}
-
-impl NetworkAdapter {
-    // is_bluefield returns whether the given network adapter attached to the chassis is a Bluefield
-    pub fn is_bluefield(&self) -> bool {
-        let Some(model) = &self.model else {
-            // TODO: maybe model this as an enum that has "Indeterminable" if there's no model
-            // but for now it's 'technically' true
-            return false;
-        };
-
-        is_bluefield_model(model)
     }
 }
 

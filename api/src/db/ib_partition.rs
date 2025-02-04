@@ -21,10 +21,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use crate::ib::types::{
-    IBMtu, IBNetwork, IBRateLimit, IBServiceLevel, IBNETWORK_DEFAULT_INDEX0,
-    IBNETWORK_DEFAULT_MEMBERSHIP,
-};
+use crate::ib::types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel};
 use crate::ib::IBFabricManagerConfig;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
@@ -53,16 +50,14 @@ impl ColumnInfo<'_> for IdColumn {
 }
 
 impl From<rpc::IbPartitionSearchConfig> for IBPartitionSearchConfig {
-    fn from(value: rpc::IbPartitionSearchConfig) -> Self {
-        IBPartitionSearchConfig {
-            include_history: value.include_history,
-        }
+    fn from(_: rpc::IbPartitionSearchConfig) -> Self {
+        IBPartitionSearchConfig {}
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct IBPartitionSearchConfig {
-    pub include_history: bool,
+    // pub include_history: bool, // unused
 }
 
 #[derive(Debug, Clone)]
@@ -122,14 +117,15 @@ pub struct IBPartition {
     pub config: IBPartitionConfig,
     pub status: Option<IBPartitionStatus>,
 
-    pub created: DateTime<Utc>,
-    pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
 
     pub controller_state: Versioned<IBPartitionControllerState>,
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    // Columns for these exist, but are unused in rust code
+    // pub created: DateTime<Utc>,
+    // pub updated: DateTime<Utc>,
 }
 
 impl From<&IBPartition> for IBNetwork {
@@ -137,13 +133,14 @@ impl From<&IBPartition> for IBNetwork {
         Self {
             name: ib.config.name.clone(),
             pkey: ib.config.pkey.unwrap_or(0),
-            enable_sharp: false,
             mtu: ib.config.mtu.clone().unwrap_or_default(),
             ipoib: true,
             service_level: ib.config.service_level.clone().unwrap_or_default(),
-            membership: IBNETWORK_DEFAULT_MEMBERSHIP,
-            index0: IBNETWORK_DEFAULT_INDEX0,
             rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
+            // Not implemented yet
+            // enable_sharp: false,
+            // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
+            // index0: IBNETWORK_DEFAULT_INDEX0,
         }
     }
 }
@@ -183,8 +180,6 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             },
             status,
 
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
 
             controller_state: Versioned::new(
@@ -192,6 +187,9 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
                 row.try_get("controller_state_version")?,
             ),
             controller_state_outcome: state_outcome.map(|x| x.0),
+            // Columns for these exist, but are unused in rust code
+            // created: row.try_get("created")?,
+            // updated: row.try_get("updated")?,
         })
     }
 }
@@ -328,10 +326,6 @@ impl NewIBPartition {
 }
 
 impl IBPartition {
-    pub fn id(&self) -> &IBPartitionId {
-        &self.id
-    }
-
     /// Retrieves the IDs of all IB partition
     ///
     /// * `txn` - A reference to a currently open database transaction
@@ -518,11 +512,6 @@ impl IBPartition {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment)
-    }
-
-    /// The result of the most recent state controller iteration, if any
-    pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
-        self.controller_state_outcome.clone()
     }
 }
 

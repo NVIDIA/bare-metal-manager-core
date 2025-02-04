@@ -9,12 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
@@ -67,30 +65,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
 }
 
 impl NetworkSegmentStateHistory {
-    /// Retrieve the state history for a list of NetworkSegments
-    ///
-    /// It returns a [HashMap][std::collections::HashMap] keyed by the segment ID and values of
-    /// all states that have been entered.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to an open Transaction
-    ///
-    pub async fn find_by_segment_ids(
-        txn: &mut Transaction<'_, Postgres>,
-        segment_ids: &[NetworkSegmentId],
-    ) -> Result<HashMap<NetworkSegmentId, Vec<Self>>, DatabaseError> {
-        let query =
-            "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
-        Ok(sqlx::query_as::<_, Self>(query)
-            .bind(segment_ids)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            .into_iter()
-            .into_group_map_by(|event| event.segment_id))
-    }
-
+    #[cfg(test)]
     pub async fn for_segment(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &NetworkSegmentId,

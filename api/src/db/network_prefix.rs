@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 
-use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
+use super::DatabaseError;
 use crate::CarbideError;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
@@ -40,9 +40,12 @@ pub struct NetworkPrefix {
     pub num_free_ips: u32,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub struct SegmentIdColumn;
-impl ColumnInfo<'_> for SegmentIdColumn {
+
+#[cfg(test)]
+impl super::ColumnInfo<'_> for SegmentIdColumn {
     type TableType = NetworkPrefix;
     type ColumnType = NetworkSegmentId;
 
@@ -134,6 +137,7 @@ impl NetworkPrefix {
     }
 
     // Search for specific prefix
+    #[cfg(test)]
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         uuid: uuid::Uuid,
@@ -149,12 +153,13 @@ impl NetworkPrefix {
     /*
      * Return a list of `NetworkPrefix`es for a segment.
      */
-    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkPrefix>>(
+    #[cfg(test)]
+    pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = NetworkPrefix>>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectColumnFilter<'a, C>,
+        filter: super::ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let mut query =
-            FilterableQueryBuilder::new("SELECT * FROM network_prefixes").filter(&filter);
+            super::FilterableQueryBuilder::new("SELECT * FROM network_prefixes").filter(&filter);
 
         query
             .build_query_as()

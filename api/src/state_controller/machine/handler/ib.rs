@@ -194,9 +194,7 @@ pub(crate) async fn bind_ib_ports(
         let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
             ObjectColumnFilter::One(ib_partition::IdColumn, &k),
-            ib_partition::IBPartitionSearchConfig {
-                include_history: false,
-            },
+            ib_partition::IBPartitionSearchConfig {},
         )
         .await?;
 
@@ -252,9 +250,7 @@ pub(crate) async fn unbind_ib_ports(
         let ib_partitions = ib_partition::IBPartition::find_by(
             txn,
             ObjectColumnFilter::One(ib_partition::IdColumn, &k),
-            ib_partition::IBPartitionSearchConfig {
-                include_history: false,
-            },
+            ib_partition::IBPartitionSearchConfig {},
         )
         .await?;
 

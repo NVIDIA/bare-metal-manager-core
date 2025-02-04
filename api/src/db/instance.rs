@@ -150,9 +150,6 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             id: row.try_get("id")?,
             machine_id: row.try_get("machine_id")?,
             instance_type_id: row.try_get("instance_type_id")?,
-            requested: row.try_get("requested")?,
-            started: row.try_get("started")?,
-            finished: row.try_get("finished")?,
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
             config,
@@ -166,6 +163,10 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
                 phone_home_last_contact: row.try_get("phone_home_last_contact")?,
             },
             metadata,
+            // Unused as of today
+            // requested: row.try_get("requested")?,
+            // started: row.try_get("started")?,
+            // finished: row.try_get("finished")?,
         })
     }
 }
