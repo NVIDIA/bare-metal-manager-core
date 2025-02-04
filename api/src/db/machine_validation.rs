@@ -59,8 +59,9 @@ pub struct MachineValidation {
     pub filter: Option<MachineValidationFilter>,
     pub context: Option<String>,
     pub status: Option<MachineValidationStatus>,
-    pub description: Option<String>,
     pub duration_to_complete: i64,
+    // Columns for these exist, but are unused in rust code
+    // pub description: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineValidation {
@@ -84,8 +85,8 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             context: row.try_get("context")?,
             filter: filter.map(|x| x.0),
             status: Some(status),
-            description: row.try_get("description")?,
             duration_to_complete: row.try_get("duration_to_complete")?,
+            // description: row.try_get("description")?, // unused
         })
     }
 }
@@ -684,21 +685,6 @@ impl MachineValidationResult {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
-    }
-
-    pub async fn validate(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-    ) -> CarbideResult<Option<String>> {
-        let db_results =
-            MachineValidationResult::find_by_machine_id(txn, machine_id, false).await?;
-
-        for result in db_results {
-            if result.exit_code != 0 {
-                return Ok(Some(format!("{} is failed", result.name)));
-            }
-        }
-        Ok(None)
     }
 
     pub async fn validate_current_context(

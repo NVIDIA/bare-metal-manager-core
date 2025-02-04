@@ -86,10 +86,6 @@ impl DhcpRecord {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
-
-    pub fn address(&self) -> IpAddr {
-        self.address
-    }
 }
 
 /// An InstanceDhcpRecord is populated by a database view (named instance_dhcp_records).
@@ -201,6 +197,7 @@ WHERE machine_id=$1
         Ok(record)
     }
 
+    #[cfg(test)]
     pub fn address(&self) -> IpAddr {
         self.address
     }

@@ -13,7 +13,7 @@ use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres};
 
-use super::{ColumnInfo, DatabaseError};
+use super::DatabaseError;
 use forge_uuid::machine::MachineInterfaceId;
 
 ///
@@ -27,9 +27,12 @@ pub struct DhcpEntry {
     pub vendor_string: String,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub struct MachineInterfaceIdColumn;
-impl ColumnInfo<'_> for MachineInterfaceIdColumn {
+
+#[cfg(test)]
+impl super::ColumnInfo<'_> for MachineInterfaceIdColumn {
     type TableType = DhcpEntry;
     type ColumnType = MachineInterfaceId;
 
@@ -40,7 +43,7 @@ impl ColumnInfo<'_> for MachineInterfaceIdColumn {
 
 impl DhcpEntry {
     #[cfg(test)] // only used in tests
-    pub async fn find_by<'a, C: ColumnInfo<'a, TableType = DhcpEntry>>(
+    pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = DhcpEntry>>(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: super::ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<DhcpEntry>, DatabaseError> {

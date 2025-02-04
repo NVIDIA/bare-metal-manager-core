@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::CarbideResult;
 use sqlx::PgPool;
 
 /// This is re-used for every unit test as well as the migrate function. Do not call `sqlx::migrate!`
@@ -18,6 +17,6 @@ use sqlx::PgPool;
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 #[tracing::instrument(skip(pool))]
-pub async fn migrate(pool: &PgPool) -> CarbideResult<()> {
-    Ok(MIGRATOR.run(pool).await?)
+pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    MIGRATOR.run(pool).await
 }

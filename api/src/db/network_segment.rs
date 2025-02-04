@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
 use std::ops::{Deref, DerefMut};
@@ -642,22 +641,6 @@ impl NetworkSegment {
         Ok(all_records)
     }
 
-    pub async fn find_and_index_by_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        network_segment_ids: &[NetworkSegmentId],
-        search_config: NetworkSegmentSearchConfig,
-    ) -> Result<HashMap<NetworkSegmentId, Self>, DatabaseError> {
-        Ok(Self::find_by(
-            txn,
-            ObjectColumnFilter::List(IdColumn, network_segment_ids),
-            search_config,
-        )
-        .await?
-        .into_iter()
-        .map(|x| (x.id, x))
-        .collect::<HashMap<_, _>>())
-    }
-
     /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
     pub async fn find_ids_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -825,10 +808,6 @@ impl NetworkSegment {
         Ok(())
     }
 
-    pub fn subdomain_id(&self) -> Option<&DomainId> {
-        self.subdomain_id.as_ref()
-    }
-
     pub fn id(&self) -> &NetworkSegmentId {
         &self.id
     }
@@ -940,11 +919,6 @@ impl NetworkSegment {
         }
 
         Ok(segments.remove(0))
-    }
-
-    /// The result of the last state controller iteration, if any
-    pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
-        self.controller_state_outcome.clone()
     }
 
     /// Are queried segment in ready state?

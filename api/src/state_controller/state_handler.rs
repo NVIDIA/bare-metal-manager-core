@@ -158,8 +158,6 @@ pub enum StateHandlerError {
 
     #[error("Error releasing from resource pool: {0}")]
     PoolReleaseError(#[from] ResourcePoolError),
-    #[error("Can not allocate resource. Pool for {owner_id} is exhausted.")]
-    PoolAllocateError { owner_id: String },
 
     #[error("Invalid host state {1} for DPU {0}.")]
     InvalidHostState(MachineId, Box<ManagedHostState>),
@@ -221,7 +219,6 @@ impl StateHandlerError {
             StateHandlerError::DBError(_) => "db_error",
             StateHandlerError::Timeout { .. } => "timeout",
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
-            StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
             StateHandlerError::IBFabricError { .. } => "ib_fabric_error",
             StateHandlerError::StorageError(_) => "storage_error",

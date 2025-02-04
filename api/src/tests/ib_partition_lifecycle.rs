@@ -20,7 +20,7 @@ use crate::{
     cfg::file::IBFabricConfig,
     db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
-        types::{IBMtu, IBNetwork, IBPortMembership, IBRateLimit, IBServiceLevel},
+        types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
     },
 };
@@ -327,13 +327,14 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let ibnetwork = IBNetwork {
         pkey: 42,
         name: "x".to_string(),
-        enable_sharp: false,
         mtu: IBMtu::default(),
         ipoib: false,
         service_level: IBServiceLevel::default(),
-        membership: IBPortMembership::Full,
-        index0: false,
         rate_limit: IBRateLimit::default(),
+        // Not implemented yet
+        // enable_sharp: false,
+        // membership: IBPortMembership::Full,
+        // index0: false,
     };
     partition.status = Some(IBPartitionStatus::from(&ibnetwork));
     // What we're testing

@@ -29,21 +29,6 @@ pub struct InstanceInfinibandConfig {
 }
 
 impl InstanceInfinibandConfig {
-    /// Returns a infiniband configuration for a single physical interface
-    pub fn for_ib_partition_id(ib_partition_id: IBPartitionId) -> Self {
-        Self {
-            ib_interfaces: vec![InstanceIbInterfaceConfig {
-                function_id: InterfaceFunctionId::Physical {},
-                ib_partition_id,
-                pf_guid: None,
-                guid: None,
-                device: "MT2910 Family [ConnectX-7]".to_string(), // only for test case
-                vendor: None,
-                device_instance: 0,
-            }],
-        }
-    }
-
     /// Validates the infiniband configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         #[derive(Hash, Eq, PartialEq)]

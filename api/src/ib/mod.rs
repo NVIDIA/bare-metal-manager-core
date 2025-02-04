@@ -24,9 +24,11 @@ use crate::CarbideError;
 
 mod disable;
 mod iface;
-mod mock;
 mod rest;
 mod ufmclient;
+
+#[cfg(test)]
+mod mock;
 
 pub mod types;
 

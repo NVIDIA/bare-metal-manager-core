@@ -14,24 +14,13 @@ use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::{network_segment::NetworkSegmentType, ColumnInfo, DatabaseError};
+use super::{network_segment::NetworkSegmentType, DatabaseError};
 use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
     pub address: IpAddr,
-}
-
-#[derive(Clone, Copy)]
-pub struct MachineInterfaceIdColumn;
-impl ColumnInfo<'_> for MachineInterfaceIdColumn {
-    type TableType = MachineInterfaceAddress;
-    type ColumnType = MachineInterfaceId;
-
-    fn column_name(&self) -> &'static str {
-        "interface_id"
-    }
 }
 
 impl MachineInterfaceAddress {

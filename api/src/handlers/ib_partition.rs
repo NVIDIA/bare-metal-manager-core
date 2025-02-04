@@ -113,9 +113,7 @@ pub(crate) async fn find_by_ids(
     })?;
 
     let rpc::IbPartitionsByIdsRequest {
-        ib_partition_ids,
-        include_history,
-        ..
+        ib_partition_ids, ..
     } = request.into_inner();
 
     let partition_ids: Result<Vec<IBPartitionId>, CarbideError> = ib_partition_ids
@@ -145,7 +143,7 @@ pub(crate) async fn find_by_ids(
     let partitions = IBPartition::find_by(
         &mut txn,
         ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
-        IBPartitionSearchConfig { include_history },
+        IBPartitionSearchConfig {},
     )
     .await
     .map_err(CarbideError::from)?;

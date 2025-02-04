@@ -256,6 +256,7 @@ impl CarbideConfig {
         FirmwareConfig {
             base_map,
             firmware_directory: self.firmware_global.firmware_directory.clone(),
+            #[cfg(test)]
             test_overrides: vec![],
         }
     }
@@ -1170,6 +1171,7 @@ pub struct FirmwareGlobal {
 }
 
 impl FirmwareGlobal {
+    #[cfg(test)]
     pub fn test_default() -> Self {
         FirmwareGlobal {
             autoupdate: true,
@@ -1247,6 +1249,7 @@ impl Default for FirmwareGlobal {
 pub struct FirmwareConfig {
     base_map: HashMap<String, Firmware>,
     firmware_directory: PathBuf,
+    #[cfg(test)]
     test_overrides: Vec<String>,
 }
 
@@ -1288,10 +1291,14 @@ impl FirmwareConfig {
         if self.firmware_directory.to_string_lossy() != "" {
             self.merge_firmware_configs(&mut map, &self.firmware_directory);
         }
-        // Fake configs to merge for unit tests
-        for ovrd in &self.test_overrides {
-            if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
-                tracing::error!("Bad override {ovrd}: {err}");
+
+        #[cfg(test)]
+        {
+            // Fake configs to merge for unit tests
+            for ovrd in &self.test_overrides {
+                if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
+                    tracing::error!("Bad override {ovrd}: {err}");
+                }
             }
         }
 
@@ -1388,7 +1395,8 @@ impl FirmwareConfig {
         Ok(())
     }
 
-    pub fn add_test_override(&mut self, ovrd: String) {
+    #[cfg(test)]
+    pub(crate) fn add_test_override(&mut self, ovrd: String) {
         self.test_overrides.push(ovrd);
     }
 }

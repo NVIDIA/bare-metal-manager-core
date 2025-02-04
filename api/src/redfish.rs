@@ -12,34 +12,14 @@
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use chrono::Utc;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
-    TestCredentialProvider,
 };
 use libredfish::{
-    model::{
-        secure_boot::SecureBootMode,
-        sensor::GPUSensors,
-        service_root::ServiceRoot,
-        storage::Drives,
-        task::Task,
-        update_service::{ComponentType, TransferProtocolType, UpdateService},
-        BootProgress, ODataId, ODataLinks,
-    },
-    Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
-    RedfishError, Resource, SystemPowerControl,
+    model::BootProgress, EnabledDisabled, Endpoint, Redfish, RedfishError, SystemPowerControl,
 };
-use mac_address::MacAddress;
 use std::net::IpAddr;
-use std::{
-    collections::HashMap,
-    path::Path,
-    str::FromStr,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-use tokio::time;
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 use utils::HostPortPair;
 
 use crate::{
@@ -55,20 +35,12 @@ pub enum RedfishClientCreationError {
     MissingCredentials { key: String, cause: eyre::Report },
     #[error("Failed redfish request {0}")]
     RedfishError(RedfishError),
-    #[error("Failed subtask to create redfish client  {0}")]
-    SubtaskError(tokio::task::JoinError),
-    #[error("Not implemeted")]
-    NotImplemented,
     #[error("Invalid Header {0}")]
     InvalidHeader(String),
-    #[error("Failed setting credential {key}: {cause}")]
-    SetCredentials { key: String, cause: eyre::Report },
     #[error("Missing Arguments: {0}")]
     MissingArgument(String),
     #[error("Missing BMC Information: {0}")]
     MissingBmcEndpoint(String),
-    #[error("Invalid Argument: {0}: {1}")]
-    InvalidArgument(String, String),
     #[error("Database Error Loading Machine Interface")]
     MachineInterfaceLoadError(#[from] crate::db::DatabaseError),
 }
@@ -407,764 +379,6 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-#[derive(Default)]
-struct RedfishSimState {
-    _hosts: HashMap<String, RedfishSimHostState>,
-    users: HashMap<String, String>,
-    fw_version: Arc<String>,
-}
-
-#[derive(Debug, Default)]
-struct RedfishSimHostState {
-    power: PowerState,
-}
-
-#[derive(Default)]
-pub struct RedfishSim {
-    state: Arc<Mutex<RedfishSimState>>,
-}
-
-struct RedfishSimClient {
-    state: Arc<Mutex<RedfishSimState>>,
-    _host: String,
-    _port: Option<u16>,
-}
-
-#[async_trait]
-impl Redfish for RedfishSimClient {
-    async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
-        Ok(self.state.clone().lock().unwrap()._hosts[&self._host].power)
-    }
-
-    async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
-        todo!()
-    }
-
-    async fn power(&self, action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
-        let power_state = match action {
-            libredfish::SystemPowerControl::ForceOff
-            | libredfish::SystemPowerControl::GracefulShutdown => PowerState::Off,
-            _ => PowerState::On,
-        };
-        self.state
-            .clone()
-            .lock()
-            .unwrap()
-            ._hosts
-            .get_mut(&self._host)
-            .unwrap()
-            .power = power_state;
-        Ok(())
-    }
-
-    async fn bmc_reset(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn get_thermal_metrics(
-        &self,
-    ) -> Result<libredfish::model::thermal::Thermal, RedfishError> {
-        todo!()
-    }
-
-    async fn machine_setup(&self, _boot_interface_mac: Option<&str>) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn machine_setup_status(&self) -> Result<libredfish::MachineSetupStatus, RedfishError> {
-        Ok(libredfish::MachineSetupStatus {
-            is_done: true,
-            diffs: vec![],
-        })
-    }
-
-    async fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
-        Ok(libredfish::Status::build_fake(
-            libredfish::EnabledDisabled::Disabled,
-        ))
-    }
-
-    async fn setup_serial_console(&self) -> Result<(), RedfishError> {
-        todo!()
-    }
-
-    async fn serial_console_status(&self) -> Result<libredfish::Status, RedfishError> {
-        todo!()
-    }
-
-    async fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
-        todo!()
-    }
-
-    async fn get_boot_option(
-        &self,
-        _option_id: &str,
-    ) -> Result<libredfish::model::BootOption, RedfishError> {
-        todo!()
-    }
-
-    async fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn boot_first(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
-        todo!()
-    }
-
-    async fn clear_tpm(&self) -> Result<(), RedfishError> {
-        todo!()
-    }
-
-    async fn bios(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
-        todo!()
-    }
-
-    async fn pending(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
-        todo!()
-    }
-
-    async fn clear_pending(&self) -> Result<(), RedfishError> {
-        todo!()
-    }
-
-    async fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
-        todo!()
-    }
-
-    async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {
-        let s_user = user.to_string();
-        let mut state = self.state.lock().unwrap();
-        if !state.users.contains_key(&s_user) {
-            return Err(RedfishError::UserNotFound(s_user));
-        }
-        state.users.insert(s_user, new.to_string());
-        Ok(())
-    }
-
-    async fn change_password_by_id(
-        &self,
-        account_id: &str,
-        new_pass: &str,
-    ) -> Result<(), RedfishError> {
-        let s_acct = account_id.to_string();
-        let mut state = self.state.lock().unwrap();
-        if !state.users.contains_key(&s_acct) {
-            return Err(RedfishError::UserNotFound(s_acct));
-        }
-        state.users.insert(s_acct, new_pass.to_string());
-        Ok(())
-    }
-
-    async fn get_firmware(
-        &self,
-        _id: &str,
-    ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
-        let state = self.state.lock().unwrap();
-        Ok(serde_json::from_str(
-            "{
-            \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware\",
-            \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
-            \"Description\": \"BMC image\",
-            \"Id\": \"BMC_Firmware\",
-            \"Name\": \"Software Inventory\",
-            \"Updateable\": true,
-            \"Version\": \"BF-FW-VERSION\",
-            \"WriteProtected\": false
-          }"
-            .replace("FW-VERSION", state.fw_version.as_str())
-            .as_str(),
-        )
-        .unwrap())
-    }
-
-    async fn update_firmware(
-        &self,
-        _firmware: tokio::fs::File,
-    ) -> Result<libredfish::model::task::Task, RedfishError> {
-        let mut state = self.state.lock().unwrap();
-        state.fw_version = Arc::new("23.10".to_string());
-        Ok(serde_json::from_str(
-            "{
-            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
-            \"@odata.type\": \"#Task.v1_4_3.Task\",
-            \"Id\": \"0\"
-            }",
-        )
-        .unwrap())
-    }
-
-    async fn update_firmware_simple_update(
-        &self,
-        _image_uri: &str,
-        _targets: Vec<String>,
-        _transfer_protocol: TransferProtocolType,
-    ) -> Result<libredfish::model::task::Task, RedfishError> {
-        Ok(serde_json::from_str(
-            "{
-            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
-            \"@odata.type\": \"#Task.v1_4_3.Task\",
-            \"Id\": \"0\"
-            }",
-        )
-        .unwrap())
-    }
-
-    async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
-        Ok(serde_json::from_str(
-            "{
-            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
-            \"@odata.type\": \"#Task.v1_4_3.Task\",
-            \"Id\": \"0\",
-            \"PercentComplete\": 100,
-            \"StartTime\": \"2024-01-30T09:00:52+00:00\",
-            \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
-            \"TaskState\": \"Completed\",
-            \"TaskStatus\": \"OK\"
-            }",
-        )
-        .unwrap())
-    }
-
-    async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
-        Ok(vec![
-            "Bluefield_BMC".to_string(),
-            "Bluefield_EROT".to_string(),
-            "Card1".to_string(),
-        ])
-    }
-
-    async fn get_chassis(&self, _id: &str) -> Result<Chassis, RedfishError> {
-        Ok(Chassis {
-            manufacturer: Some("Nvidia".to_string()),
-            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
-            name: Some("Card1".to_string()),
-            ..Default::default()
-        })
-    }
-
-    async fn get_chassis_network_adapters(
-        &self,
-        _chassis_id: &str,
-    ) -> Result<Vec<String>, RedfishError> {
-        Ok(vec!["NvidiaNetworkAdapter".to_string()])
-    }
-
-    async fn get_chassis_network_adapter(
-        &self,
-        _chassis_id: &str,
-        _id: &str,
-    ) -> Result<libredfish::model::chassis::NetworkAdapter, RedfishError> {
-        Ok(serde_json::from_str(
-            r##"
-            {
-                "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter",
-                "@odata.type": "#NetworkAdapter.v1_9_0.NetworkAdapter",
-                "Id": "NetworkAdapter",
-                "Manufacturer": "Nvidia",
-                "Name": "NvidiaNetworkAdapter",
-                "NetworkDeviceFunctions": {
-                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions"
-                },
-                "Ports": {
-                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Ports"
-                }
-              }
-            "##)
-        .unwrap())
-    }
-
-    async fn get_manager_ethernet_interfaces(
-        &self,
-    ) -> Result<Vec<std::string::String>, RedfishError> {
-        Ok(vec!["eth0".to_string(), "vlan4040".to_string()])
-    }
-
-    async fn get_manager_ethernet_interface(
-        &self,
-        _id: &str,
-    ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
-        Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
-    }
-
-    async fn get_system_ethernet_interfaces(
-        &self,
-    ) -> Result<Vec<std::string::String>, RedfishError> {
-        Ok(vec!["oob_net0".to_string()])
-    }
-
-    async fn get_system_ethernet_interface(
-        &self,
-        _id: &str,
-    ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
-        Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
-    }
-
-    async fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
-        Ok(vec![
-            "BMC_Firmware".to_string(),
-            "Bluefield_FW_ERoT".to_string(),
-        ])
-    }
-
-    async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
-        Ok(libredfish::model::ComputerSystem {
-            id: "Bluefield".to_string(),
-            boot_progress: Some(libredfish::model::BootProgress {
-                last_state: Some(libredfish::model::BootProgressTypes::OSRunning),
-                last_state_time: Some(Utc::now().to_string()),
-                oem_last_state: Some("OSRunning".to_string()),
-            }),
-            ..Default::default()
-        })
-    }
-
-    async fn get_secure_boot(
-        &self,
-    ) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
-        Ok(libredfish::model::secure_boot::SecureBoot {
-            odata: ODataLinks {
-                odata_context: None,
-                odata_id: "/redfish/v1/Systems/Bluefield/SecureBoot".to_string(),
-                odata_type: "#SecureBoot.v1_1_0.SecureBoot".to_string(),
-                odata_etag: None,
-                links: None,
-            },
-            id: "SecureBoot".to_string(),
-            name: "UEFI Secure Boot".to_string(),
-            secure_boot_current_boot: Some(EnabledDisabled::Disabled),
-            secure_boot_enable: Some(false),
-            secure_boot_mode: Some(SecureBootMode::UserMode),
-        })
-    }
-
-    async fn disable_secure_boot(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn get_network_device_functions(
-        &self,
-        _chassis_id: &str,
-    ) -> Result<Vec<std::string::String>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_network_device_function(
-        &self,
-        _chassis_id: &str,
-        _id: &str,
-        _port: Option<&str>,
-    ) -> Result<libredfish::model::network_device_function::NetworkDeviceFunction, RedfishError>
-    {
-        Ok(
-            libredfish::model::network_device_function::NetworkDeviceFunction {
-                odata: None,
-                description: None,
-                id: None,
-                ethernet: None,
-                name: None,
-                net_dev_func_capabilities: Some(Vec::new()),
-                net_dev_func_type: None,
-                links: None,
-                oem: None,
-            },
-        )
-    }
-
-    async fn get_ports(
-        &self,
-        _chassis_id: &str,
-        _network_adapter: &str,
-    ) -> Result<Vec<std::string::String>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_port(
-        &self,
-        _chassis_id: &str,
-        _network_adapter: &str,
-        _id: &str,
-    ) -> Result<libredfish::model::port::NetworkPort, RedfishError> {
-        Ok(libredfish::model::port::NetworkPort {
-            odata: None,
-            description: None,
-            id: None,
-            name: None,
-            link_status: None,
-            link_network_technology: None,
-            current_speed_gbps: None,
-        })
-    }
-
-    async fn change_uefi_password(
-        &self,
-        _current_uefi_password: &str,
-        _new_uefi_password: &str,
-    ) -> Result<Option<String>, RedfishError> {
-        Ok(None)
-    }
-
-    async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn create_user(
-        &self,
-        username: &str,
-        password: &str,
-        _role_id: libredfish::RoleId,
-    ) -> Result<(), RedfishError> {
-        let mut state = self.state.lock().unwrap();
-        if state.users.contains_key(username) {
-            return Err(RedfishError::HTTPErrorCode {
-                url: "AccountService/Accounts".to_string(),
-                status_code: http::StatusCode::BAD_REQUEST,
-                response_body: format!(
-                    r##"{{
-                "UserName@Message.ExtendedInfo": [
-                  {{
-                    "@odata.type": "#Message.v1_1_1.Message",
-                    "Message": "The requested resource of type ManagerAccount with the property UserName with the value {username} already exists.",
-                    "MessageArgs": [
-                      "ManagerAccount",
-                      "UserName",
-                      "{username}"
-                    ],
-                    "MessageId": "Base.1.15.0.ResourceAlreadyExists",
-                    "MessageSeverity": "Critical",
-                    "Resolution": "Do not repeat the create operation as the resource has already been created."
-                  }}
-                ]
-              }}"##
-                ),
-            });
-        }
-
-        state
-            .users
-            .insert(username.to_string(), password.to_string());
-        Ok(())
-    }
-
-    async fn get_service_root(
-        &self,
-    ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
-        Ok(ServiceRoot {
-            vendor: Some("Nvidia".to_string()),
-            ..Default::default()
-        })
-    }
-
-    async fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
-        Ok(serde_json::from_str(
-            r##"{
-            "@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
-            "@odata.type": "#Manager.v1_14_0.Manager",
-            "Actions": {
-              "#Manager.Reset": {
-                "@Redfish.ActionInfo": "/redfish/v1/Managers/Bluefield_BMC/ResetActionInfo",
-                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.Reset"
-              },
-              "#Manager.ResetToDefaults": {
-                "ResetType@Redfish.AllowableValues": [
-                  "ResetAll"
-                ],
-                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.ResetToDefaults"
-              }
-            },
-            "CommandShell": {
-              "ConnectTypesSupported": [
-                "SSH"
-              ],
-              "MaxConcurrentSessions": 1,
-              "ServiceEnabled": true
-            },
-            "DateTime": "2024-04-09T11:13:49+00:00",
-            "DateTimeLocalOffset": "+00:00",
-            "Description": "Baseboard Management Controller",
-            "EthernetInterfaces": {
-              "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/EthernetInterfaces"
-            },
-            "FirmwareVersion": "bf-23.10-5-0-g87a8acd1708.1701259870.8631477",
-            "GraphicalConsole": {
-              "ConnectTypesSupported": [
-                "KVMIP"
-              ],
-              "MaxConcurrentSessions": 4,
-              "ServiceEnabled": true
-            },
-            "Id": "Bluefield_BMC",
-            "LastResetTime": "2024-04-01T13:04:04+00:00",
-            "LogServices": {
-                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/LogServices"
-              },
-              "ManagerType": "BMC",
-              "Model": "OpenBmc",
-              "Name": "OpenBmc Manager",
-              "NetworkProtocol": {
-                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol"
-              },
-              "Oem": {
-                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem",
-                "@odata.type": "#OemManager.Oem",
-                "Nvidia": {
-                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
-                },
-                "OpenBmc": {
-                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/OpenBmc",
-                  "@odata.type": "#OemManager.OpenBmc",
-                  "Certificates": {
-                    "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
-                  }
-                }
-              },
-              "PowerState": "On",
-              "SerialConsole": {
-                "ConnectTypesSupported": [
-                  "IPMI",
-                  "SSH"
-                ],
-                "MaxConcurrentSessions": 15,
-                "ServiceEnabled": true
-              },
-              "ServiceEntryPointUUID": "a614e837-6b4a-4560-8c22-c6ed1b96c7c9",
-              "Status": {
-                "Conditions": [],
-                "Health": "OK",
-                "HealthRollup": "OK",
-                "State": "Starting"
-              },
-              "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"
-        }"##,
-        )
-        .unwrap())
-    }
-
-    async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn get_system_event_log(
-        &self,
-    ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
-        Ok(Vec::new())
-    }
-
-    async fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
-        Ok(Task {
-            odata: ODataLinks {
-                odata_context: None,
-                odata_id: "odata_id".to_string(),
-                odata_type: "odata_type".to_string(),
-                odata_etag: None,
-                links: None,
-            },
-            id: "".to_string(),
-            messages: Vec::new(),
-            name: None,
-            task_state: None,
-            task_status: None,
-            task_monitor: None,
-            percent_complete: None,
-        })
-    }
-
-    async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn change_username(&self, _old_name: &str, _new_name: &str) -> Result<(), RedfishError> {
-        Ok(())
-    }
-    async fn get_accounts(
-        &self,
-    ) -> Result<Vec<libredfish::model::account_service::ManagerAccount>, RedfishError> {
-        todo!()
-    }
-    async fn set_machine_password_policy(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-    async fn update_firmware_multipart(
-        &self,
-        _filename: &Path,
-        _reboot: bool,
-        _timeout: Duration,
-        _component_type: ComponentType,
-    ) -> Result<String, RedfishError> {
-        // Simulate it taking a bit of time to upload
-        time::sleep(Duration::from_secs(4)).await;
-        Ok("0".to_string())
-    }
-
-    async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
-        Ok(JobState::Unknown)
-    }
-
-    async fn get_collection(&self, _id: ODataId) -> Result<Collection, RedfishError> {
-        Ok(Collection {
-            url: String::new(),
-            body: HashMap::new(),
-        })
-    }
-
-    async fn get_resource(&self, _id: ODataId) -> Result<Resource, RedfishError> {
-        Ok(Resource {
-            url: String::new(),
-            raw: Default::default(),
-        })
-    }
-
-    async fn set_boot_order_dpu_first(
-        &self,
-        _mac_address: Option<&str>,
-    ) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn clear_uefi_password(
-        &self,
-        _current_uefi_password: &str,
-    ) -> Result<Option<String>, RedfishError> {
-        Ok(None)
-    }
-
-    async fn get_base_network_adapters(
-        &self,
-        _system_id: &str,
-    ) -> Result<Vec<String>, RedfishError> {
-        Ok(vec![])
-    }
-
-    async fn get_base_network_adapter(
-        &self,
-        _system_id: &str,
-        _id: &str,
-    ) -> Result<NetworkAdapter, RedfishError> {
-        todo!();
-    }
-
-    async fn chassis_reset(
-        &self,
-        _chassis_id: &str,
-        _reset_type: SystemPowerControl,
-    ) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn get_update_service(&self) -> Result<UpdateService, RedfishError> {
-        todo!();
-    }
-
-    async fn get_base_mac_address(&self) -> Result<Option<String>, RedfishError> {
-        Ok(Some("a088c208804c".to_string()))
-    }
-
-    async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn get_gpu_sensors(&self) -> Result<Vec<GPUSensors>, RedfishError> {
-        todo!();
-    }
-
-    async fn get_drives_metrics(&self) -> Result<Vec<Drives>, RedfishError> {
-        todo!();
-    }
-
-    async fn is_ipmi_over_lan_enabled(&self) -> Result<bool, RedfishError> {
-        Ok(false)
-    }
-
-    async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn enable_rshim_bmc(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-
-    async fn clear_nvram(&self) -> Result<(), RedfishError> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl RedfishClientPool for RedfishSim {
-    async fn create_client(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        _auth: RedfishAuth,
-        _initialize: bool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        {
-            self.state
-                .clone()
-                .lock()
-                .unwrap()
-                ._hosts
-                .entry(host.to_string())
-                .or_insert(RedfishSimHostState {
-                    power: PowerState::On,
-                });
-            if self.state.clone().lock().unwrap().fw_version.is_empty() {
-                self.state.clone().lock().unwrap().fw_version = Arc::new("23.07".to_string());
-            }
-        }
-        Ok(Box::new(RedfishSimClient {
-            state: self.state.clone(),
-            _host: host.to_string(),
-            _port: port,
-        }))
-    }
-
-    fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
-        Arc::new(TestCredentialProvider::default())
-    }
-
-    async fn create_client_for_ingested_host(
-        &self,
-        _ip: IpAddr,
-        _port: Option<u16>,
-        _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client(
-            "fake",
-            Some(443),
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: MacAddress::default(),
-                },
-            }),
-            true,
-        )
-        .await
-    }
-
-    async fn uefi_setup(
-        &self,
-        _client: &dyn Redfish,
-        _dpu: bool,
-    ) -> Result<Option<String>, RedfishClientCreationError> {
-        Ok(None)
-    }
-}
-
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
@@ -1435,8 +649,803 @@ pub async fn redfish_browse(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod test_support {
     use super::*;
+    use libredfish::{
+        model::{
+            secure_boot::SecureBootMode,
+            sensor::GPUSensors,
+            service_root::ServiceRoot,
+            storage::Drives,
+            task::Task,
+            update_service::{ComponentType, TransferProtocolType, UpdateService},
+            ODataId, ODataLinks,
+        },
+        Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
+        RedfishError, Resource, SystemPowerControl,
+    };
+    use mac_address::MacAddress;
+    use std::path::Path;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use {chrono::Utc, forge_secrets::credentials::TestCredentialProvider};
+
+    #[derive(Default)]
+    struct RedfishSimState {
+        _hosts: HashMap<String, RedfishSimHostState>,
+        users: HashMap<String, String>,
+        fw_version: Arc<String>,
+    }
+
+    #[derive(Debug, Default)]
+    struct RedfishSimHostState {
+        power: PowerState,
+    }
+
+    #[derive(Default)]
+    pub struct RedfishSim {
+        state: Arc<Mutex<RedfishSimState>>,
+    }
+
+    struct RedfishSimClient {
+        state: Arc<Mutex<RedfishSimState>>,
+        _host: String,
+        _port: Option<u16>,
+    }
+
+    #[async_trait]
+    impl Redfish for RedfishSimClient {
+        async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
+            Ok(self.state.clone().lock().unwrap()._hosts[&self._host].power)
+        }
+
+        async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
+            todo!()
+        }
+
+        async fn power(&self, action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
+            let power_state = match action {
+                libredfish::SystemPowerControl::ForceOff
+                | libredfish::SystemPowerControl::GracefulShutdown => PowerState::Off,
+                _ => PowerState::On,
+            };
+            self.state
+                .clone()
+                .lock()
+                .unwrap()
+                ._hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .power = power_state;
+            Ok(())
+        }
+
+        async fn bmc_reset(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_thermal_metrics(
+            &self,
+        ) -> Result<libredfish::model::thermal::Thermal, RedfishError> {
+            todo!()
+        }
+
+        async fn machine_setup(
+            &self,
+            _boot_interface_mac: Option<&str>,
+        ) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn machine_setup_status(
+            &self,
+        ) -> Result<libredfish::MachineSetupStatus, RedfishError> {
+            Ok(libredfish::MachineSetupStatus {
+                is_done: true,
+                diffs: vec![],
+            })
+        }
+
+        async fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
+            Ok(libredfish::Status::build_fake(
+                libredfish::EnabledDisabled::Disabled,
+            ))
+        }
+
+        async fn setup_serial_console(&self) -> Result<(), RedfishError> {
+            todo!()
+        }
+
+        async fn serial_console_status(&self) -> Result<libredfish::Status, RedfishError> {
+            todo!()
+        }
+
+        async fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
+            todo!()
+        }
+
+        async fn get_boot_option(
+            &self,
+            _option_id: &str,
+        ) -> Result<libredfish::model::BootOption, RedfishError> {
+            todo!()
+        }
+
+        async fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn boot_first(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
+            todo!()
+        }
+
+        async fn clear_tpm(&self) -> Result<(), RedfishError> {
+            todo!()
+        }
+
+        async fn bios(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
+            todo!()
+        }
+
+        async fn pending(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
+            todo!()
+        }
+
+        async fn clear_pending(&self) -> Result<(), RedfishError> {
+            todo!()
+        }
+
+        async fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
+            todo!()
+        }
+
+        async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {
+            let s_user = user.to_string();
+            let mut state = self.state.lock().unwrap();
+            if !state.users.contains_key(&s_user) {
+                return Err(RedfishError::UserNotFound(s_user));
+            }
+            state.users.insert(s_user, new.to_string());
+            Ok(())
+        }
+
+        async fn change_password_by_id(
+            &self,
+            account_id: &str,
+            new_pass: &str,
+        ) -> Result<(), RedfishError> {
+            let s_acct = account_id.to_string();
+            let mut state = self.state.lock().unwrap();
+            if !state.users.contains_key(&s_acct) {
+                return Err(RedfishError::UserNotFound(s_acct));
+            }
+            state.users.insert(s_acct, new_pass.to_string());
+            Ok(())
+        }
+
+        async fn get_firmware(
+            &self,
+            _id: &str,
+        ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError>
+        {
+            let state = self.state.lock().unwrap();
+            Ok(serde_json::from_str(
+                "{
+            \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware\",
+            \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
+            \"Description\": \"BMC image\",
+            \"Id\": \"BMC_Firmware\",
+            \"Name\": \"Software Inventory\",
+            \"Updateable\": true,
+            \"Version\": \"BF-FW-VERSION\",
+            \"WriteProtected\": false
+          }"
+                .replace("FW-VERSION", state.fw_version.as_str())
+                .as_str(),
+            )
+            .unwrap())
+        }
+
+        async fn update_firmware(
+            &self,
+            _firmware: tokio::fs::File,
+        ) -> Result<libredfish::model::task::Task, RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            state.fw_version = Arc::new("23.10".to_string());
+            Ok(serde_json::from_str(
+                "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\"
+            }",
+            )
+            .unwrap())
+        }
+
+        async fn update_firmware_simple_update(
+            &self,
+            _image_uri: &str,
+            _targets: Vec<String>,
+            _transfer_protocol: TransferProtocolType,
+        ) -> Result<libredfish::model::task::Task, RedfishError> {
+            Ok(serde_json::from_str(
+                "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\"
+            }",
+            )
+            .unwrap())
+        }
+
+        async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+            Ok(serde_json::from_str(
+                "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\",
+            \"PercentComplete\": 100,
+            \"StartTime\": \"2024-01-30T09:00:52+00:00\",
+            \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
+            \"TaskState\": \"Completed\",
+            \"TaskStatus\": \"OK\"
+            }",
+            )
+            .unwrap())
+        }
+
+        async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
+            Ok(vec![
+                "Bluefield_BMC".to_string(),
+                "Bluefield_EROT".to_string(),
+                "Card1".to_string(),
+            ])
+        }
+
+        async fn get_chassis(&self, _id: &str) -> Result<Chassis, RedfishError> {
+            Ok(Chassis {
+                manufacturer: Some("Nvidia".to_string()),
+                model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+                name: Some("Card1".to_string()),
+                ..Default::default()
+            })
+        }
+
+        async fn get_chassis_network_adapters(
+            &self,
+            _chassis_id: &str,
+        ) -> Result<Vec<String>, RedfishError> {
+            Ok(vec!["NvidiaNetworkAdapter".to_string()])
+        }
+
+        async fn get_chassis_network_adapter(
+            &self,
+            _chassis_id: &str,
+            _id: &str,
+        ) -> Result<libredfish::model::chassis::NetworkAdapter, RedfishError> {
+            Ok(serde_json::from_str(
+                r##"
+            {
+                "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter",
+                "@odata.type": "#NetworkAdapter.v1_9_0.NetworkAdapter",
+                "Id": "NetworkAdapter",
+                "Manufacturer": "Nvidia",
+                "Name": "NvidiaNetworkAdapter",
+                "NetworkDeviceFunctions": {
+                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions"
+                },
+                "Ports": {
+                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Ports"
+                }
+              }
+            "##)
+                .unwrap())
+        }
+
+        async fn get_manager_ethernet_interfaces(
+            &self,
+        ) -> Result<Vec<std::string::String>, RedfishError> {
+            Ok(vec!["eth0".to_string(), "vlan4040".to_string()])
+        }
+
+        async fn get_manager_ethernet_interface(
+            &self,
+            _id: &str,
+        ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError>
+        {
+            Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
+        }
+
+        async fn get_system_ethernet_interfaces(
+            &self,
+        ) -> Result<Vec<std::string::String>, RedfishError> {
+            Ok(vec!["oob_net0".to_string()])
+        }
+
+        async fn get_system_ethernet_interface(
+            &self,
+            _id: &str,
+        ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError>
+        {
+            Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
+        }
+
+        async fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
+            Ok(vec![
+                "BMC_Firmware".to_string(),
+                "Bluefield_FW_ERoT".to_string(),
+            ])
+        }
+
+        async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
+            Ok(libredfish::model::ComputerSystem {
+                id: "Bluefield".to_string(),
+                boot_progress: Some(libredfish::model::BootProgress {
+                    last_state: Some(libredfish::model::BootProgressTypes::OSRunning),
+                    last_state_time: Some(Utc::now().to_string()),
+                    oem_last_state: Some("OSRunning".to_string()),
+                }),
+                ..Default::default()
+            })
+        }
+
+        async fn get_secure_boot(
+            &self,
+        ) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
+            Ok(libredfish::model::secure_boot::SecureBoot {
+                odata: ODataLinks {
+                    odata_context: None,
+                    odata_id: "/redfish/v1/Systems/Bluefield/SecureBoot".to_string(),
+                    odata_type: "#SecureBoot.v1_1_0.SecureBoot".to_string(),
+                    odata_etag: None,
+                    links: None,
+                },
+                id: "SecureBoot".to_string(),
+                name: "UEFI Secure Boot".to_string(),
+                secure_boot_current_boot: Some(EnabledDisabled::Disabled),
+                secure_boot_enable: Some(false),
+                secure_boot_mode: Some(SecureBootMode::UserMode),
+            })
+        }
+
+        async fn disable_secure_boot(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_network_device_functions(
+            &self,
+            _chassis_id: &str,
+        ) -> Result<Vec<std::string::String>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_network_device_function(
+            &self,
+            _chassis_id: &str,
+            _id: &str,
+            _port: Option<&str>,
+        ) -> Result<libredfish::model::network_device_function::NetworkDeviceFunction, RedfishError>
+        {
+            Ok(
+                libredfish::model::network_device_function::NetworkDeviceFunction {
+                    odata: None,
+                    description: None,
+                    id: None,
+                    ethernet: None,
+                    name: None,
+                    net_dev_func_capabilities: Some(Vec::new()),
+                    net_dev_func_type: None,
+                    links: None,
+                    oem: None,
+                },
+            )
+        }
+
+        async fn get_ports(
+            &self,
+            _chassis_id: &str,
+            _network_adapter: &str,
+        ) -> Result<Vec<std::string::String>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_port(
+            &self,
+            _chassis_id: &str,
+            _network_adapter: &str,
+            _id: &str,
+        ) -> Result<libredfish::model::port::NetworkPort, RedfishError> {
+            Ok(libredfish::model::port::NetworkPort {
+                odata: None,
+                description: None,
+                id: None,
+                name: None,
+                link_status: None,
+                link_network_technology: None,
+                current_speed_gbps: None,
+            })
+        }
+
+        async fn change_uefi_password(
+            &self,
+            _current_uefi_password: &str,
+            _new_uefi_password: &str,
+        ) -> Result<Option<String>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn create_user(
+            &self,
+            username: &str,
+            password: &str,
+            _role_id: libredfish::RoleId,
+        ) -> Result<(), RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            if state.users.contains_key(username) {
+                return Err(RedfishError::HTTPErrorCode {
+                    url: "AccountService/Accounts".to_string(),
+                    status_code: http::StatusCode::BAD_REQUEST,
+                    response_body: format!(
+                        r##"{{
+                "UserName@Message.ExtendedInfo": [
+                  {{
+                    "@odata.type": "#Message.v1_1_1.Message",
+                    "Message": "The requested resource of type ManagerAccount with the property UserName with the value {username} already exists.",
+                    "MessageArgs": [
+                      "ManagerAccount",
+                      "UserName",
+                      "{username}"
+                    ],
+                    "MessageId": "Base.1.15.0.ResourceAlreadyExists",
+                    "MessageSeverity": "Critical",
+                    "Resolution": "Do not repeat the create operation as the resource has already been created."
+                  }}
+                ]
+              }}"##
+                    ),
+                });
+            }
+
+            state
+                .users
+                .insert(username.to_string(), password.to_string());
+            Ok(())
+        }
+
+        async fn get_service_root(
+            &self,
+        ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
+            Ok(ServiceRoot {
+                vendor: Some("Nvidia".to_string()),
+                ..Default::default()
+            })
+        }
+
+        async fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
+            Ok(serde_json::from_str(
+                r##"{
+            "@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
+            "@odata.type": "#Manager.v1_14_0.Manager",
+            "Actions": {
+              "#Manager.Reset": {
+                "@Redfish.ActionInfo": "/redfish/v1/Managers/Bluefield_BMC/ResetActionInfo",
+                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.Reset"
+              },
+              "#Manager.ResetToDefaults": {
+                "ResetType@Redfish.AllowableValues": [
+                  "ResetAll"
+                ],
+                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.ResetToDefaults"
+              }
+            },
+            "CommandShell": {
+              "ConnectTypesSupported": [
+                "SSH"
+              ],
+              "MaxConcurrentSessions": 1,
+              "ServiceEnabled": true
+            },
+            "DateTime": "2024-04-09T11:13:49+00:00",
+            "DateTimeLocalOffset": "+00:00",
+            "Description": "Baseboard Management Controller",
+            "EthernetInterfaces": {
+              "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/EthernetInterfaces"
+            },
+            "FirmwareVersion": "bf-23.10-5-0-g87a8acd1708.1701259870.8631477",
+            "GraphicalConsole": {
+              "ConnectTypesSupported": [
+                "KVMIP"
+              ],
+              "MaxConcurrentSessions": 4,
+              "ServiceEnabled": true
+            },
+            "Id": "Bluefield_BMC",
+            "LastResetTime": "2024-04-01T13:04:04+00:00",
+            "LogServices": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/LogServices"
+              },
+              "ManagerType": "BMC",
+              "Model": "OpenBmc",
+              "Name": "OpenBmc Manager",
+              "NetworkProtocol": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol"
+              },
+              "Oem": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem",
+                "@odata.type": "#OemManager.Oem",
+                "Nvidia": {
+                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
+                },
+                "OpenBmc": {
+                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/OpenBmc",
+                  "@odata.type": "#OemManager.OpenBmc",
+                  "Certificates": {
+                    "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
+                  }
+                }
+              },
+              "PowerState": "On",
+              "SerialConsole": {
+                "ConnectTypesSupported": [
+                  "IPMI",
+                  "SSH"
+                ],
+                "MaxConcurrentSessions": 15,
+                "ServiceEnabled": true
+              },
+              "ServiceEntryPointUUID": "a614e837-6b4a-4560-8c22-c6ed1b96c7c9",
+              "Status": {
+                "Conditions": [],
+                "Health": "OK",
+                "HealthRollup": "OK",
+                "State": "Starting"
+              },
+              "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"
+        }"##,
+            )
+            .unwrap())
+        }
+
+        async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_system_event_log(
+            &self,
+        ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
+            Ok(Vec::new())
+        }
+
+        async fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
+            Ok(Task {
+                odata: ODataLinks {
+                    odata_context: None,
+                    odata_id: "odata_id".to_string(),
+                    odata_type: "odata_type".to_string(),
+                    odata_etag: None,
+                    links: None,
+                },
+                id: "".to_string(),
+                messages: Vec::new(),
+                name: None,
+                task_state: None,
+                task_status: None,
+                task_monitor: None,
+                percent_complete: None,
+            })
+        }
+
+        async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn change_username(
+            &self,
+            _old_name: &str,
+            _new_name: &str,
+        ) -> Result<(), RedfishError> {
+            Ok(())
+        }
+        async fn get_accounts(
+            &self,
+        ) -> Result<Vec<libredfish::model::account_service::ManagerAccount>, RedfishError> {
+            todo!()
+        }
+        async fn set_machine_password_policy(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+        async fn update_firmware_multipart(
+            &self,
+            _filename: &Path,
+            _reboot: bool,
+            _timeout: Duration,
+            _component_type: ComponentType,
+        ) -> Result<String, RedfishError> {
+            // Simulate it taking a bit of time to upload
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            Ok("0".to_string())
+        }
+
+        async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
+            Ok(JobState::Unknown)
+        }
+
+        async fn get_collection(&self, _id: ODataId) -> Result<Collection, RedfishError> {
+            Ok(Collection {
+                url: String::new(),
+                body: HashMap::new(),
+            })
+        }
+
+        async fn get_resource(&self, _id: ODataId) -> Result<Resource, RedfishError> {
+            Ok(Resource {
+                url: String::new(),
+                raw: Default::default(),
+            })
+        }
+
+        async fn set_boot_order_dpu_first(
+            &self,
+            _mac_address: Option<&str>,
+        ) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn clear_uefi_password(
+            &self,
+            _current_uefi_password: &str,
+        ) -> Result<Option<String>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn get_base_network_adapters(
+            &self,
+            _system_id: &str,
+        ) -> Result<Vec<String>, RedfishError> {
+            Ok(vec![])
+        }
+
+        async fn get_base_network_adapter(
+            &self,
+            _system_id: &str,
+            _id: &str,
+        ) -> Result<NetworkAdapter, RedfishError> {
+            todo!();
+        }
+
+        async fn chassis_reset(
+            &self,
+            _chassis_id: &str,
+            _reset_type: SystemPowerControl,
+        ) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_update_service(&self) -> Result<UpdateService, RedfishError> {
+            todo!();
+        }
+
+        async fn get_base_mac_address(&self) -> Result<Option<String>, RedfishError> {
+            Ok(Some("a088c208804c".to_string()))
+        }
+
+        async fn lockdown_bmc(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_gpu_sensors(&self) -> Result<Vec<GPUSensors>, RedfishError> {
+            todo!();
+        }
+
+        async fn get_drives_metrics(&self) -> Result<Vec<Drives>, RedfishError> {
+            todo!();
+        }
+
+        async fn is_ipmi_over_lan_enabled(&self) -> Result<bool, RedfishError> {
+            Ok(false)
+        }
+
+        async fn enable_ipmi_over_lan(&self, _target: EnabledDisabled) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn enable_rshim_bmc(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn clear_nvram(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl RedfishClientPool for RedfishSim {
+        async fn create_client(
+            &self,
+            host: &str,
+            port: Option<u16>,
+            _auth: RedfishAuth,
+            _initialize: bool,
+        ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+            {
+                self.state
+                    .clone()
+                    .lock()
+                    .unwrap()
+                    ._hosts
+                    .entry(host.to_string())
+                    .or_insert(RedfishSimHostState {
+                        power: PowerState::On,
+                    });
+                if self.state.clone().lock().unwrap().fw_version.is_empty() {
+                    self.state.clone().lock().unwrap().fw_version = Arc::new("23.07".to_string());
+                }
+            }
+            Ok(Box::new(RedfishSimClient {
+                state: self.state.clone(),
+                _host: host.to_string(),
+                _port: port,
+            }))
+        }
+
+        fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
+            Arc::new(TestCredentialProvider::default())
+        }
+
+        async fn create_client_for_ingested_host(
+            &self,
+            _ip: IpAddr,
+            _port: Option<u16>,
+            _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+            self.create_client(
+                "fake",
+                Some(443),
+                RedfishAuth::Key(CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: MacAddress::default(),
+                    },
+                }),
+                true,
+            )
+            .await
+        }
+
+        async fn uefi_setup(
+            &self,
+            _client: &dyn Redfish,
+            _dpu: bool,
+        ) -> Result<Option<String>, RedfishClientCreationError> {
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::*;
+    use super::*;
+    use libredfish::PowerState;
 
     #[tokio::test]
     async fn test_power_state() {

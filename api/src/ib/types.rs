@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::CarbideError;
 
-pub const IBNETWORK_DEFAULT_MEMBERSHIP: IBPortMembership = IBPortMembership::Full;
-pub const IBNETWORK_DEFAULT_INDEX0: bool = true;
+// Not implemented yet
+// pub const IBNETWORK_DEFAULT_MEMBERSHIP: IBPortMembership = IBPortMembership::Full;
+// pub const IBNETWORK_DEFAULT_INDEX0: bool = true;
 
 #[derive(Clone, Debug)]
 pub struct IBNetwork {
@@ -23,23 +24,26 @@ pub struct IBNetwork {
     pub name: String,
     /// The pkey of IB network.
     pub pkey: u16,
-    /// Default false; create sharp allocation accordingly.
-    pub enable_sharp: bool,
     /// Default 2k; one of 2k or 4k; the MTU of the services.
     pub mtu: IBMtu,
     /// Default false
     pub ipoib: bool,
     /// Default is None, value can be range from 0-15.
     pub service_level: IBServiceLevel,
-    /// The default membership of IB network.
-    pub membership: IBPortMembership,
-    /// The default index0 of IB network.
-    pub index0: bool,
     /// Supported values: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
     /// 2 is also valid but is used internally to represent rate limit 2.5 that is possible in UFM for lagecy hardware.
     /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
     /// 2 to 2.5 and back conversion is done just on REST API operations.
     pub rate_limit: IBRateLimit,
+    // Not implemented yet:
+    // --
+    // /// Default false; create sharp allocation accordingly.
+    // pub enable_sharp: bool,
+    // /// The default membership of IB network.
+    // pub membership: IBPortMembership,
+    // /// The default index0 of IB network.
+    // pub index0: bool,
+    // --
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -50,11 +54,12 @@ pub enum IBPortState {
     Armed,
 }
 
-#[derive(Clone, Debug)]
-pub enum IBPortMembership {
-    Full,
-    Limited,
-}
+// Not implemented yet
+// #[derive(Clone, Debug)]
+// pub(crate) enum IBPortMembership {
+//     Full,
+//     Limited,
+// }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IBPort {

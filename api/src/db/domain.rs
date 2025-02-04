@@ -160,6 +160,7 @@ fn test_domain_metadata() {
 }
 
 impl DomainMetadata {
+    #[cfg(test)]
     pub fn update_allow_axfr_from(&mut self, axfr_list: Vec<String>) {
         self.allow_axfr_from = axfr_list
     }
@@ -370,35 +371,6 @@ impl Domain {
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
-    pub fn new(name: &str) -> Domain {
-        Self {
-            id: DomainId::from(uuid::Uuid::new_v4()),
-            name: name.to_string(),
-            soa: Some(Soa::new(name)),
-            metadata: Some(DomainMetadata::default()),
-            created: Utc::now(),
-            updated: Utc::now(),
-            deleted: None,
-        }
-    }
-
-    /// Create a new Domain object in database
-    ///
-    /// Arguments:
-    /// * `txn` - A reference to a currently open database transaction
-    /// * `name` - The name of the Domain. e.g. mydomain.com
-    ///
-    pub async fn create(&self, txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
-        let soa = Soa::new(&self.name);
-        let query = "INSERT INTO domains (name, soa) VALUES ($1, $2) RETURNING name";
-        sqlx::query_as(query)
-            .bind(&self.name)
-            .bind(sqlx::types::Json(&soa))
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
         name: &str,
@@ -448,28 +420,9 @@ impl Domain {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
+    #[cfg(test)]
     pub fn id(&self) -> &DomainId {
         &self.id
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn created(&self) -> chrono::DateTime<Utc> {
-        self.created
-    }
-
-    pub fn updated(&self) -> chrono::DateTime<Utc> {
-        self.updated
-    }
-
-    pub fn soa(self) -> Option<Soa> {
-        self.soa
-    }
-
-    pub fn metadata(self) -> Option<DomainMetadata> {
-        self.metadata
     }
 }
 

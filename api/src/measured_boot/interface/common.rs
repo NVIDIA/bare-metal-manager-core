@@ -17,7 +17,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
 use std::vec::Vec;
@@ -61,21 +60,6 @@ pub fn filter_machine_discovery_attrs(
         })
         .collect();
     Ok(filtered)
-}
-
-// PcrRange is a small struct used when parsing
-// --pcr-register values from the CLI as part of
-// the parse_pcr_index_input function.
-#[derive(Clone, Debug)]
-pub struct PcrRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl fmt::Display for PcrRange {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}-{}", self.start, self.end)
-    }
 }
 
 /// generate_name generates a unique name for the purpose

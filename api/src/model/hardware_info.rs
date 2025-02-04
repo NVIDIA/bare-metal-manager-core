@@ -712,24 +712,12 @@ impl HardwareInfo {
         }
     }
 
-    pub fn model(&self) -> Option<String> {
-        self.dmi_data
-            .as_ref()
-            .map(|dmi_info| dmi_info.product_name.clone())
-    }
-
     pub fn all_mac_addresses(&self) -> Vec<MacAddress> {
         self.network_interfaces
             .iter()
             .map(|i| i.mac_address)
             .collect()
     }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DpuAgentInventoryReport {
-    pub machine_id: String,
-    pub inventory: MachineInventory,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]

@@ -19,7 +19,6 @@ use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
-    ColumnInfo,
 };
 use super::{network_segment, DatabaseError, ObjectColumnFilter};
 
@@ -45,20 +44,12 @@ pub struct InstanceAddress {
     // pub prefix: IpNetwork, // unused
 }
 
-#[derive(Copy, Clone)]
-pub struct InstanceIdColumn;
-impl ColumnInfo<'_> for crate::db::instance_address::InstanceIdColumn {
-    type TableType = InstanceAddress;
-    type ColumnType = InstanceId;
-
-    fn column_name(&self) -> &'static str {
-        "instance_id"
-    }
-}
-
+#[cfg(test)]
 #[derive(Copy, Clone)]
 pub struct PrefixColumn;
-impl ColumnInfo<'_> for PrefixColumn {
+
+#[cfg(test)]
+impl super::ColumnInfo<'_> for PrefixColumn {
     type TableType = InstanceAddress;
     type ColumnType = IpNetwork;
 

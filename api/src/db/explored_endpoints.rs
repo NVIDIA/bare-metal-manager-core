@@ -295,21 +295,6 @@ WHERE address = $3 AND version=$4";
         Ok(())
     }
 
-    /// clear_waiting_for_explorer_refresh is never used in the actual code, only for unit tests.
-    pub async fn clear_waiting_for_explorer_refresh(
-        address: IpAddr,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET waiting_for_explorer_refresh = false WHERE address = $1";
-        sqlx::query(query)
-            .bind(address)
-            .execute(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
-    }
-
     async fn set_preingestion(
         address: IpAddr,
         state: PreingestionState,

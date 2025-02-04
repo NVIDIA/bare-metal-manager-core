@@ -111,7 +111,6 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);
-    assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
     assert!(machine.hardware_info.as_ref().is_some());
     assert_eq!(
@@ -659,7 +658,6 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);
-    assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
     assert!(machine.hardware_info.as_ref().is_some());
     assert_eq!(
