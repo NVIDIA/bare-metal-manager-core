@@ -280,6 +280,7 @@ pub async fn setup_and_run(
         service_addrs,
         close_sender,
         network_monitor_handle,
+        interface_state: None,
     };
 
     main_loop.run().await
@@ -310,6 +311,7 @@ struct MainLoop {
     service_addrs: ServiceAddresses,
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
+    interface_state: Option<ethernet_virtualization::InterfaceState>,
 }
 
 struct IterationResult {
@@ -614,18 +616,25 @@ impl MainLoop {
                         }
                     }
 
-                    // In case of secondary DPU, physical interface must be disabled.
-                    // TODO:  multidpu: This logic has to be improved to support instance handling where physical
-                    // interface should be enabled on secondary DPU also.
-                    if let Err(err) = ethernet_virtualization::update_interface_state(
+                    // In case of secondary DPU, physical interface must be disabled if on admin
+                    // network, else enabled.
+                    match ethernet_virtualization::update_interface_state(
                         &conf,
                         self.agent_config.hbn.skip_reload,
-                        self.hbn_device_names.clone(),
+                        &self.hbn_device_names,
+                        &self.interface_state,
                     )
                     .await
                     {
-                        tracing::error!(error = format!("{err:#}"), "Updating interface state.");
-                        // no need to mark anything fail. It is just a temporary fix.
+                        Ok(new_state) => {
+                            self.interface_state = new_state;
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                error = format!("{err:#}"),
+                                "Updating interface state."
+                            );
+                        }
                     };
                 }
 

@@ -16,6 +16,7 @@ use std::fs::File;
 use std::io::Read;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, fs, io, net::Ipv4Addr};
 
@@ -45,6 +46,71 @@ struct EthernetVirtualizerPaths {
     frr: FPath,
     daemons: FPath,
     acl_rules: FPath,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum InterfaceState {
+    Up,
+    Down,
+}
+
+impl FromStr for InterfaceState {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains("DOWN") {
+            return Ok(InterfaceState::Down);
+        }
+        Ok(InterfaceState::Up)
+    }
+
+    type Err = eyre::Report;
+}
+
+impl InterfaceState {
+    pub fn command(&self, hbn_device_names: &HBNDeviceNames) -> String {
+        if InterfaceState::Up == *self {
+            format!("ifup {}", hbn_device_names.reps[0])
+        } else {
+            format!("ifdown {}", hbn_device_names.reps[0])
+        }
+    }
+
+    pub async fn update_state(
+        needed_state: &Self,
+        hbn_device_names: &HBNDeviceNames,
+        current_state: &Option<InterfaceState>,
+    ) -> eyre::Result<Option<InterfaceState>> {
+        let current_state = if let Some(current_state) = current_state {
+            current_state
+        } else {
+            // Let's try to find out.
+            &get_interface_state(hbn_device_names).await?
+        };
+
+        if current_state != needed_state {
+            // Execute command only if interface state is changed.
+            let cmd = needed_state.command(hbn_device_names);
+            tracing::info!(
+                "Updating interface state from {:?} to {:?} with command: {}",
+                current_state,
+                needed_state,
+                cmd
+            );
+            hbn::run_in_container_shell(&cmd).await?;
+
+            // Let's check if interface state is updated or not.
+            let new_state = get_interface_state(hbn_device_names).await?;
+            if &new_state != needed_state {
+                return Err(eyre::eyre!(
+                    r#"State is not updated after command execution. Will try in next iteration. 
+                Needed {needed_state:?}, After updating {new_state:?}, Interface: {}"#,
+                    hbn_device_names.reps[0]
+                ));
+            }
+        }
+
+        // Return new state.
+        Ok(Some(needed_state.clone()))
+    }
 }
 
 impl EthernetVirtualizerPaths {
@@ -412,56 +478,56 @@ async fn do_post(
     Ok(has_changes)
 }
 
-fn get_interface_cmd(
+async fn get_interface_state(hbn_device_names: &HBNDeviceNames) -> eyre::Result<InterfaceState> {
+    let cmd = format!("ip link show {}", hbn_device_names.reps[0]);
+    let output = hbn::run_in_container(
+        &hbn::get_hbn_container_id().await?,
+        &["bash", "-c", &cmd],
+        true,
+    )
+    .await?;
+
+    InterfaceState::from_str(&output)
+}
+
+fn needed_interface_state(
     is_primary_dpu: bool,
     use_admin_network: bool,
     multidpu_enabled: bool,
-    hbn_device_names: HBNDeviceNames,
-) -> String {
+) -> InterfaceState {
     // Interface is always UP on primary DPU.
     if is_primary_dpu {
-        return format!("ifup {}", hbn_device_names.reps[0]);
+        return InterfaceState::Up;
     }
 
     // In case feature is not enabled, always disable the interface.
     if !multidpu_enabled {
-        return format!("ifdown {}", hbn_device_names.reps[0]);
+        return InterfaceState::Down;
     }
 
-    // If secondary, feature is enabled and on tenant network, enable the interface.
+    // If secondary DPU, feature is enabled and on tenant network, enable the interface.
     if !use_admin_network {
-        return format!("ifup {}", hbn_device_names.reps[0]);
+        return InterfaceState::Up;
     }
 
-    // If secondary, feature is enabled and on admin network, disable the interface.
-    format!("ifdown {}", hbn_device_names.reps[0])
+    // If secondary DPU, feature is enabled and on admin network, disable the interface.
+    InterfaceState::Down
 }
 
 pub async fn update_interface_state(
     nc: &ManagedHostNetworkConfigResponse,
     skip_reload: bool,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    let cmd = get_interface_cmd(
-        nc.is_primary_dpu,
-        nc.use_admin_network,
-        nc.multidpu_enabled,
-        hbn_device_names.clone(),
-    );
-    if !skip_reload {
-        return match hbn::run_in_container_shell(&cmd).await {
-            Ok(_) => {
-                tracing::trace!("{cmd} is executed successfully.");
-                Ok(true)
-            }
-            Err(err) => {
-                tracing::error!("{cmd} execution failed with error: {err}");
-                Err(err)
-            }
-        };
+    hbn_device_names: &HBNDeviceNames,
+    current_state: &Option<InterfaceState>,
+) -> eyre::Result<Option<InterfaceState>> {
+    if skip_reload {
+        return Ok(current_state.clone());
     }
 
-    Ok(false)
+    let needed_state =
+        needed_interface_state(nc.is_primary_dpu, nc.use_admin_network, nc.multidpu_enabled);
+
+    InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1370,7 +1436,9 @@ mod tests {
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
-    use crate::ethernet_virtualization::{get_interface_cmd, ServiceAddresses};
+    use crate::ethernet_virtualization::{
+        needed_interface_state, InterfaceState, ServiceAddresses,
+    };
     use crate::{nvue, HBNDeviceNames};
     use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
     use ipnetwork::IpNetwork;
@@ -2125,51 +2193,48 @@ mod tests {
     #[test]
     fn test_cmd_return_val() {
         // Primary dpu admin network multidpu enabled
-        assert_eq!(
-            get_interface_cmd(true, true, true, HBNDeviceNames::hbn_23()),
-            "ifup pf0hpf_if"
-        );
+        assert_eq!(needed_interface_state(true, true, true), InterfaceState::Up);
 
         // Primary dpu tenant network multidpu enabled
         assert_eq!(
-            get_interface_cmd(true, false, true, HBNDeviceNames::hbn_23()),
-            "ifup pf0hpf_if"
+            needed_interface_state(true, false, true),
+            InterfaceState::Up
         );
 
         // Primary dpu admin network multidpu disabled
         assert_eq!(
-            get_interface_cmd(true, true, false, HBNDeviceNames::hbn_23()),
-            "ifup pf0hpf_if"
+            needed_interface_state(true, true, false),
+            InterfaceState::Up
         );
 
         // Primary dpu tenant network multidpu disabled
         assert_eq!(
-            get_interface_cmd(true, false, false, HBNDeviceNames::hbn_23()),
-            "ifup pf0hpf_if"
+            needed_interface_state(true, false, false),
+            InterfaceState::Up
         );
 
         // Secondary dpu admin network multidpu enabled
         assert_eq!(
-            get_interface_cmd(false, true, true, HBNDeviceNames::hbn_23()),
-            "ifdown pf0hpf_if"
+            needed_interface_state(false, true, true),
+            InterfaceState::Down
         );
 
         // Secondary dpu tenant network multidpu enabled
         assert_eq!(
-            get_interface_cmd(false, false, true, HBNDeviceNames::hbn_23()),
-            "ifup pf0hpf_if"
+            needed_interface_state(false, false, true),
+            InterfaceState::Up
         );
 
         // Secondary dpu admin network multidpu disabled
         assert_eq!(
-            get_interface_cmd(false, true, false, HBNDeviceNames::hbn_23()),
-            "ifdown pf0hpf_if"
+            needed_interface_state(false, true, false),
+            InterfaceState::Down
         );
 
         // Secondary dpu tenant network multidpu disabled
         assert_eq!(
-            get_interface_cmd(false, false, false, HBNDeviceNames::hbn_23()),
-            "ifdown pf0hpf_if"
+            needed_interface_state(false, false, false),
+            InterfaceState::Down
         );
     }
 }
