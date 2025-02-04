@@ -9,12 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
-use crate::db::instance::{self, DeleteInstance, FindInstanceTypeFilter, Instance};
+use crate::db::instance::{DeleteInstance, Instance};
 use crate::db::managed_host::LoadSnapshotOptions;
-use crate::db::{DatabaseError, ObjectColumnFilter};
+use crate::db::DatabaseError;
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
@@ -156,29 +155,24 @@ pub(crate) async fn find(
     })?;
 
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
-    let instance_snapshots = match (id, label) {
+    let instance_ids = match (id, label) {
         (Some(id), None) => {
-            let mut binding = None;
-            let id_filter = match InstanceId::try_from(id) {
-                Ok(uuid) => ObjectColumnFilter::One(instance::IdColumn, binding.insert(uuid)),
-                Err(_err) => {
-                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
-                }
-            };
-            Instance::find(&mut txn, FindInstanceTypeFilter::Id(id_filter))
-                .await
-                .map_err(CarbideError::from)
+            vec![InstanceId::try_from(id)
+                .map_err(|_| CarbideError::InvalidArgument("id".to_string()))?]
         }
-        (None, None) => Instance::find(
+        (None, None) => Instance::find_ids(&mut txn, Default::default())
+            .await
+            .map_err(CarbideError::from)?,
+
+        (None, Some(label)) => Instance::find_ids(
             &mut txn,
-            FindInstanceTypeFilter::Id(ObjectColumnFilter::All),
+            rpc::InstanceSearchFilter {
+                label: Some(label),
+                ..Default::default()
+            },
         )
         .await
-        .map_err(CarbideError::from),
-
-        (None, Some(label)) => Instance::find(&mut txn, FindInstanceTypeFilter::Label(&label))
-            .await
-            .map_err(CarbideError::from),
+        .map_err(CarbideError::from)?,
 
         (Some(_id), Some(_label)) => {
             return Err(CarbideError::InvalidArgument(
@@ -186,21 +180,22 @@ pub(crate) async fn find(
             )
             .into());
         }
-    }?;
+    };
 
-    let snapshots = db::managed_host::load_by_instance_snapshots(
+    let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
-        instance_snapshots,
+        &instance_ids,
         LoadSnapshotOptions::default()
             .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
     )
     .await
     .map_err(CarbideError::from)?;
-    let mut instances = Vec::with_capacity(snapshots.len());
-    for snapshot in snapshots.into_iter() {
-        instances.push(snapshot_to_instance(snapshot)?);
-    }
-    let _ = txn.rollback().await;
+
+    // Convert snapshots to instances via [`snapshot_to_instance`]
+    let instances = snapshots
+        .into_iter()
+        .map(snapshot_to_instance)
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Response::new(rpc::InstanceList { instances }))
 }

@@ -12,7 +12,6 @@
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
-use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use crate::{
@@ -54,10 +53,11 @@ impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory 
 ///
 /// * `txn` - A reference to an open Transaction
 ///
+#[cfg(test)] // only used in tests
 pub async fn find_by_machine_ids(
     txn: &mut Transaction<'_, Postgres>,
     ids: &[MachineId],
-) -> Result<HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
+) -> Result<std::collections::HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
     let query = "SELECT machine_id, state::TEXT, state_version, timestamp
         FROM machine_state_history
         WHERE machine_id=ANY($1)
@@ -69,7 +69,7 @@ pub async fn find_by_machine_ids(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-    let mut histories = HashMap::new();
+    let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
         let events: &mut Vec<MachineStateHistory> = histories.entry(result.machine_id).or_default();
         events.push(MachineStateHistory {

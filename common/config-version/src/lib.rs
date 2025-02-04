@@ -196,6 +196,13 @@ pub enum ConfigVersionParseError {
     DateTime(i64, u32),
 }
 
+impl TryFrom<String> for ConfigVersion {
+    type Error = ConfigVersionParseError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        ConfigVersion::from_str(&value)
+    }
+}
+
 impl FromStr for ConfigVersion {
     type Err = ConfigVersionParseError;
 

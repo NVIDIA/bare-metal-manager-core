@@ -44,8 +44,8 @@ use config_version::ConfigVersion;
 use forge_uuid::{
     instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId, vpc::VpcId,
 };
+use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -78,95 +78,131 @@ pub struct DeleteInstance {
     pub instance_id: InstanceId,
 }
 
-pub enum FindInstanceTypeFilter<'a> {
-    Id(ObjectColumnFilter<'a, IdColumn>),
-    Label(&'a rpc::Label),
+/// This represents the structure of an instance we get from postgres via the row_to_json or
+/// JSONB_AGG functions. Its fields need to match the column names of the instances table exactly.
+/// It's expected that we read this directly from the JSON returned by the query, and then
+/// convert it into an InstanceSnapshot.
+#[derive(Serialize, Deserialize)]
+pub struct InstanceSnapshotPgJson {
+    id: InstanceId,
+    machine_id: MachineId,
+    name: String,
+    description: String,
+    labels: HashMap<String, String>,
+    network_config: InstanceNetworkConfig,
+    network_config_version: String,
+    ib_config: InstanceInfinibandConfig,
+    ib_config_version: String,
+    storage_config: InstanceStorageConfig,
+    storage_config_version: String,
+    config_version: String,
+    network_status_observation: Option<InstanceNetworkStatusObservation>,
+    storage_status_observation: Option<InstanceStorageStatusObservation>,
+    phone_home_last_contact: Option<DateTime<Utc>>,
+    use_custom_pxe_on_boot: bool,
+    tenant_org: Option<String>,
+    keyset_ids: Vec<String>,
+    hostname: Option<String>,
+    os_user_data: Option<String>,
+    os_ipxe_script: String,
+    os_always_boot_with_ipxe: bool,
+    os_phone_home_enabled: bool,
+    os_image_id: Option<uuid::Uuid>,
+    instance_type_id: Option<InstanceTypeId>,
+    requested: DateTime<Utc>,
+    started: DateTime<Utc>,
+    finished: Option<DateTime<Utc>>,
+    deleted: Option<DateTime<Utc>>,
 }
 
 impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        /// This is wrapper to allow implementing FromRow on the Option
-        #[derive(serde::Deserialize)]
-        struct OptionalNetworkStatusObservation(Option<InstanceNetworkStatusObservation>);
-        #[derive(serde::Deserialize)]
-        struct OptionalStorageStatusObservation(Option<InstanceStorageStatusObservation>);
+        let json: serde_json::value::Value = row.try_get(0)?;
+        InstanceSnapshotPgJson::deserialize(json)
+            .map_err(|err| sqlx::Error::Decode(err.into()))?
+            .try_into()
+    }
+}
 
-        let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
-        let tenant_org = TenantOrganizationId::try_from(tenant_org_str)
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
+    type Error = sqlx::Error;
 
-        let os_user_data: Option<String> = row.try_get("os_user_data")?;
-        let os_ipxe_script: String = row.try_get("os_ipxe_script")?;
-        let os_always_boot_with_ipxe = row.try_get("os_always_boot_with_ipxe")?;
-        let os_phone_home_enabled = row.try_get("os_phone_home_enabled")?;
-        let os_image_id: Option<Uuid> = row.try_get("os_image_id")?;
+    fn try_from(value: InstanceSnapshotPgJson) -> Result<Self, Self::Error> {
+        let metadata = Metadata {
+            name: value.name,
+            description: value.description,
+            labels: value.labels,
+        };
+
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(value.tenant_org.unwrap_or_default())
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         let os = OperatingSystem {
-            variant: match os_image_id {
+            variant: match value.os_image_id {
                 Some(x) => OperatingSystemVariant::OsImage(x),
                 None => OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
-                    ipxe_script: os_ipxe_script,
+                    ipxe_script: value.os_ipxe_script,
                 }),
             },
-            run_provisioning_instructions_on_every_boot: os_always_boot_with_ipxe,
-            phone_home_enabled: os_phone_home_enabled,
-            user_data: os_user_data,
-        };
-
-        let tenant_config = TenantConfig {
-            tenant_organization_id: tenant_org,
-            tenant_keyset_ids: row.try_get("keyset_ids")?,
-            hostname: row.try_get("hostname")?,
-        };
-
-        let network_config: sqlx::types::Json<InstanceNetworkConfig> =
-            row.try_get("network_config")?;
-        let network_status_observation: sqlx::types::Json<OptionalNetworkStatusObservation> =
-            row.try_get("network_status_observation")?;
-
-        let ib_config: sqlx::types::Json<InstanceInfinibandConfig> = row.try_get("ib_config")?;
-
-        let storage_config: sqlx::types::Json<InstanceStorageConfig> =
-            row.try_get("storage_config")?;
-        let storage_status_observation: sqlx::types::Json<OptionalStorageStatusObservation> =
-            row.try_get("storage_status_observation")?;
-
-        let instance_labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
-
-        let metadata = Metadata {
-            name: row.try_get("name")?,
-            description: row.try_get("description")?,
-            labels: instance_labels.0,
+            run_provisioning_instructions_on_every_boot: value.os_always_boot_with_ipxe,
+            phone_home_enabled: value.os_phone_home_enabled,
+            user_data: value.os_user_data,
         };
 
         let config = InstanceConfig {
-            tenant: tenant_config,
+            tenant: TenantConfig {
+                tenant_organization_id,
+                tenant_keyset_ids: value.keyset_ids,
+                hostname: value.hostname,
+            },
             os,
-            network: network_config.0,
-            infiniband: ib_config.0,
-            storage: storage_config.0,
+            network: value.network_config,
+            infiniband: value.ib_config,
+            storage: value.storage_config,
         };
 
         Ok(InstanceSnapshot {
-            id: row.try_get("id")?,
-            machine_id: row.try_get("machine_id")?,
-            instance_type_id: row.try_get("instance_type_id")?,
-            use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
-            deleted: row.try_get("deleted")?,
-            config,
-            config_version: row.try_get("config_version")?,
-            network_config_version: row.try_get("network_config_version")?,
-            ib_config_version: row.try_get("ib_config_version")?,
-            storage_config_version: row.try_get("storage_config_version")?,
-            observations: InstanceStatusObservations {
-                network: network_status_observation.0 .0,
-                storage: storage_status_observation.0 .0,
-                phone_home_last_contact: row.try_get("phone_home_last_contact")?,
-            },
+            id: value.id,
+            machine_id: value.machine_id,
+            instance_type_id: value.instance_type_id,
             metadata,
+            config,
+            config_version: value.config_version.try_into().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            network_config_version: value.network_config_version.try_into().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "network_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            ib_config_version: value.ib_config_version.try_into().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "ib_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            storage_config_version: value.storage_config_version.try_into().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "storage_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            observations: InstanceStatusObservations {
+                network: value.network_status_observation,
+                storage: value.storage_status_observation,
+                phone_home_last_contact: value.phone_home_last_contact,
+            },
+            use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
+            deleted: value.deleted,
             // Unused as of today
-            // requested: row.try_get("requested")?,
-            // started: row.try_get("started")?,
-            // finished: row.try_get("finished")?,
+            // requested: value.requested,
+            // started: value.started,
+            // finished: value.finished,
         })
     }
 }
@@ -264,71 +300,22 @@ WHERE vpc_id = ",
 
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
-        filter: FindInstanceTypeFilter<'_>,
+        filter: ObjectColumnFilter<'_, IdColumn>,
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-        let all_instances: Vec<InstanceSnapshot> = match filter {
-            FindInstanceTypeFilter::Id(id) => {
-                let mut query = FilterableQueryBuilder::new("SELECT * FROM instances").filter(&id);
-                query
-                    .build_query_as()
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?
-            }
-
-            FindInstanceTypeFilter::Label(label) => match (label.key.is_empty(), &label.value) {
-                (true, Some(value)) => sqlx::query_as::<_, InstanceSnapshot>(
-                    "SELECT * FROM instances WHERE EXISTS (
-                        SELECT 1
-                        FROM jsonb_each_text(labels) AS kv
-                        WHERE kv.value = $1
-                    );",
-                )
-                .bind(value)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
-                (true, None) => {
-                    // TODO: This is really an invalid argument error - which we can't return from here
-                    // However the whole argument validation story should happen outside the scope of this method
-                    return Err(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "Instance::find",
-                        sqlx::Error::Protocol(
-                            "finding instances based on label needs either key or a value."
-                                .to_string(),
-                        ),
-                    ));
-                }
-
-                (false, None) => sqlx::query_as::<_, InstanceSnapshot>(
-                    "SELECT * FROM instances WHERE labels ->> $1 IS NOT NULL",
-                )
-                .bind(label.key.clone())
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
-
-                (false, Some(value)) => sqlx::query_as::<_, InstanceSnapshot>(
-                    "SELECT * FROM instances WHERE labels ->> $1 = $2",
-                )
-                .bind(label.key.clone())
-                .bind(value)
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
-            },
-        };
-
-        Ok(all_instances)
+        let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")
+            .filter_relation(&filter, Some("i"));
+        query
+            .build_query_as()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_by_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         id: InstanceId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-        let query = "SELECT * from instances WHERE id = $1";
+        let query = "SELECT row_to_json(i.*) from instances i WHERE id = $1";
         sqlx::query_as(query)
             .bind(id)
             .fetch_optional(txn.deref_mut())
@@ -352,7 +339,7 @@ WHERE vpc_id = ",
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-        let query = "SELECT * from instances WHERE machine_id = $1";
+        let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = $1";
         sqlx::query_as(query)
             .bind(machine_id.to_string())
             .fetch_optional(txn.deref_mut())
@@ -364,7 +351,7 @@ WHERE vpc_id = ",
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_ids: &[MachineId],
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-        let query = "SELECT * from instances WHERE machine_id = ANY($1)";
+        let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
         sqlx::query_as(query)
             .bind(machine_ids)
             .fetch_all(txn.deref_mut())
@@ -377,7 +364,7 @@ WHERE vpc_id = ",
         relay: IpAddr,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let query = "
-SELECT i.* from instances i
+SELECT row_to_json(i.*) from instances i
 INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
 INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
 WHERE s.network_config->>'loopback_ip'=$1";
@@ -792,7 +779,7 @@ impl<'a> NewInstance<'a> {
                             $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json,
                             m.instance_type_id
                     FROM machines m WHERE m.id=$23 AND ($24 IS NULL OR m.instance_type_id=$24) FOR UPDATE
-                    RETURNING *";
+                    RETURNING row_to_json(instances.*)";
         match sqlx::query_as(query)
             .bind(self.instance_id)
             .bind(self.machine_id.to_string())

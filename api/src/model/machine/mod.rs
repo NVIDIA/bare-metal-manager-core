@@ -9,20 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
-use health_override::HealthReportOverrides;
-use health_report::HealthReport;
-use libredfish::SystemPowerControl;
-use mac_address::MacAddress;
-use rpc::forge::HealthOverrideOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::net::{IpAddr, SocketAddr};
-use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
-
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
@@ -36,11 +22,20 @@ use crate::{
     state_controller::state_handler::StateHandlerError,
     CarbideError,
 };
+use ::rpc::errors::RpcDataConversionError;
+use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use forge_uuid::{
     domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
     machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
 };
-use rpc::errors::RpcDataConversionError;
+use libredfish::SystemPowerControl;
+use mac_address::MacAddress;
+use serde::{Deserialize, Serialize};
+use sqlx::{Column, Row};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 mod slas;
 
@@ -51,7 +46,13 @@ pub mod machine_id;
 pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
+use crate::db::instance::InstanceSnapshotPgJson;
+use crate::db::machine::MachineSnapshotPgJson;
 use crate::db::network_segment::NetworkSegmentType;
+use crate::model::machine::health_override::HealthReportOverrides;
+use health_report::HealthReport;
+use rpc::forge::HealthOverrideOrigin;
+use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
@@ -79,6 +80,48 @@ pub struct ManagedHostStateSnapshot {
     pub aggregate_health: health_report::HealthReport,
 }
 
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
+            row.try_get("host_snapshot")?;
+        let dpu_snapshots: sqlx::types::Json<Vec<MachineSnapshotPgJson>> =
+            row.try_get("dpu_snapshots")?;
+
+        let instance = if let Some(column) = row.columns().iter().find(|c| c.name() == "instance") {
+            let json: sqlx::types::Json<Option<InstanceSnapshotPgJson>> =
+                row.try_get(column.ordinal())?;
+            json.0.map(TryInto::try_into).transpose()?
+        } else {
+            None
+        };
+
+        let host_snapshot: Machine = host_snapshot.0.try_into()?;
+
+        let dpu_snapshots: Vec<Machine> = dpu_snapshots
+            .0
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // TODO: consider dropping this field from ManagedHostStateSnapshot
+        let managed_state = host_snapshot.state.value.clone();
+
+        let mut result = Self {
+            host_snapshot,
+            dpu_snapshots,
+            managed_state,
+            instance,
+            // This will need to be modified by callers, as its value depends on a
+            // HardwareHealthReportsConfig being specified.
+            aggregate_health: health_report::HealthReport::empty("".to_string()),
+        };
+
+        result.sort_dpu_snapshots()?;
+
+        Ok(result)
+    }
+}
+
 /// Reasons why a Machine is not allocatable
 #[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
 pub enum NotAllocatableReason {
@@ -102,6 +145,12 @@ pub enum ManagedHostStateSnapshotError {
 
     #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
     MissingPrimaryDpu(MachineId, MachineId),
+}
+
+impl From<ManagedHostStateSnapshotError> for sqlx::Error {
+    fn from(value: ManagedHostStateSnapshotError) -> Self {
+        Self::Decode(Box::new(value))
+    }
 }
 
 impl ManagedHostStateSnapshot {
@@ -326,27 +375,6 @@ impl ManagedHostStateSnapshot {
         };
 
         Ok(())
-    }
-
-    pub fn create(
-        host_snapshot: Machine,
-        dpu_snapshots: Vec<Machine>,
-        instance: Option<InstanceSnapshot>,
-        managed_state: ManagedHostState,
-        hardware_health: HardwareHealthReportsConfig,
-    ) -> Result<Self, ManagedHostStateSnapshotError> {
-        let mut snapshot = ManagedHostStateSnapshot {
-            host_snapshot,
-            dpu_snapshots,
-            instance,
-            managed_state,
-            aggregate_health: health_report::HealthReport::empty("".to_string()),
-        };
-
-        snapshot.sort_dpu_snapshots()?;
-        snapshot.derive_aggregate_health(hardware_health);
-
-        Ok(snapshot)
     }
 }
 
