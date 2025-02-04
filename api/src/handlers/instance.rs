@@ -491,7 +491,7 @@ pub(crate) async fn invoke_power(
             reprovision_handled = true;
 
             // This will trigger DPU reprovisioning/update via state machine.
-            db::machine::approve_dpu_reprovision_request(&dpu_snapshot.machine_id, &mut txn)
+            db::machine::approve_dpu_reprovision_request(&dpu_snapshot.id, &mut txn)
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
@@ -549,7 +549,7 @@ pub(crate) async fn invoke_power(
     // change the boot order which we set in `libredfish::forge_setup`.
     // We also can't call `boot_once` for other vendors because lockdown
     // prevents it.
-    if snapshot.host_snapshot.bmc_vendor.is_lenovo() {
+    if snapshot.host_snapshot.bmc_vendor().is_lenovo() {
         client
             .boot_once(libredfish::Boot::Pxe)
             .await
@@ -727,7 +727,7 @@ pub(crate) async fn update_instance_config(
 fn snapshot_to_instance(
     mh_snapshot: ManagedHostStateSnapshot,
 ) -> Result<rpc::Instance, CarbideError> {
-    let machine_id = mh_snapshot.host_snapshot.machine_id;
+    let machine_id = mh_snapshot.host_snapshot.id;
     Option::<rpc::Instance>::try_from(mh_snapshot)
         .map_err(CarbideError::from)?
         .ok_or_else(|| {

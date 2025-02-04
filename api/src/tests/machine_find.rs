@@ -550,9 +550,9 @@ async fn test_machine_capabilities_response(
         .await
         .unwrap();
 
-    // Convert the caps of the MachineSnapshot to the proto representation
+    // Convert the caps of the Machine to the proto representation
     // for later comparison.
-    let mut caps = mh.host_snapshot.capabilities.unwrap();
+    let mut caps = mh.host_snapshot.to_capabilities().unwrap();
 
     // Make sure we have at least _something_ in the capabilities.
     // CPU should be a safe one to rely on.  If we don't have CPUs,
@@ -567,7 +567,7 @@ async fn test_machine_capabilities_response(
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             include_history: false,
-            machine_ids: vec![mh.host_snapshot.machine_id.to_string().into()],
+            machine_ids: vec![mh.host_snapshot.id.to_string().into()],
         }))
         .await
         .unwrap()

@@ -1220,7 +1220,7 @@ async fn test_site_explorer_creates_managed_host(
     .unwrap();
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
@@ -1284,7 +1284,7 @@ async fn test_site_explorer_creates_managed_host(
         .unwrap();
     assert_eq!(
         host_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Initializing)]),
             },
@@ -1321,7 +1321,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Configuring)]),
             },
@@ -1338,7 +1338,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::EnableRshim,)]),
             },
@@ -1355,7 +1355,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
@@ -1380,7 +1380,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::SetUefiHttpBoot,)]),
             },
@@ -1396,7 +1396,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
+        &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::RebootAllDPUS)]),
             },
@@ -1413,7 +1413,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DPUInit {
+        &ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
@@ -1472,7 +1472,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         host_machine.current_state(),
-        ManagedHostState::DPUInit {
+        &ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
@@ -1694,10 +1694,10 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         },
     };
 
-    assert_eq!(host_machine.unwrap().current_state(), expected_state);
+    assert_eq!(host_machine.unwrap().current_state(), &expected_state);
 
     for dpu in &dpu_machines {
-        assert_eq!(dpu.current_state(), expected_state);
+        assert_eq!(dpu.current_state(), &expected_state);
     }
 
     let mut interfaces_map =

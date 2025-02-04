@@ -458,7 +458,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
     assert!(machine.hardware_info.as_ref().is_some());

@@ -44,7 +44,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
         return Ok(());
     }
 
-    let machine_id = &mh_snapshot.host_snapshot.machine_id;
+    let machine_id = &mh_snapshot.host_snapshot.id;
     let ib_hw_info = &mh_snapshot
         .host_snapshot
         .hardware_info

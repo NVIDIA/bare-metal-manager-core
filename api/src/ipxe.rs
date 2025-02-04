@@ -324,7 +324,7 @@ exit ||
                     )
                 }
 
-                _ => error_instructions(&machine.current_state()),
+                _ => error_instructions(machine.current_state()),
             },
             x => error_instructions(x),
         };

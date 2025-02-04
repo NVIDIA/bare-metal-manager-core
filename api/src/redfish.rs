@@ -45,7 +45,7 @@ use utils::HostPortPair;
 use crate::{
     db::{self},
     ipmitool::IPMITool,
-    model::machine::MachineSnapshot,
+    model::machine::Machine,
     CarbideError, CarbideResult,
 };
 
@@ -103,9 +103,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         false
     }
 
-    async fn create_client_from_machine_snapshot(
+    async fn create_client_from_machine(
         &self,
-        target: &MachineSnapshot,
+        target: &Machine,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let Some(addr) = target.bmc_addr() else {
@@ -113,13 +113,13 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 // test_integration relies on this because it doesn't use site_explorer and thus
                 // can't inform carbide of what the BMC address is for a host. It only runs one
                 // instance of bmc_mock so it can accept requests for any host.
-                tracing::info!("BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP", target.machine_id);
+                tracing::info!("BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP", target.id);
                 self.create_client("", None, RedfishAuth::Anonymous, true)
                     .await
             } else {
                 Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
                     "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                    target.machine_id,
+                    target.id,
                 )))
             };
         };
@@ -1170,19 +1170,19 @@ impl RedfishClientPool for RedfishSim {
 /// host_power_control allows control over the power of the host
 pub async fn host_power_control(
     redfish_client: &dyn Redfish,
-    machine_snapshot: &MachineSnapshot,
+    machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
     // Always log to ensure we can see that forge is doing the power controlling
     tracing::info!(
-        machine_id = machine_snapshot.machine_id.to_string(),
+        machine_id = machine.id.to_string(),
         action = action.to_string(),
         "Host Power Control"
     );
 
-    match machine_snapshot.bmc_vendor {
+    match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
             // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
             redfish_client
@@ -1230,9 +1230,9 @@ pub async fn host_power_control(
             // a redfish client and aren't going to use it, and constructing an IPMI requires duplicate
             // work that we did in the calling function.
             //
-            let machine_id = &machine_snapshot.machine_id;
+            let machine_id = &machine.id;
 
-            let maybe_ip = machine_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+            let maybe_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!("IP address is missing for {}", machine_id))
             })?;
 
@@ -1254,7 +1254,7 @@ pub async fn host_power_control(
             };
 
             ipmi_tool
-                .restart(&machine_snapshot.machine_id, ip, false, credential_key)
+                .restart(&machine.id, ip, false, credential_key)
                 .await
                 .map_err(|e: eyre::ErrReport| {
                     CarbideError::internal(format!("Failed to restart machine: {}", e))
@@ -1266,8 +1266,7 @@ pub async fn host_power_control(
             .map_err(CarbideError::RedfishError)?,
     }
 
-    db::machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into())
-        .await?;
+    db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
     Ok(())
 }
 

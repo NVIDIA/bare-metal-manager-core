@@ -431,7 +431,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_some());
+    assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
     // Now we want a tick of the state machine
@@ -444,7 +444,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .unwrap()
         .unwrap();
 
-    assert!(host.host_reprovisioning_requested.is_some());
+    assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -452,7 +452,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     else {
         panic!("Not in WaitingForFirmwareUpgrade");
     };
-    assert_eq!(firmware_type, FirmwareComponentType::Uefi);
+    assert_eq!(firmware_type, &FirmwareComponentType::Uefi);
     txn.commit().await.unwrap();
 
     // The faked Redfish task will immediately show as completed, but we won't proceed further because "site explorer" (ie us) has not re-reported the info.
@@ -530,7 +530,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .unwrap()
         .unwrap();
 
-    assert!(host.host_reprovisioning_requested.is_some());
+    assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -538,7 +538,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     else {
         panic!("Not in WaitingForFirmwareUpgrade");
     };
-    assert_eq!(firmware_type, FirmwareComponentType::Bmc);
+    assert_eq!(firmware_type, &FirmwareComponentType::Bmc);
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -607,7 +607,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
-    if reprovision_state != HostReprovisionState::CheckingFirmware {
+    if reprovision_state != &HostReprovisionState::CheckingFirmware {
         panic!("Not in checking");
     }
     txn.commit().await.unwrap();
@@ -637,7 +637,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_none()); // Should be cleared or we'd right back in
+    assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
     let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
@@ -695,7 +695,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_none());
+    assert!(host.host_reprovision_requested.is_none());
 
     // Now switch it to unspecified and it should get a request
     db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
@@ -707,7 +707,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_some());
+    assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
     Ok(())
@@ -729,7 +729,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_none());
+    assert!(host.host_reprovision_requested.is_none());
 
     // Now specifically enable it, and an update should be requested.
     db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
@@ -741,7 +741,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
         .await
         .unwrap()
         .unwrap();
-    assert!(host.host_reprovisioning_requested.is_some());
+    assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
     Ok(())

@@ -46,10 +46,9 @@ use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    capabilities::MachineCapabilitiesSet, CurrentMachineState, FailureDetails,
-    HostReprovisionRequest, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineSnapshot, MachineStateHistory, ManagedHostState,
-    ReprovisionRequest, UpgradeDecision,
+    FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineStateHistory,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
 use crate::resource_pool::common::CommonPools;
@@ -296,8 +295,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
-            reprovisioning_requested: reprovision_req.map(|x| x.0),
-            host_reprovisioning_requested: host_reprovision_req.map(|x| x.0),
+            reprovision_requested: reprovision_req.map(|x| x.0),
+            host_reprovision_requested: host_reprovision_req.map(|x| x.0),
             dpu_agent_health_report,
             hardware_health_report,
             log_parser_health_report,
@@ -320,58 +319,6 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             metadata,
             version: row.try_get("version")?,
         })
-    }
-}
-
-impl From<Machine> for MachineSnapshot {
-    fn from(machine: Machine) -> Self {
-        MachineSnapshot {
-            machine_id: machine.id,
-            bmc_vendor: machine.bmc_vendor(),
-            capabilities: machine
-                .hardware_info
-                .as_ref()
-                .map(|hw| MachineCapabilitiesSet::from(hw.to_owned())),
-            current: CurrentMachineState {
-                state: machine.current_state(),
-                version: machine.current_version(),
-                outcome: machine.controller_state_outcome,
-            },
-            bmc_info: machine.bmc_info,
-            hardware_info: machine.hardware_info,
-            agent_reported_inventory: machine.inventory.unwrap_or_default(),
-            network_config: machine.network_config,
-            interfaces: machine.interfaces,
-            network_status_observation: machine.network_status_observation,
-            infiniband_status_observation: machine.infiniband_status_observation,
-            last_discovery_time: machine.last_discovery_time,
-            last_reboot_time: machine.last_reboot_time,
-            last_cleanup_time: machine.last_cleanup_time,
-            maintenance_reference: machine.maintenance_reference,
-            maintenance_start_time: machine.maintenance_start_time,
-            failure_details: machine.failure_details,
-            reprovision_requested: machine.reprovisioning_requested,
-            last_reboot_requested: machine.last_reboot_requested,
-            bios_password_set_time: machine.bios_password_set_time,
-            last_machine_validation_time: machine.last_machine_validation_time,
-            discovery_machine_validation_id: machine.discovery_machine_validation_id,
-            cleanup_machine_validation_id: machine.cleanup_machine_validation_id,
-            on_demand_machine_validation_id: machine.on_demand_machine_validation_id,
-            on_demand_machine_validation_request: machine.on_demand_machine_validation_request,
-            host_reprovision_requested: machine.host_reprovisioning_requested,
-            dpu_agent_health_report: machine.dpu_agent_health_report,
-            site_explorer_health_report: machine.site_explorer_health_report,
-            firmware_autoupdate: machine.firmware_autoupdate,
-            hardware_health_report: machine.hardware_health_report,
-            log_parser_health_report: machine.log_parser_health_report,
-            machine_validation_health_report: machine.machine_validation_health_report,
-            history: machine.history,
-            health_report_overrides: machine.health_report_overrides,
-            instance_type_id: machine.instance_type_id,
-            asn: machine.asn,
-            metadata: machine.metadata,
-            version: machine.version,
-        }
     }
 }
 

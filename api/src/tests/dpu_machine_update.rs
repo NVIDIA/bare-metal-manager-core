@@ -290,7 +290,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()
-        .partition(|x| x.reprovisioning_requested.is_some());
+        .partition(|x| x.reprovision_requested.is_some());
     assert_eq!(dpu_under_reprov.len(), 1);
     assert_eq!(dpu_not_under_reprov.len(), 1);
     assert_eq!(dpu_under_reprov[0].id, dpu_machine_id);
@@ -359,7 +359,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()
-        .partition(|x| x.reprovisioning_requested.is_some());
+        .partition(|x| x.reprovision_requested.is_some());
     assert_eq!(dpu_under_reprov.len(), 2);
     assert_eq!(dpu_not_under_reprov.len(), 0);
     Ok(())

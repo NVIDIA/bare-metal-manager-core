@@ -95,9 +95,9 @@ impl StateControllerIO for MachineStateControllerIO {
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
-        let current = state.host_snapshot.current.clone();
+        let current = state.host_snapshot.state.clone();
 
-        Ok(Versioned::new(current.state, current.version))
+        Ok(Versioned::new(current.value, current.version))
     }
 
     async fn persist_controller_state(

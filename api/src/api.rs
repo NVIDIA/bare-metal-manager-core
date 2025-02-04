@@ -1672,7 +1672,7 @@ impl Forge for Api {
         // Respond based on machine current state
         let state = host_machine.current_state();
         let (action, action_data) = if is_dpu {
-            get_action_for_dpu_state(&state, &machine_id)?
+            get_action_for_dpu_state(state, &machine_id)?
         } else {
             match state {
                 ManagedHostState::HostInit {
@@ -1696,10 +1696,10 @@ impl Forge for Api {
                         completed,
                         total,
                     );
-                    if is_enabled {
+                    if *is_enabled {
                         MachineValidation::update_status(
                             &mut txn,
-                            &id,
+                            id,
                             MachineValidationStatus {
                                 state: MachineValidationState::InProgress,
                                 ..MachineValidationStatus::default()
@@ -1707,7 +1707,7 @@ impl Forge for Api {
                         )
                         .await?;
                         let machine_validation =
-                            MachineValidation::find_by_id(&mut txn, &id).await?;
+                            MachineValidation::find_by_id(&mut txn, id).await?;
                         (
                             Action::MachineValidation,
                             Some(
@@ -1715,7 +1715,7 @@ impl Forge for Api {
                                     pair: [
                                         KeyValuePair {
                                             key: "Context".to_string(),
-                                            value: context,
+                                            value: context.clone(),
                                         },
                                         KeyValuePair {
                                             key: "ValidationId".to_string(),
@@ -2447,7 +2447,7 @@ impl Forge for Api {
             }
             rpc::MaintenanceOperation::Disable => {
                 for dpu_machine in dpu_machines.iter() {
-                    if dpu_machine.reprovisioning_requested.is_some() {
+                    if dpu_machine.reprovision_requested.is_some() {
                         return Err(Status::invalid_argument(format!(
                             "Reprovisioning request is set on DPU: {}. Clear it first.",
                             &dpu_machine.id
@@ -2558,26 +2558,26 @@ impl Forge for Api {
                     }),
                     state: x.current_state().to_string(),
                     requested_at: x
-                        .reprovisioning_requested
+                        .reprovision_requested
                         .as_ref()
                         .map(|a| a.requested_at.into()),
                     initiator: x
-                        .reprovisioning_requested
+                        .reprovision_requested
                         .as_ref()
                         .map(|a| a.initiator.clone())
                         .unwrap_or_default(),
                     update_firmware: x
-                        .reprovisioning_requested
+                        .reprovision_requested
                         .as_ref()
                         .map(|a| a.update_firmware)
                         .unwrap_or_default(),
                     initiated_at: x
-                        .reprovisioning_requested
+                        .reprovision_requested
                         .as_ref()
                         .map(|a| a.started_at.map(|x| x.into()))
                         .unwrap_or_default(),
                     user_approval_received: x
-                        .reprovisioning_requested
+                        .reprovision_requested
                         .as_ref()
                         .map(|x| x.user_approval_received)
                         .unwrap_or_default(),
@@ -3016,7 +3016,7 @@ impl Forge for Api {
 
         let redfish_client = self
             .redfish_pool
-            .create_client_from_machine_snapshot(&snapshot.host_snapshot, &mut txn)
+            .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
             .await
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);
@@ -3081,7 +3081,7 @@ impl Forge for Api {
 
         let redfish_client = self
             .redfish_pool
-            .create_client_from_machine_snapshot(&snapshot.host_snapshot, &mut txn)
+            .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
             .await
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);

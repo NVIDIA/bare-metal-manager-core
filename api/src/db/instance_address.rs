@@ -29,7 +29,7 @@ use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
 };
-use crate::model::machine::MachineSnapshot;
+use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
@@ -183,7 +183,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         txn: &mut Transaction<'_, Postgres>,
         instance_id: InstanceId,
         mut updated_config: InstanceNetworkConfig,
-        machine_snapshot: &MachineSnapshot,
+        machine: &Machine,
     ) -> CarbideResult<InstanceNetworkConfig> {
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
         // We're potentially about to insert a couple rows, so create a savepoint.
@@ -279,7 +279,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
                 // For host-inband network segments, the instance interface *is* the host interface,
                 // and we simply use the hosts's address.
-                iface.assign_ips_from((machine_snapshot, &network_prefix))?
+                iface.assign_ips_from((machine, &network_prefix))?
             } else {
                 // Use the UsedOverlayNetworkIpResolver, which specifically looks at
                 // the instance addresses table in the database for finding
@@ -427,18 +427,18 @@ trait AssignIpsFrom<Source> {
     fn assign_ips_from(&mut self, source: Source) -> CarbideResult<Vec<IpNetwork>>;
 }
 
-impl AssignIpsFrom<(&MachineSnapshot, &NetworkPrefix)> for InstanceInterfaceConfig {
+impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
     // Zero-dpu config: For machines without DPUs, the machines's interface will be on an
     // HostInband network segment, which will be the same segment as the instance wants. In
     // this case, the host's interface *is* the instance interface, so we copy the config from it.
     fn assign_ips_from(
         &mut self,
-        source: (&MachineSnapshot, &NetworkPrefix),
+        source: (&Machine, &NetworkPrefix),
     ) -> CarbideResult<Vec<IpNetwork>> {
-        let (machine_snapshot, network_prefix) = source;
+        let (machine, network_prefix) = source;
 
         // Find which interface on the machine is in this prefix
-        let host_interfaces_in_instance_segment = machine_snapshot
+        let host_interfaces_in_instance_segment = machine
             .interfaces
             .iter()
             .filter(|i| {
@@ -471,7 +471,7 @@ impl AssignIpsFrom<(&MachineSnapshot, &NetworkPrefix)> for InstanceInterfaceConf
 
         if matching_addresses.len() > 1 {
             tracing::warn!(
-                machine_id = %machine_snapshot.machine_id,
+                machine_id = %machine.id,
                 prefix = %network_prefix.prefix,
                 "Multiple IP addresses on managed host in the same network prefix, picking the first one to assign to instance"
             )

@@ -20,10 +20,7 @@ use crate::api::{log_request_data, Api};
 use crate::db::{
     instance, instance_type, machine::MachineSearchConfig, DatabaseError, ObjectFilter,
 };
-use crate::model::{
-    instance_type::InstanceTypeMachineCapabilityFilter, machine::MachineSnapshot,
-    metadata::Metadata,
-};
+use crate::model::{instance_type::InstanceTypeMachineCapabilityFilter, metadata::Metadata};
 use crate::{db, CarbideError};
 
 pub(crate) async fn create(
@@ -555,20 +552,17 @@ pub(crate) async fn associate_machines(
     // Go through the requested machines and make sure they
     //actually meet the requirements of the instance type.
     for machine in machines {
-        let machine_id = machine.id.to_owned();
-        let snapshot = MachineSnapshot::from(machine);
-        let capabilities = snapshot
-            .capabilities
-            .as_ref()
+        let capabilities = machine
+            .to_capabilities()
             .ok_or(CarbideError::InvalidArgument(format!(
                 "capabilities of machine {} do not satisfy the requested InstanceType ({})",
-                machine_id, instance_type_id
+                machine.id, instance_type_id
             )))?;
 
-        if !instance_types[0].matches_capability_set(capabilities) {
+        if !instance_types[0].matches_capability_set(&capabilities) {
             return Err(CarbideError::InvalidArgument(format!(
                 "capabilities of machine {} do not satisfy the requested InstanceType ({})",
-                machine_id, instance_type_id
+                machine.id, instance_type_id
             ))
             .into());
         }

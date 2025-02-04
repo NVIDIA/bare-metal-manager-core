@@ -19,7 +19,7 @@ use std::{
 use crate::db::instance_address::InstanceAddress;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentType};
 use crate::errors::{CarbideError, CarbideResult};
-use crate::model::machine::MachineSnapshot;
+use crate::model::machine::Machine;
 use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::instance::InstanceId;
@@ -243,9 +243,9 @@ impl InstanceNetworkConfig {
         self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         instance_id: InstanceId,
-        machine_snapshot: &MachineSnapshot,
+        machine: &Machine,
     ) -> CarbideResult<InstanceNetworkConfig> {
-        InstanceAddress::allocate(txn, instance_id, self, machine_snapshot).await
+        InstanceAddress::allocate(txn, instance_id, self, machine).await
     }
 
     /// Find any host_inband segments on the given machine, and replicate them into this instance

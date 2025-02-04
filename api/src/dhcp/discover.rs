@@ -66,7 +66,7 @@ async fn validate_dhcp_request(
     };
 
     for dpu_snapshot in snapshot.dpu_snapshots {
-        let expected_remote_id = dpu_snapshot.machine_id.remote_id();
+        let expected_remote_id = dpu_snapshot.id.remote_id();
 
         if expected_remote_id == remote_id {
             return Ok(());
