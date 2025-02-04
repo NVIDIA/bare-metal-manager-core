@@ -70,7 +70,7 @@ async fn validate_all_machines(
     for machine in dpus {
         assert_eq!(
             machine.current_state(),
-            expected_state,
+            &expected_state,
             "Failed machine: {}",
             &machine.id
         );
@@ -422,14 +422,14 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
     assert!(host.is_ok());
     assert_eq!(
         host.unwrap().unwrap().current_state(),
-        ManagedHostState::Assigned {
+        &ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::SwitchToAdminNetwork,
         },
     );
 
     assert_eq!(
         dpus[0].current_state(),
-        ManagedHostState::Assigned {
+        &ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::SwitchToAdminNetwork,
         },
     );
@@ -532,14 +532,14 @@ async fn test_state_migration_6(pool: sqlx::PgPool) {
     assert!(host.is_ok());
     assert_eq!(
         host.unwrap().unwrap().current_state(),
-        ManagedHostState::WaitingForCleanup {
+        &ManagedHostState::WaitingForCleanup {
             cleanup_state: crate::model::machine::CleanupState::HostCleanup
         },
     );
 
     assert_eq!(
         dpus[0].current_state(),
-        ManagedHostState::WaitingForCleanup {
+        &ManagedHostState::WaitingForCleanup {
             cleanup_state: crate::model::machine::CleanupState::HostCleanup
         },
     );

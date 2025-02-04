@@ -55,10 +55,10 @@ use crate::db::network_segment::NetworkSegmentType;
 use forge_uuid::machine::MachineType;
 use strum_macros::EnumIter;
 
-pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
+pub fn get_display_ids(machines: &[Machine]) -> String {
     machines
         .iter()
-        .map(|x| x.machine_id.to_string())
+        .map(|x| x.id.to_string())
         .collect::<Vec<String>>()
         .join("/")
 }
@@ -70,8 +70,8 @@ fn default_true() -> bool {
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {
-    pub host_snapshot: MachineSnapshot,
-    pub dpu_snapshots: Vec<MachineSnapshot>,
+    pub host_snapshot: Machine,
+    pub dpu_snapshots: Vec<Machine>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// its state
     pub instance: Option<InstanceSnapshot>,
@@ -265,11 +265,11 @@ impl ManagedHostStateSnapshot {
                 let dpu_snapshot = self
                     .dpu_snapshots
                     .iter()
-                    .find(|dpu| dpu.machine_id == *dpu_machine_id)?;
+                    .find(|dpu| dpu.id == *dpu_machine_id)?;
                 let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
                 rpc_machine.associated_host_machine_id =
-                    Some(self.host_snapshot.machine_id.to_string().into());
+                    Some(self.host_snapshot.id.to_string().into());
                 Some(rpc_machine)
             }
         }
@@ -306,10 +306,10 @@ impl ManagedHostStateSnapshot {
             let index = self
                 .dpu_snapshots
                 .iter()
-                .position(|x| x.machine_id == primary_dpu_id)
+                .position(|x| x.id == primary_dpu_id)
                 .ok_or({
                     ManagedHostStateSnapshotError::MissingPrimaryDpu(
-                        self.host_snapshot.machine_id,
+                        self.host_snapshot.id,
                         primary_dpu_id,
                     )
                 })?;
@@ -321,7 +321,7 @@ impl ManagedHostStateSnapshot {
         } else if !self.dpu_snapshots.is_empty() {
             // If it is not Zero-DPU case, return failure.
             return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
-                self.host_snapshot.machine_id,
+                self.host_snapshot.id,
             ));
         };
 
@@ -329,8 +329,8 @@ impl ManagedHostStateSnapshot {
     }
 
     pub fn create(
-        host_snapshot: MachineSnapshot,
-        dpu_snapshots: Vec<MachineSnapshot>,
+        host_snapshot: Machine,
+        dpu_snapshots: Vec<Machine>,
         instance: Option<InstanceSnapshot>,
         managed_state: ManagedHostState,
         hardware_health: HardwareHealthReportsConfig,
@@ -362,7 +362,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
         // the expected response
         let mut reprovision_request = snapshot.host_snapshot.reprovision_requested;
         for dpu in &snapshot.dpu_snapshots {
-            if let Some(reprovision_requested) = dpu.reprovision_requested() {
+            if let Some(reprovision_requested) = dpu.reprovision_requested.as_ref() {
                 reprovision_request = Some(reprovision_requested.clone());
             }
         }
@@ -497,11 +497,11 @@ pub struct Machine {
     /// Failure cause. If failure cause is critical, machine will move into Failed state.
     pub failure_details: FailureDetails,
 
-    /// Last time when machine reprovisioning_requested.
-    pub reprovisioning_requested: Option<ReprovisionRequest>,
+    /// Last time when machine reprovision requested.
+    pub reprovision_requested: Option<ReprovisionRequest>,
 
-    /// Last time when host reprovisioning requested
-    pub host_reprovisioning_requested: Option<HostReprovisionRequest>,
+    /// Last time when host reprovision requested
+    pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
@@ -602,8 +602,8 @@ impl Machine {
     }
 
     /// Return the current state of the machine.
-    pub fn current_state(&self) -> ManagedHostState {
-        self.state.value.clone()
+    pub fn current_state(&self) -> &ManagedHostState {
+        &self.state.value
     }
 
     /// Return the current version of state of the machine.
@@ -620,128 +620,18 @@ impl Machine {
     pub fn machine_type(&self) -> MachineType {
         self.id.machine_type()
     }
-}
 
-/// Represents the current state of `Machine`
-#[derive(Debug, Clone)]
-pub struct MachineSnapshot {
-    /// Machine ID
-    pub machine_id: MachineId,
-    /// Hardware Information that was discovered about this Machine
-    pub hardware_info: Option<HardwareInfo>,
-    /// Inventory related to a DPU machine.
-    /// Software and versions installed on the machine.
-    pub agent_reported_inventory: MachineInventory,
-    /// The desired network configuration for this machine
-    /// Includes the loopback_ip address. Do not query that
-    /// directly, use `.loopback_ip()` instead.
-    pub network_config: Versioned<ManagedHostNetworkConfig>,
-    /// The actual network configuration, as reported by forge-dpu-agent
-    pub network_status_observation: Option<MachineNetworkStatusObservation>,
-    /// The actual infiniband configuration
-    pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
-    /// BMC related information
-    pub bmc_info: BmcInfo,
-    pub bmc_vendor: bmc_vendor::BMCVendor,
-    /// Network interfaces
-    pub interfaces: Vec<MachineInterfaceSnapshot>,
-    /// Desired state of the machine
-    pub current: CurrentMachineState,
-    /// Last discovery request from scout.
-    pub last_discovery_time: Option<DateTime<Utc>>,
-    /// Last reboot time. Calculated from forge_agent_control call.
-    pub last_reboot_time: Option<DateTime<Utc>>,
-    /// Last reboot requested time.
-    pub last_reboot_requested: Option<MachineLastRebootRequested>,
-    /// Last cleanup completed message received from scout.
-    pub last_cleanup_time: Option<DateTime<Utc>>,
-    /// URL of the reference tracking this machine's maintenance (e.g. JIRA)
-    /// Some(_) means the machine is in maintenance mode.
-    /// None means not in maintenance mode.
-    pub maintenance_reference: Option<String>,
-    /// What time was this machine set into maintenance mode?
-    pub maintenance_start_time: Option<DateTime<Utc>>,
-    /// Failure cause. Needed to move machine in failed state.
-    pub failure_details: FailureDetails,
-    /// Reprovisioning is needed?
-    pub reprovision_requested: Option<ReprovisionRequest>,
-    pub host_reprovision_requested: Option<HostReprovisionRequest>,
-    pub bios_password_set_time: Option<DateTime<Utc>>,
-    /// Last host validation finished.
-    pub last_machine_validation_time: Option<DateTime<Utc>>,
-    /// current discovery validation id.
-    pub discovery_machine_validation_id: Option<uuid::Uuid>,
-    /// current cleanup validation id.
-    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
-    /// Latest health report received by forge-dpu-agent
-    pub dpu_agent_health_report: Option<HealthReport>,
-    /// Latest health report generated by validation tests
-    pub machine_validation_health_report: HealthReport,
-    /// Latest health report generated by Site Explorer
-    pub site_explorer_health_report: Option<HealthReport>,
-    /// Override to enable or disable firmware auto update
-    pub firmware_autoupdate: Option<bool>,
-    /// Latest health report received by hardware health
-    pub hardware_health_report: Option<HealthReport>,
-    /// Latest health report received by the log parser
-    pub log_parser_health_report: Option<HealthReport>,
-
-    // TODO: These fields are not needed every time we load a Machine
-    // and might be migrated somewher else.
-    // For simplicity reasons, they are however referenced here for the moment
-    /// A list of [MachineStateHistory] that this machine has experienced
-    pub history: Vec<MachineStateHistory>,
-
-    /// Latest active health overrides set in the database
-    /// An override with [`OverrideMode::Override`] can only be set on the host.
-    pub health_report_overrides: HealthReportOverrides,
-
-    /// on demand validation id.
-    pub on_demand_machine_validation_id: Option<uuid::Uuid>,
-
-    pub on_demand_machine_validation_request: Option<bool>,
-
-    /// The InstanceType with which a machine is associated if any
-    pub instance_type_id: Option<InstanceTypeId>,
-
-    /// The capabilities of a machine, originally from
-    /// discovered HardwareInfo, but could expand to
-    /// include more sources.
-    pub capabilities: Option<MachineCapabilitiesSet>,
-    pub asn: Option<u32>,
-
-    /// Machine Metadata
-    pub metadata: Metadata,
-
-    /// Version field that tracks changes to
-    /// - Metadata
-    pub version: ConfigVersion,
-}
-
-impl MachineSnapshot {
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config.loopback_ip
-    }
-
-    pub fn use_admin_network(&self) -> bool {
-        self.network_config.use_admin_network.unwrap_or(true)
     }
 
     pub fn is_maintenance_mode(&self) -> bool {
         self.maintenance_reference.is_some()
     }
 
-    pub fn maintenance_reference(&self) -> Option<&str> {
-        self.maintenance_reference.as_deref()
-    }
-
-    pub fn reprovision_requested(&self) -> Option<&ReprovisionRequest> {
-        self.reprovision_requested.as_ref()
-    }
-
     /// Returns all associated DPU Machine IDs if this is Host Machine
     pub fn associated_dpu_machine_ids(&self) -> Vec<MachineId> {
-        if self.machine_id.machine_type().is_dpu() {
+        if self.is_dpu() {
             return Vec::new();
         }
 
@@ -818,11 +708,15 @@ impl MachineSnapshot {
                 .collect(),
         }
     }
+
+    pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
+        self.hardware_info.clone().map(Into::into)
+    }
 }
 
-impl From<MachineSnapshot> for rpc::forge::Machine {
-    fn from(machine: MachineSnapshot) -> Self {
-        let health = match machine.machine_id.machine_type().is_dpu() {
+impl From<Machine> for rpc::forge::Machine {
+    fn from(machine: Machine) -> Self {
+        let health = match machine.is_dpu() {
             true => {
                 let mut health = machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
                     HealthReport::heartbeat_timeout(
@@ -856,20 +750,20 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
-            id: Some(machine.machine_id.to_string().into()),
-            state: if machine.machine_id.machine_type().is_dpu() {
-                machine.current.state.dpu_state_string(&machine.machine_id)
+            id: Some(machine.id.into()),
+            state: if machine.is_dpu() {
+                machine.state.value.dpu_state_string(&machine.id)
             } else {
-                machine.current.state.to_string()
+                machine.state.value.to_string()
             },
-            instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
-            capabilities: machine.capabilities.map(|ref mut c| {
+            capabilities: machine.to_capabilities().map(|mut c| {
                 c.sort();
-                c.clone().into()
+                c.into()
             }),
-            state_version: machine.current.version.version_string(),
-            state_sla: Some(state_sla(&machine.current.state, &machine.current.version).into()),
-            machine_type: *RpcMachineTypeWrapper::from(machine.machine_id.machine_type()) as _,
+            instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
+            state_version: machine.state.version.version_string(),
+            state_sla: Some(state_sla(&machine.state.value, &machine.state.version).into()),
+            machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),
             events: machine
@@ -888,7 +782,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                     Ok(di) => Some(di),
                     Err(e) => {
                         tracing::warn!(
-                            machine_id = %machine.machine_id,
+                            machine_id = %machine.id,
                             error = %e,
                             "Hardware information couldn't be parsed into discovery info",
                         );
@@ -903,23 +797,19 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 .map(|obs| obs.observed_at.into()),
             dpu_agent_version: machine
                 .network_status_observation
-                .as_ref()
-                .and_then(|obs| obs.agent_version.clone()),
+                .and_then(|obs| obs.agent_version),
             maintenance_reference: machine.maintenance_reference,
             maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
             associated_dpu_machine_id,
-            inventory: Some(machine.agent_reported_inventory.clone().into()),
+            inventory: Some(machine.inventory.unwrap_or_default().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
                 .as_ref()
                 .map(|x| x.time.into()),
-            last_reboot_requested_mode: machine
-                .last_reboot_requested
-                .as_ref()
-                .map(|x| x.mode.to_string()),
-            state_reason: machine.current.outcome.map(|r| r.into()),
+            last_reboot_requested_mode: machine.last_reboot_requested.map(|x| x.mode.to_string()),
+            state_reason: machine.controller_state_outcome.map(|r| r.into()),
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
             health_overrides: machine
@@ -945,15 +835,6 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
             instance_network_restrictions,
         }
     }
-}
-
-/// Represents the current state of `Machine`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CurrentMachineState {
-    pub state: ManagedHostState,
-    pub version: ConfigVersion,
-    /// Outcome of the last state handler iteration
-    pub outcome: Option<PersistentStateHandlerOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1089,7 +970,7 @@ impl ReprovisionState {
     pub fn next_state_with_all_dpus_updated(
         self,
         current_state: &ManagedHostState,
-        dpu_snapshots: &[MachineSnapshot],
+        dpu_snapshots: &[Machine],
         dpu_ids_to_process: Vec<&MachineId>,
     ) -> Result<ManagedHostState, StateHandlerError> {
         match current_state {
@@ -1098,8 +979,8 @@ impl ReprovisionState {
                     .iter()
                     .map(|x| {
                         (
-                            x.machine_id,
-                            if dpu_ids_to_process.contains(&&x.machine_id) {
+                            x.id,
+                            if dpu_ids_to_process.contains(&&x.id) {
                                 self.clone()
                             } else {
                                 ReprovisionState::NotUnderReprovision
@@ -1117,8 +998,8 @@ impl ReprovisionState {
                     .iter()
                     .map(|x| {
                         (
-                            x.machine_id,
-                            if dpu_ids_to_process.contains(&&x.machine_id) {
+                            x.id,
+                            if dpu_ids_to_process.contains(&&x.id) {
                                 self.clone()
                             } else {
                                 ReprovisionState::NotUnderReprovision
@@ -1138,8 +1019,8 @@ impl ReprovisionState {
                         .iter()
                         .map(|x| {
                             (
-                                x.machine_id,
-                                if dpu_ids_to_process.contains(&&x.machine_id) {
+                                x.id,
+                                if dpu_ids_to_process.contains(&&x.id) {
                                     self.clone()
                                 } else {
                                     ReprovisionState::NotUnderReprovision
@@ -1217,9 +1098,9 @@ impl ReprovisionState {
     pub fn next_bmc_upgrade_step(
         &self,
         current_state: &ManagedHostStateSnapshot,
-        dpu_snapshot: &MachineSnapshot,
+        dpu_snapshot: &Machine,
     ) -> Result<ManagedHostState, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.machine_id;
+        let dpu_machine_id = &dpu_snapshot.id;
         match current_state.managed_state.clone() {
             ManagedHostState::DPUReprovision { dpu_states } => {
                 let mut states = dpu_states.states.clone();
@@ -1998,14 +1879,14 @@ pub trait NextReprovisionState {
         // EnumIter conflicts with Itertool, don't know why?
             itertools::Itertools::collect_vec(state.dpu_snapshots.iter().filter_map(|x| {
                 if x.reprovision_requested.is_some() {
-                    Some(&x.machine_id)
+                    Some(&x.id)
                 } else {
                     None
                 }
             }));
 
         let all_machine_ids =
-            itertools::Itertools::collect_vec(state.dpu_snapshots.iter().map(|x| &x.machine_id));
+            itertools::Itertools::collect_vec(state.dpu_snapshots.iter().map(|x| &x.id));
 
         match current_reprovision_state {
             ReprovisionState::FirmwareUpgrade => ReprovisionState::PoweringOffHost

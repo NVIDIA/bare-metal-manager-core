@@ -61,7 +61,7 @@ impl StateHandler for TestMachineStateHandler {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
-        assert_eq!(state.host_snapshot.machine_id, *machine_id);
+        assert_eq!(state.host_snapshot.id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
             let mut guard = self.counts_per_id.lock().unwrap();

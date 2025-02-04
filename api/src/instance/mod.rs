@@ -365,7 +365,7 @@ pub async fn allocate_instance(
         // Add any host-inband network segments to the network config. This allows tenants to omit
         // explicit interface config for HostInband networks, because those NICs cannot be
         // configured through carbide in the first place.
-        .with_inband_interfaces_from_machine(&mut txn, &mh_snapshot.host_snapshot.machine_id)
+        .with_inband_interfaces_from_machine(&mut txn, &mh_snapshot.host_snapshot.id)
         .await?
         // Allocate IPs and add them to the network config
         .with_allocated_ips(&mut txn, instance.id, &mh_snapshot.host_snapshot)

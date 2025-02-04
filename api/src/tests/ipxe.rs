@@ -102,7 +102,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     assert_eq!(
         machine.current_state(),
-        ManagedHostState::DPUInit {
+        &ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig,)]),
             },

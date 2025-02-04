@@ -25,7 +25,7 @@ use crate::{
     },
     model::{
         instance::snapshot::InstanceSnapshot,
-        machine::{MachineSnapshot, ManagedHostStateSnapshot},
+        machine::{Machine, ManagedHostStateSnapshot},
     },
 };
 use forge_uuid::{instance::InstanceId, machine::MachineId};
@@ -101,7 +101,7 @@ pub async fn load_by_machine_ids(
                     None => {
                         tracing::warn!(
                             "DPU with ID {dpu_id} for Host {} was not found",
-                            host_snapshot.machine_id
+                            host_snapshot.id
                         );
                         continue 'machine_loop;
                     }
@@ -110,7 +110,7 @@ pub async fn load_by_machine_ids(
         }
 
         let instance = instances_by_host_id.remove(&host_machine_id);
-        let managed_state = host_snapshot.current.state.clone();
+        let managed_state = host_snapshot.state.value.clone();
 
         let snapshot = ManagedHostStateSnapshot::create(
             host_snapshot,
@@ -193,7 +193,7 @@ pub async fn load_by_instance_snapshots(
                     None => {
                         tracing::warn!(
                             "DPU with ID {dpu_id} for Host {} was not found",
-                            host_machine.machine_id
+                            host_machine.id
                         );
                         continue 'machine_loop;
                     }
@@ -202,7 +202,7 @@ pub async fn load_by_instance_snapshots(
         }
 
         let instance = instance_snapshots_by_machine_id.remove(&host_machine_id);
-        let managed_state = host_machine.current.state.clone();
+        let managed_state = host_machine.state.value.clone();
         let snapshot = ManagedHostStateSnapshot::create(
             host_machine,
             dpu_snapshots,
@@ -235,7 +235,7 @@ async fn load_host_and_dpu_machine_states(
     )
     .await?;
 
-    let mut hosts_by_id: HashMap<MachineId, MachineSnapshot> =
+    let mut hosts_by_id: HashMap<MachineId, Machine> =
         HashMap::with_capacity(host_machine_ids.len());
     let mut dpu_machine_ids = Vec::with_capacity(hosts.len());
     for host_machine in hosts.into_iter() {
@@ -244,7 +244,7 @@ async fn load_host_and_dpu_machine_states(
                 dpu_machine_ids.push(*dpu_id);
             }
         }
-        hosts_by_id.insert(host_machine.id, host_machine.into());
+        hosts_by_id.insert(host_machine.id, host_machine);
     }
     let dpus = db::machine::find(
         txn,
@@ -252,8 +252,8 @@ async fn load_host_and_dpu_machine_states(
         crate::db::machine::MachineSearchConfig::default(),
     )
     .await?;
-    let mut dpus_by_id: HashMap<MachineId, MachineSnapshot> =
-        dpus.into_iter().map(|dpu| (dpu.id, dpu.into())).collect();
+    let mut dpus_by_id: HashMap<MachineId, Machine> =
+        dpus.into_iter().map(|dpu| (dpu.id, dpu)).collect();
 
     if include_history {
         let mut all_machine_ids: Vec<MachineId> = host_machine_ids.to_vec();
@@ -281,8 +281,8 @@ async fn load_host_and_dpu_machine_states(
 }
 
 struct LoadHostAndDpuMachinesResult {
-    pub hosts_by_id: HashMap<MachineId, MachineSnapshot>,
-    pub dpus_by_id: HashMap<MachineId, MachineSnapshot>,
+    pub hosts_by_id: HashMap<MachineId, Machine>,
+    pub dpus_by_id: HashMap<MachineId, Machine>,
 }
 
 pub struct LoadSnapshotOptions {

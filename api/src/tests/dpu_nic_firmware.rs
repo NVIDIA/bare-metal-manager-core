@@ -66,7 +66,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = &dpu_machine
-        .reprovisioning_requested
+        .reprovision_requested
         .as_ref()
         .unwrap()
         .initiator;
@@ -144,7 +144,7 @@ async fn test_start_updates_with_multidpu(
     assert_eq!(machines.len(), 3);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = &dpu_machine
-        .reprovisioning_requested
+        .reprovision_requested
         .as_ref()
         .unwrap()
         .initiator;
@@ -268,7 +268,7 @@ async fn test_clear_complated_updates(
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = &dpu_machine
-        .reprovisioning_requested
+        .reprovision_requested
         .as_ref()
         .unwrap()
         .initiator;
@@ -296,7 +296,7 @@ async fn test_clear_complated_updates(
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = &dpu_machine
-        .reprovisioning_requested
+        .reprovision_requested
         .as_ref()
         .unwrap()
         .initiator;

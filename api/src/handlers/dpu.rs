@@ -84,7 +84,7 @@ pub(crate) async fn get_managed_host_network_config(
     let dpu_snapshot = match snapshot
         .dpu_snapshots
         .iter()
-        .find(|s| s.machine_id == dpu_machine_id)
+        .find(|s| s.id == dpu_machine_id)
     {
         Some(dpu_snapshot) => dpu_snapshot,
         None => {
@@ -105,7 +105,7 @@ pub(crate) async fn get_managed_host_network_config(
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
-        .map(|x| x == dpu_snapshot.machine_id)
+        .map(|x| x == dpu_snapshot.id)
         .unwrap_or(false);
 
     let loopback_ip = match dpu_snapshot.loopback_ip() {
@@ -144,8 +144,8 @@ pub(crate) async fn get_managed_host_network_config(
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
-        &snapshot.host_snapshot.machine_id,
-        &dpu_snapshot.machine_id,
+        &snapshot.host_snapshot.id,
+        &dpu_snapshot.id,
         use_fnn_over_admin_nw,
         &api.common_pools,
     )
@@ -345,7 +345,7 @@ pub(crate) async fn get_managed_host_network_config(
         dpu_snapshot.asn.ok_or_else(|| {
             let message = format!(
                 "FNN configured but DPU {} has not been assigned an ASN",
-                dpu_snapshot.machine_id
+                dpu_snapshot.id
             );
 
             tracing::error!(message);
@@ -900,7 +900,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
-        ms.reprovision_requested()
+        ms.reprovision_requested
+            .as_ref()
             .is_some_and(|x| x.started_at.is_some())
     }) {
         match req.mode() {
@@ -928,7 +929,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         } else {
             for dpu_snapshot in &snapshot.dpu_snapshots {
                 db::machine::trigger_dpu_reprovisioning_request(
-                    &dpu_snapshot.machine_id,
+                    &dpu_snapshot.id,
                     &mut txn,
                     initiator,
                     req.update_firmware,
@@ -944,13 +945,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 .map_err(CarbideError::from)?;
         } else {
             for dpu_snapshot in &snapshot.dpu_snapshots {
-                db::machine::clear_dpu_reprovisioning_request(
-                    &mut txn,
-                    &dpu_snapshot.machine_id,
-                    true,
-                )
-                .await
-                .map_err(CarbideError::from)?;
+                db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, true)
+                    .await
+                    .map_err(CarbideError::from)?;
             }
         }
     } else if let rpc::dpu_reprovisioning_request::Mode::Restart = req.mode() {
@@ -963,8 +960,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .dpu_snapshots
             .iter()
             .filter_map(|x| {
-                if x.reprovision_requested().is_some() {
-                    Some(&x.machine_id)
+                if x.reprovision_requested.is_some() {
+                    Some(&x.id)
                 } else {
                     None
                 }

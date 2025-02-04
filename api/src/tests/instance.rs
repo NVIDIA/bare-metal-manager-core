@@ -3115,8 +3115,8 @@ async fn test_allocate_with_instance_type_id(
             rpc::forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: good_id.clone(),
                 machine_ids: vec![
-                    mh.host_snapshot.machine_id.to_string(),
-                    mh2.host_snapshot.machine_id.to_string(),
+                    mh.host_snapshot.id.to_string(),
+                    mh2.host_snapshot.id.to_string(),
                 ],
             },
         ))
@@ -3133,7 +3133,7 @@ async fn test_allocate_with_instance_type_id(
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.machine_id.to_string(),
+                id: mh.host_snapshot.id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
@@ -3159,7 +3159,7 @@ async fn test_allocate_with_instance_type_id(
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.machine_id.to_string(),
+                id: mh.host_snapshot.id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
@@ -3204,7 +3204,7 @@ async fn test_allocate_with_instance_type_id(
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             machine_id: Some(rpc::MachineId {
-                id: mh2.host_snapshot.machine_id.to_string(),
+                id: mh2.host_snapshot.id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),

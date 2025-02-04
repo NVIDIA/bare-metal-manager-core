@@ -110,7 +110,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
     assert!(machine.hardware_info.as_ref().is_some());
@@ -189,7 +189,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             .unwrap()
             .unwrap()
             .current_state(),
-        ManagedHostState::Assigned {
+        &ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
     );
@@ -658,7 +658,7 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    assert_eq!(machine.current_state(), ManagedHostState::Ready);
+    assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.has_instance());
     assert!(!machine.is_dpu());
     assert!(machine.hardware_info.as_ref().is_some());

@@ -60,11 +60,11 @@ async fn test_machine_validation_complete_with_error(
             let FailureDetails { cause, source, .. } = details;
             assert_eq!(
                 cause,
-                FailureCause::MachineValidation {
+                &FailureCause::MachineValidation {
                     err: "Test Error".to_owned()
                 }
             );
-            assert_eq!(source, FailureSource::Scout);
+            assert_eq!(source, &FailureSource::Scout);
         }
         s => {
             panic!("Incorrect state: {}", s);
@@ -142,13 +142,13 @@ async fn test_machine_validation_with_error(
             let FailureDetails { cause, source, .. } = details;
             assert_eq!(
                 cause,
-                FailureCause::MachineValidation {
+                &FailureCause::MachineValidation {
                     err: format!("{} is failed", machine_validation_result.name),
                 }
             );
-            assert_eq!(source, FailureSource::Scout);
+            assert_eq!(source, &FailureSource::Scout);
             // assert_eq!(machine_id, host_machine_id);
-            assert_eq!(retry_count, 0);
+            assert_eq!(*retry_count, 0);
         }
         s => {
             panic!("Incorrect state: {}", s);

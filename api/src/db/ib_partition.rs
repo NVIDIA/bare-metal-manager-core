@@ -32,7 +32,7 @@ use crate::model::ib_partition::state_sla;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
-use crate::model::machine::MachineSnapshot;
+use crate::model::machine::Machine;
 use crate::{
     db::DatabaseError, model::ib_partition::IBPartitionControllerState,
     model::tenant::TenantOrganizationId, CarbideError, CarbideResult,
@@ -530,7 +530,7 @@ pub async fn allocate_port_guid(
     _txn: &mut Transaction<'_, Postgres>,
     _instance_id: InstanceId,
     ib_config: &InstanceInfinibandConfig,
-    machine: &MachineSnapshot,
+    machine: &Machine,
 ) -> CarbideResult<InstanceInfinibandConfig> {
     let mut updated_ib_config = ib_config.clone();
 

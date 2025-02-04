@@ -328,7 +328,7 @@ impl TestEnv {
 
             let comparable_state = self.fill_machine_information(&expected_state, &machine);
 
-            if machine.current_state() == comparable_state {
+            if machine.current_state() == &comparable_state {
                 return;
             }
         }
@@ -1362,7 +1362,7 @@ pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
     let mh = site_explorer::new_host(env, ManagedHostConfig::default())
         .await
         .expect("Failed to create a new host");
-    (mh.host_snapshot.machine_id, mh.dpu_snapshots[0].machine_id)
+    (mh.host_snapshot.id, mh.dpu_snapshots[0].id)
 }
 
 pub async fn create_managed_host_with_ek(
@@ -1389,7 +1389,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
     let mh = site_explorer::new_host(env, config).await.unwrap();
 
-    mh.host_snapshot.machine_id
+    mh.host_snapshot.id
 }
 
 /// Create a managed host with full config control
@@ -1402,16 +1402,16 @@ pub async fn create_managed_host_with_config(
         .await
         .expect("Failed to create a new host");
 
-    let host_machine_id = mh.host_snapshot.machine_id;
+    let host_machine_id = mh.host_snapshot.id;
 
     match dpu_count {
         0 => (host_machine_id, vec![]),
-        1 => (host_machine_id, vec![mh.dpu_snapshots[0].machine_id]),
+        1 => (host_machine_id, vec![mh.dpu_snapshots[0].id]),
         _ => {
             let dpu_ids = mh
                 .dpu_snapshots
                 .iter()
-                .map(|snapshot| snapshot.machine_id)
+                .map(|snapshot| snapshot.id)
                 .collect();
             (host_machine_id, dpu_ids)
         }
@@ -1426,10 +1426,7 @@ pub async fn create_host_with_machine_validation(
     let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
         .await
         .unwrap();
-    (
-        mh.host_snapshot.machine_id.into(),
-        mh.dpu_snapshots[0].machine_id,
-    )
+    (mh.host_snapshot.id.into(), mh.dpu_snapshots[0].id)
 }
 
 pub async fn update_time_params(
