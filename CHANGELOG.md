@@ -63,6 +63,9 @@
 - Updated sqlx version to 0.8.3
 - Default the static-pxe-url to the carbide-pxe-url if it's not configured in the environment.
 - Use inline sql queries instead of postgresql views.
+- The NetworkSegment message now contains a `flags` field, which is used as a
+  container for the `CAN_STRETCH` flag. This flag (or its absense) can be used
+  by the UI to avoid showing the FNN-created segments to users.
 
 ### Fixed
 
