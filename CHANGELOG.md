@@ -66,6 +66,7 @@
 - The NetworkSegment message now contains a `flags` field, which is used as a
   container for the `CAN_STRETCH` flag. This flag (or its absense) can be used
   by the UI to avoid showing the FNN-created segments to users.
+- Internalize static configs for dpus. The following config values no longer apply and can be safely removed: dpu_nic_firmware_intial_update_enabled, dpu_nic_firmware_reprovision_update_enabled, and dpu_nic_firmware_update_version, and everything in dpu_models. If these values need to be set for any reason in the future, they must be prefaced with dpu_config.
 
 ### Fixed
 
