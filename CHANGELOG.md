@@ -1,5 +1,5 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc3-0...trunk)
 
 ### Added
 ### Changed
@@ -12,6 +12,31 @@
   `forge_assigned_gpus_count`, `forge_assigned_gpus_by_tenant_count`, `forge_hosts_in_use_by_tenant_count`
 - Host health metrics no longer emit the `assigned` attribute, since it had been replaced with an
   `in_use` attribute in the `v2024.12.06` release.
+
+## [v2025.01.31-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc2-0...v2025.01.31-rc3-0)
+
+### Fixed
+
+- Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
+  - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+  ```
+  curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
+  {
+  "@Redfish.Settings": {
+      "@odata.type": "#Settings.v1_3_5.Settings",
+      "SettingsObject": {
+      "@odata.id": "/redfish/v1/Systems/Bluefield/Settings"
+      }
+  },
+  ...
+  "BootOrder": [
+              "Boot0009",
+              "Boot0000",
+              ...
+  }
+  ...
+  }
+  ```
 
 ## [v2025.01.31-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...v2025.01.31-rc2-0)
 
@@ -132,6 +157,31 @@
 
 - Removed OpenTelemetry DPU agent to renew mTLS certs.
 
+## [v2025.01.17-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...v2025.01.17-rc6-0)
+
+### Fixed
+
+- Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
+  - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+  ```
+  curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
+  {
+  "@Redfish.Settings": {
+      "@odata.type": "#Settings.v1_3_5.Settings",
+      "SettingsObject": {
+      "@odata.id": "/redfish/v1/Systems/Bluefield/Settings"
+      }
+  },
+  ...
+  "BootOrder": [
+              "Boot0009",
+              "Boot0000",
+              ...
+  }
+  ...
+  }
+  ```
+
 ## [v2025.01.17-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc4-0...v2025.01.17-rc5-0)
 
 ### Added
@@ -219,6 +269,30 @@
 ### Removed
 
 - Removed FNN mmode from dhcp-server.
+
+## [v2024.12.20-rc6-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-2...v2024.12.20-rc6-3)
+
+### Fixed
+- Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
+  - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+  ```
+  curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
+  {
+  "@Redfish.Settings": {
+      "@odata.type": "#Settings.v1_3_5.Settings",
+      "SettingsObject": {
+      "@odata.id": "/redfish/v1/Systems/Bluefield/Settings"
+      }
+  },
+  ...
+  "BootOrder": [
+              "Boot0009",
+              "Boot0000",
+              ...
+  }
+  ...
+  }
+  ```
 
 ## [v2024.12.20-rc6-2](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-1...v2024.12.20-rc6-2)
 
