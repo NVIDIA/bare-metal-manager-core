@@ -262,7 +262,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
         let version: ConfigVersion =
             value
                 .version
-                .try_into()
+                .parse()
                 .map_err(|e| sqlx::error::Error::ColumnDecode {
                     index: "version".to_string(),
                     source: Box::new(e),
@@ -283,7 +283,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             id: value.id,
             state: Versioned {
                 value: value.controller_state,
-                version: value.controller_state_version.try_into().map_err(|e| {
+                version: value.controller_state_version.parse().map_err(|e| {
                     sqlx::error::Error::ColumnDecode {
                         index: "controller_state_version".to_string(),
                         source: Box::new(e),
@@ -292,7 +292,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             },
             network_config: Versioned {
                 value: value.network_config,
-                version: value.network_config_version.try_into().map_err(|e| {
+                version: value.network_config_version.parse().map_err(|e| {
                     sqlx::error::Error::ColumnDecode {
                         index: "network_config_version".to_string(),
                         source: Box::new(e),
