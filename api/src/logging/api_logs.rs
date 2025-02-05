@@ -158,6 +158,7 @@ where
                 sql_max_query_duration_us = 0,
                 sql_max_query_duration_summary = tracing::field::Empty,
                 sql_total_query_duration_us = 0,
+                user.id = tracing::field::Empty, // Populated by auth layer
             );
 
             // Try to extract the gRPC service and method from the URI
