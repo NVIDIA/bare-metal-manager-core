@@ -239,6 +239,16 @@ pub struct AdminFnnConfig {
 }
 
 impl CarbideConfig {
+    /// Returns a version of CarbideConfig where secrets are erased
+    pub fn redacted(&self) -> Self {
+        let mut config = self.clone();
+        if let Some(host_index) = config.database_url.find('@') {
+            let host = config.database_url.split_at(host_index).1;
+            config.database_url = format!("postgres://redacted{}", host);
+        }
+        config
+    }
+
     pub fn get_firmware_config(&self) -> FirmwareConfig {
         let mut base_map: HashMap<String, Firmware> = Default::default();
         for (_, host) in self.host_models.iter() {
@@ -1720,6 +1730,22 @@ mod tests {
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
+    }
+
+    #[test]
+    fn test_redact_config() {
+        let mut config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
+            .extract()
+            .unwrap();
+        let redacted = config.redacted();
+        assert_eq!(
+            redacted.database_url,
+            "postgres://redacted@postgresql".to_string()
+        );
+        config.database_url = "postgres://forge-system.carbide:very-very-long-password@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string();
+        let redacted = config.redacted();
+        assert_eq!(redacted.database_url, "postgres://redacted@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string());
     }
 
     #[test]

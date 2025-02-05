@@ -132,7 +132,7 @@ impl Forge for Api {
             build_hostname: forge_version::v!(build_hostname).to_string(),
 
             runtime_config: if version_request.display_config {
-                Some((*self.runtime_config).clone().into())
+                Some(self.runtime_config.redacted().into())
             } else {
                 None
             },

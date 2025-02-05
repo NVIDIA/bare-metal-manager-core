@@ -44,14 +44,7 @@ pub async fn run(
     };
 
     // Redact credentials before printing the config
-    let print_config = {
-        let mut config = carbide_config.as_ref().clone();
-        if let Some(host_index) = config.database_url.find('@') {
-            let host = config.database_url.split_at(host_index).1;
-            config.database_url = format!("postgres://redacted{}", host);
-        }
-        config
-    };
+    let print_config = carbide_config.redacted();
 
     tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
