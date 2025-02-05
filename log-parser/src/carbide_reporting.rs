@@ -17,6 +17,7 @@ use forge_tls::client_config::ClientCert;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
+use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -133,7 +134,7 @@ async fn send_one_report(
 
 pub(crate) async fn send_health_alerts(
     client: &mut ForgeClientT,
-    events: &Vec<Event>,
+    events: &VecDeque<Event>,
     pipeline: &String,
 ) -> Result<(), ReportingError> {
     let mut report = HealthReport {
