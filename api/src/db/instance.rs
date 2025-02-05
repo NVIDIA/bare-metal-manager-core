@@ -168,25 +168,25 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             instance_type_id: value.instance_type_id,
             metadata,
             config,
-            config_version: value.config_version.try_into().map_err(|e| {
+            config_version: value.config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,
-            network_config_version: value.network_config_version.try_into().map_err(|e| {
+            network_config_version: value.network_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "network_config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,
-            ib_config_version: value.ib_config_version.try_into().map_err(|e| {
+            ib_config_version: value.ib_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "ib_config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,
-            storage_config_version: value.storage_config_version.try_into().map_err(|e| {
+            storage_config_version: value.storage_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "storage_config_version".to_string(),
                     source: Box::new(e),
