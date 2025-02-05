@@ -18,12 +18,13 @@ use carbide_reporting::{create_forge_client, get_client_cert_info, get_forge_roo
 use chrono::{DateTime, Utc};
 use regex::{Captures, Regex};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::SeekFrom;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::{fmt, time};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+const MAX_EVENTS: usize = 128;
 
 #[derive(Debug, Deserialize, Copy, Clone, Eq, PartialEq)]
 enum EventSeverity {
@@ -129,7 +130,7 @@ struct LogFile {
     pub pending_event_count: u32,
     /// first time this event was detected, cleared/reset when the event constraint duration expires
     pub pending_event_ts: Option<i64>,
-    pub events: Vec<Event>,
+    pub events: VecDeque<Event>,
 }
 
 impl Default for LogFile {
@@ -142,7 +143,7 @@ impl Default for LogFile {
             pending_event: None,
             pending_event_count: 0,
             pending_event_ts: None,
-            events: vec![],
+            events: VecDeque::default(),
         }
     }
 }
@@ -186,7 +187,10 @@ async fn queue_event(
             .to_string(),
         ids: log.file_name_fields.clone(),
     };
-    log.events.push(event);
+    if log.events.len() >= MAX_EVENTS {
+        let _ = log.events.pop_front();
+    }
+    log.events.push_back(event);
     Ok(())
 }
 
@@ -300,13 +304,6 @@ async fn process_log_file_events(
         };
         // cap the buffer to 1MB
         let buffer_length = if len > 0x40000000 { 0x40000000 } else { len };
-        dbg!(
-            "reading from file at offset",
-            &log.file_path,
-            file_length,
-            len,
-            log.offset
-        );
 
         let now: DateTime<Utc> = Utc::now();
         let mut file = tokio::fs::File::open(&log.file_path).await?;
@@ -323,13 +320,7 @@ async fn process_log_file_events(
             file.seek(SeekFrom::Start(log.offset)).await?;
             file.read_exact(&mut buffer).await?;
             consumed += buffer_length;
-            dbg!(
-                "read successfully",
-                &log.file_path,
-                consumed,
-                log.offset,
-                buffer_length
-            );
+
             if buffer.contains(&b'\n') {
                 // find last delimiter and move seek offset to that, truncate buffer to that
                 if let Some(seek_position) = buffer.iter().rev().position(|&c| c == delimiter) {
