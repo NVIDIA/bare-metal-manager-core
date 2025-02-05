@@ -160,10 +160,11 @@ where
                                 .iter()
                                 .find(|x| matches!(x, Principal::ExternalUser(_)))
                             {
-                                tracing::info!(
-                                    "forge-admin-cli request from {}: {}",
-                                    info.user.as_ref().unwrap_or(&"nameless user".to_string()),
-                                    method_name
+                                // Inject the User ID as attribute into the current span.
+                                // The name of the field matches OTEL semantic conventions
+                                tracing::Span::current().record(
+                                    "user.id",
+                                    info.user.as_deref().unwrap_or("nameless user"),
                                 );
                             }
                             req_auth_context.authorization = Some(authorization);
