@@ -430,18 +430,18 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
+            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
             .unwrap(),
         "1",
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{assigned=\"false\",fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
+            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
         None,
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_health_status_count{assigned=\"false\",fresh=\"true\",healthy=\"false\",in_use=\"false\"}")
+            .formatted_metric("forge_hosts_health_status_count{fresh=\"true\",healthy=\"false\",in_use=\"false\"}")
             .unwrap(),
         "1"
     );
@@ -631,12 +631,6 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_assigned_gpus_count")
-            .unwrap(),
-        r#"{fresh="true"} 0"#
-    );
-    assert_eq!(
-        env.test_meter
             .formatted_metric("forge_gpus_in_use_count")
             .unwrap(),
         r#"{fresh="true"} 0"#
@@ -651,18 +645,6 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     // and never becomes ready. Once it does, the test should be updated.
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_allocatable_hosts_count")
-            .unwrap(),
-        r#"{fresh="true"} 1"#
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_allocatable_gpus_count")
-            .unwrap(),
-        r#"{fresh="true"} 1"#
-    );
-    assert_eq!(
-        env.test_meter
             .formatted_metric("forge_hosts_usable_count")
             .unwrap(),
         r#"{fresh="true"} 1"#
@@ -672,12 +654,6 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
             .formatted_metric("forge_gpus_usable_count")
             .unwrap(),
         r#"{fresh="true"} 1"#
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_available_gpus_count")
-            .unwrap(),
-        r#"{fresh="true"} 2"#
     );
     assert_eq!(
         env.test_meter
@@ -693,10 +669,10 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     assert_eq!(health_status_metrics.len(), 4);
 
     for expected in [
-        r#"{assigned="false",fresh="true",healthy="false",in_use="false"} 0"#,
-        r#"{assigned="false",fresh="true",healthy="true",in_use="false"} 2"#,
-        r#"{assigned="true",fresh="true",healthy="false",in_use="true"} 0"#,
-        r#"{assigned="true",fresh="true",healthy="true",in_use="true"} 0"#,
+        r#"{fresh="true",healthy="false",in_use="false"} 0"#,
+        r#"{fresh="true",healthy="true",in_use="false"} 2"#,
+        r#"{fresh="true",healthy="false",in_use="true"} 0"#,
+        r#"{fresh="true",healthy="true",in_use="true"} 0"#,
     ] {
         assert!(
             health_status_metrics.iter().any(|m| m.as_str() == expected),

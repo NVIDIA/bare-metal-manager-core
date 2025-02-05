@@ -94,12 +94,6 @@ pub struct IsInUseByTenant(bool);
 pub struct MachineMetricsEmitter {
     dpus_up_gauge: ObservableGauge<u64>,
     dpus_healthy_gauge: ObservableGauge<u64>,
-    assigned_gpus_gauge: ObservableGauge<u64>, // Deprecated: Replaced by gpus_in_use_gauge
-    assigned_gpus_by_tenant_gauge: ObservableGauge<u64>, // Deprecated: Replaced by gpus_in_use_by_tenant_gauge
-    assigned_hosts_by_tenant_gauge: ObservableGauge<u64>, // Deprecated: Replaced by hosts_in_use_by_tenant_gauge
-    allocatable_hosts_gauge: ObservableGauge<u64>, // Deprecated: Replaced by hosts_usable_gauge
-    allocatable_gpus_gauge: ObservableGauge<u64>,  // Deprecated: Replaced by gpus_usable_gauge
-    available_gpus_gauge: ObservableGauge<u64>,    // Deprecated: Replaced by gpus_total_gauge
     gpus_in_use_gauge: ObservableGauge<u64>,
     gpus_in_use_by_tenant_gauge: ObservableGauge<u64>,
     gpus_total_gauge: ObservableGauge<u64>,
@@ -126,33 +120,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
     type IterationMetrics = MachineStateControllerIterationMetrics;
 
     fn new(_object_type: &str, meter: &Meter) -> Self {
-        let allocatable_hosts_gauge = meter
-            .u64_observable_gauge("forge_allocatable_hosts_count")
-            .with_description("The total number of Machines in the Forge site which are available for Tenant allocations")
-            .init();
-        let allocatable_gpus_gauge = meter
-            .u64_observable_gauge("forge_allocatable_gpus_count")
-            .with_description("The total number of GPUs in the Forge site which are available for Tenant allocations")
-            .init();
-        let available_gpus_gauge = meter
-            .u64_observable_gauge("forge_available_gpus_count")
-            .with_description("The total number of available GPUs in the Forge site")
-            .init();
-        let assigned_gpus_gauge = meter
-            .u64_observable_gauge("forge_assigned_gpus_count")
-            .with_description("The total number of GPUs that are attached to Machines in an Assigned state in the Forge site")
-            .init();
-        let assigned_gpus_by_tenant_gauge = meter
-            .u64_observable_gauge("forge_assigned_gpus_by_tenant_count")
-            .with_description("The total number of GPUs that are attached to Machines in an Assigned state in the Forge site by tenant")
-            .init();
-        let assigned_hosts_by_tenant_gauge = meter
-            .u64_observable_gauge("forge_assigned_hosts_by_tenant_count")
-            .with_description(
-                "The total number of Machines in an Assigned state in the Forge site by tenant",
-            )
-            .init();
-
         let gpus_total_gauge = meter
             .u64_observable_gauge("forge_gpus_total_count")
             .with_description("The total number of GPUs available in the Forge site")
@@ -266,12 +233,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .init();
 
         Self {
-            allocatable_hosts_gauge,
-            allocatable_gpus_gauge,
-            assigned_gpus_gauge,
-            assigned_gpus_by_tenant_gauge,
-            assigned_hosts_by_tenant_gauge,
-            available_gpus_gauge,
             gpus_in_use_gauge,
             gpus_in_use_by_tenant_gauge,
             hosts_in_use_gauge,
@@ -298,12 +259,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
         vec![
-            self.allocatable_hosts_gauge.as_any(),
-            self.allocatable_gpus_gauge.as_any(),
-            self.assigned_gpus_gauge.as_any(),
-            self.assigned_gpus_by_tenant_gauge.as_any(),
-            self.assigned_hosts_by_tenant_gauge.as_any(),
-            self.available_gpus_gauge.as_any(),
             self.gpus_total_gauge.as_any(),
             self.gpus_in_use_gauge.as_any(),
             self.gpus_in_use_by_tenant_gauge.as_any(),
@@ -446,11 +401,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
         attributes: &[KeyValue],
     ) {
         observer.observe_u64(
-            &self.allocatable_hosts_gauge,
-            iteration_metrics.hosts_usable as u64,
-            attributes,
-        );
-        observer.observe_u64(
             &self.hosts_usable_gauge,
             iteration_metrics.hosts_usable as u64,
             attributes,
@@ -461,18 +411,8 @@ impl MetricsEmitter for MachineMetricsEmitter {
             attributes,
         );
         observer.observe_u64(
-            &self.allocatable_gpus_gauge,
-            iteration_metrics.gpus_usable as u64,
-            attributes,
-        );
-        observer.observe_u64(
             &self.gpus_usable_gauge,
             iteration_metrics.gpus_usable as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.available_gpus_gauge,
-            iteration_metrics.gpus_total as u64,
             attributes,
         );
         observer.observe_u64(
@@ -489,11 +429,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
             total_in_use_gpus += *count;
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
-                &self.assigned_gpus_by_tenant_gauge,
-                *count as u64,
-                &tenant_org_attr,
-            );
-            observer.observe_u64(
                 &self.gpus_in_use_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
@@ -504,22 +439,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
             total_in_use_hosts += *count;
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
-                &self.assigned_hosts_by_tenant_gauge,
-                *count as u64,
-                &tenant_org_attr,
-            );
-            observer.observe_u64(
                 &self.hosts_in_use_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
             );
         }
 
-        observer.observe_u64(
-            &self.assigned_gpus_gauge,
-            total_in_use_gpus as u64,
-            attributes,
-        );
         observer.observe_u64(
             &self.gpus_in_use_gauge,
             total_in_use_gpus as u64,
@@ -544,7 +469,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut health_status_attr = attributes.to_vec();
         health_status_attr.push(KeyValue::new("healthy", "".to_string()));
-        health_status_attr.push(KeyValue::new("assigned", "".to_string()));
         health_status_attr.push(KeyValue::new("in_use", "".to_string()));
         let health_status_attr_len = health_status_attr.len();
         // The HashMap access is used here instead of iterating order to make sure that
@@ -557,8 +481,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
                     .get(&(healthy, IsInUseByTenant(in_use)))
                     .cloned()
                     .unwrap_or_default();
-                health_status_attr[health_status_attr_len - 3].value = healthy.to_string().into();
-                health_status_attr[health_status_attr_len - 2].value = in_use.to_string().into();
+                health_status_attr[health_status_attr_len - 2].value = healthy.to_string().into();
                 health_status_attr[health_status_attr_len - 1].value = in_use.to_string().into();
                 observer.observe_u64(
                     &self.hosts_health_status_gauge,
@@ -594,13 +517,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let mut probe_id_attr = attributes.to_vec();
         probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
         probe_id_attr.push(KeyValue::new("probe_target", "".to_string()));
-        probe_id_attr.push(KeyValue::new("assigned", "".to_string()));
         probe_id_attr.push(KeyValue::new("in_use", "".to_string()));
         let probe_id_attr_len = probe_id_attr.len();
         for ((probe, target, in_use), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
-            probe_id_attr[probe_id_attr_len - 4].value = probe.clone().into();
-            probe_id_attr[probe_id_attr_len - 3].value = target.clone().unwrap_or_default().into();
-            probe_id_attr[probe_id_attr_len - 2].value = in_use.0.to_string().into();
+            probe_id_attr[probe_id_attr_len - 3].value = probe.clone().into();
+            probe_id_attr[probe_id_attr_len - 2].value = target.clone().unwrap_or_default().into();
             probe_id_attr[probe_id_attr_len - 1].value = in_use.0.to_string().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_probe_id_gauge,
@@ -611,16 +532,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut probe_classification_attr = attributes.to_vec();
         probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
-        probe_classification_attr.push(KeyValue::new("assigned", "".to_string()));
         probe_classification_attr.push(KeyValue::new("in_use", "".to_string()));
         let probe_classification_attr_len = probe_classification_attr.len();
         for ((classification, in_use), count) in
             &iteration_metrics.unhealthy_hosts_by_classification_id
         {
-            probe_classification_attr[probe_classification_attr_len - 3].value =
-                classification.clone().into();
             probe_classification_attr[probe_classification_attr_len - 2].value =
-                in_use.0.to_string().into();
+                classification.clone().into();
             probe_classification_attr[probe_classification_attr_len - 1].value =
                 in_use.0.to_string().into();
             observer.observe_u64(
@@ -632,7 +550,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut override_type_attr = attributes.to_vec();
         override_type_attr.push(KeyValue::new("override_type", "merge".to_string()));
-        override_type_attr.push(KeyValue::new("assigned", "".to_string()));
         override_type_attr.push(KeyValue::new("in_use", "".to_string()));
         let override_type_attr_len = override_type_attr.len();
         // The HashMap access is used here instead of iterating order to make sure that
@@ -645,9 +562,8 @@ impl MetricsEmitter for MachineMetricsEmitter {
                     .get(&(override_type, IsInUseByTenant(in_use)))
                     .cloned()
                     .unwrap_or_default();
-                override_type_attr[override_type_attr_len - 3].value =
+                override_type_attr[override_type_attr_len - 2].value =
                     override_type.to_string().into();
-                override_type_attr[override_type_attr_len - 2].value = in_use.to_string().into();
                 override_type_attr[override_type_attr_len - 1].value = in_use.to_string().into();
                 observer.observe_u64(
                     &self.hosts_health_overrides_gauge,

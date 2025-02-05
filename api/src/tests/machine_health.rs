@@ -175,14 +175,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 0"
-                .to_string(),
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 0"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0"
-                .to_string()
+            "{fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 
@@ -241,14 +237,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 1"
-                .to_string(),
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 0"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0"
-                .to_string()
+            "{fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 
@@ -295,14 +287,10 @@ async fn test_machine_health_aggregation(
     assert_eq!(
         override_metrics,
         vec![
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 1"
-                .to_string(),
-            "{assigned=\"false\",fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 1"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0"
-                .to_string(),
-            "{assigned=\"true\",fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0"
-                .to_string()
+            "{fresh=\"true\",in_use=\"false\",override_type=\"merge\"} 1".to_string(),
+            "{fresh=\"true\",in_use=\"false\",override_type=\"replace\"} 1".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"merge\"} 0".to_string(),
+            "{fresh=\"true\",in_use=\"true\",override_type=\"replace\"} 0".to_string()
         ]
     );
 

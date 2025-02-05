@@ -4,7 +4,14 @@
 ### Added
 ### Changed
 ### Fixed
+
 ### Removed
+- The following set of metrics had been removed, due to being replaced with metrics
+  with other names earlier in the `v2024.11.22` release:
+  `forge_available_gpus_count`, `forge_allocatable_gpus_count`, `forge_allocatable_hosts_count`,
+  `forge_assigned_gpus_count`, `forge_assigned_gpus_by_tenant_count`, `forge_hosts_in_use_by_tenant_count`
+- Host health metrics no longer emit the `assigned` attribute, since it had been replaced with an
+  `in_use` attribute in the `v2024.12.06` release.
 
 ## [v2025.01.31-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...v2025.01.31-rc2-0)
 
