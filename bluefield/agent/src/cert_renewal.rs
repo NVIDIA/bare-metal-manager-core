@@ -39,7 +39,7 @@ impl ClientCertRenewer {
         client_config: forge_tls_client::ForgeClientConfig,
     ) -> Self {
         let cert_renewal_period =
-            rand::thread_rng().gen_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS);
+            rand::rng().random_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS);
         let cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
         Self {
@@ -54,10 +54,11 @@ impl ClientCertRenewer {
         let now = std::time::Instant::now();
         if now > self.cert_renewal_time {
             let cert_renewal_period = match self.renew_certificates().await {
-                Ok(()) => rand::thread_rng()
-                    .gen_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS),
+                Ok(()) => {
+                    rand::rng().random_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS)
+                }
                 Err(err) => {
-                    let cert_renewal_period = rand::thread_rng().gen_range(
+                    let cert_renewal_period = rand::rng().random_range(
                         MIN_CERT_RENEWAL_FAILURE_TIME_SECS..MAX_CERT_RENEWAL_FAILURE_TIME_SECS,
                     );
                     tracing::error!(

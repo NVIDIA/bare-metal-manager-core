@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rand::distributions::Standard;
+use rand::distr::StandardUniform;
 use rand::Rng;
 
 /// Dell Specific -- iDRAC job implementation
@@ -45,8 +45,8 @@ impl BmcState {
 
         let job_type = if is_bios_job { BIOS_JOB_TYPE } else { "Reboot" };
 
-        let job_id = rand::thread_rng()
-            .sample_iter::<u64, _>(Standard)
+        let job_id = rand::rng()
+            .sample_iter::<u64, _>(StandardUniform)
             .map(|r| format!("JID_{r}"))
             .find(|id| !jobs.contains_key(id))
             .unwrap();

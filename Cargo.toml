@@ -53,23 +53,39 @@ hyper-rustls = { version = "^0.27" }
 hyper-timeout = { version = "^0.5" }
 hyper-util = { version = "^0.1" }
 
-# NOTE: Opentelemetry guage metrics are broken when using a prometheus exporter in opentelemetry v0.25 and later. Stale metrics never clear out, see https://github.com/open-telemetry/opentelemetry-rust/issues/2213
+rustls = { version = "0.23.16" }
+rustls-pki-types = "1.10.0"
+sqlx = { version = "0.8.3" }
+
+########
+# MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
+########
+
+# pinning opentelemetry:
+# Opentelemetry guage metrics are broken when using a prometheus exporter in opentelemetry v0.25 and later. Stale metrics never clear out, see https://github.com/open-telemetry/opentelemetry-rust/issues/2213
 # We're stuck on 0.24 until this is fixed.
 opentelemetry = { version = "0.24", features = ["logs"] }
 opentelemetry_sdk = { version = "0.24", features = ["logs", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.17", features = [
     "metrics",
 ] } # Any newer and it requires 0.26 :(
-
 # Other otel crates can be on latest versions, per testing
 opentelemetry-prometheus = { version = "0.17.0" }
 opentelemetry-http = "0.27"
 opentelemetry-semantic-conventions = "0.27"
 
-rustls = { version = "0.23.16" }
-rustls-pki-types = "1.10.0"
+# pinning ipnetwork:
+# Newer versions (0.21.x and later) don't seem to have working sqlx::Decode support. This will probably be fixed in a
+# newer sqlx version.
+ipnetwork = "0.20.0"
 
-sqlx = { version = "0.8.3" }
+# pinning axum:
+# Tonic does not support axum 0.8 or later. Until it does, pin axum to 0.7 and the related crates to the corresponding
+# (working) versions.
+axum = "0.7.9"
+axum-extra = "0.9" # Pin this until we can update axum
+axum-client-ip = "0.6"
+axum-template = { version = "2.4" }
 
 [profile.release]
 debug = true            # Enable debuginfo

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mac_address::MacAddress;
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
@@ -21,23 +21,23 @@ impl Credentials {
         const EXTRACHARS: &[u8] = b"^%$@!~_";
         const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let mut password: Vec<char> = (0..PASSWORD_LEN)
             .map(|_| {
-                let chid = rng.gen_range(0..CHARSET.len());
-                let idx = rng.gen_range(0..CHARSET[chid].len());
+                let chid = rng.random_range(0..CHARSET.len());
+                let idx = rng.random_range(0..CHARSET[chid].len());
                 CHARSET[chid][idx] as char
             })
             .collect();
 
         // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
         let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
-        positions_to_overlap.shuffle(&mut thread_rng());
+        positions_to_overlap.shuffle(&mut rand::rng());
         let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
 
         for (index, pos) in positions_to_overlap.enumerate() {
-            let char_index = rng.gen_range(0..CHARSET[index].len());
+            let char_index = rng.random_range(0..CHARSET[index].len());
             password[pos] = CHARSET[index][char_index] as char;
         }
 
@@ -50,23 +50,23 @@ impl Credentials {
         const NUMCHARS: &[u8] = b"0123456789";
         const CHARSET: [&[u8]; 3] = [UPPERCHARS, LOWERCHARS, NUMCHARS];
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let mut password: Vec<char> = (0..PASSWORD_LEN)
             .map(|_| {
-                let chid = rng.gen_range(0..CHARSET.len());
-                let idx = rng.gen_range(0..CHARSET[chid].len());
+                let chid = rng.random_range(0..CHARSET.len());
+                let idx = rng.random_range(0..CHARSET[chid].len());
                 CHARSET[chid][idx] as char
             })
             .collect();
 
         // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
         let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
-        positions_to_overlap.shuffle(&mut thread_rng());
+        positions_to_overlap.shuffle(&mut rand::rng());
         let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
 
         for (index, pos) in positions_to_overlap.enumerate() {
-            let char_index = rng.gen_range(0..CHARSET[index].len());
+            let char_index = rng.random_range(0..CHARSET[index].len());
             password[pos] = CHARSET[index][char_index] as char;
         }
 

@@ -15,11 +15,11 @@ eyre = "*"
 hyper = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util = "0.1.2"
-ipnetwork = "*"
+ipnetwork = { workspace = true }
 lazy_static = "1.4.0"
 libc = "*"
 log = "*"
-lru = "0.12.1"
+lru = "0.13.0"
 mac_address = "*"
 once_cell = "*"
 opentelemetry = { workspace = true }

@@ -24,12 +24,16 @@ use axum::{
 };
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use base64::prelude::*;
-use hyper::http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
-use hyper::http::{HeaderMap, Request, StatusCode};
+use http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
+use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
-use oauth2::basic::BasicClient;
+use oauth2::basic::{
+    BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
+    BasicTokenResponse,
+};
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
+    AuthUrl, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet,
+    PkceCodeChallenge, RedirectUrl, Scope, StandardRevocableToken, TokenUrl,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
@@ -93,9 +97,25 @@ const DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST: &str =
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
 
+// It would appear the oauth2 author read about the typestate pattern and decided making
+// everyone declare 10 type parameters when storing a Client sounds like a great idea.
+// https://github.com/ramosbugs/oauth2-rs/blob/main/UPGRADE.md#add-typestate-generic-types-to-client
+pub(crate) type Oauth2ClientWithPropertiesSet = Client<
+    BasicErrorResponse,
+    BasicTokenResponse,
+    BasicTokenIntrospectionResponse,
+    StandardRevocableToken,
+    BasicRevocationErrorResponse,
+    EndpointSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointSet,
+>;
+
 #[derive(Clone)]
 pub(crate) struct Oauth2Layer {
-    client: BasicClient,
+    client: Oauth2ClientWithPropertiesSet,
     http_client: reqwest::Client,
     private_cookiejar_key: Key,
     allowed_access_groups_filter: String,
@@ -142,24 +162,22 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 .join(" OR ");
 
             // Build the  OAuth2 client.
-            let client = BasicClient::new(
-                ClientId::new(
-                    env::var(OAUTH2_CLIENT_ID_ENV).unwrap_or(DEFAULT_OAUTH2_CLIENT_ID.to_string()),
-                ),
-                Some(ClientSecret::new(
-                    env::var(OAUTH2_CLIENT_SECRET_ENV).map_err(|e| {
-                        CarbideError::internal(format!("{}: {}", OAUTH2_CLIENT_SECRET_ENV, e))
-                    })?,
-                )),
-                AuthUrl::new(
-                    env::var(OAUTH2_AUTH_ENDPOINT_ENV)
-                        .unwrap_or(DEFAULT_OAUTH2_AUTH_ENDPOINT.to_string()),
-                )?,
-                Some(TokenUrl::new(
-                    env::var(OAUTH2_TOKEN_ENDPOINT_ENV)
-                        .unwrap_or(DEFAULT_OAUTH2_TOKEN_ENDPOINT.to_string()),
-                )?),
-            )
+            let client = BasicClient::new(ClientId::new(
+                env::var(OAUTH2_CLIENT_ID_ENV).unwrap_or(DEFAULT_OAUTH2_CLIENT_ID.to_string()),
+            ))
+            .set_client_secret(ClientSecret::new(
+                env::var(OAUTH2_CLIENT_SECRET_ENV).map_err(|e| {
+                    CarbideError::internal(format!("{}: {}", OAUTH2_CLIENT_SECRET_ENV, e))
+                })?,
+            ))
+            .set_auth_uri(AuthUrl::new(
+                env::var(OAUTH2_AUTH_ENDPOINT_ENV)
+                    .unwrap_or(DEFAULT_OAUTH2_AUTH_ENDPOINT.to_string()),
+            )?)
+            .set_token_uri(TokenUrl::new(
+                env::var(OAUTH2_TOKEN_ENDPOINT_ENV)
+                    .unwrap_or(DEFAULT_OAUTH2_TOKEN_ENDPOINT.to_string()),
+            )?)
             .set_redirect_uri(RedirectUrl::new(format!(
                 "https://{}/admin/{}",
                 env::var(CARBIDE_WEB_HOSTNAME_ENV).unwrap_or("localhost:1079".to_string()),

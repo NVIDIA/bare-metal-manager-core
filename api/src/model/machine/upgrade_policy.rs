@@ -336,7 +336,7 @@ mod tests {
             ("v2024.05.10-rc1-0-3-g6497fef4d", None),
             ("v2024.05.10-rc1-3", None),
         ];
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // What we're testing
         let mut t: Vec<BuildVersion> = VERSIONS.iter().map(|v| (v.0).try_into().unwrap()).collect();

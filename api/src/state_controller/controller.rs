@@ -89,7 +89,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             // which failed to get the lock, which aims to give another bias to
             // a different controller.
             use rand::Rng;
-            let jitter = rand::thread_rng().gen::<u64>()
+            let jitter = rand::rng().random::<u64>()
                 % if iteration_result.skipped_iteration {
                     err_jitter
                 } else {

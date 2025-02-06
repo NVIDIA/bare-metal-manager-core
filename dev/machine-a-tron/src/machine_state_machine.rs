@@ -148,7 +148,7 @@ impl MachineStateMachine {
                     error = %e,
                     "Error running state machine, will retry",
                 );
-                let jitter_ms = rand::thread_rng().gen::<u64>() % 10_000;
+                let jitter_ms = rand::rng().random::<u64>() % 10_000;
                 Duration::from_millis(jitter_ms + 5_000)
             }
         }

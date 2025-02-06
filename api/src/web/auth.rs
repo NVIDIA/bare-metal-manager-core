@@ -9,30 +9,26 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::str::FromStr;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::api::Api;
+use crate::web::Oauth2Layer;
 use axum::{
     extract::{Host, Query, State as AxumState},
+    http::{header, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Extension,
 };
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use http::{HeaderMap, StatusCode};
-use oauth2::{
-    http::HeaderMap as Oauth2HeaderMap, http::HeaderName as Oauth2HeaderName,
-    http::HeaderValue as Oauth2HeaderValue, http::StatusCode as Oauth2StatusCode,
-    AuthorizationCode, HttpRequest, HttpResponse, PkceCodeVerifier, TokenResponse,
-};
+use http::HeaderMap;
+use oauth2::{AsyncHttpClient, AuthorizationCode, HttpRequest, PkceCodeVerifier, TokenResponse};
 use serde::Deserialize;
-use time::Duration as TimeDuration;
-use url::Url;
-
-use crate::api::Api;
-use crate::web::Oauth2Layer;
+use time::Duration;
 
 const GRAPH_USER_GROUPS_ENDPOINT: &str = "https://graph.microsoft.com/v1.0/users";
 
@@ -49,14 +45,6 @@ pub async fn callback(
     Query(query): Query<AuthRequest>,
     Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
 ) -> Response {
-    // NOTE: oauth2 has an older version of the HTTP crate as of November 2024, so we can not use the
-    // 1.x HTTP types (which axum uses) when interacting with oauth2. Downgrading axum is not what we
-    // want, so we have to take care to use the pre-http types only for interacting with oauth2.
-    use oauth2::http::{
-        header as oauth2_header, HeaderMap as Oauth2HeaderMap, HeaderValue as Oauth2HeaderValue,
-        Method as Oauth2Method,
-    };
-
     let Some(oauth2_layer) = oauth2_layer else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -113,7 +101,9 @@ pub async fn callback(
         .client
         .exchange_code(AuthorizationCode::new(query.code))
         .set_pkce_verifier(pkce_verifier)
-        .request_async(|req| async_http_request_handler(&oauth2_layer.http_client, req))
+        .request_async(&AsyncRequestHandlerWithTimeouts::new(
+            &oauth2_layer.http_client,
+        ))
         .await
     {
         Ok(s) => s,
@@ -200,64 +190,53 @@ pub async fn callback(
         }
     };
 
-    // Prepare headers we'll use for user and group calls.
-    let mut headers = Oauth2HeaderMap::new();
-    headers.insert(
-        oauth2_header::AUTHORIZATION,
-        match Oauth2HeaderValue::from_str(
-            format!("Bearer {}", token.access_token().secret().to_owned()).as_str(),
-        ) {
-            Ok(h) => h,
-            _ => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "unable to create authorization header",
-                )
-                    .into_response()
-            }
-        },
-    );
-
-    // Needed to perform the request with the $search applied.
-    headers.insert(
-        "ConsistencyLevel",
-        match Oauth2HeaderValue::from_str("eventual") {
-            Ok(h) => h,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("bad header: {}", e),
-                )
-                    .into_response()
-            }
-        },
-    );
-
     // Grab the group memberships of the user with a filter to reduce the response payload.
-    let request = HttpRequest {
-        url: match Url::parse(
+    let request = http::Request::builder()
+        .method(Method::GET)
+        .uri(
             format!(
                 "{}/{}/transitiveMemberOf?$search={}",
                 GRAPH_USER_GROUPS_ENDPOINT, user.oid, oauth2_layer.allowed_access_groups_filter,
             )
             .as_str(),
-        ) {
-            Ok(u) => u,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to parse group query URL: {}", e),
-                )
-                    .into_response()
-            }
-        },
-        method: Oauth2Method::GET,
-        headers,
-        body: vec![],
-    };
+        )
+        .header(
+            header::AUTHORIZATION,
+            match HeaderValue::from_str(
+                format!("Bearer {}", token.access_token().secret().to_owned()).as_str(),
+            ) {
+                Ok(h) => h,
+                _ => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "unable to create authorization header",
+                    )
+                        .into_response()
+                }
+            },
+        )
+        .header(
+            "ConsistencyLevel",
+            match HeaderValue::from_str("eventual") {
+                Ok(h) => h,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("bad header: {}", e),
+                    )
+                        .into_response()
+                }
+            },
+        )
+        .body(vec![])
+        .unwrap();
 
-    let groups = match async_http_request_handler(&oauth2_layer.http_client, request).await {
-        Ok(response) => match serde_json::from_slice::<OauthUserGroups>(&response.body) {
+    let result = AsyncRequestHandlerWithTimeouts::new(&oauth2_layer.http_client)
+        .call(request)
+        .await;
+
+    let groups = match result {
+        Ok(response) => match serde_json::from_slice::<OauthUserGroups>(&response.into_body()) {
             Ok(g) => g,
             Err(e) => {
                 return (
@@ -308,7 +287,7 @@ pub async fn callback(
         .path("/")
         .secure(true)
         .http_only(true)
-        .max_age(TimeDuration::seconds(secs))
+        .max_age(Duration::seconds(secs))
         .build();
 
     (
@@ -334,7 +313,7 @@ pub struct OauthUserData {
     oid: String,
 }
 
-/// A container for the list of groups return in  
+/// A container for the list of groups return in
 /// a graph response to a /transitiveMemberOf call
 #[derive(Debug, Deserialize)]
 pub struct OauthUserGroups {
@@ -351,45 +330,38 @@ pub struct OauthUserGroup {
 
 /// Custom asynchronous HTTP request handler to use with oauth2 because
 /// the default one supplied by oauth2 doesn't use any timeouts.
-pub async fn async_http_request_handler(
-    client: &reqwest::Client,
-    request: HttpRequest,
-) -> Result<HttpResponse, reqwest::Error> {
-    // Note: oauth2 uses a way older HTTP version, so we have to convert the request into newer
-    // types to use reqwest. Unwrapping is ok because we know the method is a legal value at this
-    // point.
-    let method = http::Method::from_str(request.method.as_str()).unwrap();
-    let mut request_builder = client
-        .request(method, request.url.as_str())
-        .body(request.body);
-    for (name, value) in &request.headers {
-        request_builder = request_builder.header(name.as_str(), value.as_bytes());
+struct AsyncRequestHandlerWithTimeouts<'a> {
+    client: &'a reqwest::Client,
+}
+
+impl<'a> AsyncRequestHandlerWithTimeouts<'a> {
+    pub fn new(client: &'a reqwest::Client) -> Self {
+        Self { client }
     }
-    let request = request_builder.build()?;
+}
 
-    let response = client.execute(request).await?;
+impl<'c> oauth2::AsyncHttpClient<'c> for AsyncRequestHandlerWithTimeouts<'_> {
+    type Error = reqwest::Error;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<http::Response<Vec<u8>>, Self::Error>> + Send + 'c>>;
 
-    // Similarly, convert reqwest's response into oauth2's HTTP version.
-    let status_code = Oauth2StatusCode::from_u16(response.status().as_u16()).unwrap();
-    let headers = Oauth2HeaderMap::from_iter(response.headers().iter().map(
-        |(header_name, header_value)| {
-            (
-                Oauth2HeaderName::from_str(header_name.as_str()).unwrap(),
-                Oauth2HeaderValue::from_bytes(header_value.as_bytes()).unwrap(),
-            )
-        },
-    ));
-    let body = response.bytes().await?.to_vec();
+    fn call(&'c self, request: HttpRequest) -> Self::Future {
+        Box::pin(async move {
+            let response = self.client.execute(request.try_into()?).await?;
+            let mut result = http::Response::builder().status(response.status());
+            for (header_name, haeder_value) in response.headers() {
+                result = result.header(header_name, haeder_value);
+            }
 
-    if status_code.is_server_error() || status_code.is_client_error() {
-        if let Ok(body_str) = std::str::from_utf8(&body) {
-            tracing::error!(body_str=%body_str,"error response when making http request for oauth2 flow");
-        }
+            let status = response.status();
+            let body = response.text().await?.into_bytes();
+
+            if status.is_server_error() || status.is_client_error() {
+                let body_str = std::str::from_utf8(&body).unwrap_or_default();
+                tracing::error!(body_str=%body_str,"error response when making http request for oauth2 flow");
+            }
+
+            Ok(result.body(body).unwrap())
+        })
     }
-
-    Ok(HttpResponse {
-        status_code,
-        headers,
-        body,
-    })
 }

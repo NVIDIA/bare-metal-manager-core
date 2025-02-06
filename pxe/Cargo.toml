@@ -18,10 +18,10 @@ forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 # [end-local-dependencies]
 
-axum = "0.7"
-axum-response-cache = "0.1"
-axum-client-ip = "0.6"
-axum-template = { version = "2.4", features = ["tera"] }
+axum = { workspace = true }
+axum-response-cache = "0.2"
+axum-client-ip = { workspace = true }
+axum-template = { workspace = true, features = ["tera"] }
 base64 = "0.22.1"
 bytes = "1"
 clap = { workspace = true }
