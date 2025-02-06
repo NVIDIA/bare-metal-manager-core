@@ -21,7 +21,7 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tower = "0.5.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-x509-parser = "0.16.0"
+x509-parser = "0.17.0"
 log = "0.4.19"
 hickory-resolver = "0.24.0"
 resolv-conf = "0.7.0"

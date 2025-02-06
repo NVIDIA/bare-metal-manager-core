@@ -14,7 +14,7 @@ sqlx = ["dep:sqlx", "dep:ipnetwork"]
 [dependencies]
 eyre = "*"
 ipnet = { version = "2", features = ["serde"] }
-ipnetwork = { version = "^0.20.0", features = ["serde"], optional = true}
+ipnetwork = { workspace = true, features = ["serde"], optional = true}
 mac_address = "1.1.2"
 serde = { version = "1.0", features = ["derive"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }

@@ -7,7 +7,7 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-axum = "0.7.7"
+axum = { workspace = true }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 libredfish = { workspace = true }
 clap = { workspace = true }
@@ -30,9 +30,9 @@ chrono = "0.4"
 tower-http = { version = "0.6", features = ["normalize-path"] }
 bytes = { version = "1" }
 form_urlencoded = "1"
-itertools = "0.13"
+itertools = "0.14"
 futures = "0.3"
-rand = "0.8"
+rand = "0.9"
 rustls = { workspace = true, features = ["default", "ring"] }
 rustls-pemfile = "2.2.0"
 http-body-util = "0.1.2"

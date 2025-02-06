@@ -205,7 +205,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 .and_then(|sla| sla.sla)
                 .map(|sla| {
                     config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::max_value()),
+                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
                     )
                 })
                 .unwrap_or_default(),

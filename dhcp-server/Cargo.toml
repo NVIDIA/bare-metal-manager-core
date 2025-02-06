@@ -16,7 +16,7 @@ serde_yaml = "0.9.27"
 serde = { version = "1.0.190", features = ["derive"] }
 tokio = { workspace = true }
 tonic = { workspace = true }
-ipnetwork = "0.20.0"
+ipnetwork = { workspace = true }
 clap = { version = "4.4.7", features = ["derive"] }
 dhcproto = "0.12.0"
 tracing = "0.1.40"
@@ -25,7 +25,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "local-time",
 ] }
 thiserror = "2.0.3"
-lru = "0.12.0"
+lru = "0.13.0"
 socket2 = "0.5.5"
 chrono = "0.4.38"
 

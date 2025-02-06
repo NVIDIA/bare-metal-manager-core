@@ -454,8 +454,8 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             // so that not all boxes will renew (or expire) at the same time.
             let max_hours = 720; // 24 * 30
             let min_hours = 432; // 24 * 30 * 0.6
-            let mut rng = rand::thread_rng();
-            format!("{}h", rng.gen_range(min_hours..max_hours))
+            let mut rng = rand::rng();
+            format!("{}h", rng.random_range(min_hours..max_hours))
         };
 
         let mut certificate_request_builder = GenerateCertificateRequest::builder();
