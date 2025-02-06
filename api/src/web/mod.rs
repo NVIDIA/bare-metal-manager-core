@@ -488,7 +488,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
         create_machines,
-        carbide_config: (*state.runtime_config).clone(),
+        carbide_config: state.runtime_config.redacted(),
         bmc_proxy,
     };
 
