@@ -360,6 +360,7 @@ description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the c
 dependencies = [
   "ipxe-config",
   "ipxe-patch-measured-boot",
+  "ipxe-patch-watchdog-timeout",
   "ipxe-install-efi-x86_64",
 ]
 
@@ -369,6 +370,7 @@ description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the c
 dependencies = [
   "ipxe-config",
   "ipxe-patch-measured-boot",
+  "ipxe-patch-watchdog-timeout",
   "ipxe-install-efi-x86_64",
 ]
 
@@ -403,6 +405,16 @@ script = '''
     else
         patch -p1 --forward -i "${PATCH}"
     fi
+'''
+
+[tasks.ipxe-patch-watchdog-timeout]
+category = 'iPXE Kernel'
+description = "Patch iPXE to prevent watchdog timeout"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+    PATCH="${REPO_ROOT}/pxe/ipxe/local/0003-efi-prevent-load-image-watchdog-timeout.patch"
+    # if patch is already applied, it will continue, in case of any other error it will fail
+    OUT=$(patch -p1 --forward -i "${PATCH}") || echo "${OUT}" | grep "Skipping patch" -q || (echo "$OUT" && false)
 '''
 
 [tasks.ipxe-install-efi-x86_64]
