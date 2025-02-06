@@ -3412,3 +3412,48 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(pxe.pxe_script.contains("exit"));
 }
+
+#[crate::sqlx_test]
+async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(dpu.reprovision_requested.is_none(),);
+
+    match env
+        .api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: Some(rpc::MachineId {
+                    id: host_machine_id.to_string(),
+                }),
+                mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await
+    {
+        Ok(_) => panic!("Request to restart provisioning should have failed"),
+        Err(e) => {
+            assert!(matches!(e.code(), tonic::Code::InvalidArgument));
+        }
+    }
+}
