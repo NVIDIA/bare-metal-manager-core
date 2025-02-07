@@ -614,6 +614,8 @@ message RuntimeConfig {
 
     optional string dpu_network_pinger_type = 32;
     bool machine_validation_enabled = 33;
+
+    string vpc_isolation_behavior = 34;
 }
 
 message EchoRequest {
