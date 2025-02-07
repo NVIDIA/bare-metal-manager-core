@@ -18,7 +18,7 @@ use tonic::Status;
 
 use crate::db::vpc::VpcDpuLoopback;
 use crate::db::vpc_prefix::VpcPrefix;
-use crate::db::{network_segment, ObjectColumnFilter};
+use crate::db::ObjectColumnFilter;
 use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
 use crate::resource_pool::common::CommonPools;
 use crate::{
@@ -27,7 +27,7 @@ use crate::{
         domain::Domain,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
-        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
+        network_segment::NetworkSegment,
         vpc::{self, Vpc},
     },
     model::{
@@ -163,14 +163,19 @@ pub async fn admin_network(
     let svi_ip = if !fnn_enabled_on_admin {
         None
     } else {
-        get_svi_ip(&prefix.prefix, VpcVirtualizationType::Fnn, true)
-            .map_err(|e| {
-                Status::internal(format!(
-                    "failed to configure FlatInterfaceConfig.svi_ip: {}",
-                    e
-                ))
-            })?
-            .map(|ip| ip.to_string())
+        get_svi_ip(
+            &prefix.prefix,
+            VpcVirtualizationType::Fnn,
+            true,
+            prefix.num_reserved,
+        )
+        .map_err(|e| {
+            Status::internal(format!(
+                "failed to configure FlatInterfaceConfig.svi_ip: {}",
+                e
+            ))
+        })?
+        .map(|ip| ip.to_string())
     };
 
     let (vpc_vni, tenant_vrf_loopback_ip) = if !fnn_enabled_on_admin {
@@ -253,27 +258,12 @@ pub async fn tenant_network(
     iface: &InstanceInterfaceConfig,
     fqdn: String,
     loopback_ip: Option<String>,
-    is_l2_segment: bool,
     network_virtualization_type: VpcVirtualizationType,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
+    segment: &NetworkSegment,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
-    let Some(network_segment_id) = iface.network_segment_id else {
-        return Err(CarbideError::NetworkSegmentNotAllocated.into());
-    };
-
-    let segments = &NetworkSegment::find_by(
-        txn,
-        ObjectColumnFilter::One(network_segment::IdColumn, &network_segment_id),
-        NetworkSegmentSearchConfig::default(),
-    )
-    .await
-    .map_err(CarbideError::from)?;
-    let Some(segment) = segments.first() else {
-        return Err(Status::internal(format!(
-            "Tenant network segment id '{}' matched more than one segment",
-            network_segment_id
-        )));
-    };
+    // Any stretchable segment is treated as L2 segment by FNN.
+    let is_l2_segment = segment.can_stretch.unwrap_or(true);
 
     let v4_prefix = segment
         .prefixes
@@ -349,6 +339,19 @@ pub async fn tenant_network(
     };
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
+    let svi_ip = get_svi_ip(
+        &v4_prefix.prefix,
+        network_virtualization_type,
+        is_l2_segment,
+        v4_prefix.num_reserved,
+    )
+    .map_err(|e| {
+        Status::internal(format!(
+            "failed to configure FlatInterfaceConfig.svi_ip: {}",
+            e
+        ))
+    })?
+    .map(|ip| ip.to_string());
 
     Ok(rpc::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
@@ -368,18 +371,7 @@ pub async fn tenant_network(
         // user's provided fqdn later.
         fqdn,
         booturl: None,
-        svi_ip: get_svi_ip(
-            &v4_prefix.prefix,
-            network_virtualization_type,
-            is_l2_segment,
-        )
-        .map_err(|e| {
-            Status::internal(format!(
-                "failed to configure FlatInterfaceConfig.svi_ip: {}",
-                e
-            ))
-        })?
-        .map(|ip| ip.to_string()),
+        svi_ip,
         tenant_vrf_loopback_ip: loopback_ip,
         is_l2_segment,
         network_security_group: network_security_group_details

@@ -167,22 +167,21 @@ pub fn get_svi_ip(
     network: &IpNetwork,
     virtualization_type: VpcVirtualizationType,
     is_l2_segment: bool,
+    num_reserved: i32,
 ) -> eyre::Result<Option<IpNetwork>> {
-    match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer
-        | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(None),
-        VpcVirtualizationType::Fnn => {
-            if is_l2_segment {
-                match network.iter().nth(2) {
-                    Some(ip_addr) => Ok(Some(IpNetwork::new(ip_addr, network.prefix())?)),
-                    None => Err(eyre::eyre!(format!(
-                        "no viable SVI IP found in network: {}",
-                        network
-                    ))),
-                }
-            } else {
-                Ok(None)
-            }
+    if virtualization_type == VpcVirtualizationType::Fnn && is_l2_segment {
+        if num_reserved < 3 {
+            return Err(eyre::eyre!(format!(
+                "Can not get SVI IP as num_reserved {num_reserved} is insufficient for prefix {network}.",
+            )));
         }
+        return match network.iter().nth(2) {
+            Some(ip_addr) => Ok(Some(IpNetwork::new(ip_addr, network.prefix())?)),
+            None => Err(eyre::eyre!(format!(
+                "no viable SVI IP found in network: {}",
+                network
+            ))),
+        };
     }
+    Ok(None)
 }

@@ -1712,7 +1712,7 @@ mod tests {
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&network_prefix_1, virtualization_type, true)
+                svi_ip: get_svi_ip(&network_prefix_1, virtualization_type, true, 3)
                     .unwrap()
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
@@ -1732,7 +1732,7 @@ mod tests {
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&network_prefix_2, virtualization_type, false)
+                svi_ip: get_svi_ip(&network_prefix_2, virtualization_type, false, 3)
                     .unwrap()
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
@@ -2061,7 +2061,7 @@ mod tests {
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, true)
+                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, true, 3)
                     .unwrap()
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
@@ -2081,7 +2081,7 @@ mod tests {
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, false)
+                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, false, 3)
                     .unwrap()
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
