@@ -273,6 +273,8 @@ pub enum DpuAction {
     Versions(DpuVersionOptions),
     #[clap(about = "View DPU Status")]
     Status,
+    #[clap(subcommand, about = "Networking information")]
+    Network(NetworkCommand),
 }
 
 #[derive(Parser, Debug)]

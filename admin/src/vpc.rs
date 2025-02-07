@@ -114,18 +114,27 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
         "TenantOrg",
         "Version",
         "Created",
+        "Virt Type",
         "Labels",
     ]);
     let default_metadata = Default::default();
 
     for vpc in vpcs.vpcs {
         let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
+        let virt_type = forgerpc::VpcVirtualizationType::try_from(
+            vpc.network_virtualization_type.unwrap_or_default(),
+        )
+        .unwrap_or_default()
+        .as_str_name()
+        .to_string();
+
         table.add_row(row![
             vpc.id.unwrap_or_default(),
             vpc.name,
             vpc.tenant_organization_id,
             vpc.version,
             vpc.created.unwrap_or_default(),
+            virt_type,
             metadata
                 .labels
                 .iter()
