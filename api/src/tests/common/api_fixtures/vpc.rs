@@ -29,6 +29,7 @@ pub async fn create_vpc(
         tenant_organization_id: tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),
         tenant_keyset_id: None,
         network_virtualization_type: None,
+        network_security_group_id: None,
         id: Some(::rpc::common::Uuid {
             value: vpc_id.to_string(),
         }),

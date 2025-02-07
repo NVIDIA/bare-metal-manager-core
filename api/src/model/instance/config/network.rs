@@ -122,7 +122,6 @@ pub struct InvalidVirtualFunctionId();
 pub struct InstanceNetworkConfig {
     /// Configures how instance network interfaces are set up
     pub interfaces: Vec<InstanceInterfaceConfig>,
-    // TODO: Security group
 }
 
 impl InstanceNetworkConfig {

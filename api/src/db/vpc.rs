@@ -13,10 +13,12 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
+use forge_uuid::network_security_group::NetworkSecurityGroupIdParseError;
+use forge_uuid::{machine::MachineId, network_security_group::NetworkSecurityGroupId};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
@@ -33,6 +35,7 @@ use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 pub struct Vpc {
     pub id: VpcId,
     pub tenant_organization_id: String,
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub version: ConfigVersion,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
@@ -83,11 +86,13 @@ pub struct NewVpc {
     pub tenant_organization_id: String,
     pub network_virtualization_type: VpcVirtualizationType,
     pub metadata: Metadata,
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
 }
 
 #[derive(Clone, Debug)]
 pub struct UpdateVpc {
     pub id: VpcId,
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub if_version_match: Option<ConfigVersion>,
     pub metadata: Metadata,
 }
@@ -120,6 +125,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
             tenant_organization_id: row.try_get("organization_id")?,
+            network_security_group_id: row.try_get("network_security_group_id")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
@@ -137,13 +143,14 @@ impl NewVpc {
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vpc, DatabaseError> {
         let query =
-            "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type,
+                "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
+                labels) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
             .bind(&self.metadata.name)
             .bind(&self.tenant_organization_id)
+            .bind(&self.network_security_group_id)
             .bind(ConfigVersion::initial())
             .bind(self.network_virtualization_type)
             .bind(&self.metadata.description)
@@ -314,6 +321,9 @@ impl From<Vpc> for rpc::Vpc {
             version: src.version.version_string(),
             name: src.metadata.name.clone(),
             tenant_organization_id: src.tenant_organization_id,
+            network_security_group_id: src
+                .network_security_group_id
+                .map(|nsg_id| nsg_id.to_string()),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
@@ -378,6 +388,15 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
         Ok(NewVpc {
             id,
             tenant_organization_id: value.tenant_organization_id,
+            network_security_group_id: value
+                .network_security_group_id
+                .map(|nsg_id| nsg_id.parse())
+                .transpose()
+                .map_err(|e: NetworkSecurityGroupIdParseError| {
+                    CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                        e.to_string(),
+                    ))
+                })?,
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -417,6 +436,15 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
                 .id
                 .ok_or(CarbideError::MissingArgument("id"))?
                 .try_into()?,
+            network_security_group_id: value
+                .network_security_group_id
+                .map(|nsg_id| nsg_id.parse())
+                .transpose()
+                .map_err(|e: NetworkSecurityGroupIdParseError| {
+                    CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                        e.to_string(),
+                    ))
+                })?,
             if_version_match,
             metadata,
         })
@@ -477,13 +505,14 @@ impl UpdateVpc {
         // network_virtualization_type cannot be changed currently
         // TODO check number of changed rows
         let query = "UPDATE vpcs
-            SET name=$1, version=$2, description=$3, labels=$4::json, updated=NOW()
-            WHERE id=$5 AND version=$6 AND deleted is null
+            SET name=$1, version=$2, description=$3, network_security_group_id=$4, labels=$5::json, updated=NOW()
+            WHERE id=$6 AND version=$7 AND deleted is null
             RETURNING *";
         let query_result = sqlx::query_as(query)
             .bind(&self.metadata.name)
             .bind(next_version)
             .bind(&self.metadata.description)
+            .bind(&self.network_security_group_id)
             .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(self.id)
             .bind(current_version)

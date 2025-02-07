@@ -72,6 +72,7 @@ pub async fn create_network_segment_with_api(
                 id: None,
                 name: "test vpc 1".to_string(),
                 tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                network_security_group_id: None,
                 tenant_keyset_id: None,
                 network_virtualization_type: None,
                 metadata: None,

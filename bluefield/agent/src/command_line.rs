@@ -131,6 +131,12 @@ pub struct NvueOptions {
         help = "The VpcVirtualizationType to use for this config + template (etv, etv_nvue, fnn_classic, fnn_l3)"
     )]
     pub virtualization_type: VpcVirtualizationType,
+
+    #[clap(
+        long,
+        help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs). Repeats with multiple --ct_network_security_group_rule."
+    )]
+    pub ct_network_security_group_rule: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

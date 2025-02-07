@@ -42,7 +42,8 @@ use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::{
-    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId, vpc::VpcId,
+    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
+    network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -109,6 +110,7 @@ pub struct InstanceSnapshotPgJson {
     os_phone_home_enabled: bool,
     os_image_id: Option<uuid::Uuid>,
     instance_type_id: Option<InstanceTypeId>,
+    network_security_group_id: Option<NetworkSecurityGroupId>,
     requested: DateTime<Utc>,
     started: DateTime<Utc>,
     finished: Option<DateTime<Utc>>,
@@ -160,6 +162,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             network: value.network_config,
             infiniband: value.ib_config,
             storage: value.storage_config,
+            network_security_group_id: value.network_security_group_id,
         };
 
         Ok(InstanceSnapshot {
@@ -447,6 +450,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// - OS
     /// - Keyset IDs
     /// - Metadata
+    /// - Security Group
     ///
     /// This method will not update
     /// - instance network and infiniband configurations
@@ -476,7 +480,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let query = "UPDATE instances SET config_version=$1,
             os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5,
             os_image_id=$6, keyset_ids=$7,
-            name=$8, description=$9, labels=$10::json
+            name=$8, description=$9, labels=$10::json, network_security_group_id=$13
             WHERE id=$11 AND config_version=$12
             RETURNING id";
         let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
@@ -492,6 +496,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(sqlx::types::Json(&metadata.labels))
             .bind(instance_id)
             .bind(expected_version)
+            .bind(config.network_security_group_id)
             .fetch_one(txn.deref_mut())
             .await;
 
@@ -772,12 +777,13 @@ impl<'a> NewInstance<'a> {
                         storage_config,
                         storage_config_version,
                         storage_status_observation,
-                        instance_type_id
+                        instance_type_id,
+                        network_security_group_id
                     )
                     SELECT 
                             $1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json,
                             $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json,
-                            m.instance_type_id
+                            m.instance_type_id, $25
                     FROM machines m WHERE m.id=$23 AND ($24 IS NULL OR m.instance_type_id=$24) FOR UPDATE
                     RETURNING row_to_json(instances.*)";
         match sqlx::query_as(query)
@@ -805,6 +811,7 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(storage_status_observation))
             .bind(self.machine_id.to_string())
             .bind(&self.instance_type_id)
+            .bind(&self.config.network_security_group_id)
             .fetch_one(&mut **txn)
             .await
         {

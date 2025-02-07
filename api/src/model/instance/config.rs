@@ -15,6 +15,9 @@ pub mod network;
 pub mod storage;
 pub mod tenant_config;
 
+use forge_uuid::network_security_group::{
+    NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -49,6 +52,9 @@ pub struct InstanceConfig {
 
     /// Configures instance storage
     pub storage: InstanceStorageConfig,
+
+    /// Configures the security group
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
 }
 
 impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
@@ -110,6 +116,13 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             network,
             infiniband,
             storage,
+            network_security_group_id: config
+                .network_security_group_id
+                .map(|nsg| nsg.parse())
+                .transpose()
+                .map_err(|e: NetworkSecurityGroupIdParseError| {
+                    RpcDataConversionError::InvalidNetworkSecurityGroupId(e.to_string())
+                })?,
         })
     }
 }
@@ -152,6 +165,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             network: Some(network),
             infiniband,
             storage,
+            network_security_group_id: config.network_security_group_id.map(|i| i.to_string()),
         })
     }
 }

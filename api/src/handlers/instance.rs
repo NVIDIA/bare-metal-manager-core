@@ -10,11 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 use crate::api::{log_machine_id, log_request_data, Api};
-use crate::db;
-use crate::db::instance::{DeleteInstance, Instance};
-use crate::db::managed_host::LoadSnapshotOptions;
-use crate::db::DatabaseError;
+use crate::db::{
+    self,
+    instance::{DeleteInstance, Instance},
+    managed_host::LoadSnapshotOptions,
+    network_security_group, DatabaseError,
+};
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
+use crate::model::instance::config::tenant_config::TenantConfig;
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -683,6 +686,33 @@ pub(crate) async fn update_instance_config(
         Some(version) => version.parse().map_err(CarbideError::from)?,
         None => instance.config_version,
     };
+
+    // If an NSG is applied, we need to do a little more validation.
+    if let InstanceConfig {
+        network_security_group_id: Some(ref nsg_id),
+        tenant:
+            TenantConfig {
+                tenant_organization_id: ref tenant_org,
+                ..
+            },
+        ..
+    } = config
+    {
+        // Query to check the validity of the NSG ID but to also grab
+        // a row-level lock on it if it exists.
+        if network_security_group::find_by_ids(&mut txn, &[nsg_id.clone()], Some(tenant_org), true)
+            .await?
+            .pop()
+            .is_none()
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                nsg_id,
+                tenant_org.clone(),
+            ))
+            .into());
+        }
+    }
 
     Instance::update_config(&mut txn, instance.id, expected_version, config, metadata)
         .await

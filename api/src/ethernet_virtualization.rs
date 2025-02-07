@@ -19,6 +19,7 @@ use tonic::Status;
 use crate::db::vpc::VpcDpuLoopback;
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::{network_segment, ObjectColumnFilter};
+use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
 use crate::resource_pool::common::CommonPools;
 use crate::{
     db::{
@@ -29,7 +30,10 @@ use crate::{
         network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
         vpc::{self, Vpc},
     },
-    model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
+    model::{
+        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
+        network_security_group::NetworkSecurityGroup,
+    },
     CarbideError,
 };
 use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
@@ -237,10 +241,12 @@ pub async fn admin_network(
         svi_ip,
         tenant_vrf_loopback_ip,
         is_l2_segment: true,
+        network_security_group: None,
     };
     Ok((cfg, interface.id))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn tenant_network(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: InstanceId,
@@ -249,6 +255,7 @@ pub async fn tenant_network(
     loopback_ip: Option<String>,
     is_l2_segment: bool,
     network_virtualization_type: VpcVirtualizationType,
+    network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     let Some(network_segment_id) = iface.network_segment_id else {
         return Err(CarbideError::NetworkSegmentNotAllocated.into());
@@ -375,6 +382,48 @@ pub async fn tenant_network(
         .map(|ip| ip.to_string()),
         tenant_vrf_loopback_ip: loopback_ip,
         is_l2_segment,
+        network_security_group: network_security_group_details
+            .map(|(source, nsg)| {
+                Ok(
+                        rpc::FlatInterfaceNetworkSecurityGroupConfig {
+                            id: nsg.id.to_string(),
+                            version: nsg.version.to_string(),
+                            source,
+                            rules:
+                                nsg.rules
+                                    .into_iter()
+                                    .map(|r| {
+                                        Ok(rpc::ResolvedNetworkSecurityGroupRule {
+                                            // When we decide to allow object references,
+                                            // they would be resolved to their actual prefix
+                                            // lists and stored here.
+                                            src_prefixes: match r.src_net {
+                                                NetworkSecurityGroupRuleNet::Prefix(ref p) => {
+                                                    vec![p.to_string()]
+                                                }
+                                            },
+                                            dst_prefixes: match r.dst_net {
+                                                NetworkSecurityGroupRuleNet::Prefix(ref p) => {
+                                                    vec![p.to_string()]
+                                                }
+                                            },
+                                            rule: Some(r.try_into().map_err(CarbideError::from)?),
+                                        })
+                                    })
+                                    .collect::<Result<
+                                        Vec<rpc::ResolvedNetworkSecurityGroupRule>,
+                                        CarbideError,
+                                    >>()?,
+                        },
+                    )
+            })
+            .transpose()
+            .map_err(|e: CarbideError| {
+                Status::internal(format!(
+                    "failed to configure FlatInterfaceConfig.network_security_group: {}",
+                    e
+                ))
+            })?,
     })
 }
 

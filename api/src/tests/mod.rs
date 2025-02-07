@@ -50,6 +50,7 @@ mod machine_validation;
 mod maintenance;
 mod measured_boot;
 mod network_device;
+mod network_security_group;
 mod network_segment;
 mod network_segment_find;
 mod network_segment_lifecycle;

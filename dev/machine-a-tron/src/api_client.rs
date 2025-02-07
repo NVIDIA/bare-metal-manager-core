@@ -438,6 +438,7 @@ pub async fn allocate_instance(
             network: Some(rpc::InstanceNetworkConfig{
                 interfaces: vec![interface_config],
             }),
+            network_security_group_id: None,
             infiniband: None,
             storage: None,
         };
@@ -578,6 +579,7 @@ pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rp
                 name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
+                network_security_group_id: None,
                 network_virtualization_type: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{}", vpc_count),

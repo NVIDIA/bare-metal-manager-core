@@ -2204,6 +2204,7 @@ pub async fn allocate_instance(
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
             }),
+            network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
             storage: None,
         };

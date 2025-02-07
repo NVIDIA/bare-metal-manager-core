@@ -296,6 +296,13 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     let c: nvue::PortConfig = serde_json::from_str(&net_json)?;
                     port_configs.push(c);
                 }
+
+                let mut nsg_rules = Vec::with_capacity(opts.ct_network_security_group_rule.len());
+                for net_json in opts.ct_network_security_group_rule {
+                    let rule: nvue::NetworkSecurityGroupRule = serde_json::from_str(&net_json)?;
+                    nsg_rules.push(rule);
+                }
+
                 let access_vlans = opts
                     .vlan
                     .into_iter()
@@ -333,6 +340,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ct_external_access: opts.ct_external_access,
                     ct_access_vlans: access_vlans,
                     ct_internet_l3_vni: opts.ct_internet_l3_vni,
+                    ct_network_security_group_rules: nsg_rules,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;

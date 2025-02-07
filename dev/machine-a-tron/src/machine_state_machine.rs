@@ -531,6 +531,7 @@ impl MachineStateMachine {
                 addresses: vec![iface.ip.clone()],
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
+                network_security_group: None,
             }]
         } else {
             instance_network_config_version =
@@ -544,6 +545,13 @@ impl MachineStateMachine {
                     addresses: vec![iface.ip.clone()],
                     prefixes: vec![iface.interface_prefix.clone()],
                     gateways: vec![iface.gateway.clone()],
+                    network_security_group: iface.network_security_group.as_ref().map(|s| {
+                        rpc::forge::NetworkSecurityGroupStatus {
+                            source: s.source,
+                            id: s.id.clone(),
+                            version: s.version.clone(),
+                        }
+                    }),
                 });
             }
         };

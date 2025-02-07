@@ -209,6 +209,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
         ),
         metadata: None,
+        network_security_group_id: None,
     };
     let vpc1 = env
         .api
@@ -250,6 +251,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
         ),
         metadata: None,
+        network_security_group_id: None,
     };
     let vpc2 = env
         .api

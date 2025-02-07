@@ -1,0 +1,655 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use ::rpc::{errors::RpcDataConversionError, forge as rpc};
+use config_version::ConfigVersion;
+use forge_uuid::{
+    instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
+};
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+use crate::api::{log_request_data, Api};
+use crate::db::{network_security_group, DatabaseError};
+use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
+use crate::model::tenant::TenantOrganizationId;
+use crate::model::{
+    metadata::Metadata, network_security_group::NetworkSecurityGroupRule, tenant::InvalidTenantOrg,
+};
+use crate::CarbideError;
+
+pub(crate) async fn create(
+    api: &Api,
+    request: Request<rpc::CreateNetworkSecurityGroupRequest>,
+) -> Result<Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Get the ID from the request
+    let id = match req.id {
+        None => NetworkSecurityGroupId::from(Uuid::new_v4()),
+        Some(i) => i.parse::<NetworkSecurityGroupId>().map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                e.to_string(),
+            ))
+        })?,
+    };
+
+    // Prepare the metadata
+    let metadata = match req.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            )
+        }
+    };
+
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    // Prepare the rules list
+    let rules = req
+        .network_security_group_attributes
+        .unwrap_or(rpc::NetworkSecurityGroupAttributes {
+            ..Default::default()
+        })
+        .rules
+        .into_iter()
+        .map(|r| r.try_into())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(CarbideError::from)?;
+
+    let max_nsg_size = api
+        .runtime_config
+        .network_security_group
+        .max_network_security_group_size as usize;
+    if rules.len() > max_nsg_size || calculate_expanded_rule_set(&rules) > max_nsg_size {
+        return Err(CarbideError::InvalidArgument(format!(
+            "expanded rule set contains more than {max_nsg_size} maximum number of rules"
+        ))
+        .into());
+    }
+
+    // Start a new transaction for a db write.
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin create_network_security_group",
+            e,
+        ))
+    })?;
+
+    // Write a new NetworkSecurityGroup to the DB and get back
+    // our new NetworkSecurityGroup.
+    let network_security_group = network_security_group::create(
+        &mut txn,
+        &id,
+        &req.tenant_organization_id
+            .parse()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?,
+        None,
+        &metadata,
+        &rules,
+    )
+    .await?;
+
+    // Prepare the response to send back
+    let rpc_out = rpc::CreateNetworkSecurityGroupResponse {
+        network_security_group: Some(network_security_group.try_into()?),
+    };
+
+    //  Commit our txn if nothing has gone wrong so far.
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit create_network_security_group",
+            e,
+        ))
+    })?;
+
+    // Send our response back.
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::FindNetworkSecurityGroupIdsRequest>,
+) -> Result<Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin find_network_security_group_ids",
+            e,
+        ))
+    })?;
+
+    let network_security_group_ids = network_security_group::find_ids(
+        &mut txn,
+        req.name.as_deref(),
+        req.tenant_organization_id
+            .map(|t| t.parse::<TenantOrganizationId>())
+            .transpose()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?
+            .as_ref(),
+        false,
+    )
+    .await?;
+
+    let rpc_out = rpc::FindNetworkSecurityGroupIdsResponse {
+        network_security_group_ids: network_security_group_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect(),
+    };
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit find_network_security_group_ids",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
+) -> Result<Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if req.network_security_group_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be submitted"
+        ))
+        .into());
+    }
+
+    if req.network_security_group_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    // Convert the IDs in the request to a list of NetworkSecurityGroupId
+    // we can send to the DB.
+    let network_security_group_ids: Vec<NetworkSecurityGroupId> = req
+        .network_security_group_ids
+        .iter()
+        .map(|i| i.parse::<NetworkSecurityGroupId>())
+        .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                e.to_string(),
+            ))
+        })?;
+
+    // Prepare our txn to grab the NetworkSecurityGroups from the DB
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin find_network_security_groups_by_ids",
+            e,
+        ))
+    })?;
+
+    // Make our DB query for the IDs to get our NetworkSecurityGroups
+    let network_security_groups = network_security_group::find_by_ids(
+        &mut txn,
+        &network_security_group_ids,
+        req.tenant_organization_id
+            .map(|t| t.parse::<TenantOrganizationId>())
+            .transpose()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?
+            .as_ref(),
+        false,
+    )
+    .await?;
+
+    // Convert the list of internal NetworkSecurityGroup to a
+    // list of proto message NetworkSecurityGroup to send back
+    // in the response.
+
+    let rpc_network_security_groups = network_security_groups
+        .into_iter()
+        .map(|i| i.try_into())
+        .collect::<Result<Vec<rpc::NetworkSecurityGroup>, _>>()?;
+
+    // Prepare the response message
+    let rpc_out = rpc::FindNetworkSecurityGroupsByIdsResponse {
+        network_security_groups: rpc_network_security_groups,
+    };
+
+    // Commit if nothing has gone wrong up to now
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit find_network_security_groups_by_ids",
+            e,
+        ))
+    })?;
+
+    // Send our response back
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<rpc::UpdateNetworkSecurityGroupRequest>,
+) -> Result<Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    // Get the target ID
+    let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+            e.to_string(),
+        ))
+    })?;
+
+    // Prepare the metadata
+    let metadata = match req.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            )
+        }
+    };
+
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    // Prepare the desired rules list
+    let rules = req
+        .network_security_group_attributes
+        .unwrap_or(rpc::NetworkSecurityGroupAttributes {
+            ..Default::default()
+        })
+        .rules
+        .into_iter()
+        .map(|r| r.try_into())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(CarbideError::from)?;
+
+    let max_nsg_size = api
+        .runtime_config
+        .network_security_group
+        .max_network_security_group_size as usize;
+    if rules.len() > max_nsg_size || calculate_expanded_rule_set(&rules) > max_nsg_size {
+        return Err(CarbideError::InvalidArgument(format!(
+            "expanded rule set contains more than {max_nsg_size} maximum number of rules"
+        ))
+        .into());
+    }
+
+    // Start a new transaction for a db write.
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin update_network_security_group",
+            e,
+        ))
+    })?;
+
+    let tenant_organization_id =
+        req.tenant_organization_id
+            .parse()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?;
+
+    // Look up the NetworkSecurityGroup.  We'll need to check the current
+    // version. We could probably do everything with a single query
+    // with a few subqueries, but we'd only be able to send back a
+    // NotFound, leaving the caller with no way to know if it was
+    // because their NetworkSecurityGroup wasn't found or because the version
+    // didn't match.
+    let current_network_security_group = network_security_group::find_by_ids(
+        &mut txn,
+        &[id.clone()],
+        Some(&tenant_organization_id),
+        true,
+    )
+    .await?;
+
+    // If we found more than one, the DB is corrupt.
+    if current_network_security_group.len() > 1 {
+        // CarbideError::FindOneReturnedManyResultsError expects a uuid,
+        // and we've said we want to move away from uuid::Uuid
+        return Err(CarbideError::Internal {
+            message: format!("multiple NetworkSecurityGroup records found for '{}'", id),
+        }
+        .into());
+    }
+
+    // This could have been because group doesn't exist
+    // OR because the tenant org ID was wrong.
+    // Is there a better way to get the details back aside
+    // from just stuffing the `id` field of the error?
+    let current_network_security_group = match current_network_security_group.first() {
+        Some(i) => i,
+        None => {
+            return Err(CarbideError::NotFoundError {
+                kind: "NetworkSecurityGroup",
+                id: format!(
+                    "{} for tenant org `{}`",
+                    metadata.name.clone(),
+                    req.tenant_organization_id.clone(),
+                ),
+            }
+            .into())
+        }
+    };
+
+    // Prepare the version match if present.
+    if let Some(if_version_match) = req.if_version_match {
+        let target_version = if_version_match
+            .parse::<ConfigVersion>()
+            .map_err(CarbideError::from)?;
+
+        if current_network_security_group.version != target_version {
+            return Err(CarbideError::ConcurrentModificationError(
+                "NetworkSecurityGroup",
+                target_version.to_string(),
+            )
+            .into());
+        }
+    };
+
+    // Update record in the DB and get back
+    // our new NetworkSecurityGroup state.
+    let network_security_group = network_security_group::update(
+        &mut txn,
+        &id,
+        &tenant_organization_id,
+        &metadata,
+        &rules,
+        current_network_security_group.version,
+        None,
+    )
+    .await?;
+
+    // Prepare the response to send back
+    let rpc_out = rpc::UpdateNetworkSecurityGroupResponse {
+        network_security_group: Some(network_security_group.try_into()?),
+    };
+
+    // Commit our txn if nothing has gone wrong so far.
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit udpdate_network_security_group",
+            e,
+        ))
+    })?;
+
+    // Send our response back.
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn delete(
+    api: &Api,
+    request: Request<rpc::DeleteNetworkSecurityGroupRequest>,
+) -> Result<Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
+        CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+            e.to_string(),
+        ))
+    })?;
+
+    // Prepare our txn to delete from the DB
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin delete_network_security_group",
+            e,
+        ))
+    })?;
+
+    let tenant_organization_id =
+        req.tenant_organization_id
+            .parse()
+            .map_err(|e: InvalidTenantOrg| {
+                Status::from(CarbideError::from(
+                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                ))
+            })?;
+
+    // Make our DB query for the NetworkSecurityGroup.
+    // This is mainly to get a row-level lock if the record exists
+    // to allow other code to coordinate on NetworkSecurityGroup
+    // records.
+    // For example, code that updates the NSG of an instance or VPC
+    // should grab at least a row-level lock for the NSG it wants to use.
+    let nsg = network_security_group::find_by_ids(
+        &mut txn,
+        &[id.clone()],
+        // We return without error if something wasn't found because it was already soft-deleted,
+        // so we'll check tenant ownership separately from the query here so we don't hide a
+        // 404 due to a mismatched tenant.
+        None,
+        true,
+    )
+    .await?
+    .pop();
+
+    // Since we needed to query for the record anyway,
+    // we can save ourselves some extra work if it didn't exist.
+    if let Some(nsg) = nsg {
+        if nsg.deleted.is_none() {
+            if nsg.tenant_organization_id != tenant_organization_id {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "NetworkSecurityGroup `{}` is not owned by Tenant `{}`",
+                    nsg.id.clone(),
+                    tenant_organization_id.clone()
+                ))
+                .into());
+            }
+
+            // Look for any related objects that have this NSG attached.
+            // If an NSG is in use, it must not be deleted.
+            let existing_associated_objects =
+                network_security_group::find_objects_with_attachments(
+                    &mut txn,
+                    Some(&[id.clone()]),
+                    Some(&tenant_organization_id),
+                )
+                .await
+                .map_err(CarbideError::from)?
+                .pop();
+
+            if existing_associated_objects
+                .map(|a| a.has_attachments())
+                .unwrap_or_default()
+            {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "NetworkSecurityGroup {} is associated with active objects",
+                    id
+                ))
+                .into());
+            }
+
+            // Make our DB query to soft delete the NetworkSecurityGroup
+            let _id =
+                network_security_group::soft_delete(&mut txn, &id, &tenant_organization_id).await?;
+        }
+    }
+
+    // Prepare the response message
+    let rpc_out = rpc::DeleteNetworkSecurityGroupResponse {};
+
+    // Commit if nothing has gone wrong up to now
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit delete_network_security_group",
+            e,
+        ))
+    })?;
+
+    // Send our response back
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn get_propagation_status(
+    api: &Api,
+    request: Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
+) -> Result<Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if req.vpc_ids.len() + req.instance_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs combined can be submitted"
+        ))
+        .into());
+    }
+
+    if req.vpc_ids.is_empty() && req.instance_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one VPC ID or Instance ID must be provided".to_string(),
+        )
+        .into());
+    }
+
+    let vpc_ids = req
+        .vpc_ids
+        .iter()
+        .map(|v| v.parse::<VpcId>())
+        .collect::<Result<Vec<VpcId>, _>>()
+        .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidVpcId(e.to_string())))?;
+
+    let instance_ids = req
+        .instance_ids
+        .iter()
+        .map(|i| i.parse::<InstanceId>())
+        .collect::<Result<Vec<InstanceId>, _>>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
+        })?;
+
+    // Prepare our txn to associate machines with the NetworkSecurityGroup
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_propagation_status",
+            e,
+        ))
+    })?;
+
+    // Query the DB for propagation status.
+    let (vpcs, instances) = network_security_group::get_propagation_status(
+        &mut txn,
+        req.network_security_group_ids
+            .map(|nl| {
+                nl.ids
+                    .iter()
+                    .map(|v| v.parse::<NetworkSecurityGroupId>())
+                    .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
+            })
+            .transpose()
+            .map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidInstanceId(e.to_string()))
+            })?
+            .as_deref(),
+        None,
+        Some(&vpc_ids),
+        Some(&instance_ids),
+    )
+    .await?;
+
+    // Prepare the response message
+    let rpc_out = rpc::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vpcs.into_iter().map(|v| v.into()).collect(),
+        instances: instances.into_iter().map(|v| v.into()).collect(),
+    };
+
+    // Commit if nothing has gone wrong up to now
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_propagation_status",
+            e,
+        ))
+    })?;
+
+    // Send our response back
+    Ok(Response::new(rpc_out))
+}
+
+fn calculate_expanded_rule_set(rules: &[NetworkSecurityGroupRule]) -> usize {
+    let mut total_rules = 0u32;
+
+    for rule in rules {
+        match (&rule.src_net, &rule.dst_net) {
+            (NetworkSecurityGroupRuleNet::Prefix(_), NetworkSecurityGroupRuleNet::Prefix(_)) => {
+                // Negative ranges are caught when we convert from rpc to internal struct.
+                // so we can keep this simple.
+                let rule_count = rule.src_port_end.unwrap_or_default()
+                    - rule.src_port_start.unwrap_or_default()
+                    + rule.dst_port_end.unwrap_or_default()
+                    - rule.dst_port_start.unwrap_or_default();
+
+                total_rules += if rule_count > 0 {
+                    rule_count
+                } else {
+                    //  A rule with no ports specified still has a cost.
+                    1
+                };
+            }
+        }
+    }
+
+    total_rules as usize
+}
