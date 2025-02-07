@@ -2,6 +2,13 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc3-0...trunk)
 
 ### Added
+
+- VPC isolation behavior can now be controlled with a config file option
+  `vpc_isolation_behavior`. It can be set to `mutual_isolation` or `open`.
+  `mutual_isolation` is the name for the old default behavior, and is the
+  default for this option if not specified. `open` disables VPC isolation inside
+  the site.
+
 ### Changed
 ### Fixed
 
