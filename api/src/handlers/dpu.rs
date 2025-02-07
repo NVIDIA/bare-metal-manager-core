@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -292,17 +293,21 @@ pub(crate) async fn get_managed_host_network_config(
                 }
             };
 
-            //Get Domain
-            let segments = &NetworkSegment::find_by(
+            // All interfaces have the segment id allocated. It is already validated during
+            // instance creation.
+            let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
+            let segment_details = NetworkSegment::find_by(
                 &mut txn,
-                ObjectColumnFilter::One(network_segment::IdColumn, &network_segment_id),
+                ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
-            )
-            .await
+            ).await
             .map_err(CarbideError::from)?;
-            let Some(segment) = segments.first() else {
+
+            let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
+
+            let Some(segment) = segment_details.get(&network_segment_id) else {
                 return Err(Status::internal(format!(
-                    "Tenant network segment id '{}' matched more than one segment",
+                    "Tenant segment id {} is not found in db.",
                     network_segment_id
                 )));
             };
@@ -348,16 +353,21 @@ pub(crate) async fn get_managed_host_network_config(
             } else {
                 None
             };
+
             for iface in interfaces {
-                let is_l2_segment = match network_virtualization_type {
-                    VpcVirtualizationType::EthernetVirtualizer
-                    | VpcVirtualizationType::EthernetVirtualizerWithNvue => true,
-                    VpcVirtualizationType::Fnn => !matches!(
-                        iface.network_details,
-                        Some(
-                            crate::model::instance::config::network::NetworkDetails::VpcPrefixId(_),
-                        )
-                    ),
+                // This can not happen as validated during instance creation.
+                let Some(iface_segment) = iface.network_segment_id else {
+                    return Err(Status::internal(format!(
+                        "Tenant segment is not assigned for iface: {:?}.",
+                        iface
+                    )));
+                };
+
+                let Some(segment) = segment_details.get(&iface_segment) else {
+                    return Err(Status::internal(format!(
+                        "Tenant segment id {} is not found in db. Can not fetch the details.",
+                        iface_segment
+                    )));
                 };
 
                 tenant_interfaces.push(
@@ -369,9 +379,9 @@ pub(crate) async fn get_managed_host_network_config(
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
                         tenant_loopback_ip.clone(),
-                        is_l2_segment,
                         network_virtualization_type,
                         network_security_group_details.clone(),
+                        segment
                     )
                     .await?,
                 );
