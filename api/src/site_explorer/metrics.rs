@@ -464,7 +464,7 @@ impl SiteExplorerInstruments {
 pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
     match error {
         EndpointExplorationError::Unreachable { .. } => "unreachable",
-        EndpointExplorationError::UnsupportedVendor(_) => "unsupported_vendor",
+        EndpointExplorationError::UnsupportedVendor { .. } => "unsupported_vendor",
         EndpointExplorationError::RedfishError { .. } => "redfish_error",
         EndpointExplorationError::Unauthorized { .. } => "unauthorized",
         EndpointExplorationError::MissingCredentials { .. } => "missing_credentials",

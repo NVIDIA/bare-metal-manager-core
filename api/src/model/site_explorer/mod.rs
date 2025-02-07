@@ -793,8 +793,8 @@ pub enum EndpointExplorationError {
     #[serde(rename_all = "PascalCase")]
     Unreachable { details: Option<String> },
     /// A Redfish variant we don't support, typically a new vendor
-    #[error("Redfish vendor '{0}' not supported")]
-    UnsupportedVendor(String),
+    #[error("Redfish vendor '{vendor}' not supported")]
+    UnsupportedVendor { vendor: String },
     /// A generic redfish error. No additional details are available
     #[error("Error while performing Redfish request: {details}")]
     #[serde(rename_all = "PascalCase")]

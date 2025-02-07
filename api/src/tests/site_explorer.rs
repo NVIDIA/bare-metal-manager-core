@@ -2910,3 +2910,101 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_site_explorer_unknown_vendor(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machine = FakeMachine {
+        mac: "B8:3F:D2:90:97:A7".parse().unwrap(),
+        dhcp_vendor: "Vendor1".to_string(),
+        segment: env.underlay_segment.unwrap(),
+        ip: String::new(),
+    };
+
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: machine.mac.to_string(),
+            relay_address: match machine.segment {
+                s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
+                _ => "192.0.2.1".to_string(),
+            },
+            link_address: None,
+            vendor_string: Some(machine.dhcp_vendor.clone()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await?
+        .into_inner();
+    tracing::info!(
+        "DHCP with mac {} assigned ip {}",
+        machine.mac,
+        response.address
+    );
+    machine.ip = response.address;
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+            .await
+            .unwrap(),
+        1
+    );
+    txn.commit().await.unwrap();
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+
+    endpoint_explorer.insert_endpoint_result(
+        machine.ip.parse().unwrap(),
+        Err(EndpointExplorationError::UnsupportedVendor {
+            vendor: "Unknown".to_string(),
+        }),
+    );
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: crate::dynamic_settings::create_machines(true),
+        allow_zero_dpu_hosts: true,
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+    // Since we configured a limit of 2 entries, we should have those 2 results now
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    assert_eq!(explored.len(), 1);
+    let report = &explored[0];
+    assert_eq!(report.report_version.version_nr(), 1);
+    assert_eq!(
+        report.report.last_exploration_error,
+        Some(EndpointExplorationError::UnsupportedVendor {
+            vendor: "Unknown".to_string(),
+        })
+    );
+
+    let guard = endpoint_explorer.reports.lock().unwrap();
+    let res = guard.get(&report.address).unwrap();
+    assert!(res.is_err());
+    assert_eq!(
+        res.clone().unwrap_err(),
+        report.report.last_exploration_error.clone().unwrap()
+    );
+
+    Ok(())
+}
