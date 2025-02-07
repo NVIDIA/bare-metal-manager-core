@@ -13,7 +13,6 @@
 // CLI enums variants can be rather large, we ok with that.
 #![allow(clippy::large_enum_variant)]
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
@@ -30,7 +29,6 @@ use std::str::FromStr;
 use crate::cfg::storage::{
     OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
 };
-use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::ConfigSetting;
@@ -72,7 +70,6 @@ use forge_tls::client_config::get_config_from_file;
 use forge_tls::client_config::get_forge_root_ca_path;
 use forge_tls::client_config::get_proxy_info;
 use mac_address::MacAddress;
-use prettytable::{row, Table};
 use serde::Deserialize;
 use serde::Serialize;
 use site_explorer::show_site_explorer_discovered_managed_host;
@@ -385,79 +382,11 @@ async fn main() -> color_eyre::Result<()> {
             }
             Machine::Network(cmd) => match cmd {
                 NetworkCommand::Status => {
-                    let all_status = rpc::get_all_managed_host_network_status(api_config)
-                        .await?
-                        .all;
-                    if all_status.is_empty() {
-                        println!("No reported network status");
-                    } else {
-                        let all_ids: Vec<MachineId> = all_status
-                            .iter()
-                            .filter_map(|status| status.dpu_machine_id.clone())
-                            .collect();
-                        let all_dpus = rpc::get_machines_by_ids(api_config, &all_ids)
-                            .await?
-                            .machines;
-                        let mut dpus_by_id = HashMap::new();
-                        for dpu in all_dpus.into_iter() {
-                            if let Some(id) = dpu.id.clone() {
-                                dpus_by_id.insert(id.id, dpu);
-                            }
-                        }
-
-                        let mut table = Table::new();
-                        table.set_titles(row![
-                            "Observed at",
-                            "DPU machine ID",
-                            "Network config version",
-                            "Healthy?",
-                            "Health Probe Alerts",
-                            "Agent version",
-                        ]);
-                        for st in all_status.into_iter() {
-                            let Some(dpu_id) = st.dpu_machine_id.clone() else {
-                                continue;
-                            };
-                            let Some(dpu) = dpus_by_id.get(&dpu_id.id) else {
-                                continue;
-                            };
-                            let observed_at = st
-                                .observed_at
-                                .map(|o| {
-                                    let dt: chrono::DateTime<chrono::Utc> = o.try_into().unwrap();
-                                    dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
-                                })
-                                .unwrap_or_default();
-                            let mut probe_alerts = String::new();
-                            if let Some(health) = &dpu.health {
-                                for alert in health.alerts.iter() {
-                                    if !probe_alerts.is_empty() {
-                                        probe_alerts.push('\n');
-                                    }
-                                    if let Some(target) = &alert.target {
-                                        probe_alerts +=
-                                            &format!("{} [Target: {}]", alert.id, target)
-                                    } else {
-                                        probe_alerts += &alert.id.to_string();
-                                    }
-                                }
-                            }
-                            table.add_row(row![
-                                observed_at,
-                                st.dpu_machine_id.unwrap(),
-                                st.network_config_version.unwrap_or_default(),
-                                dpu.health
-                                    .as_ref()
-                                    .map(|health| health.alerts.is_empty().to_string())
-                                    .unwrap_or_else(|| "unknown".to_string()),
-                                probe_alerts,
-                                st.dpu_agent_version.unwrap_or("".to_string())
-                            ]);
-                        }
-                        table.printstd();
-                    }
+                    println!("Deprecated: Use dpu network, instead machine network. machine network will be removed in future.");
+                    dpu::show_dpu_status(api_config).await?;
                 }
                 NetworkCommand::Config(query) => {
+                    println!("Deprecated: Use dpu network, instead of machine network. machine network will be removed in future.");
                     let config =
                         rpc::get_managed_host_network_config(query.machine_id, api_config).await?;
                     println!("{config:?}");
@@ -761,6 +690,16 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?
             }
+
+            DpuAction::Network(network) => match network {
+                NetworkCommand::Config(query) => {
+                    dpu::show_dpu_network_config(api_config, query.machine_id, config.format)
+                        .await?;
+                }
+                NetworkCommand::Status => {
+                    dpu::show_dpu_status(api_config).await?;
+                }
+            },
         },
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
