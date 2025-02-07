@@ -180,9 +180,9 @@ impl RedfishClient {
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
-                return Err(EndpointExplorationError::UnsupportedVendor(
-                    vendor.to_string(),
-                ));
+                return Err(EndpointExplorationError::UnsupportedVendor {
+                    vendor: vendor.to_string(),
+                });
             }
         };
 
