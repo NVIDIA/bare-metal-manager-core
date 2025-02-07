@@ -267,18 +267,25 @@ pub async fn start_api(
         carbide_config.site_fabric_prefixes.as_slice(),
     );
 
+    let deny_prefixes = match carbide_config.vpc_isolation_behavior {
+        crate::cfg::file::VpcIsolationBehaviorType::MutualIsolation => [
+            // FIXME: We're overloading the deny_prefixes list by adding the
+            // site fabric prefixes, since both sets of prefixes get denied
+            // on the DPU. It would be better to send these to the agent
+            // separately.
+            carbide_config.site_fabric_prefixes.as_slice(),
+            carbide_config.deny_prefixes.as_slice(),
+        ]
+        .concat(),
+        crate::cfg::file::VpcIsolationBehaviorType::Open => carbide_config.deny_prefixes.clone(),
+    };
+
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
         dhcp_servers: carbide_config.dhcp_servers.clone(),
         route_servers,
         route_servers_enabled: carbide_config.enable_route_servers,
-        // Include the site fabric prefixes in the deny prefixes list, since
-        // we treat them the same way from here.
-        deny_prefixes: [
-            carbide_config.site_fabric_prefixes.as_slice(),
-            carbide_config.deny_prefixes.as_slice(),
-        ]
-        .concat(),
+        deny_prefixes,
         site_fabric_prefixes,
     };
 

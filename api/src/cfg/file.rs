@@ -83,6 +83,9 @@ pub struct CarbideConfig {
     pub site_fabric_prefixes: Vec<Ipv4Network>,
 
     #[serde(default)]
+    pub vpc_isolation_behavior: VpcIsolationBehaviorType,
+
+    #[serde(default)]
     pub dpu_network_monitor_pinger_type: Option<String>,
 
     /// TLS related configuration
@@ -1500,6 +1503,34 @@ pub struct MachineValidationConfig {
     pub enabled: bool,
 }
 
+/// The VPC isolation behavior enforced within a site.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VpcIsolationBehaviorType {
+    #[default]
+    /// VPCs will be isolated from each other.
+    MutualIsolation,
+
+    /// Open, no isolation.
+    Open,
+}
+
+impl VpcIsolationBehaviorType {
+    fn as_printable(&self) -> &'static str {
+        use VpcIsolationBehaviorType::*;
+        match self {
+            MutualIsolation => "MutualIsolation",
+            Open => "Open",
+        }
+    }
+}
+
+impl std::fmt::Display for VpcIsolationBehaviorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_printable())
+    }
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -1525,6 +1556,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect(),
+            vpc_isolation_behavior: value.vpc_isolation_behavior.to_string(),
             networks: value
                 .networks
                 .unwrap_or_default()

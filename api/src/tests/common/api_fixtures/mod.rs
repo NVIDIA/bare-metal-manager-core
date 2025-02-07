@@ -614,6 +614,7 @@ pub fn get_config() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        vpc_isolation_behavior: <_ as Default>::default(),
         tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
             identity_pemfile_path: "Not a real pemfile".to_string(),
