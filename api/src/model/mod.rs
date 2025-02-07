@@ -36,6 +36,7 @@ pub mod instance_type;
 pub mod machine;
 pub mod metadata;
 pub mod network_devices;
+pub mod network_security_group;
 pub mod network_segment;
 pub mod os;
 pub mod resource_pool;

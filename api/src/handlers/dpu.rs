@@ -25,6 +25,7 @@ use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::Instance;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
+use crate::db::network_security_group;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
@@ -171,6 +172,8 @@ pub(crate) async fn get_managed_host_network_config(
                 }
             ) =>
         {
+            // Should/Can we still query and return the NSG of the VPC so that
+            // policies can be configured on the DPU while interfaces are still coming up?
             vec![]
         }
         Some(instance) => {
@@ -204,6 +207,64 @@ pub(crate) async fn get_managed_host_network_config(
             };
 
             vpc_vni = vpc.vni.map(|x|x as u32);
+
+            let network_security_group_details = match snapshot.instance {
+                None => None,
+                Some(ref i) => {
+                    match i.config.network_security_group_id {
+                        // If the instance doesn't have an NSG configured directly,
+                        // we'll see if we the associated VPC does.
+                        None => match vpc.network_security_group_id {
+                            None => None,
+                            Some(vpc_nsg_id) => {
+                                // Make our DB query for the IDs to get our NetworkSecurityGroup
+                                let network_security_group =
+                                    network_security_group::find_by_ids(
+                                        &mut txn,
+                                        &[vpc_nsg_id],
+                                        Some(&i.config.tenant.tenant_organization_id),
+                                        true,
+                                    )
+                                    .await?
+                                    .pop()
+                                    .ok_or(CarbideError::NotFoundError {
+                                        kind: "NetworkSecurityGroup",
+                                        id: i.config.tenant.tenant_organization_id.to_string(),
+                                    })?;
+
+                                Some((
+                                    i32::from(rpc::NetworkSecurityGroupSource::NsgSourceVpc),
+                                    network_security_group,
+                                ))
+                            }
+                        },
+                        Some(ref nsg_id) => {
+
+                            // Make our DB query for the IDs to get our NetworkSecurityGroup
+                            let network_security_group  =
+                                network_security_group::find_by_ids(
+                                    &mut txn,
+                                    &[nsg_id.to_owned()],
+                                    Some(&i.config.tenant.tenant_organization_id),
+                                    true,
+                                )
+                                .await?
+                                .pop()
+                                .ok_or(CarbideError::NotFoundError {
+                                    kind: "NetworkSecurityGroup",
+                                    id: i.config.tenant.tenant_organization_id.to_string(),
+                                })?;
+
+                            Some((
+                                i32::from(
+                                    rpc::NetworkSecurityGroupSource::NsgSourceInstance,
+                                ),
+                                network_security_group,
+                            ))
+                        }
+                    }
+                }
+            };
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
@@ -310,6 +371,7 @@ pub(crate) async fn get_managed_host_network_config(
                         tenant_loopback_ip.clone(),
                         is_l2_segment,
                         network_virtualization_type,
+                        network_security_group_details.clone(),
                     )
                     .await?,
                 );

@@ -88,6 +88,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -370,6 +371,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let initial_metadata = rpc::Metadata {

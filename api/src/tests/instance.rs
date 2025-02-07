@@ -47,6 +47,7 @@ use crate::{
             MachineState, ManagedHostState, MeasuringState,
         },
         metadata::Metadata,
+        network_security_group::NetworkSecurityGroupStatusObservation,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
 };
@@ -62,7 +63,7 @@ use common::api_fixtures::{
     },
     managed_host::ManagedHostConfig,
     network_configured, network_configured_with_health, persist_machine_validation_result,
-    site_explorer,
+    populate_network_security_groups, site_explorer,
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
     TestEnvOverrides,
 };
@@ -926,6 +927,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
             network: Some(single_interface_network_config(segment_id)),
             infiniband: None,
             storage: None,
+            network_security_group_id: None,
         };
 
         let result = env
@@ -1111,6 +1113,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let (_instance_id, _instance) = create_instance_with_config(
@@ -1270,6 +1273,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -1321,6 +1325,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: Default::default(),
         storage: None,
+        network_security_group_id: None,
     };
 
     let instance = env
@@ -1487,6 +1492,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -1655,6 +1661,13 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec![*pf_addr],
             prefixes: vec![*pf_instance_prefix],
             gateways: vec![IpNetwork::try_from(pf_gw.as_str()).expect("Invalid gateway")],
+            network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    .try_into()
+                    .unwrap(),
+                version: "V1-T1".parse().unwrap(),
+            }),
         }],
         observed_at: Utc::now(),
     };
@@ -1816,6 +1829,13 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec!["127.1.2.3".parse().unwrap()],
             prefixes: vec!["127.1.2.3/32".parse().unwrap()],
             gateways: vec!["127.1.2.1".parse().unwrap()],
+            network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    .try_into()
+                    .unwrap(),
+                version: "V1-T1".parse().unwrap(),
+            }),
         });
 
     Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
@@ -1922,6 +1942,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             network: InstanceNetworkConfig::for_segment_id(segment_id),
             infiniband: InstanceInfinibandConfig::default(),
             storage: InstanceStorageConfig::default(),
+            network_security_group_id: None,
         },
         metadata: Metadata {
             name: "test_instance".to_string(),
@@ -2136,6 +2157,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 storage: None,
+                network_security_group_id: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2172,6 +2194,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let (instance_id, _instance) = create_instance_with_config(
@@ -2335,6 +2358,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -2395,6 +2419,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -2563,6 +2588,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         network: Some(x),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let mut config: InstanceConfig = config.try_into().unwrap();
@@ -2893,6 +2919,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
             id: None,
+            network_security_group_id: None,
             name: "test vpc 1".to_string(),
             tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
             tenant_keyset_id: None,
@@ -3137,6 +3164,7 @@ async fn test_allocate_with_instance_type_id(
             }),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
+                network_security_group_id: None,
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
@@ -3162,6 +3190,7 @@ async fn test_allocate_with_instance_type_id(
                 id: mh.host_snapshot.id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
+                network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -3207,6 +3236,7 @@ async fn test_allocate_with_instance_type_id(
                 id: mh2.host_snapshot.id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
+                network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -3226,6 +3256,182 @@ async fn test_allocate_with_instance_type_id(
         .into_inner();
 
     assert_eq!(good_id, instance.instance_type_id.unwrap());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_and_update_with_network_security_group(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    populate_network_security_groups(env.api.clone()).await;
+
+    // NSG ID of and NSG for the default tenant provided by fixtures.
+    let good_network_security_group_id = Some("fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string());
+
+    // NSG ID of not-the-default-tenant provided by fixtures.
+    let bad_network_security_group_id = Some("ddfcabc4-92dc-41e2-874e-2c7eeb9fa156".to_string());
+
+    // Create a new managed host in the DB and get the snapshot.
+    let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Try to create an instance, but send in a valid and
+    // existing NSG ID that doesn't match the tenant of
+    // instance being created.
+    // This should fail.
+    let _ = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: bad_network_security_group_id.clone(),
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    // Try that once more, but with an NSG ID
+    // that has the same tenant as the instance.
+    let i = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: good_network_security_group_id.clone(),
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Check that the instance actually has the ID we expect
+    assert_eq!(
+        i.config.unwrap().network_security_group_id,
+        good_network_security_group_id
+    );
+
+    let instance_id = i.id.unwrap().clone();
+
+    // Now update to remove the NSG attachment.
+    let i = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(single_interface_network_config(segment_id)),
+                    infiniband: None,
+                    storage: None,
+                    network_security_group_id: None,
+                }),
+                instance_id: Some(instance_id.clone()),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Check that the instance no longer has an NSG ID
+    assert!(i.config.unwrap().network_security_group_id.is_none());
+
+    // Now try to update it again and try to add the NSG with the mismatched tenant org
+    // Now update to remove the NSG attachment.
+    let _ = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(single_interface_network_config(segment_id)),
+                    infiniband: None,
+                    storage: None,
+                    network_security_group_id: bad_network_security_group_id.clone(),
+                }),
+                instance_id: Some(instance_id.clone()),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    // Now try to update it again and but with a good NSG
+    let i = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(single_interface_network_config(segment_id)),
+                    infiniband: None,
+                    storage: None,
+                    network_security_group_id: good_network_security_group_id.clone(),
+                }),
+                instance_id: Some(instance_id.clone()),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Check that the instance actually has the ID we expect
+    assert_eq!(
+        i.config.unwrap().network_security_group_id,
+        good_network_security_group_id
+    );
 
     Ok(())
 }

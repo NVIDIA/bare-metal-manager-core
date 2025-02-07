@@ -80,6 +80,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     // allocate: should fail
@@ -221,6 +222,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         os: Some(default_os_config()),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     // allocate: should fail

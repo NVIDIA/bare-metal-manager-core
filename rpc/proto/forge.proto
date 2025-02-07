@@ -359,6 +359,18 @@ service Forge {
   // End Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
 
+  //
+  // NetworkSecurityGroups
+  //
+  rpc CreateNetworkSecurityGroup(CreateNetworkSecurityGroupRequest) returns (CreateNetworkSecurityGroupResponse);
+  rpc FindNetworkSecurityGroupIds(FindNetworkSecurityGroupIdsRequest) returns (FindNetworkSecurityGroupIdsResponse);
+  rpc FindNetworkSecurityGroupsByIds(FindNetworkSecurityGroupsByIdsRequest) returns (FindNetworkSecurityGroupsByIdsResponse);
+  rpc UpdateNetworkSecurityGroup(UpdateNetworkSecurityGroupRequest) returns (UpdateNetworkSecurityGroupResponse);
+  rpc DeleteNetworkSecurityGroup(DeleteNetworkSecurityGroupRequest) returns (DeleteNetworkSecurityGroupResponse);
+  rpc GetNetworkSecurityGroupPropagationStatus(GetNetworkSecurityGroupPropagationStatusRequest) returns (GetNetworkSecurityGroupPropagationStatusResponse);
+  
+
+
   // Block storage
   // apis are create/delete, list (multiple items with filters), get (one item), update
   // objects are clusters, pools, volumes (including snapshots), os images
@@ -728,6 +740,9 @@ message Vpc {
   optional uint32 vni = 8;
   optional VpcVirtualizationType network_virtualization_type = 9;
   Metadata metadata = 10;
+
+  // Sets the desired NSG ID for a VPC
+  optional string network_security_group_id  = 11;
 }
 
 message VpcCreationRequest {
@@ -743,6 +758,9 @@ message VpcCreationRequest {
   // The VPC ID must be unique within the Forge site.
   optional common.UUID id = 6;
   Metadata metadata = 12;
+
+  // The desired NSG ID and version for a VPC
+  optional string network_security_group_id  = 13;
 }
 
 enum VpcVirtualizationType {
@@ -775,11 +793,13 @@ message VpcUpdateRequest {
 
   // New Metadata to be utilized by the vpc
   Metadata metadata = 6;
+
+  // Sets the desired NSG ID for a VPC
+  optional string network_security_group_id  = 17;
 }
 
 message VpcUpdateResult {
-  // TODO: Should we also return the current state as a field here?
-  // Probably won't hurt
+  Vpc vpc = 1;
 }
 
 message VpcUpdateVirtualizationRequest {
@@ -1301,18 +1321,17 @@ message InstanceConfig {
 
   // Configures instance storage
   InstanceStorageConfig storage = 21;
+
+  // The ID of security group that is attached to this instance.
+  // Takes precedence over any NSG set on the parent VPC.
+  // Superseded by any NSG set on an individual interface.
+  optional string network_security_group_id = 22;
 }
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
   // Configures how instance network interfaces are set up
   repeated InstanceInterfaceConfig interfaces = 1;
-
-  // The ID of security group that is attached to this instance.
-  // The configurations in this group apply to all interfaces on the instance.
-  // Note: This is commented because we will not supported setting these in the first
-  // release of the new Instance API
-  // optional common.UUID security_group_id = 4;
 }
 
 // Desired infiniband configuration for an instance
@@ -2203,6 +2222,23 @@ message FlatInterfaceConfig {
 
     // Is this interface using L2 or L3.
     bool is_l2_segment = 15;
+
+  // The details of the network security group associated with
+  // either the instance or its parent VPC.
+  // Currently, source would either be INSTANCE or VPC.
+  // We only expect to actually support VPC and instance-level
+  // for the foreseeable future, but an instance with multiple
+  // DPUs that each have a network segment that leads back to
+  // a different VPC would need to track their NSG details
+  // separately.
+  optional FlatInterfaceNetworkSecurityGroupConfig network_security_group = 107;
+}
+
+message FlatInterfaceNetworkSecurityGroupConfig {
+  string id                                       = 1;
+  string version                                  = 2;
+  NetworkSecurityGroupSource source               = 3;
+  repeated ResolvedNetworkSecurityGroupRule rules = 4;
 }
 
 message ManagedHostNetworkStatusRequest {}
@@ -2705,6 +2741,9 @@ message InstanceInterfaceStatusObservation {
   // This is similar to `gateways`, in that there is one `prefix` for each
   // address in `addresses`.
   repeated string prefixes = 6;
+
+  // The NSG details for the observed NSG of the interface
+  NetworkSecurityGroupStatus network_security_group  = 7;
 }
 
 // Describes observational data for a network interface associated with a
@@ -3916,4 +3955,202 @@ message RedfishBrowseResponse {
   // Response in JSON String
   string text = 1;
   map<string, string> headers = 2;
+}
+
+message NetworkSecurityGroupAttributes {
+  repeated NetworkSecurityGroupRuleAttributes rules = 1;
+}
+
+message NetworkSecurityGroup {
+  string id                                 = 1;
+  string tenant_organization_id             = 2;
+  Metadata metadata                         = 3;
+  string version                            = 4;
+  NetworkSecurityGroupAttributes attributes = 5;
+  optional string created_at                = 6;
+  optional string created_by                = 7;
+  optional string updated_by                = 8;
+}
+
+message CreateNetworkSecurityGroupRequest {
+  optional string id                                               = 1;
+  string tenant_organization_id                                    = 2;
+  Metadata metadata                                                = 3;
+  NetworkSecurityGroupAttributes network_security_group_attributes = 4;
+}
+
+message CreateNetworkSecurityGroupResponse {
+  NetworkSecurityGroup network_security_group = 1;
+}
+
+message FindNetworkSecurityGroupIdsRequest {
+  optional string name                   = 1;
+  optional string tenant_organization_id = 2;
+}
+
+message FindNetworkSecurityGroupIdsResponse {
+  repeated string network_security_group_ids = 1;
+}
+
+message FindNetworkSecurityGroupsByIdsRequest {
+  repeated string network_security_group_ids = 1;
+  optional string tenant_organization_id     = 2;
+}
+
+message FindNetworkSecurityGroupsByIdsResponse {
+  repeated NetworkSecurityGroup network_security_groups = 1;
+}
+
+message UpdateNetworkSecurityGroupResponse {
+  NetworkSecurityGroup network_security_group = 1;
+}
+
+message UpdateNetworkSecurityGroupRequest {
+  string id                                                        = 1;
+  string tenant_organization_id                                    = 2; // Unalterable.  Used only for restricting the query.
+  Metadata metadata                                                = 3;
+  optional string if_version_match                                 = 4;
+  NetworkSecurityGroupAttributes network_security_group_attributes = 5;
+}
+
+message DeleteNetworkSecurityGroupRequest {
+  string id                     = 1;
+  string tenant_organization_id = 2; // Unalterable.  Used only for restricting the query.
+}
+
+message DeleteNetworkSecurityGroupResponse {
+}
+
+enum NetworkSecurityGroupSource {
+  NSG_SOURCE_INVALID  = 0; // Should be rejected.  There is no default NSG source, and the reporter should be explicit about the source.
+  NSG_SOURCE_NONE     = 1; // No NSG is applied: neither VPC, Instance, nor interface has an NSG configured.
+  NSG_SOURCE_VPC      = 2; // NSG sourced from NSG configured on VPC.
+  NSG_SOURCE_INSTANCE = 3; // NSG sourced from NSG configured on instance, which overrides VPC.
+}
+
+message NetworkSecurityGroupStatus {
+  NetworkSecurityGroupSource source = 1;
+  string id                         = 2;
+  string version                    = 3;
+}
+
+enum NetworkSecurityGroupPropagationStatus {
+  NSG_PROP_STATUS_UNKNOWN = 0; // The status could not be determined.
+  NSG_PROP_STATUS_FULL    = 1; // Fully propagated across all related objects.
+  NSG_PROP_STATUS_PARTIAL = 2; // Propagation across some related objects but not all. E.g., Two out of three instances.
+  NSG_PROP_STATUS_NONE    = 3; // No issues, but no propagation has completed yet.
+  NSG_PROP_STATUS_ERROR   = 4; // Propagation is in a failed state and will not complete.
+}
+
+message NetworkSecurityGroupPropagationObjectStatus {
+  // The UUID of the VPC or instance.  If we decide to allow
+  // per-interface NSG application later, this _could_ be used to 
+  // hold the interface index number, and an optional
+  // parent_id field could be added to hold the instance id.
+  string id                                    = 1;
+
+  NetworkSecurityGroupPropagationStatus status = 2;
+  optional string details                      = 3;
+
+  // Any instances IDs related to the object
+  // In the case of VPCs, it would be any instances
+  // that do not have a more specific NSG applied at
+  // the instance level.
+  repeated string related_instance_ids         = 4;
+
+  // Any instances IDs related to the object that 
+  // are negatively affecting the propagation status
+  // of the object.
+  // In the case of VPCs, it would be any instances
+  // that do not have a more specific NSG applied at
+  // the instance level and that do not have the 
+  // current NSG ID and version used by the parent
+  // VPC.
+  repeated string unpropagated_instance_ids    = 5;
+}
+
+message GetNetworkSecurityGroupPropagationStatusResponse {
+  repeated NetworkSecurityGroupPropagationObjectStatus vpcs       = 1;
+  repeated NetworkSecurityGroupPropagationObjectStatus instances  = 2;
+}
+
+message NetworkSecurityGroupIdList {
+  repeated string ids = 3;
+}
+
+message GetNetworkSecurityGroupPropagationStatusRequest {
+  // Used to check the propagation of NSGs applied to VPCs across
+  // all interfaces of all instances under those VPCs.
+  // This is checking observed network_security_group_version
+  // of the interfaces with a source of VPC.
+  repeated string vpc_ids                                        = 1;
+
+  // Used to check the propagation of NSGs applied to instances
+  // across all interfaces of those instances.
+  // This is checking observed network_security_group_version
+  // of the interfaces with a source of INSTANCE.
+  repeated string instance_ids                                   = 2; 
+
+  // Used to restrict the status results to
+  // objects with attachments to a specific set of
+  // NetworkSecurityGroups
+  optional NetworkSecurityGroupIdList network_security_group_ids = 3;
+}
+
+enum NetworkSecurityGroupRuleDirection {
+  NSG_RULE_DIRECTION_INVALID = 0; // Must be rejected
+  NSG_RULE_DIRECTION_INGRESS = 1;
+  NSG_RULE_DIRECTION_EGRESS  = 2;
+}
+
+
+enum NetworkSecurityGroupRuleProtocol {
+  NSG_RULE_PROTO_INVALID = 0; // Must be rejected
+  NSG_RULE_PROTO_ANY     = 1;
+  NSG_RULE_PROTO_ICMP    = 2;
+  NSG_RULE_PROTO_UDP     = 3;
+  NSG_RULE_PROTO_TCP     = 4;
+}
+
+enum NetworkSecurityGroupRuleAction {
+  NSG_RULE_ACTION_INVALID = 0; // Must be rejected
+  NSG_RULE_ACTION_DENY    = 1;
+  NSG_RULE_ACTION_PERMIT  = 2;
+}
+
+message NetworkSecurityGroupRuleAttributes {
+
+  // Optionally sent in; otherwise, generated on creation.
+  // Facilitates metrics/logging in the future.
+  optional string id                          = 1;
+
+  NetworkSecurityGroupRuleDirection direction = 2;
+  bool ipv6                                   = 3;
+  optional uint32 src_port_start              = 4;
+  optional uint32 src_port_end                = 5;
+  optional uint32 dst_port_start              = 6;
+  optional uint32 dst_port_end                = 7;
+  NetworkSecurityGroupRuleProtocol protocol   = 8;
+  NetworkSecurityGroupRuleAction action       = 9;
+  uint32 priority                             = 10;
+
+  oneof source_net {
+    string src_prefix                         = 11;
+  }
+
+  oneof destination_net {
+      string dst_prefix                       = 12;
+    }
+}
+
+// This holds the resulting rule after any
+// object references have been resolved.
+// For example, a rule that references a VPC ID
+// would be resolved to the actual prefixes associated
+// with that VPC.  This is the message that is
+// actually used by the DPU to generate its NVUE config.
+message ResolvedNetworkSecurityGroupRule {
+  NetworkSecurityGroupRuleAttributes rule = 1;
+  repeated string src_prefixes            = 2;
+  repeated string dst_prefixes            = 3;
 }

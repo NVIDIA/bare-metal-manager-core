@@ -367,7 +367,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
+            "forge.NetworkSecurityGroup",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupStatus",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupSource",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleDirection",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleProtocol",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAction",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupAttributes",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .field_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.direction",
+            "#[serde(deserialize_with = \"NetworkSecurityGroupRuleDirection::from_string\", serialize_with = \"NetworkSecurityGroupRuleDirection::serialize_from_enum_i32\")]",
+        )
+        .field_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.protocol",
+            "#[serde(deserialize_with = \"NetworkSecurityGroupRuleProtocol::from_string\", serialize_with = \"NetworkSecurityGroupRuleProtocol::serialize_from_enum_i32\")]",
+        )
+        .field_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.action",
+            "#[serde(deserialize_with = \"NetworkSecurityGroupRuleAction::from_string\", serialize_with = \"NetworkSecurityGroupRuleAction::serialize_from_enum_i32\")]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.source_net",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.source_net",
+            "#[serde(rename_all=\"snake_case\")]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.destination_net",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupRuleAttributes.destination_net",
+            "#[serde(rename_all=\"snake_case\")]",
+        )
+        .type_attribute(
             "forge.InstanceNetworkRestrictions",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.FlatInterfaceNetworkSecurityGroupConfig",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ResolvedNetworkSecurityGroupRule",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .build_server(true)

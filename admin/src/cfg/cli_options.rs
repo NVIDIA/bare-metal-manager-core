@@ -1516,6 +1516,12 @@ pub struct AllocateInstance {
 
     #[clap(
         long,
+        help = "The ID of a network security group to apply to the new instance upon creation"
+    )]
+    pub network_security_group_id: Option<String>,
+
+    #[clap(
+        long,
         help = "The expected instance type id for the instance, which will be compared to type ID set for the machine of the request"
     )]
     pub instance_type_id: Option<String>,

@@ -41,6 +41,7 @@ pub async fn create_instance(
         network,
         infiniband,
         storage,
+        network_security_group_id: None,
     };
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
@@ -66,6 +67,7 @@ pub async fn create_instance_with_labels(
         network,
         infiniband,
         storage,
+        network_security_group_id: None,
     };
     create_instance_with_config(
         env,
@@ -100,6 +102,7 @@ pub async fn create_instance_with_hostname(
         network,
         infiniband,
         storage,
+        network_security_group_id: None,
     };
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
@@ -173,6 +176,7 @@ pub fn config_for_ib_config(
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
         storage: None,
+        network_security_group_id: None,
     }
 }
 

@@ -210,6 +210,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
                 addresses: vec![admin_if.ip.clone()],
                 prefixes: vec![admin_if.interface_prefix.clone()],
                 gateways: vec![admin_if.gateway.clone()],
+                network_security_group: None,
             }],
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,

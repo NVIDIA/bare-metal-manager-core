@@ -8,6 +8,7 @@ pub mod instance_type;
 pub mod machine;
 pub mod measured_boot;
 pub mod network;
+pub mod network_security_group;
 pub mod typed_uuids;
 pub mod vpc;
 

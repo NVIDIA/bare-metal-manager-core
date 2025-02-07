@@ -238,6 +238,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
                 name: "".to_string(),
                 tenant_organization_id: "Forge_unit_tests".to_string(),
                 tenant_keyset_id: None,
+                network_security_group_id: None,
                 network_virtualization_type: None,
                 metadata: Some(rpc::Metadata {
                     name: format!("VPC_{}{}{}", i, i, i).to_string(),

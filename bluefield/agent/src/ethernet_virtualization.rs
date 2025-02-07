@@ -20,7 +20,10 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, fs, io, net::Ipv4Addr};
 
-use ::rpc::forge::{self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse};
+use ::rpc::forge::{
+    self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
+    NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
+};
 use ::rpc::InterfaceFunctionType;
 use eyre::WrapErr;
 use mac_address::MacAddress;
@@ -273,6 +276,38 @@ pub async fn update_nvue(
         ifs
     };
 
+    let mut network_security_group_rules: Vec<nvue::NetworkSecurityGroupRule> = vec![];
+
+    for iface in &nc.tenant_interfaces {
+        if let Some(ref nsg) = iface.network_security_group {
+            for resolved_rule in &nsg.rules {
+                let Some(rule) = &resolved_rule.rule else {
+                    continue;
+                };
+
+                network_security_group_rules.push(nvue::NetworkSecurityGroupRule {
+                    id: rule.id.clone().unwrap_or_default(),
+                    ingress: rule.direction
+                        == i32::from(
+                            rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                        ),
+                    ipv6: rule.ipv6,
+                    priority: rule.priority,
+                    src_port_start: rule.src_port_start,
+                    src_port_end: rule.src_port_end,
+                    dst_port_start: rule.dst_port_start,
+                    dst_port_end: rule.dst_port_end,
+                    protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
+                        rule.protocol,
+                    )?,
+                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?,
+                    src_prefixes: resolved_rule.src_prefixes.clone(),
+                    dst_prefixes: resolved_rule.dst_prefixes.clone(),
+                });
+            }
+        }
+    }
+
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
@@ -301,6 +336,7 @@ pub async fn update_nvue(
         ct_external_access: vec![],
         l3_domains: vec![],
         ct_internet_l3_vni: nc.internet_l3_vni,
+        ct_network_security_group_rules: network_security_group_rules,
     };
 
     // Cleanup any left over non-NVUE temp files
@@ -632,6 +668,7 @@ pub async fn interfaces(
             addresses: vec![iface.ip.clone()],
             prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
+            network_security_group: None,
         });
     } else {
         // Only load virtual interface details if there are any
@@ -672,6 +709,21 @@ pub async fn interfaces(
                     }
                 }
             };
+
+            let network_security_group =
+                iface
+                    .network_security_group
+                    .as_ref()
+                    .map(|nsg| rpc::NetworkSecurityGroupStatus {
+                        id: nsg.id.clone(),
+                        // If a network security group was set, then this
+                        // field must be be a valid non-default value.
+                        // The default value will be (correctly) rejected by
+                        // the server.
+                        source: nsg.source().into(),
+                        version: nsg.version.clone(),
+                    });
+
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
@@ -679,6 +731,7 @@ pub async fn interfaces(
                 addresses: vec![iface.ip.clone()],
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
+                network_security_group,
             });
         }
     }
@@ -1627,6 +1680,7 @@ mod tests {
             svi_ip: None,
             tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
             is_l2_segment: true,
+            network_security_group: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -1663,6 +1717,7 @@ mod tests {
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: true,
+                network_security_group: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -1682,6 +1737,7 @@ mod tests {
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: false,
+                network_security_group: None,
             },
         ];
 
@@ -1860,6 +1916,20 @@ mod tests {
             ct_external_access: vec![],
             l3_domains: vec![],
             ct_internet_l3_vni: Some(1337),
+            ct_network_security_group_rules: vec![nvue::NetworkSecurityGroupRule {
+                id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
+                ingress: true,
+                ipv6: true,
+                priority: 1001,
+                protocol: "TCP".to_string(),
+                src_prefixes: vec!["2.2.2.2/24".to_string()],
+                dst_prefixes: vec!["3.3.3.3/24".to_string()],
+                src_port_start: Some(5),
+                src_port_end: Some(50),
+                dst_port_start: Some(8),
+                dst_port_end: Some(80),
+                action: "PERMIT".to_string(),
+            }],
         };
         let startup_yaml = nvue::build(conf)?;
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
@@ -1969,6 +2039,7 @@ mod tests {
             svi_ip: None,
             tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
             is_l2_segment: true,
+            network_security_group: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -1995,6 +2066,7 @@ mod tests {
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
                 is_l2_segment: true,
+                network_security_group: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2014,6 +2086,7 @@ mod tests {
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
                 is_l2_segment: true,
+                network_security_group: None,
             },
         ];
 

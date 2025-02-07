@@ -81,6 +81,26 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
+    let mut ingress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut egress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+
+    for rule in &conf.ct_network_security_group_rules {
+        match (rule.ingress, rule.ipv6) {
+            (true, false) => ingress_ipv4_rules.push(rule),
+            (false, false) => egress_ipv4_rules.push(rule),
+            (true, true) => ingress_ipv6_rules.push(rule),
+            (false, true) => egress_ipv6_rules.push(rule),
+        }
+    }
+
+    // Order the rules by priority
+    ingress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+    egress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+    ingress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+    egress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -118,6 +138,22 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     HostRoute: vl.network,
                 })
                 .collect(),
+            HasIpv4IngressSecurityGroupRules: !ingress_ipv4_rules.is_empty(),
+            HasIpv4EgressSecurityGroupRules: !egress_ipv4_rules.is_empty(),
+            HasIpv6IngressSecurityGroupRules: !ingress_ipv6_rules.is_empty(),
+            HasIpv6EgressSecurityGroupRules: !egress_ipv6_rules.is_empty(),
+            IngressNetworkSecurityGroupRulesIpv4: expand_network_security_group_rules(
+                ingress_ipv4_rules,
+            ),
+            EgressNetworkSecurityGroupRulesIpv4: expand_network_security_group_rules(
+                egress_ipv4_rules,
+            ),
+            IngressNetworkSecurityGroupRulesIpv6: expand_network_security_group_rules(
+                ingress_ipv6_rules,
+            ),
+            EgressNetworkSecurityGroupRulesIpv6: expand_network_security_group_rules(
+                egress_ipv6_rules,
+            ),
         }],
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
@@ -152,6 +188,96 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             conf.vpc_virtualization_type
         ))
     }
+}
+
+/// Expands a set of network security group rules.
+/// Source and destination port ranges and prefix lists will
+/// be expanded to a set of individual rules.
+/// A new vector of template-ready expanded network security
+/// groups will be returned.
+///
+/// * `nsgs` - A list of references to network security groups to expand.
+///
+fn expand_network_security_group_rules(
+    rules: Vec<&NetworkSecurityGroupRule>,
+) -> Vec<TmplNetworkSecurityGroupRule> {
+    let mut tmpl_rules: Vec<TmplNetworkSecurityGroupRule> = vec![];
+
+    for rule in rules {
+        for src_prefix in &rule.src_prefixes {
+            for dst_prefix in &rule.dst_prefixes {
+                if let (Some(src_start), Some(src_end)) = (rule.src_port_start, rule.src_port_end) {
+                    if let (Some(dst_start), Some(dst_end)) =
+                        (rule.dst_port_start, rule.dst_port_end)
+                    {
+                        for si in src_start..=src_end {
+                            for di in dst_start..=dst_end {
+                                tmpl_rules.push(TmplNetworkSecurityGroupRule {
+                                    id: rule.id.clone(),
+                                    has_src_port: true,
+                                    src_port: si,
+                                    has_dst_port: true,
+                                    dst_port: di,
+                                    protocol: rule.protocol.clone(),
+                                    action: rule.action.clone(),
+                                    src_prefix: src_prefix.clone(),
+                                    dst_prefix: dst_prefix.clone(),
+                                    priority: rule.priority + 100,
+                                });
+                            }
+                        }
+                    } else {
+                        for si in src_start..=src_end {
+                            tmpl_rules.push(TmplNetworkSecurityGroupRule {
+                                id: rule.id.clone(),
+                                has_src_port: true,
+                                src_port: si,
+                                has_dst_port: false,
+                                dst_port: 0,
+                                protocol: rule.protocol.clone(),
+                                action: rule.action.clone(),
+                                src_prefix: src_prefix.clone(),
+                                dst_prefix: dst_prefix.clone(),
+                                priority: rule.priority + 100,
+                            });
+                        }
+                    }
+                } else if let (Some(dst_start), Some(dst_end)) =
+                    (rule.dst_port_start, rule.dst_port_end)
+                {
+                    for di in dst_start..=dst_end {
+                        tmpl_rules.push(TmplNetworkSecurityGroupRule {
+                            id: rule.id.clone(),
+                            has_src_port: false,
+                            src_port: 0,
+                            has_dst_port: true,
+                            dst_port: di,
+                            protocol: rule.protocol.clone(),
+                            action: rule.action.clone(),
+                            src_prefix: src_prefix.clone(),
+                            dst_prefix: dst_prefix.clone(),
+                            priority: rule.priority + 100,
+                        });
+                    }
+                } else {
+                    tmpl_rules.push(TmplNetworkSecurityGroupRule {
+                        id: rule.id.clone(),
+                        has_src_port: false,
+                        src_port: 0,
+                        has_dst_port: false,
+                        dst_port: 0,
+                        protocol: rule.protocol.clone(),
+                        action: rule.action.clone(),
+                        src_prefix: src_prefix.clone(),
+                        dst_prefix: dst_prefix.clone(),
+                        priority: rule.priority + 100,
+                    });
+                }
+            }
+        }
+    }
+
+    tmpl_rules
 }
 
 // Add a hack to completely overwrite the cl-platform check. New hardware has decided to change a
@@ -322,6 +448,23 @@ pub struct NvueConfig {
     pub ct_external_access: Vec<String>,
     pub ct_access_vlans: Vec<VlanConfig>,
     pub ct_internet_l3_vni: Option<u32>,
+    pub ct_network_security_group_rules: Vec<NetworkSecurityGroupRule>,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct NetworkSecurityGroupRule {
+    pub id: String,
+    pub ingress: bool,
+    pub ipv6: bool,
+    pub priority: u32,
+    pub src_port_start: Option<u32>,
+    pub src_port_end: Option<u32>,
+    pub dst_port_start: Option<u32>,
+    pub dst_port_end: Option<u32>,
+    pub protocol: String,
+    pub action: String,
+    pub src_prefixes: Vec<String>,
+    pub dst_prefixes: Vec<String>,
 }
 
 pub struct VlanConfig {
@@ -403,6 +546,28 @@ struct TmplNvue {
     IncludeBridge: bool,
 }
 
+/// Template-ready representation of a network security group rule.
+/// Direction (ingress/egress), ipv (4/6), and priority
+/// ordering will be grouped and ordered in advance.
+/// Priority is still included mostly as a convenience,
+/// but we'll also pad the value to a minimum of 100
+/// so that there's room for low-priority "system rules"
+/// to be inserted if needed.
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct TmplNetworkSecurityGroupRule {
+    id: String,
+    has_src_port: bool,
+    src_port: u32,
+    has_dst_port: bool,
+    dst_port: u32,
+    protocol: String,
+    action: String,
+    src_prefix: String,
+    dst_prefix: String,
+    priority: u32,
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplComputeTenant {
@@ -436,6 +601,15 @@ struct TmplComputeTenant {
     ExternalAccess: Vec<String>,
 
     AccessVLANs: Vec<TmplConfigVLAN>,
+
+    IngressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
+    IngressNetworkSecurityGroupRulesIpv6: Vec<TmplNetworkSecurityGroupRule>,
+    EgressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
+    EgressNetworkSecurityGroupRulesIpv6: Vec<TmplNetworkSecurityGroupRule>,
+    HasIpv4IngressSecurityGroupRules: bool,
+    HasIpv4EgressSecurityGroupRules: bool,
+    HasIpv6IngressSecurityGroupRules: bool,
+    HasIpv6EgressSecurityGroupRules: bool,
 }
 
 #[allow(non_snake_case)]

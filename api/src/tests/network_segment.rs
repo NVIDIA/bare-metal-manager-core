@@ -58,6 +58,7 @@ async fn test_advance_network_prefix_state(
             tenant_keyset_id: None,
             network_virtualization_type: None,
             metadata: None,
+            network_security_group_id: None,
         }))
         .await
         .unwrap()

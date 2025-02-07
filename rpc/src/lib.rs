@@ -27,6 +27,8 @@ use chrono::DateTime;
 use chrono::Utc;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
+use prost::UnknownEnumValue;
+use serde::ser::Error;
 
 pub use crate::protos::common::{self, MachineId, Uuid};
 pub use crate::protos::forge::{
@@ -510,6 +512,127 @@ impl From<forge::OverrideMode> for health_report::OverrideMode {
             forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
             forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
         }
+    }
+}
+
+/*  ****************************************************** */
+// Serialization/deserialization helpers for network
+// security group enums to let admin CLI callers describe
+// rules with friendly property values intead of i32.
+/* ******************************************************* */
+
+impl forge::NetworkSecurityGroupRuleDirection {
+    pub fn from_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+        match s.to_uppercase().as_str() {
+            "INGRESS" => Ok(Self::NsgRuleDirectionIngress as i32),
+            "EGRESS" => Ok(Self::NsgRuleDirectionEgress as i32),
+            _ => Ok(0),
+        }
+    }
+
+    pub fn serialize_from_enum_i32<S>(v: &i32, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        s.serialize_str(
+            &forge::NetworkSecurityGroupRuleDirection::to_string_from_enum_i32(*v)
+                .map_err(Error::custom)?,
+        )
+    }
+
+    pub fn to_string_from_enum_i32(v: i32) -> Result<String, UnknownEnumValue> {
+        let t: forge::NetworkSecurityGroupRuleDirection = (v).try_into()?;
+
+        Ok(match t {
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress => {
+                "INGRESS".to_string()
+            }
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress => {
+                "EGRESS".to_string()
+            }
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionInvalid => {
+                "INVALID".to_string()
+            }
+        })
+    }
+}
+
+impl forge::NetworkSecurityGroupRuleProtocol {
+    pub fn from_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+        match s.to_uppercase().as_str() {
+            "ANY" => Ok(Self::NsgRuleProtoAny as i32),
+            "ICMP" => Ok(Self::NsgRuleProtoIcmp as i32),
+            "UDP" => Ok(Self::NsgRuleProtoUdp as i32),
+            "TCP" => Ok(Self::NsgRuleProtoTcp as i32),
+            _ => Ok(0),
+        }
+    }
+
+    pub fn serialize_from_enum_i32<S>(v: &i32, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        s.serialize_str(
+            &forge::NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(*v)
+                .map_err(Error::custom)?,
+        )
+    }
+
+    pub fn to_string_from_enum_i32(v: i32) -> Result<String, UnknownEnumValue> {
+        let t: forge::NetworkSecurityGroupRuleProtocol = (v).try_into()?;
+
+        Ok(match t {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny => "ANY".to_string(),
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp => "ICMP".to_string(),
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp => "UDP".to_string(),
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp => "TCP".to_string(),
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoInvalid => "INVALID".to_string(),
+        })
+    }
+}
+
+impl forge::NetworkSecurityGroupRuleAction {
+    pub fn from_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+        match s.to_uppercase().as_str() {
+            "PERMIT" => Ok(Self::NsgRuleActionPermit as i32),
+            "DENY" => Ok(Self::NsgRuleActionDeny as i32),
+            _ => Ok(0),
+        }
+    }
+
+    pub fn serialize_from_enum_i32<S>(v: &i32, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        s.serialize_str(
+            &forge::NetworkSecurityGroupRuleAction::to_string_from_enum_i32(*v)
+                .map_err(Error::custom)?,
+        )
+    }
+
+    pub fn to_string_from_enum_i32(v: i32) -> Result<String, UnknownEnumValue> {
+        let t: forge::NetworkSecurityGroupRuleAction = (v).try_into()?;
+
+        Ok(match t {
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit => "PERMIT".to_string(),
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny => "DENY".to_string(),
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionInvalid => "INVALID".to_string(),
+        })
     }
 }
 

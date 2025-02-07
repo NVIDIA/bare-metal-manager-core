@@ -25,6 +25,7 @@ pub mod instance;
 pub mod instance_type;
 pub mod machine_validation;
 pub mod measured_boot;
+pub mod network_security_group;
 pub mod network_segment;
 pub mod pxe;
 pub mod resource_pool;

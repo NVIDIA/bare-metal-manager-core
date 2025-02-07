@@ -110,6 +110,7 @@ async fn create_test_env_for_instance_allocation(
             tenant_keyset_id: None,
             network_virtualization_type: None,
             metadata: None,
+            network_security_group_id: None,
         }))
         .await
         .unwrap()
@@ -124,6 +125,7 @@ async fn create_test_env_for_instance_allocation(
             tenant_keyset_id: None,
             network_virtualization_type: None,
             metadata: None,
+            network_security_group_id: None,
         }))
         .await
         .unwrap()
@@ -213,6 +215,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
+                network_security_group_id: None,
                 os: None,
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![forge::InstanceInterfaceConfig {
@@ -306,6 +309,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
                 network: None, // code under test: Network config is None
                 infiniband: None,
                 storage: None,
+                network_security_group_id: None,
             }),
             instance_id: None,
             metadata: None,
@@ -393,6 +397,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
                 network: None, // code under test: Network config is None
                 infiniband: None,
                 storage: None,
+                network_security_group_id: None,
             }),
             instance_id: None,
             metadata: None,
@@ -513,6 +518,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                 network: None,
                 infiniband: None,
                 storage: None,
+                network_security_group_id: None,
             }),
             instance_id: None,
             metadata: None,
@@ -568,6 +574,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                         network_details: None,
                     }],
                 }),
+                network_security_group_id: None,
                 infiniband: None,
                 storage: None,
             }),
@@ -678,6 +685,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             machine_id: Some(zero_dpu_host.host_snapshot.id.into()),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
+                network_security_group_id: None,
                 tenant: Some(forge::TenantConfig {
                     tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
                     user_data: None,

@@ -4445,6 +4445,43 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::RedfishBrowseResponse>, Status> {
         crate::redfish::redfish_browse(self, request).await
     }
+    async fn create_network_security_group(
+        &self,
+        request: tonic::Request<rpc::CreateNetworkSecurityGroupRequest>,
+    ) -> Result<tonic::Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
+        crate::handlers::network_security_group::create(self, request).await
+    }
+    async fn find_network_security_group_ids(
+        &self,
+        request: tonic::Request<rpc::FindNetworkSecurityGroupIdsRequest>,
+    ) -> Result<tonic::Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
+        crate::handlers::network_security_group::find_ids(self, request).await
+    }
+    async fn find_network_security_groups_by_ids(
+        &self,
+        request: tonic::Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
+    ) -> Result<tonic::Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
+        crate::handlers::network_security_group::find_by_ids(self, request).await
+    }
+    async fn delete_network_security_group(
+        &self,
+        request: tonic::Request<rpc::DeleteNetworkSecurityGroupRequest>,
+    ) -> Result<tonic::Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
+        crate::handlers::network_security_group::delete(self, request).await
+    }
+    async fn update_network_security_group(
+        &self,
+        request: tonic::Request<rpc::UpdateNetworkSecurityGroupRequest>,
+    ) -> Result<tonic::Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
+        crate::handlers::network_security_group::update(self, request).await
+    }
+    async fn get_network_security_group_propagation_status(
+        &self,
+        request: tonic::Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
+    ) -> Result<tonic::Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status>
+    {
+        crate::handlers::network_security_group::get_propagation_status(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

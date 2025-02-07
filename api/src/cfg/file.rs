@@ -179,6 +179,9 @@ pub struct CarbideConfig {
     #[serde(default = "default_max_find_by_ids")]
     pub max_find_by_ids: u32,
 
+    #[serde(default)]
+    pub network_security_group: NetworkSecurityGroupConfig,
+
     /// The minimum number of functioning links on a dpu for it to be considered healthy
     /// if not present, all links must be functional.
     #[serde(default)]
@@ -1156,6 +1159,23 @@ pub enum MandatoryUpgradeFromPriority {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NetworkSecurityGroupConfig {
+    /// The maximum number of unique rules allowed for
+    /// a network security group after rules are expanded.
+    /// (src port range * dst port range * src prefix list * dst prefix list)
+    #[serde(default = "default_max_network_security_group_size")]
+    pub max_network_security_group_size: u32,
+}
+
+impl Default for NetworkSecurityGroupConfig {
+    fn default() -> Self {
+        NetworkSecurityGroupConfig {
+            max_network_security_group_size: default_max_network_security_group_size(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FirmwareGlobal {
     #[serde(default)]
     pub autoupdate: bool,
@@ -1416,6 +1436,10 @@ impl FirmwareConfig {
 
 pub fn default_max_find_by_ids() -> u32 {
     100
+}
+
+pub fn default_max_network_security_group_size() -> u32 {
+    200
 }
 
 pub fn default_to_true() -> bool {

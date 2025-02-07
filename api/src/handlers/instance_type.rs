@@ -433,13 +433,6 @@ pub(crate) async fn associate_machines(
         .into());
     }
 
-    if req.machine_ids.is_empty() {
-        return Err(CarbideError::from(RpcDataConversionError::MissingArgument(
-            "machine_ids list must not be empty",
-        ))
-        .into());
-    }
-
     let instance_type_id = req
         .instance_type_id
         .parse::<InstanceTypeId>()

@@ -29,7 +29,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
 use forge_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
-use rpc::forge::DpuInfo;
+use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig};
 use tokio::sync::Mutex;
 
 #[derive(Default, Debug)]
@@ -292,6 +292,38 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             .map(|ip| ip.to_string()),
         tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),
         is_l2_segment: false,
+        network_security_group: Some(FlatInterfaceNetworkSecurityGroupConfig {
+            id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
+            version: "V1-1".to_string(),
+            source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+            rules: vec![rpc::forge::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["0.0.0.0/0".to_string()],
+                dst_prefixes: vec!["0.0.0.0/0".to_string()],
+                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                        .into(),
+                    ipv6: false,
+                    src_port_start: Some(80),
+                    src_port_end: Some(32768),
+                    dst_port_start: Some(80),
+                    dst_port_end: Some(32768),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 9001,
+                    source_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "0.0.0.0/0".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "0.0.0.0/0".to_string(),
+                        ),
+                    ),
+                }),
+            }],
+        }),
     };
     assert_eq!(admin_interface.svi_ip, None);
 

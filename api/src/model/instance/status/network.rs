@@ -28,6 +28,7 @@ use crate::model::{
         },
         status::SyncState,
     },
+    network_security_group::NetworkSecurityGroupStatusObservation,
     SerializableMacAddress, StatusValidationError,
 };
 
@@ -388,6 +389,10 @@ pub struct InstanceInterfaceStatusObservation {
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     #[serde(default)]
     pub gateways: Vec<IpNetwork>,
+
+    /// The details of the network security that has
+    /// actually been applied to the interface.
+    pub network_security_group: Option<NetworkSecurityGroupStatusObservation>,
 }
 
 impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
@@ -442,6 +447,10 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
                 })
                 .transpose()?
                 .map(Into::into),
+            network_security_group: observation
+                .network_security_group
+                .map(|nsgo| nsgo.try_into())
+                .transpose()?,
         })
     }
 }
@@ -520,6 +529,7 @@ mod tests {
                 addresses: Vec::new(),
                 prefixes: Vec::new(),
                 gateways: Vec::new(),
+                network_security_group: None,
             });
         observation
             .interfaces
@@ -529,6 +539,13 @@ mod tests {
                 addresses: vec!["127.1.2.3".parse().unwrap()],
                 prefixes: vec!["127.1.2.3/32".parse().unwrap()],
                 gateways: vec!["127.1.2.1".parse().unwrap()],
+                network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                    id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                        .try_into()
+                        .unwrap(),
+                    version: "V1-T1".parse().unwrap(),
+                }),
             });
         let serialized = serde_json::to_string(&observation).unwrap();
         let mut expected = format!(
@@ -538,10 +555,10 @@ mod tests {
         );
         write!(
             &mut expected,
-            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"prefixes\":[],\"gateways\":[]}},"
+            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"prefixes\":[],\"gateways\":[],\"network_security_group\":null}},"
         )
         .unwrap();
-        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"prefixes\":[\"127.1.2.3/32\"],\"gateways\":[\"127.1.2.1/32\"]}}").unwrap();
+        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"prefixes\":[\"127.1.2.3/32\"],\"gateways\":[\"127.1.2.1/32\"],\"network_security_group\":{{\"id\":\"c7c056c8-daa5-11ef-b221-c76a97b6c2ec\",\"version\":\"V1-T1\",\"source\":\"INSTANCE\"}}}}").unwrap();
         write!(
             &mut expected,
             "],\"observed_at\":\"{}\"}}",
@@ -703,6 +720,13 @@ mod tests {
                     addresses: vec!["127.0.0.3".parse().unwrap()],
                     prefixes: vec!["127.0.0.3/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
+                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                            .try_into()
+                            .unwrap(),
+                        version: "V1-T1".parse().unwrap(),
+                    }),
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Physical {},
@@ -710,6 +734,13 @@ mod tests {
                     addresses: vec!["127.0.0.1".parse().unwrap()],
                     prefixes: vec!["127.0.0.1/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
+                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                            .try_into()
+                            .unwrap(),
+                        version: "V1-T1".parse().unwrap(),
+                    }),
                 },
                 InstanceInterfaceStatusObservation {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -717,6 +748,13 @@ mod tests {
                     addresses: vec!["127.0.0.2".parse().unwrap()],
                     prefixes: vec!["127.0.0.2/32".parse().unwrap()],
                     gateways: vec!["127.0.0.1".parse().unwrap()],
+                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                            .try_into()
+                            .unwrap(),
+                        version: "V1-T1".parse().unwrap(),
+                    }),
                 },
             ],
         }

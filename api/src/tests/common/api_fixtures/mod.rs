@@ -45,7 +45,10 @@ use crate::{
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig,
     },
-    db::instance_type::create as create_instance_type,
+    db::{
+        instance_type::create as create_instance_type,
+        network_security_group::create as create_network_security_group,
+    },
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
     ib::{self, IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
@@ -57,6 +60,8 @@ use crate::{
             ManagedHostState,
         },
         metadata::Metadata,
+        network_security_group,
+        tenant::TenantOrganizationId,
     },
     redfish::test_support::RedfishSim,
     resource_pool::{self, common::CommonPools},
@@ -75,7 +80,10 @@ use crate::{
     },
 };
 use crate::{
-    cfg::file::{HardwareHealthReportsConfig, MachineValidationConfig, SiteExplorerConfig},
+    cfg::file::{
+        HardwareHealthReportsConfig, MachineValidationConfig, NetworkSecurityGroupConfig,
+        SiteExplorerConfig,
+    },
     site_explorer::BmcEndpointExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
@@ -421,17 +429,13 @@ impl TestEnv {
             .into_inner()
     }
 
-    pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
+    pub async fn create_vpc_and_tenant_segment_with_vpc_details(
+        &self,
+        vpc_details: rpc::forge::VpcCreationRequest,
+    ) -> NetworkSegmentId {
         let vpc = self
             .api
-            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                id: None,
-                name: "test vpc 1".to_string(),
-                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
-                tenant_keyset_id: None,
-                network_virtualization_type: None,
-                metadata: None,
-            }))
+            .create_vpc(tonic::Request::new(vpc_details))
             .await
             .unwrap()
             .into_inner();
@@ -452,11 +456,25 @@ impl TestEnv {
         tenant_network_id
     }
 
+    pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
+        self.create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc 1".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+            network_security_group_id: None,
+        })
+        .await
+    }
+
     pub async fn create_vpc_and_dual_tenant_segment(&self) -> (NetworkSegmentId, NetworkSegmentId) {
         let vpc = self
             .api
             .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
                 id: None,
+                network_security_group_id: None,
                 name: "test vpc 1".to_string(),
                 tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
                 tenant_keyset_id: None,
@@ -684,6 +702,7 @@ pub fn get_config() -> CarbideConfig {
         host_models: HashMap::from([("1".to_string(), host_firmware_example())]),
         firmware_global: FirmwareGlobal::test_default(),
         max_find_by_ids: default_max_find_by_ids(),
+        network_security_group: NetworkSecurityGroupConfig::default(),
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
@@ -1042,6 +1061,111 @@ pub async fn create_test_env_with_overrides(
     }
 }
 
+pub async fn populate_network_security_groups(api: Arc<Api>) {
+    // Create tenant orgs
+    let default_tenant_org = "Tenant1";
+    let _ = api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: default_tenant_org.to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: default_tenant_org.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    let tenant_org2 = "Tenant2";
+    let _ = api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: tenant_org2.to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: tenant_org2.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    // Create default network security groups.
+    let mut txn = api.database_connection.begin().await.unwrap();
+
+    // Just a default ID for group and single rule.
+    let uid = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+
+    let rules = vec![network_security_group::NetworkSecurityGroupRule {
+        id: Some(uid.to_string()),
+        direction: network_security_group::NetworkSecurityGroupRuleDirection::Ingress,
+        ipv6: false,
+        src_port_start: Some(80),
+        src_port_end: Some(32768),
+        dst_port_start: Some(80),
+        dst_port_end: Some(32768),
+        protocol: network_security_group::NetworkSecurityGroupRuleProtocol::Any,
+        action: network_security_group::NetworkSecurityGroupRuleAction::Deny,
+        priority: 9001,
+        src_net: network_security_group::NetworkSecurityGroupRuleNet::Prefix(
+            "0.0.0.0/0".parse().unwrap(),
+        ),
+        dst_net: network_security_group::NetworkSecurityGroupRuleNet::Prefix(
+            "0.0.0.0/0".parse().unwrap(),
+        ),
+    }];
+
+    let metadata = Metadata {
+        name: "default_network_security_group_1".to_string(),
+        description: "".to_string(),
+        labels: HashMap::new(),
+    };
+
+    let id = uid.parse().unwrap();
+
+    let tenant_org = default_tenant_org.parse::<TenantOrganizationId>().unwrap();
+
+    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
+        .await
+        .unwrap();
+
+    // Create one more NSG with a different name.
+    // The rules can be the same.
+    // Just another default ID for group and single rule.
+    let uid = "b65b13d6-d81c-11ef-9252-b346dc360bd4";
+    let metadata = Metadata {
+        name: "default_network_security_group_2".to_string(),
+        description: "".to_string(),
+        labels: HashMap::new(),
+    };
+    let id = uid.parse().unwrap();
+
+    let _it = create_network_security_group(&mut txn, &id, &tenant_org, None, &metadata, &rules)
+        .await
+        .unwrap();
+
+    // One more for the second tenant
+    let uid = "ddfcabc4-92dc-41e2-874e-2c7eeb9fa156";
+    let metadata = Metadata {
+        name: "default_network_security_group_3".to_string(),
+        description: "".to_string(),
+        labels: HashMap::new(),
+    };
+    let id = uid.parse().unwrap();
+
+    let _it = create_network_security_group(
+        &mut txn,
+        &id,
+        &tenant_org2.parse::<TenantOrganizationId>().unwrap(),
+        None,
+        &metadata,
+        &rules,
+    )
+    .await
+    .unwrap();
+
+    txn.commit().await.unwrap();
+}
+
 async fn populate_default_credentials(credential_provider: &dyn CredentialProvider) {
     credential_provider
         .set_credentials(
@@ -1239,6 +1363,7 @@ pub async fn network_configured_with_health(
             addresses: vec![iface.ip.clone()],
             prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
+            network_security_group: None,
         }]
     } else {
         let mut interfaces = vec![];
@@ -1250,6 +1375,7 @@ pub async fn network_configured_with_health(
                 addresses: vec![iface.ip.clone()],
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
+                network_security_group: None,
             });
         }
         interfaces

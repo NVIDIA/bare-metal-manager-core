@@ -14,12 +14,16 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
-use crate::db::instance::Instance;
-use crate::db::vpc::{self, NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
-use crate::db::{DatabaseError, ObjectColumnFilter};
+use crate::db::{
+    instance::Instance,
+    network_security_group,
+    vpc::{self, NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc},
+    DatabaseError, ObjectColumnFilter,
+};
+use crate::model::tenant::InvalidTenantOrg;
 use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::vpc::VpcId;
+use forge_uuid::{network_security_group::NetworkSecurityGroupId, vpc::VpcId};
 
 pub(crate) async fn create(
     api: &Api,
@@ -40,6 +44,42 @@ pub(crate) async fn create(
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin create_vpc", e))
     })?;
+
+    if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
+        let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                e.to_string(),
+            ))
+        })?;
+
+        // Query to check the validity of the NSG ID but to also grab
+        // a row-level lock on it if it exists.
+        if network_security_group::find_by_ids(
+            &mut txn,
+            &[id.clone()],
+            Some(
+                &vpc_creation_request
+                    .tenant_organization_id
+                    .parse()
+                    .map_err(|e: InvalidTenantOrg| {
+                        Status::from(CarbideError::from(
+                            RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                        ))
+                    })?,
+            ),
+            true,
+        )
+        .await?
+        .pop()
+        .is_none()
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                id, vpc_creation_request.tenant_organization_id,
+            ))
+            .into());
+        }
+    }
 
     let mut vpc = NewVpc::try_from(request.into_inner())?
         .persist(&mut txn)
@@ -66,11 +106,72 @@ pub(crate) async fn update(
 ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
     log_request_data(&request);
 
+    let vpc_update_request = request.get_ref();
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
     })?;
 
-    UpdateVpc::try_from(request.into_inner())?
+    // If a security group is applied to the VPC, we need to do some validation.
+    if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
+        let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                e.to_string(),
+            ))
+        })?;
+
+        let vpc_id = match vpc_update_request.id {
+            None => {
+                return Err(CarbideError::InvalidArgument("VPC ID is required".to_string()).into())
+            }
+            Some(ref i) => VpcId::try_from(i.clone()).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidVpcId(i.value.to_string()))
+            })?,
+        };
+
+        // Query for the VPC because we need to do
+        // some validation against the request.
+        let Some(vpc) = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
+            .await
+            .map_err(|e| Status::from(CarbideError::from(e)))?
+            .pop()
+        else {
+            return Err(CarbideError::NotFoundError {
+                kind: "Vpc",
+                id: vpc_id.to_string(),
+            }
+            .into());
+        };
+
+        // Query to check the validity of the NSG ID but to also grab
+        // a row-level lock on it if it exists.
+        if network_security_group::find_by_ids(
+            &mut txn,
+            &[id.clone()],
+            Some(
+                &vpc.tenant_organization_id
+                    .parse()
+                    .map_err(|e: InvalidTenantOrg| {
+                        Status::from(CarbideError::from(
+                            RpcDataConversionError::InvalidTenantOrg(e.to_string()),
+                        ))
+                    })?,
+            ),
+            true,
+        )
+        .await?
+        .pop()
+        .is_none()
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                id, vpc.tenant_organization_id
+            ))
+            .into());
+        }
+    }
+
+    let vpc = UpdateVpc::try_from(request.into_inner())?
         .update(&mut txn)
         .await?;
 
@@ -78,7 +179,9 @@ pub(crate) async fn update(
         CarbideError::from(DatabaseError::new(file!(), line!(), "commit update_vpc", e))
     })?;
 
-    Ok(Response::new(rpc::VpcUpdateResult {}))
+    Ok(Response::new(rpc::VpcUpdateResult {
+        vpc: Some(vpc.into()),
+    }))
 }
 
 pub(crate) async fn update_virtualization(

@@ -67,6 +67,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let (instance_id, _instance) =
@@ -262,6 +263,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         storage: None,
+        network_security_group_id: None,
     };
 
     let (instance_id, _instance) =

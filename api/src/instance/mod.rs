@@ -32,6 +32,7 @@ use crate::{
         instance::{Instance, NewInstance},
         machine::MachineSearchConfig,
         managed_host::LoadSnapshotOptions,
+        network_security_group,
         network_segment::NetworkSegment,
         DatabaseError, ObjectFilter,
     },
@@ -271,6 +272,28 @@ pub async fn allocate_instance(
             id: request.machine_id.to_string(),
         });
     };
+
+    // If an NSG is applied, we need to do a little more validation.
+    if let Some(ref nsg_id) = request.config.network_security_group_id {
+        // Query to check the validity of the NSG ID but to also grab
+        // a row-level lock on it if it exists.
+        if network_security_group::find_by_ids(
+            &mut txn,
+            &[nsg_id.clone()],
+            Some(&request.config.tenant.tenant_organization_id),
+            true,
+        )
+        .await?
+        .pop()
+        .is_none()
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                nsg_id,
+                request.config.tenant.tenant_organization_id.clone()
+            )));
+        }
+    }
 
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.
     allocate_network(&mut request.config.network, &mut txn, api).await?;

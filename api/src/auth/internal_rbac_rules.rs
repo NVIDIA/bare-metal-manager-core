@@ -365,6 +365,21 @@ impl InternalRBACRules {
         );
         x.perm("RedfishBrowse", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineMetadata", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateNetworkSecurityGroup", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindNetworkSecurityGroupIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "FindNetworkSecurityGroupsByIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm("UpdateNetworkSecurityGroup", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteNetworkSecurityGroup", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "GetNetworkSecurityGroupPropagationStatus",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
 
         x
     }
