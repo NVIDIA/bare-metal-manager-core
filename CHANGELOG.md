@@ -306,6 +306,12 @@
 
 - Removed FNN mmode from dhcp-server.
 
+## [v2024.12.20-rc6-4](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-3...v2024.12.20-rc6-4)
+
+### Changed
+
+- Updated libredfish to 0.29.1 to workaround Lenovo 675v3 bug preventing power forcerestart.
+
 ## [v2024.12.20-rc6-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-2...v2024.12.20-rc6-3)
 
 ### Fixed
