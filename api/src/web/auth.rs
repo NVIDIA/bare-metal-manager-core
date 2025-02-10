@@ -26,16 +26,27 @@ use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use http::HeaderMap;
-use oauth2::{AsyncHttpClient, AuthorizationCode, HttpRequest, PkceCodeVerifier, TokenResponse};
+use oauth2::{
+    http::HeaderValue as Oauth2HeaderValue, AsyncHttpClient, AuthorizationCode, ClientSecret,
+    HttpRequest, PkceCodeVerifier, Scope, TokenResponse,
+};
 use serde::Deserialize;
 use time::Duration;
 
+lazy_static::lazy_static! {
+    static ref CONTENT_TYPE_APPLICATION_FORM_URL_ENCODED: Oauth2HeaderValue = Oauth2HeaderValue::from_str("application/x-www-form-urlencoded").unwrap();
+    static ref MS_GRAPH_CONSISTENCY_LEVEL_EVENTUAL: Oauth2HeaderValue = Oauth2HeaderValue::from_str("eventual").unwrap();
+}
+
 const GRAPH_USER_GROUPS_ENDPOINT: &str = "https://graph.microsoft.com/v1.0/users";
+const CLIENT_SECRET_HEADER: &str = "client_secret";
+
+const CLIENT_CREDENTIALS_FLOW_SESSION_EXPIRATION_SECONDS: u32 = 600;
 
 #[derive(Debug, Deserialize)]
 pub struct AuthRequest {
-    code: String,
-    state: String,
+    code: Option<String>,
+    state: Option<String>,
 }
 
 pub async fn callback(
@@ -58,23 +69,95 @@ pub async fn callback(
         oauth2_layer.private_cookiejar_key.clone(),
     );
 
+    // See if the caller is really some other app/script
+    // calling in with a secret we assigned to it.
+    // If it is, we're going to just validate the secret
+    // and then drop the cookie.
+    if let Some(client_secret) = request_headers.get(CLIENT_SECRET_HEADER) {
+        let Ok(client_secret) = client_secret.to_str() else {
+            return (StatusCode::BAD_REQUEST, "invalid client secret format").into_response();
+        };
+
+        let client_id = oauth2_layer.client.client_id().as_str().to_owned();
+        // We don't actually care about the token response right now.
+        // What matters is that we received one with the proper structure,
+        // which includes an access token.
+        let _ = match oauth2_layer
+            .client
+            .set_client_secret(ClientSecret::new(client_secret.to_string()))
+            .exchange_client_credentials()
+            .add_scope(Scope::new(format!("{}/.default", client_id)))
+            .request_async(&AsyncRequestHandlerWithTimeouts::new(
+                &oauth2_layer.http_client,
+            ))
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("bad token response from external auth service: {}", e),
+                )
+                    .into_response()
+            }
+        };
+
+        let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_secs(),
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response(),
+        };
+
+        let cookie = Cookie::build((
+            "sid",
+            format!(
+                "{}",
+                now_seconds + CLIENT_CREDENTIALS_FLOW_SESSION_EXPIRATION_SECONDS as u64
+            ),
+        ))
+        .domain(hostname.clone())
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .max_age(Duration::seconds(
+            CLIENT_CREDENTIALS_FLOW_SESSION_EXPIRATION_SECONDS as i64,
+        ))
+        .build();
+
+        return (
+            // Strip out any old cookies that might possibly exist,
+            // add in the new sid cookie, and send it along.
+            cookiejar.remove(cookie.clone()).add(cookie),
+            Redirect::to("/admin/"),
+        )
+            .into_response();
+    }
+
+    let Some(query_state) = query.state else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "'state' parameter required for MFA flow",
+        )
+            .into_response();
+    };
+
+    let Some(query_code) = query.code else {
+        return (StatusCode::BAD_REQUEST, "'code' required for MFA flow").into_response();
+    };
+
     // Grab the csrf state cookie we stored when we generated the original auth redirect.
     // We'll proactively remove it after we grab the value later.
-    let csrf_cookie = match cookiejar.get("csrf_state") {
-        Some(c) => c,
-        _ => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "unable to verify csrf state from external auth response",
-            )
-                .into_response()
-        }
+    let Some(csrf_cookie) = cookiejar.get("csrf_state") else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unable to verify csrf state from external auth response",
+        )
+            .into_response();
     };
 
     // Compare the state we received when creating the original
     // auth redirect TO azure with the state we just received in the request
     // FROM Azure.
-    if *csrf_cookie.value() != query.state {
+    if *csrf_cookie.value() != query_state {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             "csrf state of auth request did not match state from external auth response",
@@ -84,22 +167,19 @@ pub async fn callback(
 
     // Grab the pkce verifier cookie we stored when we generated the original auth redirect.
     // We'll proactively remove it after we grab the value later.
-    let pkce_cookie = match cookiejar.get("pkce_verifier") {
-        Some(c) => c,
-        _ => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "unable to extract pkce verifier from cookie",
-            )
-                .into_response()
-        }
+    let Some(pkce_cookie) = cookiejar.get("pkce_verifier") else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unable to extract pkce verifier from cookie",
+        )
+            .into_response();
     };
 
     let pkce_verifier = PkceCodeVerifier::new(pkce_cookie.value().to_owned());
 
     let token = match oauth2_layer
         .client
-        .exchange_code(AuthorizationCode::new(query.code))
+        .exchange_code(AuthorizationCode::new(query_code))
         .set_pkce_verifier(pkce_verifier)
         .request_async(&AsyncRequestHandlerWithTimeouts::new(
             &oauth2_layer.http_client,
@@ -190,16 +270,25 @@ pub async fn callback(
         }
     };
 
+    // Parse will take care of any URL escaping/encoding
+    let group_query_uri = match url::Url::parse(&format!(
+        "{}/{}/transitiveMemberOf?$search={}",
+        GRAPH_USER_GROUPS_ENDPOINT, user.oid, oauth2_layer.allowed_access_groups_filter,
+    )) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to parse group query uri: {}", e),
+            )
+                .into_response()
+        }
+    };
+
     // Grab the group memberships of the user with a filter to reduce the response payload.
     let request = http::Request::builder()
         .method(Method::GET)
-        .uri(
-            format!(
-                "{}/{}/transitiveMemberOf?$search={}",
-                GRAPH_USER_GROUPS_ENDPOINT, user.oid, oauth2_layer.allowed_access_groups_filter,
-            )
-            .as_str(),
-        )
+        .uri(group_query_uri.as_str())
         .header(
             header::AUTHORIZATION,
             match HeaderValue::from_str(
@@ -217,19 +306,20 @@ pub async fn callback(
         )
         .header(
             "ConsistencyLevel",
-            match HeaderValue::from_str("eventual") {
-                Ok(h) => h,
-                Err(e) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("bad header: {}", e),
-                    )
-                        .into_response()
-                }
-            },
+            MS_GRAPH_CONSISTENCY_LEVEL_EVENTUAL.clone(),
         )
-        .body(vec![])
-        .unwrap();
+        .body(vec![]);
+
+    let request = match request {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("unable to create request to grab group details: {}", e),
+            )
+                .into_response()
+        }
+    };
 
     let result = AsyncRequestHandlerWithTimeouts::new(&oauth2_layer.http_client)
         .call(request)
