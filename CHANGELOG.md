@@ -8,6 +8,7 @@
   `mutual_isolation` is the name for the old default behavior, and is the
   default for this option if not specified. `open` disables VPC isolation inside
   the site.
+- Network Security Group support in API and CLI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances.  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
 
 ### Changed
 ### Fixed
