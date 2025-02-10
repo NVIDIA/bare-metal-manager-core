@@ -72,7 +72,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 RUN update-alternatives --install /usr/bin/ld ld /usr/bin/lld 50
 
 RUN rustup component add rustfmt
-RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache cargo-watch taplo-cli && cargo cache -r registry-index,registry-sources
+RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache cargo-watch taplo-cli --locked && cargo cache -r registry-index,registry-sources
 
 # install stuff that's not in debian
 RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
