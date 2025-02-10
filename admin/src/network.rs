@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt::Write;
+use std::str::FromStr as _;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
@@ -77,10 +78,13 @@ async fn convert_network_to_nice_format(
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
         for (i, prefix) in segment.prefixes.clone().into_iter().enumerate() {
+            let net = ipnet::IpNet::from_str(&prefix.prefix).unwrap();
+            let range = format!("{} - {}", net.network(), net.broadcast());
             let data = vec![
                 ("SN", i.to_string()),
                 ("ID", prefix.id.clone().unwrap_or_default().to_string()),
                 ("Prefix", prefix.prefix),
+                ("Range", range),
                 (
                     "Gateway",
                     prefix
@@ -163,13 +167,16 @@ async fn convert_network_to_nice_table(
         "Sub Domain",
         "MTU",
         "Prefixes",
+        "Last IP",
         "Circuit Ids",
         "Version",
-        "Type"
+        "Type",
     ]);
 
     for segment in segments.network_segments {
         let domain = get_domain_name(segment.subdomain_id, api_config).await;
+        let net = ipnet::IpNet::from_str(&segment.prefixes.first().unwrap().prefix).unwrap();
+        let end_ip = net.broadcast().to_string();
 
         table.add_row(row![
             segment.id.unwrap_or_default(),
@@ -187,6 +194,7 @@ async fn convert_network_to_nice_table(
                 .map(|x| x.prefix.to_string())
                 .collect::<Vec<String>>()
                 .join(", "),
+            end_ip,
             segment
                 .prefixes
                 .iter()
