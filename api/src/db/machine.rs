@@ -618,20 +618,20 @@ pub async fn associate_machines_with_instance_type(
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
-/// Removes a machine's association with an InstanceType.
-/// This does *NOT* check if the machine is in use.
+/// Removes multiple machine associations with an InstanceType.
+/// This does *NOT* check if the machines are in use.
 ///
-/// * `txn`        - A reference to an active DB transaction
-/// * `machine_id` - A reference to a machine ID to update
-pub async fn remove_instance_type_association(
+/// * `txn`         - A reference to an active DB transaction
+/// * `machine_ids` - A slice of machine IDs to update
+pub async fn remove_instance_type_associations(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: &MachineId,
-) -> Result<MachineId, DatabaseError> {
-    let query = "UPDATE machines SET instance_type_id=NULL WHERE id = $1::varchar RETURNING id";
+    machine_ids: &[MachineId],
+) -> Result<Vec<MachineId>, DatabaseError> {
+    let query = "UPDATE machines SET instance_type_id=NULL WHERE id = ANY($1) RETURNING id";
 
     sqlx::query_as(query)
-        .bind(machine_id)
-        .fetch_one(txn.deref_mut())
+        .bind(machine_ids)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }

@@ -300,18 +300,18 @@ pub(crate) async fn update(
     // Look for any related machines.  Instance types associated with machines
     // should not be updated.  This is another one that could be a subquery, but
     // we want the caller to know the actual reason for failure.
-    // At first glance, it seems a little aggressive to block metadata changes,
-    // but name, description, and label changes could also be total lies depending on
-    // the changes and the machines associated with the instance type.
-    // Still, users might get annoyed if an instance type becomes totally immutable
-    // as soon as machines are associated with it.
-    // We could split update endpoints into one for metadata and one for capabilities.
     let existing_associated_machines =
         db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
             .await
             .map_err(CarbideError::from)?;
 
-    if !existing_associated_machines.is_empty() {
+    // Forge-cloud allows users to change metadata changes (name, description, and label),
+    // so we'll need to allow the same here.
+    // The burden of maintaining the order of the capability filters is on the caller.
+    // Capability filters are NOT allowed to change if an InstanceType is in use.
+    if current_instance_type.desired_capabilities != desired_capabilities
+        && !existing_associated_machines.is_empty()
+    {
         return Err(CarbideError::FailedPrecondition(format!(
             "InstanceType {} is associated with active machines",
             id
@@ -373,22 +373,37 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    // Look for any related machines.  Instance types associated
-    // with machines should not be deleted.  This could be a
-    // subquery, but we want the caller to know the actual reason
-    // for failure.
+    // Look for any related machines.  Forge-Cloud provides users with
+    // the behavior of removing all machine associations to an InstanceType for machines
+    // as long as all machines affected have no associated instances.
+    // We need to replicate this here so that it's a single call.
+
+    //  This will also grab a row lock on the requested machines so we can
+    // coordinate with the instance allocation handler.
     let existing_associated_machines =
         db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
             .await
             .map_err(CarbideError::from)?;
 
-    if !existing_associated_machines.is_empty() {
+    // Check that there are no associated instances for the machines.
+    let instances =
+        instance::Instance::find_by_machine_ids(&mut txn, &existing_associated_machines)
+            .await
+            .map_err(CarbideError::from)?;
+
+    if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "InstanceType {} is associated with active machines",
+            "InstanceType {} is associated with machines that have active instances",
             id
         ))
         .into());
     }
+
+    // Make our DB query to remove the machine associations.
+    let _ids =
+        db::machine::remove_instance_type_associations(&mut txn, &existing_associated_machines)
+            .await
+            .map_err(CarbideError::from)?;
 
     // Make our DB query to soft delete the instance type
     let _id = instance_type::soft_delete(&mut txn, &id).await?;
@@ -645,7 +660,7 @@ pub(crate) async fn remove_machine_association(
     }
 
     // Make our DB query to remove the association
-    let _id = db::machine::remove_instance_type_association(&mut txn, &machine_id)
+    let _id = db::machine::remove_instance_type_associations(&mut txn, &[machine_id])
         .await
         .map_err(CarbideError::from)?;
 
