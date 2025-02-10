@@ -17,11 +17,16 @@ use std::str::FromStr;
 
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
-    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest, IpxeOperatingSystem,
+    self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
+    CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
+    GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
     IsBmcInManagedHostResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSegmentSearchConfig, OperatingSystem, RedfishBrowseResponse,
+    NetworkDeviceIdList, NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig,
+    OperatingSystem, RedfishBrowseResponse, UpdateNetworkSecurityGroupRequest,
     VpcVirtualizationType,
 };
+
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use mac_address::MacAddress;
 
@@ -2809,6 +2814,58 @@ pub async fn update_os_image(
     .await
 }
 
+pub async fn update_instance_config(
+    api_config: &ApiConfig<'_>,
+    instance_id: String,
+    version: String,
+    config: rpc::InstanceConfig,
+    metadata: Option<rpc::Metadata>,
+) -> CarbideCliResult<rpc::Instance> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InstanceConfigUpdateRequest {
+            instance_id: Some(::rpc::Uuid { value: instance_id }),
+            if_version_match: Some(version),
+            config: Some(config),
+            metadata,
+        });
+        let instance = client
+            .update_instance_config(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(instance)
+    })
+    .await
+}
+
+pub async fn update_vpc_config(
+    api_config: &ApiConfig<'_>,
+    vpc_id: String,
+    version: String,
+    name: String,
+    metadata: Option<rpc::Metadata>,
+    network_security_group_id: Option<String>,
+) -> CarbideCliResult<rpc::Vpc> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::VpcUpdateRequest {
+            name,
+            id: Some(::rpc::Uuid { value: vpc_id }),
+            if_version_match: Some(version),
+            metadata,
+            network_security_group_id,
+        });
+        let vpc = client
+            .update_vpc(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner()
+            .vpc
+            .ok_or(CarbideCliError::Empty)?;
+        Ok(vpc)
+    })
+    .await
+}
+
 pub async fn tpm_ca_add_cert(
     api_config: &ApiConfig<'_>,
     ca_cert_bytes: &[u8],
@@ -3024,6 +3081,198 @@ pub async fn update_machine_metadata(
             .update_machine_metadata(request)
             .await
             .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn create_network_security_group(
+    api_config: &ApiConfig<'_>,
+    id: Option<String>,
+    tenant_organization_id: String,
+    metadata: rpc::Metadata,
+    rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
+) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = CreateNetworkSecurityGroupRequest {
+            id,
+            tenant_organization_id,
+            metadata: Some(metadata),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+        };
+
+        let response = client
+            .create_network_security_group(tonic::Request::new(request))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+
+        response
+            .network_security_group
+            .ok_or(CarbideCliError::Empty)
+    })
+    .await
+}
+
+pub async fn get_single_network_security_group(
+    api_config: &ApiConfig<'_>,
+    id: String,
+) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+    with_forge_client(api_config, |mut client| async move {
+        let nsg = client
+            .find_network_security_groups_by_ids(tonic::Request::new(
+                FindNetworkSecurityGroupsByIdsRequest {
+                    tenant_organization_id: None,
+                    network_security_group_ids: vec![id],
+                },
+            ))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner()
+            .network_security_groups
+            .pop()
+            .ok_or(CarbideCliError::Empty)?;
+
+        Ok(nsg)
+    })
+    .await
+}
+
+pub async fn get_network_security_group_attachments(
+    api_config: &ApiConfig<'_>,
+    id: String,
+) -> CarbideCliResult<rpc::NetworkSecurityGroupAttachments> {
+    with_forge_client(api_config, |mut client| async move {
+        let nsg = client
+            .get_network_security_group_attachments(tonic::Request::new(
+                GetNetworkSecurityGroupAttachmentsRequest {
+                    network_security_group_ids: vec![id],
+                },
+            ))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner()
+            .attachments
+            .pop()
+            .ok_or(CarbideCliError::Empty)?;
+
+        Ok(nsg)
+    })
+    .await
+}
+
+pub async fn get_network_security_group_propagation_status(
+    api_config: &ApiConfig<'_>,
+    id: String,
+    vpc_ids: Option<Vec<String>>,
+    instance_ids: Option<Vec<String>>,
+) -> CarbideCliResult<(
+    Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
+    Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
+)> {
+    with_forge_client(api_config, |mut client| async move {
+        let nsg = client
+            .get_network_security_group_propagation_status(tonic::Request::new(
+                GetNetworkSecurityGroupPropagationStatusRequest {
+                    network_security_group_ids: Some(rpc::NetworkSecurityGroupIdList {
+                        ids: vec![id],
+                    }),
+                    vpc_ids: vpc_ids.unwrap_or_default(),
+                    instance_ids: instance_ids.unwrap_or_default(),
+                },
+            ))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+
+        Ok((nsg.vpcs, nsg.instances))
+    })
+    .await
+}
+
+pub async fn get_all_network_security_groups(
+    api_config: &ApiConfig<'_>,
+    page_size: usize,
+) -> CarbideCliResult<Vec<rpc::NetworkSecurityGroup>> {
+    with_forge_client(api_config, |mut client| async move {
+        let all_nsg_ids = client
+            .find_network_security_group_ids(tonic::Request::new(
+                rpc::FindNetworkSecurityGroupIdsRequest {
+                    name: None,
+                    tenant_organization_id: None,
+                },
+            ))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner()
+            .network_security_group_ids;
+
+        let mut all_nsgs = Vec::with_capacity(all_nsg_ids.len());
+
+        for nsg_ids in all_nsg_ids.chunks(page_size) {
+            let nsgs = client
+                .find_network_security_groups_by_ids(tonic::Request::new(
+                    FindNetworkSecurityGroupsByIdsRequest {
+                        tenant_organization_id: None,
+                        network_security_group_ids: nsg_ids.to_vec(),
+                    },
+                ))
+                .await
+                .map_err(CarbideCliError::ApiInvocationError)?
+                .into_inner()
+                .network_security_groups;
+            all_nsgs.extend(nsgs);
+        }
+
+        Ok(all_nsgs)
+    })
+    .await
+}
+
+pub async fn update_network_security_group(
+    api_config: &ApiConfig<'_>,
+    id: String,
+    tenant_organization_id: String,
+    metadata: rpc::Metadata,
+    if_version_match: Option<String>,
+    rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
+) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = UpdateNetworkSecurityGroupRequest {
+            id,
+            tenant_organization_id,
+            metadata: Some(metadata),
+            if_version_match,
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
+        };
+
+        let response = client
+            .update_network_security_group(tonic::Request::new(request))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+
+        response
+            .network_security_group
+            .ok_or(CarbideCliError::Empty)
+    })
+    .await
+}
+
+pub async fn delete_network_security_group(
+    api_config: &ApiConfig<'_>,
+    id: String,
+    tenant_organization_id: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        client
+            .delete_network_security_group(tonic::Request::new(DeleteNetworkSecurityGroupRequest {
+                id,
+                tenant_organization_id,
+            }))
+            .await
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(())

@@ -259,12 +259,10 @@ pub(crate) async fn find_objects_with_attachments(
                   COALESCE(JSON_AGG(i.id) FILTER (WHERE i.id IS NOT NULL), '[]') as instance_ids
               FROM
                   network_security_groups nsg
-              LEFT OUTER JOIN vpcs v ON v.network_security_group_id=nsg.id
-              LEFT OUTER JOIN instances i ON i.network_security_group_id=nsg.id
+              LEFT OUTER JOIN vpcs v ON v.network_security_group_id=nsg.id AND v.deleted IS NULL
+              LEFT OUTER JOIN instances i ON i.network_security_group_id=nsg.id AND i.deleted IS NULL
               WHERE
-                nsg.deleted IS NULL
-                AND v.deleted IS NULL
-                AND i.deleted IS NULL",
+                nsg.deleted IS NULL",
     );
 
     if network_security_group_ids.is_some() {

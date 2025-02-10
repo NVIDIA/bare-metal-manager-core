@@ -644,6 +644,20 @@ impl NetworkSecurityGroupAttachments {
     }
 }
 
+impl From<NetworkSecurityGroupAttachments> for rpc::NetworkSecurityGroupAttachments {
+    fn from(attachments: NetworkSecurityGroupAttachments) -> Self {
+        rpc::NetworkSecurityGroupAttachments {
+            network_security_group_id: attachments.id.to_string(),
+            vpc_ids: attachments.vpc_ids.iter().map(|v| v.to_string()).collect(),
+            instance_ids: attachments
+                .instance_ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect(),
+        }
+    }
+}
+
 /* ******************************************* */
 /* NetworkSecurityGroupPropagationObjectStatus */
 /* ******************************************* */
@@ -970,5 +984,35 @@ mod tests {
         // Verify that we can go from an internal instance type to the
         // protobuf InstanceType message
         assert_eq!(req_type, rpc::NetworkSecurityGroup::try_from(nsg).unwrap());
+    }
+
+    #[test]
+    fn test_model_nsg_attachments_to_rpc_conversion() {
+        // Full
+        let req_type = rpc::NetworkSecurityGroupAttachments {
+            network_security_group_id: "any_id".to_string(),
+            vpc_ids: vec![
+                "60d92a18-e56b-11ef-8ecd-ef90f290abf4".to_string(),
+                "6570b208-e56b-11ef-a659-f38dea668523".to_string(),
+            ],
+            instance_ids: vec![
+                "7ed78230-e56b-11ef-a601-f77e6a6c73d3".to_string(),
+                "819e2834-e56b-11ef-920c-9b55d2079ba9".to_string(),
+            ],
+        };
+
+        let status = NetworkSecurityGroupAttachments {
+            id: "any_id".parse().unwrap(),
+            vpc_ids: vec![
+                "60d92a18-e56b-11ef-8ecd-ef90f290abf4".parse().unwrap(),
+                "6570b208-e56b-11ef-a659-f38dea668523".parse().unwrap(),
+            ],
+            instance_ids: vec![
+                "7ed78230-e56b-11ef-a601-f77e6a6c73d3".parse().unwrap(),
+                "819e2834-e56b-11ef-920c-9b55d2079ba9".parse().unwrap(),
+            ],
+        };
+
+        assert_eq!(req_type, rpc::NetworkSecurityGroupAttachments::from(status));
     }
 }
