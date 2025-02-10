@@ -4482,6 +4482,12 @@ impl Forge for Api {
     {
         crate::handlers::network_security_group::get_propagation_status(self, request).await
     }
+    async fn get_network_security_group_attachments(
+        &self,
+        request: tonic::Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
+    ) -> Result<tonic::Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
+        crate::handlers::network_security_group::get_attachments(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

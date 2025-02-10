@@ -11,4 +11,5 @@
  */
 pub mod cli_options;
 pub mod measurement;
+pub mod network_security_group;
 pub mod storage;

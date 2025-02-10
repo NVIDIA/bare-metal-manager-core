@@ -368,7 +368,7 @@ service Forge {
   rpc UpdateNetworkSecurityGroup(UpdateNetworkSecurityGroupRequest) returns (UpdateNetworkSecurityGroupResponse);
   rpc DeleteNetworkSecurityGroup(DeleteNetworkSecurityGroupRequest) returns (DeleteNetworkSecurityGroupResponse);
   rpc GetNetworkSecurityGroupPropagationStatus(GetNetworkSecurityGroupPropagationStatusRequest) returns (GetNetworkSecurityGroupPropagationStatusResponse);
-  
+  rpc GetNetworkSecurityGroupAttachments(GetNetworkSecurityGroupAttachmentsRequest) returns (GetNetworkSecurityGroupAttachmentsResponse);
 
 
   // Block storage
@@ -4153,4 +4153,21 @@ message ResolvedNetworkSecurityGroupRule {
   NetworkSecurityGroupRuleAttributes rule = 1;
   repeated string src_prefixes            = 2;
   repeated string dst_prefixes            = 3;
+}
+
+
+message GetNetworkSecurityGroupAttachmentsRequest {
+
+  repeated string network_security_group_ids = 1;
+
+}
+
+message NetworkSecurityGroupAttachments {
+  string network_security_group_id = 1;
+  repeated string vpc_ids          = 2;
+  repeated string instance_ids     = 3;
+}
+
+message GetNetworkSecurityGroupAttachmentsResponse {
+  repeated NetworkSecurityGroupAttachments attachments = 1;
 }

@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::measurement;
+use crate::cfg::network_security_group;
 use crate::cfg::storage::{OsImageActions, StorageActions};
 use crate::vpc_prefix::VpcPrefixSelector;
 
@@ -207,6 +208,13 @@ pub enum CliCommand {
 
     #[clap(about = "Manage TPM CA certificates", subcommand)]
     TpmCa(TpmCa),
+
+    #[clap(
+        about = "Network security group management",
+        visible_alias = "nsg",
+        subcommand
+    )]
+    NetworkSecurityGroup(network_security_group::NetworkSecurityGroupActions),
 }
 
 #[derive(Parser, Debug)]

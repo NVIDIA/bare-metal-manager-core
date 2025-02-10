@@ -1416,3 +1416,159 @@ async fn test_network_security_group_propagation(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_network_security_group_get_attachments(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    populate_network_security_groups(env.api.clone()).await;
+
+    // Provided by fixtures
+    let default_tenant_org = "Tenant1";
+
+    // Our known fixture network security group
+    let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+
+    let vpc_id = "2ff5ba26-da6a-11ef-9c48-5b78e547a5e7";
+    let instance_id = "46c555e0-da6a-11ef-b86d-db132142d068";
+
+    // Check attachments before doing anything else.
+    // There should be no objects with any attached NSG.
+    let prop_status = env
+        .api
+        .get_network_security_group_attachments(tonic::Request::new(
+            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+                network_security_group_ids: vec![good_network_security_group_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+            network_security_group_id: good_network_security_group_id.to_string(),
+            vpc_ids: vec![],
+            instance_ids: vec![],
+        }],
+    };
+
+    assert_eq!(prop_status, expected_results);
+
+    // Now create some objects with NSGs attached.
+
+    // Create a VPC
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
+            id: Some(rpc::Uuid {
+                value: vpc_id.to_string(),
+            }),
+            name: "Tenant1".to_string(),
+            tenant_organization_id: default_tenant_org.to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+            metadata: None,
+            network_security_group_id: Some(good_network_security_group_id.to_string()),
+        })
+        .await;
+
+    // Create a new managed host in the DB and get the snapshot.
+    let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    // Create an Instance
+    let _ = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: Some(good_network_security_group_id.to_string()),
+            }),
+            instance_id: Some(rpc::Uuid {
+                value: instance_id.to_string(),
+            }),
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    // Check attachments
+    let prop_status = env
+        .api
+        .get_network_security_group_attachments(tonic::Request::new(
+            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+                network_security_group_ids: vec![good_network_security_group_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+            network_security_group_id: good_network_security_group_id.to_string(),
+            vpc_ids: vec![vpc_id.to_string()],
+            instance_ids: vec![instance_id.to_string()],
+        }],
+    };
+
+    assert_eq!(prop_status, expected_results);
+
+    // Delete the instance
+    env.api
+        .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
+            id: Some(rpc::Uuid {
+                value: instance_id.to_string(),
+            }),
+        }))
+        .await
+        .unwrap();
+    // Delete the VPC
+    env.api
+        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+            id: Some(rpc::Uuid {
+                value: vpc_id.to_string(),
+            }),
+        }))
+        .await
+        .unwrap();
+
+    // Check attachments.  We should see none again.
+    let prop_status = env
+        .api
+        .get_network_security_group_attachments(tonic::Request::new(
+            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+                network_security_group_ids: vec![good_network_security_group_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+            network_security_group_id: good_network_security_group_id.to_string(),
+            vpc_ids: vec![],
+            instance_ids: vec![],
+        }],
+    };
+
+    assert_eq!(prop_status, expected_results);
+
+    Ok(())
+}

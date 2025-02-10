@@ -619,7 +619,77 @@ pub(crate) async fn get_propagation_status(
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "commit get_propagation_status",
+            "commit get_attachments",
+            e,
+        ))
+    })?;
+
+    // Send our response back
+    Ok(Response::new(rpc_out))
+}
+
+pub(crate) async fn get_attachments(
+    api: &Api,
+    request: Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
+) -> Result<Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if req.network_security_group_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be submitted"
+        ))
+        .into());
+    }
+
+    if req.network_security_group_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let network_security_group_ids = req
+        .network_security_group_ids
+        .iter()
+        .map(|v| v.parse::<NetworkSecurityGroupId>())
+        .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
+                e.to_string(),
+            ))
+        })?;
+
+    // Prepare our txn to associate machines with the NetworkSecurityGroup
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin associate_machines",
+            e,
+        ))
+    })?;
+
+    // Query the DB for propagation status.
+    let attachments = network_security_group::find_objects_with_attachments(
+        &mut txn,
+        Some(&network_security_group_ids),
+        None,
+    )
+    .await?;
+
+    // Prepare the response message
+    let rpc_out = rpc::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: attachments.into_iter().map(|a| a.into()).collect(),
+    };
+
+    // Commit if nothing has gone wrong up to now
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_attachments",
             e,
         ))
     })?;

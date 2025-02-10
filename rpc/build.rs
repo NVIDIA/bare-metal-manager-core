@@ -438,6 +438,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.ResolvedNetworkSecurityGroupRule",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.NetworkSecurityGroupAttachments",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.NetworkSecurityGroupPropagationObjectStatus",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

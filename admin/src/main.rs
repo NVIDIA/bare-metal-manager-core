@@ -62,6 +62,7 @@ use cfg::cli_options::{
     CliCommand, CliOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
 };
+use cfg::network_security_group::NetworkSecurityGroupActions;
 use clap::CommandFactory;
 use forge_secrets::credentials::Credentials;
 use forge_tls::client_config::get_carbide_api_url;
@@ -90,6 +91,7 @@ mod managed_host;
 mod measurement;
 mod network;
 mod network_devices;
+mod network_security_group;
 mod ping;
 mod redfish;
 mod resource_pool;
@@ -1572,6 +1574,36 @@ async fn main() -> color_eyre::Result<()> {
                 tpm::add_ca_cert_bulk(&add_opts.dirname, api_config).await?
             }
             TpmCa::ShowUnmatchedEk => tpm::show_unmatched_ek_certs(api_config).await?,
+        },
+        CliCommand::NetworkSecurityGroup(nsg_action) => match nsg_action {
+            NetworkSecurityGroupActions::Create(args) => {
+                network_security_group::nsg_create(args, config.format, api_config).await?
+            }
+            NetworkSecurityGroupActions::Show(args) => {
+                network_security_group::nsg_show(
+                    args,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
+            }
+            NetworkSecurityGroupActions::Update(args) => {
+                network_security_group::nsg_update(args, config.format, api_config).await?
+            }
+            NetworkSecurityGroupActions::Delete(args) => {
+                network_security_group::nsg_delete(args, api_config).await?
+            }
+            NetworkSecurityGroupActions::ShowAttachments(args) => {
+                network_security_group::nsg_show_attachments(args, config.format, api_config)
+                    .await?
+            }
+            NetworkSecurityGroupActions::Attach(args) => {
+                network_security_group::nsg_attach(args, api_config).await?
+            }
+            NetworkSecurityGroupActions::Detach(args) => {
+                network_security_group::nsg_detach(args, api_config).await?
+            }
         },
     }
 

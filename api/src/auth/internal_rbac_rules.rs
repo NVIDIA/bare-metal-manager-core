@@ -53,7 +53,7 @@ impl InternalRBACRules {
         x.perm("DeleteDomain", vec![]);
         x.perm("FindDomain", vec![ForgeAdminCLI]);
         x.perm("CreateVpc", vec![SiteAgent, Machineatron]);
-        x.perm("UpdateVpc", vec![SiteAgent]);
+        x.perm("UpdateVpc", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateVpcVirtualization", vec![ForgeAdminCLI]);
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
@@ -91,7 +91,7 @@ impl InternalRBACRules {
         );
         x.perm("ReleaseInstance", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateInstanceOperatingSystem", vec![SiteAgent]);
-        x.perm("UpdateInstanceConfig", vec![SiteAgent]);
+        x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstancesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstances", vec![ForgeAdminCLI, SiteAgent, Ssh]);
@@ -378,6 +378,10 @@ impl InternalRBACRules {
         x.perm("DeleteNetworkSecurityGroup", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
             "GetNetworkSecurityGroupPropagationStatus",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "GetNetworkSecurityGroupAttachments",
             vec![ForgeAdminCLI, SiteAgent],
         );
 
