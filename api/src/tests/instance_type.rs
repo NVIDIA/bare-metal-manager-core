@@ -174,6 +174,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .instance_types;
 
     let id = existing_instance_types[0].id.clone();
+    let original_attributes = existing_instance_types[0].attributes.clone();
     let version = existing_instance_types[0].version.clone();
 
     let update_instance_type_attributes = Some(rpc::forge::InstanceTypeAttributes {
@@ -223,7 +224,24 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .await
         .unwrap_err();
 
-    // Try to update the instance type.  This should fail
+    // Try to update the instance type metadata.  This should pass
+    // because there's no capability filter change.
+    let _ = env
+        .api
+        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+            id: id.to_string(),
+            metadata: Some(rpc::Metadata {
+                name: "zoinks".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            instance_type_attributes: original_attributes,
+            if_version_match: None,
+        }))
+        .await
+        .unwrap();
+
+    // Try to update the instance type capabilities.  This should fail
     // because there's a machine associated with the instance type.
     let _ = env
         .api
@@ -269,7 +287,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Make we didn't somehow end up with a new id.
     assert_eq!(forge_instance_type.id, id.to_string());
 
-    assert_eq!(next_version.version_nr(), 2);
+    assert_eq!(next_version.version_nr(), 3);
 
     // Verify that the attributes we sent in are the attributes we got back out.
     assert_eq!(
@@ -315,7 +333,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Make we didn't somehow end up with a new id.
     assert_eq!(forge_instance_type.id, id.to_string());
 
-    assert_eq!(next_version.version_nr(), 3);
+    assert_eq!(next_version.version_nr(), 4);
     // Verify that the attributes we sent in are the attributes we got back out.
     assert_eq!(
         forge_instance_type.attributes,
@@ -405,7 +423,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let id = existing_instance_types[0].id.clone();
 
     // Create a host machine to associate with the instance type
-    let (tmp_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Associate the machine with the instance type
     let _ = env
@@ -419,8 +437,46 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .await
         .unwrap();
 
+    // Create an instance for the machine.
+    let instance_id: InstanceId = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: tmp_machine_id.to_string(),
+            }),
+            instance_type_id: Some(id.to_string()),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(
+                    env.create_vpc_and_tenant_segment().await,
+                )),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            metadata: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let _ = advance_created_instance_into_ready_state(
+        &env,
+        &dpu_machine_id,
+        &tmp_machine_id,
+        instance_id,
+    )
+    .await;
+
     // Try to delete the instance type.  This should fail
-    // because there's a machine associated with the instance type.
+    // because there's an instance associated with the machine associated
+    // with the instance type.
     let _ = env
         .api
         .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
@@ -429,20 +485,12 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .await
         .unwrap_err();
 
-    // Remove the association with the machine
-    let _ = env
-        .api
-        .remove_machine_instance_type_association(tonic::Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
-                machine_id: tmp_machine_id.to_string(),
-            },
-        ))
-        .await
-        .unwrap();
+    // Now delete the instance and try all that again.
+    delete_instance(&env, instance_id, &dpu_machine_id, &tmp_machine_id).await;
 
-    // Try to delete the instance type again.
-    // This time it should pass because there are no
-    // associated machines.
+    // Try to delete the instance type again.  This should pass
+    // because there's no instance associated with the machine associated
+    // with the instance type.
     let _ = env
         .api
         .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
@@ -450,6 +498,14 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         }))
         .await
         .unwrap();
+
+    // Grab the machine so we can verify that it actually got the update
+    let machine = env
+        .find_machines(Some(tmp_machine_id.into()), None, false)
+        .await;
+
+    // Check that it has had its instance type id automatically removed.
+    assert_eq!(machine.machines[0].instance_type_id, None);
 
     // Next, we'll try to retrieve the deleted instance type
     let forge_instance_types = env
