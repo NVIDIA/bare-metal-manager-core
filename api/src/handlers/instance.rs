@@ -470,12 +470,14 @@ pub(crate) async fn invoke_power(
 
     // Check if reprovision is requested.
     // TODO: multidpu: Fix it for multiple dpus.
-    if snapshot.dpu_snapshots.is_empty() {
-        return Err(CarbideError::internal("No DPU found.".to_string()).into());
-    }
-
     let mut reprovision_handled = false;
     if request.apply_updates_on_reboot {
+        if snapshot.dpu_snapshots.is_empty() {
+            return Err(CarbideError::internal(
+                "Request update for DPU is requested, but no DPU found.".to_string(),
+            )
+            .into());
+        }
         for dpu_snapshot in &snapshot.dpu_snapshots {
             let Some(rr) = &dpu_snapshot.reprovision_requested else {
                 continue;
