@@ -660,6 +660,7 @@ pub fn get_config() -> CarbideConfig {
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
         attestation_enabled: false,
+        tpm_required: true,
         ib_config: None,
         ib_fabrics: [(
             "default".to_string(),
