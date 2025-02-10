@@ -668,13 +668,16 @@ impl Forge for Api {
             "discover_machine loading interface"
         );
 
-        if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
+        if !hardware_info.is_dpu()
+            && hardware_info.tpm_ek_certificate.is_none()
+            && self.runtime_config.tpm_required
+        {
             return Err(CarbideError::InvalidArgument(format!(
                 "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
                 interface_id
             ))
             .into());
-        } else if !hardware_info.is_dpu() {
+        } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
             // this means we do have an EK cert for a host
 
             // get the EK cert from incoming message

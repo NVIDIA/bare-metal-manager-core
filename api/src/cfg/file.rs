@@ -154,6 +154,13 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub attestation_enabled: bool,
 
+    /// *** This mode is for testing purposes and is not widely supported right now ***
+    /// Controls if machines allowed to be registered without TPM module,
+    /// in this case for stable machine identifier api will use chasis serial.
+    /// Set `true` by default
+    #[serde(default = "default_to_true")]
+    pub tpm_required: bool,
+
     /// MachineStateController related configuration parameter
     #[serde(default)]
     pub machine_state_controller: MachineStateControllerConfig,
