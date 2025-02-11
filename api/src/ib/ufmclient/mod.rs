@@ -270,6 +270,13 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 }
 
 impl Ufm {
+    pub async fn get_sm_config(&self) -> Result<SmConfig, UFMError> {
+        let path = String::from("/app/smconf");
+        let sm_config: SmConfig = self.client.get(&path).await?;
+
+        Ok(sm_config)
+    }
+
     pub async fn update_partition_qos(&self, p: Partition) -> Result<(), UFMError> {
         let path = String::from("/resources/pkeys/qos_conf");
 

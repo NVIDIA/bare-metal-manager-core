@@ -30,18 +30,40 @@ pub struct IBFabricVersions {
     pub ufm_version: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IBFabricConfig {
     /// The subnet_prefix of UFM
+    /// Subnet prefix used on the subnet.
+    /// Default: 0xfe80000000000000
     pub subnet_prefix: String,
     /// The m_key of UFM
+    /// M_Key value sent to all ports qualifying all Set(PortInfo).
+    /// Default: 0x0000000000000000
     pub m_key: String,
     /// The sm_key of UFM
+    /// SM_Key value of the Subnet Manager used for authentication.
+    /// Default: 0x0000000000000001
     pub sm_key: String,
     /// The sa_key of UFM
+    /// SM_Key value used to qualify received Subnet Administrator queries as trusted.
+    /// Default: 0x0000000000000001
     pub sa_key: String,
     /// The m_key_per_port of UFM
+    /// When m_key_per_port is enabled, OpenSM will generate an M_Key for each port.
+    /// Default: false
     pub m_key_per_port: bool,
+}
+
+impl Default for IBFabricConfig {
+    fn default() -> Self {
+        Self {
+            subnet_prefix: "0xfe80000000000000".to_string(),
+            m_key: "0x0000000000000000".to_string(),
+            sm_key: "0x0000000000000001".to_string(),
+            sa_key: "0x0000000000000001".to_string(),
+            m_key_per_port: false,
+        }
+    }
 }
 
 #[async_trait]
@@ -52,6 +74,9 @@ pub trait IBFabricManager: Send + Sync {
 
 #[async_trait]
 pub trait IBFabric: Send + Sync {
+    /// Get fabric configuration
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
+
     /// Update IBNetwork, e.g. QoS
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
 

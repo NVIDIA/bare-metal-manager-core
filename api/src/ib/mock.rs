@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
-use super::{IBFabric, IBFabricVersions};
+use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct MockIBFabric {
@@ -27,6 +27,11 @@ pub struct MockIBFabric {
 
 #[async_trait]
 impl IBFabric for MockIBFabric {
+    /// Get fabric configuration
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+        Ok(IBFabricConfig::default())
+    }
+
     /// Get all IB Networks
     async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         let ibsubnets = self
