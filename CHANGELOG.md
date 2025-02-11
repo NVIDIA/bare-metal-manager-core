@@ -8,9 +8,13 @@
   `mutual_isolation` is the name for the old default behavior, and is the
   default for this option if not specified. `open` disables VPC isolation inside
   the site.
-- Network Security Group support in API and CLI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances.  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
+- Network Security Group support in API, CLI, and web UI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances (API and CLI only).  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
 
 ### Changed
+
+- InstanceType records can now have their metadata updated even when already associated with machines to align with Forge-Cloud.
+- InstanceType records can now be deleted even when already associated with a machine as long as no associated machines have instances.  Machine associations will be cleaned up automatically to align with Forge-Cloud requirements.
+
 ### Fixed
 
 ### Removed
