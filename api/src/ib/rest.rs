@@ -72,6 +72,15 @@ pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, Carbid
 
 #[async_trait]
 impl IBFabric for RestIBFabric {
+    /// Get fabric configuration
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+        self.ufm
+            .get_sm_config()
+            .await
+            .map(IBFabricConfig::from)
+            .map_err(CarbideError::from)
+    }
+
     /// Get all IB Networks
     async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         let partitions = self

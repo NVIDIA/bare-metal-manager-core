@@ -172,6 +172,13 @@ async fn check_ib_fabric(
     let version = conn.versions().await?;
     metrics.ufm_version = version.ufm_version;
 
+    let config = conn.get_fabric_config().await?;
+    metrics.subnet_prefix = config.subnet_prefix;
+    metrics.m_key = config.m_key;
+    metrics.sm_key = config.sm_key;
+    metrics.sa_key = config.sa_key;
+    metrics.m_key_per_port = config.m_key_per_port;
+
     let networks = conn.get_ib_networks().await?;
     metrics.num_partitions = Some(networks.len());
 
