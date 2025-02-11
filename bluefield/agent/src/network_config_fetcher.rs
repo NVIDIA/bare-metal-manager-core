@@ -72,11 +72,11 @@ impl NetworkConfigFetcher {
 
         // Do an initial synchronous fetch so that caller has data to use
         // This gets a DPU on the network immediately
-        single_fetch(forge_client_config.clone(), state.clone()).await;
+        single_fetch(&forge_client_config, state.clone()).await;
 
         let task_state = state.clone();
         let join_handle = tokio::spawn(async move {
-            while single_fetch(forge_client_config.clone(), task_state.clone()).await {
+            while single_fetch(&forge_client_config, task_state.clone()).await {
                 tokio::time::sleep(task_state.config.config_fetch_interval).await;
             }
             tracing::info!("NetworkConfigFetcher stopped");
@@ -105,7 +105,7 @@ pub struct NetworkConfigFetcherConfig {
 }
 
 async fn single_fetch(
-    forge_client_config: ForgeClientConfig,
+    forge_client_config: &ForgeClientConfig,
     state: Arc<NetworkConfigFetcherState>,
 ) -> bool {
     if state
@@ -152,7 +152,7 @@ async fn single_fetch(
 pub async fn fetch(
     dpu_machine_id: &str,
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
     let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
         forge_api,

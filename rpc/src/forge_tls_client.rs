@@ -316,7 +316,7 @@ impl ForgeClientConfig {
 // as such. If this ends up evolving into
 // something where we also want exponential
 // backoff, we can add it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct RetryConfig {
     pub retries: u32,
     pub interval: Duration,
@@ -340,10 +340,10 @@ impl Default for RetryConfig {
 // ApiConfig holds configuration used to connect
 // to a given Carbide API URL, including the client
 // configuration itself, as well as retry config.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ApiConfig<'a> {
     pub url: &'a str,
-    pub client_config: ForgeClientConfig,
+    pub client_config: &'a ForgeClientConfig,
     pub retry_config: RetryConfig,
 }
 
@@ -351,7 +351,7 @@ impl<'a> ApiConfig<'a> {
     // new creates a new ApiConfig, for the given
     // Carbide API URL and ForgeClientConfig, with
     // a default retry configuration.
-    pub fn new(url: &'a str, client_config: ForgeClientConfig) -> Self {
+    pub fn new(url: &'a str, client_config: &'a ForgeClientConfig) -> Self {
         Self {
             url,
             client_config,
@@ -364,7 +364,7 @@ impl<'a> ApiConfig<'a> {
     pub fn with_retry_config(&self, retry_config: RetryConfig) -> Self {
         Self {
             url: self.url,
-            client_config: self.client_config.clone(),
+            client_config: self.client_config,
             retry_config,
         }
     }
@@ -378,12 +378,12 @@ impl<'a> ApiConfig<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ForgeTlsClient {
-    forge_client_config: ForgeClientConfig,
+pub struct ForgeTlsClient<'a> {
+    forge_client_config: &'a ForgeClientConfig,
 }
 
-impl ForgeTlsClient {
-    pub fn new(forge_client_config: ForgeClientConfig) -> Self {
+impl<'a> ForgeTlsClient<'a> {
+    pub fn new(forge_client_config: &'a ForgeClientConfig) -> Self {
         Self {
             forge_client_config,
         }
@@ -393,10 +393,10 @@ impl ForgeTlsClient {
     /// the given API URL and ForgeClientConfig, then attempts to build
     /// and return a client, integrating retries into the
     /// building attempts.
-    pub async fn retry_build<'a>(api_config: &ApiConfig<'a>) -> ForgeTlsClientResult<ForgeClientT> {
+    pub async fn retry_build(api_config: &ApiConfig<'a>) -> ForgeTlsClientResult<ForgeClientT> {
         // TODO(chet): Make this configurable. For now,
         // hard-coding as 10 minutes worth of connect attempts..
-        let client = ForgeTlsClient::new(api_config.client_config.clone());
+        let client = ForgeTlsClient::new(api_config.client_config);
         match tryhard::retry_fn(|| client.build(api_config.url))
             .with_config(api_config.retry_config())
             .await

@@ -43,7 +43,7 @@ where
             .ok_or(ClientApiError::ConfigError(
                 "missing carbide_api_url".to_string(),
             ))?,
-        app_context.forge_client_config.clone(),
+        &app_context.forge_client_config,
     );
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)

@@ -105,7 +105,7 @@ impl NetworkMonitor {
         let mut loopback_ip: Option<IpAddr> = None;
 
         match self
-            .find_all_dpu_info(&self.machine_id, forge_api, client_config.clone())
+            .find_all_dpu_info(&self.machine_id, forge_api, &client_config)
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => {
@@ -128,7 +128,7 @@ impl NetworkMonitor {
                     break;
                 }
                 _ = peer_dpus_fetch_interval.tick() => {
-                    match self.find_all_dpu_info(&self.machine_id, forge_api, client_config.clone()).await {
+                    match self.find_all_dpu_info(&self.machine_id, forge_api, &client_config).await {
                         Ok((dpu_info, new_peer_dpus)) => {
                             peer_dpus = new_peer_dpus;
                             loopback_ip = Some(dpu_info.ip);
@@ -198,9 +198,9 @@ impl NetworkMonitor {
 
     /// Handle one time network check request from commandline
     /// Fetches new list from
-    pub async fn run_onetime(&mut self, forge_api: &str, client_config: ForgeClientConfig) {
+    pub async fn run_onetime(&mut self, forge_api: &str, client_config: &ForgeClientConfig) {
         let (loopback_ip, peer_dpus) = match self
-            .find_all_dpu_info(&self.machine_id, forge_api, client_config.clone())
+            .find_all_dpu_info(&self.machine_id, forge_api, client_config)
             .await
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
@@ -318,7 +318,7 @@ impl NetworkMonitor {
         &self,
         dpu_machine_id: &str,
         forge_api: &str,
-        client_config: ForgeClientConfig,
+        client_config: &ForgeClientConfig,
     ) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
         // Get list of DPU information from API
         let dpu_info_list = fetch_dpu_info_list(forge_api, client_config)
@@ -369,7 +369,7 @@ impl NetworkMonitor {
 /// Fetches the list of DPU information from the API
 pub(crate) async fn fetch_dpu_info_list(
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
 ) -> Result<rpc::GetDpuInfoListResponse, eyre::Report> {
     let api_config = ApiConfig::new(forge_api, client_config);
     let mut client = ForgeTlsClient::retry_build(&api_config)

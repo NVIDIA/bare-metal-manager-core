@@ -27,16 +27,15 @@ pub async fn discover_dhcp(
         ));
     };
 
-    let api_config = ApiConfig::new(
-        carbide_api_url,
-        ForgeClientConfig::new(
-            default_root_ca().to_string(),
-            Some(ClientCert {
-                cert_path: default_client_cert().to_string(),
-                key_path: default_client_key().to_string(),
-            }),
-        ),
+    let client_config = ForgeClientConfig::new(
+        default_root_ca().to_string(),
+        Some(ClientCert {
+            cert_path: default_client_cert().to_string(),
+            key_path: default_client_key().to_string(),
+        }),
     );
+
+    let api_config = ApiConfig::new(carbide_api_url, &client_config);
 
     let mut client = ForgeTlsClient::retry_build(&api_config)
         .await

@@ -90,8 +90,7 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
             Err(e) => return Err(eyre!("rate limit exceeded for phone_home; {}\n", e)),
         };
 
-        let mut client =
-            create_forge_client(&self.forge_api, self.forge_client_config.clone()).await?;
+        let mut client = create_forge_client(&self.forge_api, &self.forge_client_config).await?;
 
         let timestamp = phone_home(&mut client, self.machine_id.clone())
             .await?

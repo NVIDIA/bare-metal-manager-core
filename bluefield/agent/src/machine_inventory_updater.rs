@@ -72,7 +72,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
     if let Err(e) = update_agent_reported_inventory(
         agent_report,
-        config.forge_client_config.clone(),
+        &config.forge_client_config,
         &config.forge_api,
     )
     .await
@@ -90,7 +90,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
 async fn update_agent_reported_inventory(
     inventory_report: rpc::DpuAgentInventoryReport,
-    client_config: forge_tls_client::ForgeClientConfig,
+    client_config: &forge_tls_client::ForgeClientConfig,
     forge_api: &str,
 ) -> eyre::Result<()> {
     let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(

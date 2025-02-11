@@ -82,7 +82,7 @@ impl ClientCertRenewer {
         tracing::info!("Trying to renew TLS client certificates");
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
             &self.forge_api_server,
-            self.client_config.clone(),
+            &self.client_config,
         ))
         .await
         .wrap_err("renew_certificates: Failed to build Forge API server client")?;

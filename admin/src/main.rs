@@ -170,7 +170,7 @@ async fn main() -> color_eyre::Result<()> {
 
     // api_config is created here and subsequently
     // borrowed by all others.
-    let api_config = &ApiConfig::new(&url, client_config);
+    let api_config = &ApiConfig::new(&url, &client_config);
 
     if let Some(CliCommand::Redfish(ra)) = config.commands {
         return redfish::action(api_config, ra).await;

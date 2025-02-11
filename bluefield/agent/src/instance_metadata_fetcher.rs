@@ -143,7 +143,7 @@ async fn run_instance_metadata_fetcher(
             state.config.machine_id
         );
 
-        match fetch_latest_metadata(forge_client_config.clone(), &state).await {
+        match fetch_latest_metadata(&forge_client_config, &state).await {
             Ok(Some(config)) => {
                 state.current.store(Some(Arc::new(config)));
             }
@@ -163,7 +163,7 @@ async fn run_instance_metadata_fetcher(
 }
 
 async fn fetch_latest_metadata(
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {
     let mut client = create_forge_client(&state.config.forge_api, client_config).await?;

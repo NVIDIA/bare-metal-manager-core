@@ -39,7 +39,7 @@ impl Machine {
         discovery: Discovery,
         carbide_api_url: &str,
         vendor_class: Option<VendorClass>,
-        client_config: ForgeClientConfig,
+        client_config: &ForgeClientConfig,
     ) -> Result<Self, String> {
         let api_config = ApiConfig::new(carbide_api_url, client_config);
         match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {

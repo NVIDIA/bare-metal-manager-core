@@ -35,7 +35,7 @@ DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --only-upg
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
 pub async fn upgrade(
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
     machine_id: &str,
     // allow integration test to replace UPGRADE_CMD
     override_upgrade_cmd: Option<&str>,
@@ -121,7 +121,7 @@ pub async fn upgrade(
 
 async fn upgrade_check(
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
     machine_id: &str,
 ) -> eyre::Result<UpgradeCheckResult> {
     let binary_path = env::current_exe()?;
@@ -180,7 +180,7 @@ struct UpgradeCheckResult {
 
 async fn network_upgrade_check(
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
     machine_id: &str,
     binary_mtime: SystemTime,
     binary_hash: String,

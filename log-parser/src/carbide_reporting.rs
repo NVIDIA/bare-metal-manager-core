@@ -89,16 +89,15 @@ pub(crate) async fn create_forge_client(
     client_key: String,
     api_url: String,
 ) -> Result<ForgeClientT, ReportingError> {
-    let api_config = ApiConfig::new(
-        &api_url,
-        ForgeClientConfig::new(
-            root_ca,
-            Some(ClientCert {
-                cert_path: client_cert,
-                key_path: client_key,
-            }),
-        ),
+    let client_config = ForgeClientConfig::new(
+        root_ca,
+        Some(ClientCert {
+            cert_path: client_cert,
+            key_path: client_key,
+        }),
     );
+
+    let api_config = ApiConfig::new(&api_url, &client_config);
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
         .await
