@@ -12,6 +12,7 @@ if [ "$1" = "configure" ]; then
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
+	systemctl enable forge-dpu-otel-agent.service
 	systemctl enable node-exporter.service
 	systemctl enable transceiver-exporter.service
 
@@ -32,6 +33,7 @@ if [ "$1" = "configure" ]; then
  		# this is not the discovery workflow and otelcol-contrib can restart without
  		# interfering. Restart is needed to pick up any configuration changes.
 
+		systemctl restart forge-dpu-otel-agent.service
 		systemctl restart otelcol-contrib.service
 	fi
 fi

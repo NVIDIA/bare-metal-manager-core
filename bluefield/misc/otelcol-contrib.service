@@ -6,7 +6,7 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
-ExecStart=ip vrf exec mgmt /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
+ExecStart=ip vrf exec mgmt /etc/otelcol-contrib/otelcol-wrapper
 KillMode=mixed
 Restart=always
 RestartSec=5

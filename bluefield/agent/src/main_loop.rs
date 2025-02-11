@@ -24,8 +24,10 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::Uuid;
 use ::rpc::{forge as rpc, forge_tls_client};
 use eyre::WrapErr;
+use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_host_support::agent_config::AgentConfig;
 use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
+use forge_systemd::systemd;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use tokio::signal::unix::{signal, SignalKind};
@@ -34,7 +36,6 @@ use tokio::task::JoinHandle;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
-use crate::cert_renewal::ClientCertRenewer;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
@@ -47,7 +48,7 @@ use crate::util::{get_host_boot_timestamp, UrlResolver};
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
     instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
-    nvue, sysfs, systemd, upgrade, HBNDeviceNames, RunOptions, FMDS_MINIMUM_HBN_VERSION,
+    nvue, sysfs, upgrade, HBNDeviceNames, RunOptions, FMDS_MINIMUM_HBN_VERSION,
     NVUE_MINIMUM_HBN_VERSION,
 };
 
@@ -699,7 +700,7 @@ impl MainLoop {
 
         let now = Instant::now();
         self.client_cert_renewer
-            .renew_certificates_if_necessary()
+            .renew_certificates_if_necessary(None)
             .await;
 
         if now > self.inventory_updater_time {
