@@ -108,9 +108,11 @@ dependencies = [
  "data-encoding",
  "diff",
  "eyre",
+ "forge-certs",
  "forge-host-support",
  "forge-http-connector",
  "forge-network",
+ "forge-systemd",
  "forge-tls",
  "forge-version",
  "futures",
@@ -2356,6 +2358,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0d2fde1f7b3d48b8395d5f2de76c18a528bd6a9cdde438df747bfcba3e05d6f"
 
 [[package]]
+name = "forge-certs"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "forge-host-support",
+ "forge-tls",
+ "rand 0.9.0",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "forge-host-support"
 version = "0.1.0"
 dependencies = [
@@ -2413,6 +2431,22 @@ dependencies = [
  "serde",
  "sqlx",
  "thiserror 2.0.11",
+]
+
+[[package]]
+name = "forge-systemd"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "forge-host-support",
+ "rand 0.8.5",
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]
@@ -3557,7 +3591,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4348,7 +4382,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.15",
  "http",
@@ -4500,6 +4534,33 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "otel-agent"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "ctor",
+ "eyre",
+ "forge-certs",
+ "forge-host-support",
+ "forge-systemd",
+ "forge-tls",
+ "humantime",
+ "prost",
+ "rand 0.8.5",
+ "reqwest",
+ "rpc",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "tempfile",
+ "thiserror 2.0.11",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "typed-builder",
 ]
 
 [[package]]
@@ -5005,7 +5066,7 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0f3e5beed80eb580c68e2c600937ac2c4eedabdfd5ef1e5b7ea4f3fba84497b"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.13.0",
  "log",
  "multimap",
@@ -7344,6 +7405,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "typed-builder"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e14ed59dc8b7b26cacb2a92bad2e8b1f098806063898ab42a3bd121d7d45e75"
+dependencies = [
+ "typed-builder-macro",
+]
+
+[[package]]
+name = "typed-builder-macro"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "560b82d656506509d43abe30e0ba64c56b1953ab3d4fe7ba5902747a7a3cedd5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
 name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7860,7 +7941,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
