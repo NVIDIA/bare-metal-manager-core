@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Network Security Groups{% endblock %}
+
+{% block content %}
+
+<h1>Network Security Groups</h1>
+
+<table class="sortable">
+	<thead>
+	<tr>
+		<th>ID</th>
+		<th>Tenant Organization ID</th>
+		<th>Name</th>
+		<th>Description</th>
+		<th>Version</th>
+		<th>Created</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for nsg in network_security_groups %}
+		<tr>
+			<td><a href="/admin/network-security-group/{{ nsg.id }}">{{ nsg.id }}</a></td>
+			<td>{{ nsg.tenant_organization_id }}</td>
+			<td>{{ nsg.name }}</td>
+			<td>{{ nsg.description }}</td>
+			<td>{{ nsg.version }}</td>
+			<td>{{ nsg.created }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+	<tfoot>
+		<tr><th colspan="6">
+			{% include "pages_footer.html" %}
+		</th></tr>
+	</tfoot>
+</table>
+<br/>
+<h3>Add Network Security Group</h3>
+<form id="nsg_create_action" method="POST" action="/admin/network-security-group">
+	<table class="detailsview" width="50%" style="margin: 0 auto">
+		<tr><th>ID (optional)</th><td><input name="id" type="text" value=""></td></tr>
+		<tr><th>tenant Organization ID</th><td><input name="tenant_organization_id" type="text" value=""></td></tr>
+		<tr><th>Name</th><td><input name="name" type="text" value=""></td></tr>
+		<tr><th>Description (optional)</th><td><textarea name="description"></textarea></td></tr>
+		<tr><th>Labels(optional)</th><td><textarea name="labels"></textarea></td></tr>
+		<tr><th>Rules(optional)</th><td><textarea name="rules"></textarea></td></tr>
+		<tr><th>&nbsp;</th><td><input type="submit" value="Create" style="margin-right: 20px;"></td></tr>
+	</table>
+</form>
+
+
+{% endblock %}
