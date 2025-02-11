@@ -70,7 +70,8 @@ impl MachineValidation {
             path.file_name().unwrap().to_str().unwrap().to_string()
         };
 
-        let mut client = self.clone().create_forge_client().await?;
+        let mut client = self.create_forge_client().await?;
+
         let request =
             tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigRequest { name });
         let response = match client.get_machine_validation_external_config(request).await {
@@ -96,22 +97,21 @@ impl MachineValidation {
     pub(crate) async fn create_forge_client(
         self,
     ) -> Result<forge_tls_client::ForgeClientT, MachineValidationError> {
-        let api_config = ApiConfig::new(
-            &self.options.api,
-            ForgeClientConfig::new(
-                self.options.root_ca.clone(),
-                Some(ClientCert {
-                    cert_path: self.options.client_cert.clone(),
-                    key_path: self.options.client_key.clone(),
-                }),
-            ),
+        let client_config = ForgeClientConfig::new(
+            self.options.root_ca,
+            Some(ClientCert {
+                cert_path: self.options.client_cert,
+                key_path: self.options.client_key,
+            }),
         );
+        let api_config = ApiConfig::new(&self.options.api, &client_config);
 
         let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| MachineValidationError::Generic(err.to_string()))?;
         Ok(client)
     }
+
     pub(crate) async fn persist(
         self,
         data: Option<rpc::forge::MachineValidationResult>,

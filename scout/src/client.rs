@@ -19,16 +19,14 @@ use crate::Options;
 pub(crate) async fn create_forge_client(
     config: &Options,
 ) -> CarbideClientResult<forge_tls_client::ForgeClientT> {
-    let api_config = ApiConfig::new(
-        &config.api,
-        ForgeClientConfig::new(
-            config.root_ca.clone(),
-            Some(ClientCert {
-                cert_path: config.client_cert.clone(),
-                key_path: config.client_key.clone(),
-            }),
-        ),
+    let client_config = ForgeClientConfig::new(
+        config.root_ca.clone(),
+        Some(ClientCert {
+            cert_path: config.client_cert.clone(),
+            key_path: config.client_key.clone(),
+        }),
     );
+    let api_config = ApiConfig::new(&config.api, &client_config);
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
         .await

@@ -48,7 +48,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     let machine_id = "test_machine_id";
     crate::upgrade::upgrade(
         &format!("https://{addr}"),
-        client_config,
+        &client_config,
         machine_id,
         Some(upgrade_cmd).as_deref(),
     )

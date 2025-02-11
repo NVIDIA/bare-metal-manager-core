@@ -49,7 +49,7 @@ impl RequestHandler for DnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        let api_config = ApiConfig::new(&self.url, self.forge_client_config.clone());
+        let api_config = ApiConfig::new(&self.url, &self.forge_client_config);
 
         let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await

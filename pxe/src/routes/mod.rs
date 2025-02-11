@@ -26,7 +26,7 @@ impl RpcContext {
         arch: rpc::MachineArchitecture,
         machine_interface_id: uuid::Uuid,
         url: String,
-        client_config: ForgeClientConfig,
+        client_config: &ForgeClientConfig,
     ) -> Result<String, String> {
         let api_config = ApiConfig {
             url: &url,

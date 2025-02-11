@@ -183,7 +183,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 network_monitor::NetworkMonitor::new(machine_id.to_string(), None, pinger);
 
             network_monitor
-                .run_onetime(&agent.forge_system.api_server, forge_client_config.clone())
+                .run_onetime(&agent.forge_system.api_server, &forge_client_config)
                 .await;
         }
 

@@ -676,7 +676,7 @@ impl MainLoop {
                 record_network_status(
                     status_out,
                     &self.forge_api_server,
-                    self.forge_client_config.clone(),
+                    &self.forge_client_config,
                 )
                 .await;
                 self.seen_blank = false;
@@ -784,7 +784,7 @@ impl MainLoop {
             ));
             let upgrade_result = upgrade::upgrade(
                 &self.forge_api_server,
-                self.forge_client_config.clone(),
+                &self.forge_client_config,
                 &self.machine_id,
                 self.agent_config.updates.override_upgrade_cmd.as_deref(),
             )
@@ -922,7 +922,7 @@ async fn plan_fmds_armos_routing(
 pub async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: &forge_tls_client::ForgeClientConfig,
 ) {
     let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .build(forge_api)

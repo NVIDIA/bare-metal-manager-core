@@ -89,7 +89,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     // of the retry.
     async fn discover_machine_once(
         &self,
-        client: ForgeTlsClient,
+        client: ForgeTlsClient<'_>,
         info: MachineDiscoveryInfo,
         attempt: u32,
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
@@ -132,7 +132,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         // Create the client once, but due to ownership + things getting
         // moved into the retry future, it will need to be cloned. Defer
         // connection establishment to happen within the retry future.
-        let client = forge_tls_client::ForgeTlsClient::new(self.config.clone());
+        let client = forge_tls_client::ForgeTlsClient::new(self.config);
 
         // The retry config is currently hard-coded in here to be
         // every minute for a week. Basically, keep trying every
@@ -153,7 +153,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         &self,
         quote: &AttestQuoteRequest,
     ) -> Result<rpc::AttestQuoteResponse, RegistrationError> {
-        let client = forge_tls_client::ForgeTlsClient::new(self.config.clone());
+        let client = forge_tls_client::ForgeTlsClient::new(self.config);
 
         // Create a new connection off of the ForgeTlsClient.
         let mut connection = client

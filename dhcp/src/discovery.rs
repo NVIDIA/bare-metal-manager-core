@@ -388,7 +388,7 @@ unsafe fn discovery_fetch_machine_at(
             discovery,
             url,
             vendor_class.clone(),
-            forge_client_config,
+            &forge_client_config,
         )) {
             Ok(machine) => {
                 // If any DHCP record had been invalidated after the KEA process started,

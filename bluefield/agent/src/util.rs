@@ -138,7 +138,7 @@ impl UrlResolver {
 // Forge Communication
 pub async fn create_forge_client(
     forge_api: &str,
-    client_config: ForgeClientConfig,
+    client_config: &ForgeClientConfig,
 ) -> Result<ForgeClientT, eyre::Error> {
     match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config))
         .await

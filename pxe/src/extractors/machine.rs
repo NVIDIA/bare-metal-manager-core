@@ -31,16 +31,14 @@ impl FromRequestParts<AppState> for Machine {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let api_config = ApiConfig::new(
-            &state.runtime_config.internal_api_url,
-            ForgeClientConfig::new(
-                state.runtime_config.forge_root_ca_path.clone(),
-                Some(ClientCert {
-                    cert_path: state.runtime_config.server_cert_path.clone(),
-                    key_path: state.runtime_config.server_key_path.clone(),
-                }),
-            ),
+        let client_config = ForgeClientConfig::new(
+            state.runtime_config.forge_root_ca_path.clone(),
+            Some(ClientCert {
+                cert_path: state.runtime_config.server_cert_path.clone(),
+                key_path: state.runtime_config.server_key_path.clone(),
+            }),
         );
+        let api_config = ApiConfig::new(&state.runtime_config.internal_api_url, &client_config);
 
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
