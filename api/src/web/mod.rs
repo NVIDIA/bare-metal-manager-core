@@ -57,6 +57,7 @@ mod interface;
 mod machine;
 mod managed_host;
 mod network_device;
+mod network_security_group;
 mod network_segment;
 mod network_status;
 mod redfish_browser;
@@ -289,6 +290,19 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/network-device", get(network_device::show_html))
             .route("/network-device.json", get(network_device::show_json))
+            .route("/network-security-group", get(network_security_group::show))
+            .route(
+                "/network-security-group",
+                post(network_security_group::create),
+            )
+            .route(
+                "/network-security-group/:network_security_group_id",
+                get(network_security_group::show_detail),
+            )
+            .route(
+                "/network-security-group/:network_security_group_id",
+                post(network_security_group::update),
+            )
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_json))
             .route("/network-segment/:segment_id", get(network_segment::detail))
