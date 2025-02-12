@@ -74,6 +74,8 @@ pub struct EndpointExplorationReport {
     /// Model, parsed out of chassis and service
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge_setup_status: Option<ForgeSetupStatus>,
 }
 
 impl EndpointExplorationReport {
@@ -133,6 +135,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             systems: report.systems.into_iter().map(Into::into).collect(),
             chassis: report.chassis.into_iter().map(Into::into).collect(),
             service: report.service.into_iter().map(Into::into).collect(),
+            forge_setup_status: report.forge_setup_status.map(Into::into),
         }
     }
 }
@@ -591,6 +594,7 @@ impl EndpointExplorationReport {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
+            forge_setup_status: None,
         }
     }
 
@@ -1188,6 +1192,46 @@ impl From<Inventory> for rpc::site_explorer::Inventory {
     }
 }
 
+/// `ForgeSetupStatus` definition. Matches redfish definition
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct ForgeSetupStatus {
+    pub is_done: bool,
+    pub diffs: Vec<ForgeSetupDiff>,
+}
+
+impl From<ForgeSetupStatus> for rpc::site_explorer::ForgeSetupStatus {
+    fn from(forge_setup_status: ForgeSetupStatus) -> Self {
+        rpc::site_explorer::ForgeSetupStatus {
+            is_done: forge_setup_status.is_done,
+            diffs: forge_setup_status
+                .diffs
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+/// `ForgeSetupDiff` definition. Matches redfish definition
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct ForgeSetupDiff {
+    pub key: String,
+    pub expected: String,
+    pub actual: String,
+}
+
+impl From<ForgeSetupDiff> for rpc::site_explorer::ForgeSetupDiff {
+    fn from(forge_setup_diff: ForgeSetupDiff) -> Self {
+        rpc::site_explorer::ForgeSetupDiff {
+            key: forge_setup_diff.key,
+            expected: forge_setup_diff.expected,
+            actual: forge_setup_diff.actual,
+        }
+    }
+}
+
 /// Whether a found/explored machine is in the set of expected machines,
 /// currently defined by the expected_machines table in the database.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -1416,6 +1460,7 @@ mod tests {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
+            forge_setup_status: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1472,6 +1517,7 @@ mod tests {
             machine_id: None,
             versions: HashMap::default(),
             model: None,
+            forge_setup_status: None,
         };
         report
             .generate_machine_id(false)

@@ -258,6 +258,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             machine_id: None,
             versions: Default::default(),
             model: None,
+            forge_setup_status: None,
         }
     }
 }

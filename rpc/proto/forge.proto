@@ -447,8 +447,6 @@ service Forge {
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
   // Start Forge Setup
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
-  // Get Forge Setup Status
-  rpc FetchForgeSetupStatus(ForgeSetupStatusRequest) returns (ForgeSetupStatus);
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
@@ -2340,17 +2338,6 @@ message AdminForceDeleteMachineResponse {
 message ForgeSetupStatusRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
-}
-
-message ForgeSetupStatus {
-  bool is_done = 1;
-  repeated ForgeSetupDiff diffs = 2;
-}
-
-message ForgeSetupDiff {
-    string key = 1;
-    string expected = 2;
-    string actual = 3;
 }
 
 message ForgeSetupRequest {

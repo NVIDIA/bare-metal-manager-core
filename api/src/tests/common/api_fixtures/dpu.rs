@@ -231,6 +231,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
             }],
             versions: Default::default(),
             model: None,
+            forge_setup_status: None,
         }
     }
 }

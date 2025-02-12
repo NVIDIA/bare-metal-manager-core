@@ -2783,49 +2783,6 @@ impl Forge for Api {
         Ok(Response::new(rpc::ForgeSetupResponse {}))
     }
 
-    async fn fetch_forge_setup_status(
-        &self,
-        request: tonic::Request<rpc::ForgeSetupStatusRequest>,
-    ) -> Result<Response<::rpc::forge::ForgeSetupStatus>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin fetch_forge_setup_status",
-                e,
-            ))
-        })?;
-
-        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
-            &mut txn,
-            req.bmc_endpoint_request,
-            req.machine_id,
-        )
-        .await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit fetch_forge_setup_status",
-                e,
-            ))
-        })?;
-
-        let endpoint_address = bmc_endpoint_request.ip_address.clone();
-
-        tracing::info!("Fetching Forge Setup Status: {}", endpoint_address);
-
-        crate::handlers::bmc_endpoint_explorer::forge_setup_status(
-            self,
-            bmc_endpoint_request.clone(),
-        )
-        .await
-    }
-
     /// Should this DPU upgrade it's forge-dpu-agent?
     /// Once the upgrade is complete record_dpu_network_status will receive the updated
     /// version and write the DB to say our upgrade is complete.

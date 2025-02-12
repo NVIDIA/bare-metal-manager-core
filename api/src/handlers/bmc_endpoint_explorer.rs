@@ -13,7 +13,7 @@
 use std::net::SocketAddr;
 
 use mac_address::MacAddress;
-use rpc::forge::{BmcCredentialStatusResponse, ForgeSetupDiff, ForgeSetupStatus};
+use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
 
@@ -122,35 +122,6 @@ pub(crate) async fn forge_setup(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
-}
-
-pub(crate) async fn forge_setup_status(
-    api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
-) -> Result<Response<ForgeSetupStatus>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    let status = api
-        .endpoint_explorer
-        .forge_setup_status(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
-
-    for diff in status.diffs {
-        diffs.push(ForgeSetupDiff {
-            key: diff.key,
-            expected: diff.expected,
-            actual: diff.actual,
-        });
-    }
-
-    Ok(Response::new(ForgeSetupStatus {
-        is_done: status.is_done,
-        diffs,
-    }))
 }
 
 async fn resolve_bmc_interface(

@@ -29,6 +29,8 @@ message EndpointExplorationReport {
     repeated Chassis chassis = 14;
     // `Service` reported by Redfish
     repeated Service service = 15;
+    // `ForgeSetupStatus` reported by Redfish
+    ForgeSetupStatus forge_setup_status = 16;
 }
 
 message ExploredEndpoint {
@@ -189,6 +191,19 @@ message Inventory {
     optional string description = 2;
     optional string version = 3;
     optional string release_date = 4;
+}
+
+// `ForgeSetupStatus` definition. Matches redfish definition
+message ForgeSetupStatus {
+    bool is_done = 1;
+    repeated ForgeSetupDiff diffs = 2;
+}
+
+// `ForgeSetupDiff` definition. Matches redfish definition
+message ForgeSetupDiff {
+    string key = 1;
+    string expected = 2;
+    string actual = 3;
 }
 
 message PCIeDevice {
