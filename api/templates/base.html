@@ -202,44 +202,50 @@ div.health_alert_classification {
 	cursor: pointer;
 }
 
-form.filter-container {
-    display: grid;
-    grid-template-columns: repeat(7, max-content);
-    row-gap: 10px;
-	column-gap: 10px;
-    width: 100%;
-    margin: 0 auto;
+.filter-container {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 15px;
 	margin-bottom: 20px;
+	padding: 20px;
+	background: #f9f9f9;
+	border-radius: 10px;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-form.filter-container label {
+.filter-item {
+	flex: 1 1 200px;
+	display: flex;
+	flex-direction: column;
+	gap: 5px; 
+}
+
+.filter-item label {
 	font-weight: bold;
-	cursor: pointer;
 }
 
-form.filter-container select, form.filter-container input[type="checkbox"] {
-	padding: 5px;
-	border: 1px solid #999;
-	outline: none;
+.filter-item select,
+.filter-item input {
+	padding: 10px;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+	font-size: 14px;
+	height: 42px; /* Ensure consistent height for all inputs */
 }
-form.filter-container select {
-	height: 30px;
-}
-form.filter-container input[type="checkbox"] {
-	width: 20px;
-	height: 20px;
-}
-form.filter-container input[type="radio"] {
-	height: auto;
-	padding: 0 5px 0 0;
-}
-form.filter-container input[type="submit"] {
+
+.filter-item input[type="submit"] {
+	background-color: #0099ff;
+	color: #fff;
+	cursor: pointer;
+	text-align: center;
+	width: 100px; /* Fixed width for the submit button */
+	height: 42px; /* Match height of other fields */
 	margin-left: 0;
 }
-form.filter-container div:nth-child(8) {
-    grid-column: span 7;
-}
 
+.filter-item input[type="submit"]:hover {
+	background-color: #0056b3;
+}
 
 {% block css %}{% endblock %}
 </style>

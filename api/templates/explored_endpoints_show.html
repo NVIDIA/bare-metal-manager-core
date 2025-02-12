@@ -11,9 +11,9 @@
 
 <details {% if active_vendor_filter != "all" || is_errors_only %}open{% endif %}>
 	<summary>Show filters</summary>
-	<form id="filter-container" action="" method="get">
-		<div>
-				<label for="vendor-filter">Vendor:</label>
+	<form class="filter-container" action="" method="get">
+		<div class="filter-item">
+				<label for="vendor-filter">Vendor</label>
 				<select id="vendor-filter" name="vendor-filter">
 						<option value="all">All</option>
 						{% for v in vendors %}
@@ -22,11 +22,15 @@
 						<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
 				</select>
 		</div>
-		<div>
-				<label for="errors-only">Errors only:</label>
-				<input type="checkbox" id="errors-only" name="errors-only" {% if is_errors_only %}checked{% endif %}>
+		<div class="filter-item">
+			<label for="errors-only">Errors Only</label>
+			<select id="errors-only" name="errors-only">
+				<option value=false {% if !is_errors_only %}selected{% endif %}>False</option>
+				<option value=true {% if is_errors_only %}selected{% endif %}>True</option>
+			</select>
 		</div>
-		<div>
+		<div class="filter-item">
+				<label>&nbsp;</label>
 				<input type="submit" value="Update">
 		</div>
 	</form>

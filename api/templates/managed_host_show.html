@@ -17,15 +17,15 @@
 <details {% if is_filtered || grouped_hosts.is_some() %}open{% endif %}>
 	<summary>Show filters</summary>
 	<form class="filter-container" action="" method="get">
-		<div>
-			<label for="health-alerts-filter" style="padding-right: 25px">Health</label>
+		<div class="filter-item">
+			<label for="health-alerts-filter">Health</label>
 			<select id="health-alerts-filter" name="health-alerts-filter">
 				<option value="all">All</option>
 				<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
 				<option value="unhealthy" {% if active_health_alerts_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="maintenance-filter">Maint.</label>
 			<select id="maintenance-filter" name="maintenance-filter">
 				<option value="all">All</option>
@@ -33,9 +33,9 @@
 				<option value="maintenance" {% if active_maintenance_filter == "maintenance" %}selected{% endif %}>Maintenance</option>
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="vendor-filter">Vendor</label>
-			<select id="vendor-filter" name="vendor-filter">
+			<select id="vendor-filter" name="vendor-filter" onchange="updateModelOptions()">
 				<option value="all">All</option>
 				{% for v in vendors %}
 				<option value="{{ v|lower }}" {% if active_vendor_filter == v.to_lowercase() %}selected{% endif %}>{{ v|capitalize }}</option>
@@ -43,7 +43,14 @@
 				<option value="none"{% if active_vendor_filter == "none" %}selected{% endif %}>None</option>
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
+			<label for="model-filter">Model</label>
+			<select id="model-filter" name="model-filter">
+				<option value="all">All</option>
+				<!-- Models will be populated dynamically here -->
+			</select>
+		</div>
+		<div class="filter-item">
 			<label for="state-filter">State</label>
 			<select id="state-filter" name="state-filter">
 				<option value="all">All</option>
@@ -52,7 +59,7 @@
 				{% endfor %}
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="time-in-state-above-sla-filter">Time in State Above SLA</label>
 			<select id="time-in-state-above-sla-filter" name="time-in-state-above-sla-filter">
 				<option value="all" {% if active_time_in_state_above_sla_filter == "all" %}selected{% endif %}>All</option>
@@ -60,7 +67,7 @@
 				<option value="false" {% if active_time_in_state_above_sla_filter == "false" %}selected{% endif %}>False</option>
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="gpu-filter"># GPUs</label>
 			<select id="gpu-filter" name="gpu-filter">
 				<option value="all">All</option>
@@ -69,7 +76,7 @@
 				{% endfor %}
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="ib-filter"># IB IFs</label>
 			<select id="ib-filter" name="ib-filter">
 				<option value="all">All</option>
@@ -78,7 +85,7 @@
 				{% endfor %}
 			</select>
 		</div>
-		<div>
+		<div class="filter-item">
 			<label for="mem-filter">Mem</label>
 			<select id="mem-filter" name="mem-filter">
 				<option value="-1">All</option>
@@ -87,8 +94,7 @@
 				{% endfor %}
 			</select>
 		</div>
-
-		<div>
+		<div class="filter-item">
 			<label for="group-by">Group by</label>
 			<select id="group-by" name="group-by">
 				<option value="none">None</option>
@@ -98,10 +104,50 @@
 				<option value="health,host_memory,num_gpus,num_ib_ifs,state"{% if active_group_by == "health,host_memory,num_gpus,num_ib_ifs,state" %}selected{% endif %}>Health, host type, state</option>
 			</select>
 		</div>
-		<div>
-				<input type="submit" value="Update">
+		<div class="filter-item">
+			<label>&nbsp;</label> <!-- Placeholder to align the button -->
+			<input type="submit" value="Update">
 		</div>
 	</form>
+	<script>
+		// Map to hold models for each vendor
+		const modelsPerVendor = JSON.parse('{{ models_per_vendor_json|safe }}');
+		const current_selected = '{{ active_model_filter }}';
+		// Function to update the model options based on the selected vendor
+		function updateModelOptions() {
+			const vendorSelect = document.getElementById('vendor-filter');
+			const modelSelect = document.getElementById('model-filter');
+			const selectedVendor = vendorSelect.value;
+		
+			// Clear previous options
+			modelSelect.innerHTML = '<option value="all">All</option>';
+		
+			// If a valid vendor is selected, update the model dropdown
+			if (selectedVendor !== 'all' && selectedVendor !== 'none') {
+				const models = modelsPerVendor[selectedVendor];
+		
+				if (models) {
+					models.forEach(function(model) {
+						let option = document.createElement('option');
+						if (current_selected == model) {
+							option.selected = true;
+						}
+						option.value = model;
+						option.textContent = model.charAt(0).toUpperCase() + model.slice(1);
+						modelSelect.appendChild(option);
+					});
+				}
+			}
+		
+			// If no vendor or 'all' is selected, keep the "All" option in the model dropdown
+			modelSelect.disabled = (selectedVendor === 'none' || selectedVendor === 'all');
+		}
+
+		document.addEventListener('DOMContentLoaded', function() {
+			updateModelOptions();
+		});
+	
+	</script>
 </details>
 
 {% if grouped_hosts.is_none() %}

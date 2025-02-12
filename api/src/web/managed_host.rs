@@ -39,7 +39,9 @@ struct ManagedHostShow {
     active_health_alerts_filter: String,
     active_maintenance_filter: String,
     active_vendor_filter: String,
+    active_model_filter: String,
     vendors: Vec<String>,
+    models_per_vendor_json: String,
     active_state_filter: String,
     active_time_in_state_above_sla_filter: String,
     states: Vec<String>,
@@ -78,6 +80,7 @@ struct ManagedHostRowDisplay {
     host_bmc_ip: String,
     host_bmc_mac: String,
     vendor: String,
+    model: String,
     num_gpus: usize,
     num_ib_ifs: usize,
     host_memory: String,
@@ -258,8 +261,14 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             host_admin_mac: o.host_admin_mac.unwrap_or_default(),
             vendor: o
                 .discovery_info
+                .clone()
                 .dmi_data
                 .map(|dmi| dmi.sys_vendor)
+                .unwrap_or_default(),
+            model: o
+                .discovery_info
+                .dmi_data
+                .map(|dmi| dmi.product_name)
                 .unwrap_or_default(),
             num_gpus: o.host_gpu_count,
             num_ib_ifs: o.host_ib_ifs_count,
@@ -308,6 +317,7 @@ pub async fn show_html(
         .remove("maintenance-filter")
         .unwrap_or("all".to_string());
     let active_vendor_filter = params.remove("vendor-filter").unwrap_or("all".to_string());
+    let active_model_filter = params.remove("model-filter").unwrap_or("all".to_string());
     let active_state_filter = params.remove("state-filter").unwrap_or("all".to_string());
     let active_gpu_filter = params.remove("gpu-filter").unwrap_or("all".to_string());
     let active_ib_filter = params.remove("ib-filter").unwrap_or("all".to_string());
@@ -323,15 +333,23 @@ pub async fn show_html(
     let group_by = GroupingKey::params_to_vec(&group_by_param);
 
     let mut hosts = Vec::new();
-    let mut vendors = HashSet::new();
+    let mut models_per_vendor: HashMap<String, Vec<String>> = HashMap::new();
     let mut states = HashSet::new();
     let mut gpus = HashSet::new();
     let mut ibs = HashSet::new();
     let mut mems = HashSet::new();
+
     for mo in managed_hosts.into_iter() {
         let m: ManagedHostRowDisplay = mo.into();
-        if !m.vendor.is_empty() {
-            vendors.insert(m.vendor.clone());
+
+        let vendor = m.vendor.to_lowercase().clone();
+        let model = m.model.to_lowercase().clone();
+
+        if !vendor.is_empty() {
+            let models = models_per_vendor.entry(vendor).or_default();
+            if !model.is_empty() && !models.contains(&model) {
+                models.push(model);
+            }
         }
         states.insert(short_state(&m.state).to_string());
         gpus.insert(m.num_gpus);
@@ -340,6 +358,9 @@ pub async fn show_html(
         mems.insert((barry, format!("{barry} GiB")));
 
         if active_vendor_filter != "all" && active_vendor_filter != m.vendor.to_lowercase() {
+            continue;
+        }
+        if active_model_filter != "all" && active_model_filter != m.model.to_lowercase() {
             continue;
         }
         if active_state_filter != "all"
@@ -395,23 +416,45 @@ pub async fn show_html(
 
     hosts.sort_unstable();
 
-    let mut vendors: Vec<String> = vendors.into_iter().collect();
-    vendors.sort_unstable();
-    let mut states: Vec<String> = states.into_iter().collect();
-    states.sort_unstable();
-    let mut gpus: Vec<String> = gpus.into_iter().map(|x| x.to_string()).collect();
-    gpus.sort_unstable();
-    let mut ibs: Vec<String> = ibs.into_iter().map(|x| x.to_string()).collect();
-    ibs.sort_unstable();
-    let mut mems: Vec<(isize, String)> = mems.into_iter().collect();
-    mems.sort_unstable_by(|(size_a, _), (size_b, _)| {
-        size_a
-            .partial_cmp(size_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let vendors: Vec<String> = models_per_vendor
+        .keys()
+        .cloned()
+        .sorted_unstable()
+        .collect();
+
+    for (_, models) in models_per_vendor.iter_mut() {
+        models.sort_unstable();
+    }
+
+    let models_per_vendor_json = serde_json::to_string(&models_per_vendor).unwrap();
+
+    let states: Vec<String> = states.into_iter().sorted_unstable().collect();
+
+    let gpus: Vec<String> = gpus
+        .into_iter()
+        .map(|x| x.to_string())
+        .sorted_unstable()
+        .collect();
+
+    let ibs: Vec<String> = ibs
+        .into_iter()
+        .map(|x| x.to_string())
+        .sorted_unstable()
+        .collect();
+
+    let mems: Vec<(isize, String)> = mems
+        .into_iter()
+        .sorted_unstable_by(|(size_a, _), (size_b, _)| {
+            size_a
+                .partial_cmp(size_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .collect();
+
     let is_filtered = active_health_alerts_filter != "all"
         || active_maintenance_filter != "all"
         || active_vendor_filter != "all"
+        || active_model_filter != "all"
         || active_state_filter != "all"
         || active_time_in_state_above_sla_filter != "all"
         || active_gpu_filter != "all"
@@ -425,7 +468,9 @@ pub async fn show_html(
         active_maintenance_filter,
         hosts,
         active_vendor_filter,
+        active_model_filter,
         vendors,
+        models_per_vendor_json,
         active_state_filter,
         active_time_in_state_above_sla_filter,
         states,
