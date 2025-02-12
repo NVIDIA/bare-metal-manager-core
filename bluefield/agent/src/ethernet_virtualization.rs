@@ -276,10 +276,27 @@ pub async fn update_nvue(
         ifs
     };
 
+    // This chunk of code is combining all rules it finds.
+    // There are two assumptions here...
+    // 1 - ManagedHostNetworkConfigResponse only has rules on physical interfaces.
+    // 2 - There is only one DPU.
+    // Both of these are valid assumptions right now because the endpoint that returns
+    // the data doesn't have support for a secondary DPU, but we should log warnings
+    // if we notice that either of those assumptions is no longer valid.
+    let mut has_network_security_group = false;
+
     let mut network_security_group_rules: Vec<nvue::NetworkSecurityGroupRule> = vec![];
 
     for iface in &nc.tenant_interfaces {
         if let Some(ref nsg) = iface.network_security_group {
+            if has_network_security_group {
+                tracing::warn!(
+                    "Found more than one interface with network security group applied in ManagedHostNetworkConfigResponse",
+                );
+            }
+
+            has_network_security_group = true;
+
             for resolved_rule in &nsg.rules {
                 let Some(rule) = &resolved_rule.rule else {
                     continue;
@@ -287,10 +304,10 @@ pub async fn update_nvue(
 
                 network_security_group_rules.push(nvue::NetworkSecurityGroupRule {
                     id: rule.id.clone().unwrap_or_default(),
-                    ingress: rule.direction
-                        == i32::from(
-                            rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
-                        ),
+                    ingress: rule.direction()
+                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                    can_match_any_protocol: rule.protocol()
+                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
                     ipv6: rule.ipv6,
                     priority: rule.priority,
                     src_port_start: rule.src_port_start,
@@ -336,7 +353,11 @@ pub async fn update_nvue(
         ct_external_access: vec![],
         l3_domains: vec![],
         ct_internet_l3_vni: nc.internet_l3_vni,
-        ct_network_security_group_rules: network_security_group_rules,
+        ct_network_security_group_rules: if has_network_security_group {
+            Some(network_security_group_rules)
+        } else {
+            None
+        },
     };
 
     // Cleanup any left over non-NVUE temp files
@@ -1916,11 +1937,12 @@ mod tests {
             ct_external_access: vec![],
             l3_domains: vec![],
             ct_internet_l3_vni: Some(1337),
-            ct_network_security_group_rules: vec![nvue::NetworkSecurityGroupRule {
+            ct_network_security_group_rules: Some(vec![nvue::NetworkSecurityGroupRule {
                 id: "6313f270-dd02-11ef-80d2-9f8689fc7df7".to_string(),
                 ingress: true,
                 ipv6: true,
                 priority: 1001,
+                can_match_any_protocol: false,
                 protocol: "TCP".to_string(),
                 src_prefixes: vec!["2.2.2.2/24".to_string()],
                 dst_prefixes: vec!["3.3.3.3/24".to_string()],
@@ -1929,7 +1951,7 @@ mod tests {
                 dst_port_start: Some(8),
                 dst_port_end: Some(80),
                 action: "PERMIT".to_string(),
-            }],
+            }]),
         };
         let startup_yaml = nvue::build(conf)?;
         const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";

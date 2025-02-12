@@ -295,11 +295,16 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     port_configs.push(c);
                 }
 
-                let mut nsg_rules = Vec::with_capacity(opts.ct_network_security_group_rule.len());
-                for net_json in opts.ct_network_security_group_rule {
-                    let rule: nvue::NetworkSecurityGroupRule = serde_json::from_str(&net_json)?;
-                    nsg_rules.push(rule);
-                }
+                let nsg_rules = if opts.ct_network_security_group_rule.is_empty() {
+                    None
+                } else {
+                    Some(
+                        opts.ct_network_security_group_rule
+                            .into_iter()
+                            .map(|r| serde_json::from_str::<nvue::NetworkSecurityGroupRule>(&r))
+                            .collect::<Result<Vec<nvue::NetworkSecurityGroupRule>, _>>()?,
+                    )
+                };
 
                 let access_vlans = opts
                     .vlan
