@@ -23,10 +23,10 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::model::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, ForgeSetupDiff, ForgeSetupStatus,
-    Inventory, Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, Service, SystemStatus,
-    UefiDevicePath, DPU_BIOS_ATTRIBUTES_MISSING,
+    BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
+    ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter, NicMode, PCIeDevice,
+    PowerState, Service, SystemStatus, UefiDevicePath, DPU_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -451,6 +451,11 @@ async fn fetch_system(
         None
     };
 
+    let boot_order = fetch_boot_order(client, system.clone())
+        .await
+        .inspect_err(|error| tracing::warn!(%error, "Failed to fetch boot order."))
+        .ok();
+
     Ok(ComputerSystem {
         ethernet_interfaces,
         id: system.id,
@@ -466,6 +471,7 @@ async fn fetch_system(
         base_mac,
         power_state: system.power_state.into(),
         sku: system.sku,
+        boot_order,
     })
 }
 
@@ -730,6 +736,48 @@ impl From<libredfish::model::SystemStatus> for SystemStatus {
             state: status.state.unwrap_or("".to_string()),
         }
     }
+}
+
+impl From<libredfish::model::BootOption> for BootOption {
+    fn from(boot_option: libredfish::model::BootOption) -> Self {
+        BootOption {
+            display_name: boot_option.display_name,
+            id: boot_option.id,
+            boot_option_enabled: boot_option.boot_option_enabled,
+            uefi_device_path: boot_option.uefi_device_path,
+        }
+    }
+}
+
+async fn fetch_boot_order(
+    client: &dyn Redfish,
+    system: libredfish::model::ComputerSystem,
+) -> Result<BootOrder, RedfishError> {
+    let boot_options_id = system
+        .boot
+        .boot_options
+        .ok_or_else(|| RedfishError::MissingKey {
+            key: "boot.boot_options".to_string(),
+            url: system.odata.odata_id.to_string(),
+        })?;
+
+    let all_boot_options: Vec<BootOption> = client
+        .get_collection(boot_options_id)
+        .await
+        .and_then(|t1| t1.try_get::<libredfish::model::BootOption>())
+        .into_iter()
+        .flat_map(|x1| x1.members)
+        .map(Into::into)
+        .collect();
+
+    let boot_order: Vec<BootOption> = system
+        .boot
+        .boot_order
+        .into_iter()
+        .filter_map(|id| all_boot_options.iter().find(|opt| opt.id == id).cloned())
+        .collect();
+
+    Ok(BootOrder { boot_order })
 }
 
 async fn fetch_pcie_devices(client: &dyn Redfish) -> Result<Vec<PCIeDevice>, RedfishError> {

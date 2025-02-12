@@ -91,6 +91,7 @@ fn build_exploration_report(
             base_mac: None,
             power_state: PowerState::On,
             sku: None,
+            boot_order: None,
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),
