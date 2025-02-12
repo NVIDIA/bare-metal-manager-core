@@ -218,6 +218,14 @@ fn expand_network_security_group_rules(
 ) -> Vec<TmplNetworkSecurityGroupRule> {
     let mut tmpl_rules: Vec<TmplNetworkSecurityGroupRule> = vec![];
 
+    // NVUE config keys rules on priority, meaning no two rules can
+    // have the same priority in a given list.
+    // NOTE: This implicitly gives us at least one rule limit:
+    // If no two rules in a list can have the same priority, and the
+    // priority value max in nvue is limited to an unsigned 16-bit value,
+    // that u16 max priority number becomes the max number of rules in a
+    // given list.
+
     for rule in rules {
         for src_prefix in &rule.src_prefixes {
             for dst_prefix in &rule.dst_prefixes {
@@ -238,7 +246,8 @@ fn expand_network_security_group_rules(
                                     Action: rule.action.clone(),
                                     SrcPrefix: src_prefix.clone(),
                                     DstPrefix: dst_prefix.clone(),
-                                    Priority: rule.priority
+                                    OriginalPriority: rule.priority,
+                                    Priority: tmpl_rules.len() as u32
                                         + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                                 });
                             }
@@ -256,7 +265,8 @@ fn expand_network_security_group_rules(
                                 Action: rule.action.clone(),
                                 SrcPrefix: src_prefix.clone(),
                                 DstPrefix: dst_prefix.clone(),
-                                Priority: rule.priority
+                                OriginalPriority: rule.priority,
+                                Priority: tmpl_rules.len() as u32
                                     + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                             });
                         }
@@ -276,7 +286,9 @@ fn expand_network_security_group_rules(
                             Action: rule.action.clone(),
                             SrcPrefix: src_prefix.clone(),
                             DstPrefix: dst_prefix.clone(),
-                            Priority: rule.priority + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
+                            OriginalPriority: rule.priority,
+                            Priority: tmpl_rules.len() as u32
+                                + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                         });
                     }
                 } else {
@@ -291,7 +303,9 @@ fn expand_network_security_group_rules(
                         Action: rule.action.clone(),
                         SrcPrefix: src_prefix.clone(),
                         DstPrefix: dst_prefix.clone(),
-                        Priority: rule.priority + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
+                        OriginalPriority: rule.priority,
+                        Priority: tmpl_rules.len() as u32
+                            + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                     });
                 }
             }
@@ -589,6 +603,7 @@ struct TmplNetworkSecurityGroupRule {
     SrcPrefix: String,
     DstPrefix: String,
     Priority: u32,
+    OriginalPriority: u32,
 }
 
 #[allow(non_snake_case)]

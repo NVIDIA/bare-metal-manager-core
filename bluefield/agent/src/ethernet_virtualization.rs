@@ -307,7 +307,7 @@ pub async fn update_nvue(
                     ingress: rule.direction()
                         == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
                     can_match_any_protocol: rule.protocol()
-                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp,
                     ipv6: rule.ipv6,
                     priority: rule.priority,
                     src_port_start: rule.src_port_start,
@@ -1758,7 +1758,38 @@ mod tests {
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: false,
-                network_security_group: None,
+                network_security_group: Some(rpc::FlatInterfaceNetworkSecurityGroupConfig {
+                    id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
+                    version: "V1-1".to_string(),
+                    source: rpc::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+                    rules: vec![rpc::ResolvedNetworkSecurityGroupRule {
+                        src_prefixes: vec!["0.0.0.0/0".to_string()],
+                        dst_prefixes: vec!["0.0.0.0/0".to_string()],
+                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                            id: Some("anything".to_string()),
+                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                                .into(),
+                            ipv6: false,
+                            src_port_start: Some(80),
+                            src_port_end: Some(81),
+                            dst_port_start: Some(80),
+                            dst_port_end: Some(81),
+                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            priority: 9001,
+                            source_net: Some(
+                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                    "0.0.0.0/0".to_string(),
+                                ),
+                            ),
+                            destination_net: Some(
+                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                    "0.0.0.0/0".to_string(),
+                                ),
+                            ),
+                        }),
+                    }],
+                }),
             },
         ];
 
