@@ -15,7 +15,7 @@ use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo};
 /// machine-a-tron is mocking.
 #[derive(Debug)]
 pub struct BmcMockWrapper {
-    app_context: MachineATronContext,
+    app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
 }
 
@@ -23,7 +23,7 @@ impl BmcMockWrapper {
     pub fn new(
         machine_info: MachineInfo,
         command_channel: mpsc::UnboundedSender<BmcCommand>,
-        app_context: MachineATronContext,
+        app_context: Arc<MachineATronContext>,
     ) -> Self {
         let tar_router = match machine_info {
             MachineInfo::Dpu(_) => app_context.dpu_tar_router.clone(),

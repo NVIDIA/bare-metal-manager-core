@@ -1,6 +1,6 @@
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
-use crate::{api_client, config::MachineATronContext};
+use crate::config::MachineATronContext;
 
 use crate::api_client::ClientApiError;
 use crate::host_machine::HostMachineActor;
@@ -41,7 +41,9 @@ pub async fn forge_agent_control(
     app_context: &MachineATronContext,
     machine_id: rpc::common::MachineId,
 ) -> ForgeAgentControlResponse {
-    api_client::forge_agent_control(app_context, machine_id)
+    app_context
+        .api_client()
+        .forge_agent_control(machine_id)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!("Error getting control action: {e}");
@@ -80,8 +82,10 @@ pub async fn send_pxe_boot_request(
 ) -> Result<PxeResponse, PxeError> {
     let pxe_script: String =
         if app_context.app_config.use_pxe_api {
-            let response =
-                api_client::get_pxe_instructions(app_context, arch, interface_id).await?;
+            let response = app_context
+                .api_client()
+                .get_pxe_instructions(arch, interface_id)
+                .await?;
             tracing::info!("PXE Request successful");
             response.pxe_script
         } else {

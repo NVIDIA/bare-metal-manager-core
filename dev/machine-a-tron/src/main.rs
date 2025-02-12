@@ -3,18 +3,18 @@ use clap::Parser;
 use figment::providers::{Format, Toml};
 use figment::Figment;
 use forge_tls::client_config::{
-    get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
-    get_proxy_info,
+    get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
 use machine_a_tron::{
-    api_client, api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig,
-    MachineATronContext, Tui, TuiHostLogs, UiEvent,
+    api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext,
+    Tui, TuiHostLogs, UiEvent,
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = MachineATronArgs::parse();
 
     let fig = Figment::new().merge(Toml::file(args.config_file.as_str()));
-    let mut app_config: MachineATronConfig = fig.extract()?;
+    let app_config: MachineATronConfig = fig.extract()?;
     let tui_host_logs = if app_config.tui_enabled {
         Some(TuiHostLogs::start_new(100))
     } else {
@@ -67,9 +67,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     init_log(&app_config.log_file, tui_host_logs.as_ref())?;
 
     let file_config = get_config_from_file();
-    let carbide_api_url =
-        get_carbide_api_url(app_config.carbide_api_url.clone(), file_config.as_ref());
-    app_config.carbide_api_url = Some(carbide_api_url);
 
     let forge_root_ca_path = get_forge_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
     let forge_client_cert = get_client_cert_info(
@@ -84,10 +81,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
-    let dpu_bmc_mock_router =
+    let dpu_tar_router =
         bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
     let mut host_redfish_decompressed = HashMap::new();
-    let host_bmc_mock_router = bmc_mock::tar_router(
+    let host_tar_router = bmc_mock::tar_router(
         TarGzOption::Disk(&app_config.bmc_mock_host_tar),
         Some(&mut host_redfish_decompressed),
     )?;
@@ -96,20 +93,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .next()
         .expect("router creation should cache routes");
 
-    let bmc_mock_port = app_config.bmc_mock_port;
-    let use_single_bmc_mock = app_config.use_single_bmc_mock;
-
-    let mut app_context = MachineATronContext {
-        app_config: app_config.clone(),
-        forge_client_config,
-        circuit_id: None,
-        bmc_mock_certs_dir: None,
-        dpu_tar_router: dpu_bmc_mock_router,
-        host_tar_router: host_bmc_mock_router,
+    let bmc_registration_mode = if app_config.use_single_bmc_mock {
+        // Machines will register their BMC's with the shared registry
+        BmcRegistrationMode::BackingInstance(BmcMockRegistry::default())
+    } else {
+        // Machines will each listen on a real BMC mock address using the configured port
+        BmcRegistrationMode::None(app_config.bmc_mock_port)
     };
 
-    let (mut dhcp_client, mut dhcp_service) =
-        DhcpRelayService::new(app_context.clone(), app_context.app_config.clone());
+    let api_throttler = api_throttler::run(
+        tokio::time::interval(Duration::from_secs(2)),
+        app_config.carbide_api_url.clone(),
+        forge_client_config.clone(),
+    );
+
+    let bmc_mock_port = app_config.bmc_mock_port;
+    let tui_enabled = app_config.tui_enabled;
+    let app_context = Arc::new(MachineATronContext {
+        app_config,
+        forge_client_config,
+        bmc_mock_certs_dir: None,
+        host_tar_router,
+        dpu_tar_router,
+        bmc_registration_mode,
+        api_throttler,
+    });
+
+    let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
     let dhcp_handle = tokio::spawn(async move {
         _ = dhcp_service
             .run()
@@ -117,72 +127,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .inspect_err(|e| tracing::error!("Error running DHCP service: {}", e));
     });
 
-    let segments = api_client::find_network_segments(&app_context).await?;
-
-    for s in segments.network_segments.iter() {
-        tracing::info!("segment: {:?}", s);
-    }
-
-    let circuit_id = segments
-        .network_segments
-        .iter()
-        .find_map(|s| s.prefixes.iter().find_map(|p| p.circuit_id.clone()));
-    app_context.circuit_id = circuit_id;
-
-    let info = api_client::version(&app_context).await?;
+    let info = app_context.api_client().version().await?;
     tracing::info!("version: {}", info.build_version);
 
-    let api_throttler = api_throttler::run(
-        tokio::time::interval(Duration::from_secs(2)),
-        app_context.clone(),
-    );
+    let mut mat = MachineATron::new(app_context.clone());
 
-    let mut mat = MachineATron::new(app_context);
+    // If we're using a combined BMC mock that routes to each mock machine using headers, launch it now
+    let maybe_bmc_mock_handle: Option<BmcMockHandle> = match &app_context.bmc_registration_mode {
+        BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
+            let certs_dir = PathBuf::from(forge_root_ca_path.clone())
+                .parent()
+                .map(Path::to_path_buf);
 
-    let maybe_bmc_mock_handle: Option<BmcMockHandle>;
-    let machine_actors = if use_single_bmc_mock {
-        // Launch a single combined instance of BMC mock, with a shared registry that keeps track
-        // of the individual "backing" mocks.
-        let instance_registry = BmcMockRegistry::default();
-        let certs_dir = PathBuf::from(forge_root_ca_path.clone())
-            .parent()
-            .map(Path::to_path_buf);
-
-        // Run the combined mock
-        maybe_bmc_mock_handle = Some(
-            bmc_mock::run_combined_mock(
-                instance_registry.clone(),
-                certs_dir,
-                Some(ListenerOrAddress::Address(
-                    format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
-                )),
+            Some(
+                bmc_mock::run_combined_mock(
+                    bmc_mock_registry.clone(),
+                    certs_dir,
+                    Some(ListenerOrAddress::Address(
+                        format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
+                    )),
+                )
+                .await?,
             )
-            .await?,
-        );
-
-        // Construct machines, configuring them to register their BMC's with the shared registry
-        mat.make_machines(
-            &dhcp_client,
-            BmcRegistrationMode::BackingInstance(instance_registry),
-            true,
-            api_throttler,
-        )
-        .await?
-    } else {
-        // Configure individual BMC mocks for every machine
-        maybe_bmc_mock_handle = None;
-        mat.make_machines(
-            &dhcp_client,
-            BmcRegistrationMode::None(bmc_mock_port),
-            true,
-            api_throttler,
-        )
-        .await?
+        }
+        BmcRegistrationMode::None(_) => {
+            // Otherwise each mock machine runs its own listener
+            None
+        }
     };
+
+    let machine_actors = mat.make_machines(&dhcp_client, true).await?;
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);
-    let (tui_handle, tui_event_tx) = if app_config.tui_enabled {
+    let (tui_handle, tui_event_tx) = if tui_enabled {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
 
         let host_redfish_routes = host_redfish_routes.clone();
@@ -215,8 +193,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;
+
     if let Some(mut bmc_mock_handle) = maybe_bmc_mock_handle {
         bmc_mock_handle.stop().await?;
     }
+
     Ok(())
 }

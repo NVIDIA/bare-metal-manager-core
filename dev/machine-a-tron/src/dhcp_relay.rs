@@ -1,4 +1,10 @@
+use dhcproto::v4::{
+    Decodable, Decoder, DhcpOption, Encodable, Encoder, Flags, Message, MessageType, OptionCode,
+};
+use rpc::MachineId;
+use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -6,13 +12,6 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
-
-use dhcproto::v4::{
-    Decodable, Decoder, DhcpOption, Encodable, Encoder, Flags, Message, MessageType, OptionCode,
-};
-
-use rpc::MachineId;
-use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
     select,
@@ -23,17 +22,13 @@ use uuid::Uuid;
 use mac_address::MacAddress;
 use tokio::time::sleep;
 
-use crate::{
-    api_client::{self, ClientApiError},
-    config::{MachineATronConfig, MachineATronContext},
-};
+use crate::{api_client::ClientApiError, config::MachineATronContext};
 static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
 
 type DhcpRelayResult = Result<(), DhcpRelayError>;
 
 pub struct DhcpRelayService {
-    app_context: MachineATronContext,
-    app_config: MachineATronConfig,
+    app_context: Arc<MachineATronContext>,
     request_tx: Sender<RequestType>,
     request_rx: Receiver<RequestType>,
 }
@@ -124,10 +119,7 @@ pub struct DhcpResponseInfo {
 }
 
 impl DhcpRelayService {
-    pub fn new(
-        app_context: MachineATronContext,
-        app_config: MachineATronConfig,
-    ) -> (DhcpRelayClient, Self) {
+    pub fn new(app_context: Arc<MachineATronContext>) -> (DhcpRelayClient, Self) {
         let (request_tx, request_rx) = channel(5000);
         (
             DhcpRelayClient {
@@ -135,7 +127,6 @@ impl DhcpRelayService {
             },
             DhcpRelayService {
                 app_context,
-                app_config,
                 request_tx,
                 request_rx,
             },
@@ -143,7 +134,7 @@ impl DhcpRelayService {
     }
 
     pub fn create_udp_socket(&self) -> Result<UdpSocket, DhcpRelayError> {
-        let interface = self.app_config.interface.as_bytes();
+        let interface = self.app_context.app_config.interface.as_bytes();
         // Note that this is simulating a dhcp relay, not a client, so it uses port 67 for both the source and destination port
         let local_addr = "0.0.0.0:10067".to_owned().parse::<SocketAddrV4>().unwrap();
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
@@ -161,7 +152,7 @@ impl DhcpRelayService {
         let mut requests: HashMap<Uuid, DhcpRequestInfo> = HashMap::default();
 
         let udp_socket =
-            if self.app_config.use_dhcp_api {
+            if self.app_context.app_config.use_dhcp_api {
                 None
             } else {
                 Some(self.create_udp_socket().inspect_err(|e| {
@@ -237,17 +228,19 @@ impl DhcpRelayService {
     ) -> Result<DhcpResponseInfo, DhcpRelayError> {
         tracing::info!("requesting IP for {}", request_info.mat_id);
 
-        let dhcp_record = api_client::discover_dhcp(
-            &self.app_context,
-            request_info.mac_address,
-            request_info.template_dir.clone(),
-            request_info.relay_address.to_string(),
-            None,
-        )
-        .await
-        .inspect_err(|e| {
-            tracing::warn!("discover_dhcp failed: {e}");
-        })?;
+        let dhcp_record = self
+            .app_context
+            .api_client()
+            .discover_dhcp(
+                request_info.mac_address,
+                request_info.template_dir.clone(),
+                request_info.relay_address.to_string(),
+                None,
+            )
+            .await
+            .inspect_err(|e| {
+                tracing::warn!("discover_dhcp failed: {e}");
+            })?;
 
         tracing::info!(
             "dhcp request for {} through relay {} got address {} (machine id {:?})",
@@ -577,7 +570,8 @@ impl DhcpRelayService {
     }
 
     fn dest_ip(&self) -> String {
-        self.app_config
+        self.app_context
+            .app_config
             .dhcp_server_address
             .clone()
             .expect("Config error: use_dhcp_api is false but dhcp_server_address is not set")

@@ -1,11 +1,17 @@
+use crate::api_client::ApiClient;
+use crate::api_throttler::ApiThrottler;
+use crate::BmcRegistrationMode;
 use axum::Router;
 use clap::Parser;
 use duration_str::deserialize_duration;
-use rpc::forge_tls_client::ForgeClientConfig;
-use serde::{Deserialize, Serialize, Serializer};
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{collections::BTreeMap, net::Ipv4Addr};
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -35,7 +41,7 @@ pub struct MachineATronArgs {
     pub config_file: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineConfig {
     pub host_count: u32,
     pub vpc_count: u32,
@@ -78,11 +84,15 @@ pub struct MachineConfig {
     pub dpus_in_nic_mode: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
     // note that order is important in machines so that mac addresses are assigned the same way between runs
-    pub machines: BTreeMap<String, MachineConfig>,
-    pub carbide_api_url: Option<String>,
+    #[serde(
+        deserialize_with = "deserialize_machine_config",
+        serialize_with = "serialize_machine_config"
+    )]
+    pub machines: BTreeMap<String, Arc<MachineConfig>>,
+    pub carbide_api_url: String,
     pub log_file: Option<String>,
     pub interface: String,
     #[serde(default = "default_true")]
@@ -151,19 +161,101 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone)]
+// Lots of types keep an owned reference to MachineATronContext, making an Arc keeps this cheap.
+
+#[derive(Debug)]
 pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
-    pub circuit_id: Option<String>,
     pub bmc_mock_certs_dir: Option<PathBuf>,
     pub host_tar_router: Router,
     pub dpu_tar_router: Router,
+    pub bmc_registration_mode: BmcRegistrationMode,
+    pub api_throttler: ApiThrottler,
+}
+
+impl MachineATronContext {
+    pub fn api_client(&self) -> ApiClient {
+        ApiConfig::new(&self.app_config.carbide_api_url, &self.forge_client_config).into()
+    }
 }
 
 fn as_std_duration<S>(d: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    serializer.serialize_str(&format!("{}s", d.as_secs()))
+    if d.lt(&Duration::from_secs(1)) {
+        serializer.serialize_str(&format!("{}ms", d.as_millis()))
+    } else {
+        serializer.serialize_str(&format!("{}s", d.as_secs()))
+    }
+}
+
+pub fn deserialize_machine_config<'a, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Arc<MachineConfig>>, D::Error>
+where
+    D: Deserializer<'a>,
+{
+    let result: BTreeMap<String, MachineConfig> = Deserialize::deserialize(deserializer)?;
+    Ok(result.into_iter().map(|(k, v)| (k, v.into())).collect())
+}
+
+fn serialize_machine_config<S>(
+    d: &BTreeMap<String, Arc<MachineConfig>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut map = serializer.serialize_map(Some(d.len()))?;
+    for (k, v) in d {
+        map.serialize_entry(k, v.as_ref())?;
+    }
+    map.end()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_config() {
+        let cfg_str = r#"
+carbide_api_url = "https://carbide-api.forge:443"
+log_file = "mat.log"
+interface = "br-77cbb29de011"
+tui_enabled = true
+use_dhcp_api = true
+dhcp_server_address = "192.168.176.5"
+pxe_server_host = "192.168.176.7"
+pxe_server_port = "8080"
+bmc_mock_port = 1266
+mat_api_server_enabled = true
+mat_api_server_listen_port = 2112
+use_single_bmc_mock = true
+configure_carbide_bmc_proxy_host = "192.168.1.20"
+
+[machines.config]
+host_count = 10
+dpu_per_host_count = 2
+boot_delay = 1
+dpu_reboot_delay = 1 # in units of seconds
+host_reboot_delay = 1 # in units of seconds
+vpc_count = 0
+admin_dhcp_relay_address = "192.168.176.1"
+oob_dhcp_relay_address = "192.168.192.1"
+subnets_per_vpc = 0
+run_interval_working = "100ms"
+run_interval_idle = "1s"
+network_status_run_interval = "5s"
+scout_run_interval = "5s"
+    "#;
+
+        let cfg = toml::from_str::<MachineATronConfig>(cfg_str).expect("Could not parse config");
+        let serialized = toml::to_string(&cfg).expect("Could not serialize config");
+        let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
+            .expect("Could not deserialize serialized config");
+        assert_eq!(round_tripped, cfg);
+    }
 }

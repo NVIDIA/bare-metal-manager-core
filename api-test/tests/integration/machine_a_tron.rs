@@ -17,6 +17,7 @@ use machine_a_tron::{
 };
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -40,18 +41,24 @@ pub async fn run_local(
     let host_tar_router =
         bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
-    let app_context = MachineATronContext {
+    let api_throttler = api_throttler::run(
+        tokio::time::interval(Duration::from_secs(2)),
+        app_config.carbide_api_url.clone(),
+        forge_client_config.clone(),
+    );
+
+    let app_context = Arc::new(MachineATronContext {
         app_config,
         forge_client_config,
-        circuit_id: None,
         bmc_mock_certs_dir: Some(repo_root.join("dev/bmc-mock")),
         dpu_tar_router,
         host_tar_router,
-    };
+        bmc_registration_mode: BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
+        api_throttler,
+    });
 
     // Start DHCP relay
-    let (mut dhcp_client, mut dhcp_service) =
-        DhcpRelayService::new(app_context.clone(), app_context.app_config.clone());
+    let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
     let dhcp_handle = tokio::spawn(async move {
         _ = dhcp_service.run().await.inspect_err(|e| {
             eprintln!("Error running DHCP service: {}", e);
@@ -60,18 +67,7 @@ pub async fn run_local(
     });
 
     let mat = MachineATron::new(app_context.clone());
-    let api_throttler = api_throttler::run(
-        tokio::time::interval(Duration::from_secs(2)),
-        app_context.clone(),
-    );
-    let machine_actors = mat
-        .make_machines(
-            &dhcp_client,
-            BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
-            false,
-            api_throttler,
-        )
-        .await?;
+    let machine_actors = mat.make_machines(&dhcp_client, false).await?;
 
     let (stop_tx, stop_rx) = oneshot::channel();
     let machine_actors_clone = machine_actors.clone();

@@ -1,18 +1,16 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::api_throttler::ApiThrottler;
 use crate::host_machine::HandleMessageResult;
-use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
+use crate::machine_state_machine::MachineStateMachine;
 use crate::tui::HostDetails;
 use crate::{
-    api_client::identify_serial,
-    config::{MachineATronContext, MachineConfig},
-    dhcp_relay::DhcpRelayClient,
-    saturating_add_duration_to_instant,
+    config::MachineATronContext, dhcp_relay::DhcpRelayClient, saturating_add_duration_to_instant,
+    MachineConfig,
 };
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 
@@ -26,13 +24,12 @@ pub struct DpuMachine {
     state_machine: MachineStateMachine,
 
     dpu_info: DpuMachineInfo,
-    app_context: MachineATronContext,
+    app_context: Arc<MachineATronContext>,
     api_state: String,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
     observed_machine_id: Option<rpc::MachineId>,
     paused: bool,
     sleep_until: Instant,
-    api_throttler: ApiThrottler,
     api_refresh_interval: Interval,
 }
 
@@ -40,11 +37,9 @@ impl DpuMachine {
     pub fn new(
         mat_host: Uuid,
         dpu_index: u8,
-        app_context: MachineATronContext,
-        config: MachineConfig,
+        app_context: Arc<MachineATronContext>,
+        config: Arc<MachineConfig>,
         dhcp_client: DhcpRelayClient,
-        bmc_listen_mode: BmcRegistrationMode,
-        api_throttler: ApiThrottler,
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
@@ -55,7 +50,6 @@ impl DpuMachine {
             app_context.clone(),
             dhcp_client,
             bmc_control_tx.clone(),
-            bmc_listen_mode,
             None,
         );
         DpuMachine {
@@ -72,7 +66,6 @@ impl DpuMachine {
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
-            api_throttler,
         }
     }
 
@@ -116,7 +109,7 @@ impl DpuMachine {
                 // Wake up to refresh the API state and UI
                 if let Some(machine_id) = self.observed_machine_id.as_ref() {
                     let actor_message_tx = actor_message_tx.clone();
-                    self.api_throttler.get_machine(machine_id.clone(), move |machine| {
+                    self.app_context.api_throttler.get_machine(machine_id.clone(), move |machine| {
                         if let Some(machine) = machine {
                             // Write the API state back using the actor channel, since we can't just write to self
                             _ = actor_message_tx.send(DpuMachineMessage::SetApiState(machine.state));
@@ -204,8 +197,11 @@ impl DpuMachine {
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
         } else if self.observed_machine_id.is_none() {
-            if let Ok(machine) =
-                identify_serial(&self.app_context, self.dpu_info.serial.clone()).await
+            if let Ok(machine) = self
+                .app_context
+                .api_client()
+                .identify_serial(self.dpu_info.serial.clone())
+                .await
             {
                 tracing::trace!("dpu's machine id: {}", machine.id);
                 self.observed_machine_id = Some(machine);

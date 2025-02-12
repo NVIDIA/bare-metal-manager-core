@@ -1,10 +1,10 @@
 use ::rpc::Timestamp;
 use std::fmt::Debug;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    api_client,
-    config::{MachineATronContext, MachineConfig},
+    config::MachineATronContext,
     tui::{SubnetDetails, UiEvent},
 };
 use tonic::Status;
@@ -12,8 +12,6 @@ use tonic::Status;
 #[derive(Debug, Clone)]
 pub struct Subnet {
     pub segment_id: Uuid,
-    pub config: MachineConfig,
-    pub app_context: MachineATronContext,
 
     pub vpc_id: Uuid,
     pub prefixes: Vec<String>,
@@ -24,12 +22,13 @@ pub struct Subnet {
 
 impl Subnet {
     pub async fn new(
-        app_context: MachineATronContext,
-        config: MachineConfig,
+        app_context: Arc<MachineATronContext>,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
         vpc_name: &String,
     ) -> Result<Subnet, Status> {
-        let network_segment = api_client::create_network_segment(&app_context, vpc_name)
+        let network_segment = app_context
+            .api_client()
+            .create_network_segment(vpc_name)
             .await
             .map_err(|e| {
                 tracing::error!("Error creating network segment: {}", e);
@@ -41,8 +40,6 @@ impl Subnet {
                 .expect("Segment must have an ID."),
             vpc_id: uuid::Uuid::parse_str(&network_segment.vpc_id.unwrap().value)
                 .expect("Segment must have a VPC_ID."),
-            config,
-            app_context,
             prefixes: network_segment
                 .prefixes
                 .iter()

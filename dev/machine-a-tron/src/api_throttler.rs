@@ -1,5 +1,6 @@
+use crate::api_client::ApiClient;
 use crate::api_throttler::ApiCommand::GetMachine;
-use crate::{api_client, MachineATronContext};
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::{Machine, MachineId};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
@@ -9,7 +10,11 @@ use tokio::time::Interval;
 /// such that we only run them a maximum of once per time interval. Every interval, the pending
 /// calls are coalesced into a single API call to save load on the server, and responses are
 /// returned.
-pub fn run(mut interval: Interval, app_context: MachineATronContext) -> ApiThrottler {
+pub fn run(
+    mut interval: Interval,
+    carbide_url: String,
+    client_config: ForgeClientConfig,
+) -> ApiThrottler {
     let (message_tx, mut control_rx) = mpsc::unbounded_channel();
     tokio::task::Builder::new()
         .name("ApiThrottler")
@@ -33,8 +38,12 @@ pub fn run(mut interval: Interval, app_context: MachineATronContext) -> ApiThrot
                             // Max of 100 machine IDs at a time
                             let mut machines_by_id = HashMap::new();
                             for chunk in machine_ids.chunks(100) {
-                                let machines = api_client::get_machines(&app_context, chunk).await
-                                    .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
+                                let machines = ApiClient::from(ApiConfig::new(&carbide_url, &client_config)).get_machines(
+                                    chunk,
+                                )
+                                .await
+                                .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
+
                                 // Index the result by ID
                                 for m in machines {
                                     if let Some(id) = m.id.as_ref() {

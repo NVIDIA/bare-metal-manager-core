@@ -1,18 +1,17 @@
 use ::rpc::Timestamp;
 use std::fmt::Debug;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    api_client,
-    config::{MachineATronContext, MachineConfig},
+    config::MachineATronContext,
     tui::{UiEvent, VpcDetails},
 };
 
 #[derive(Debug, Clone)]
 pub struct Vpc {
     pub vpc_id: Uuid,
-    pub config: MachineConfig,
-    pub app_context: MachineATronContext,
+    pub app_context: Arc<MachineATronContext>,
 
     pub vpc_name: String,
 
@@ -23,16 +22,14 @@ pub struct Vpc {
 
 impl Vpc {
     pub async fn new(
-        app_context: MachineATronContext,
-        config: MachineConfig,
+        app_context: Arc<MachineATronContext>,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
     ) -> Self {
         // TODO: Add error handling when vpc creation fails.
-        let vpc = api_client::create_vpc(&app_context).await.unwrap();
+        let vpc = app_context.api_client().create_vpc().await.unwrap();
 
         let new_vpc = Vpc {
             vpc_id: uuid::Uuid::parse_str(&vpc.id.unwrap().value).expect("VPC must have an ID."),
-            config,
             app_context,
             vpc_name: vpc.name,
             logs: Vec::default(),
