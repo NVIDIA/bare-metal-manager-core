@@ -222,7 +222,10 @@ pub async fn show_html_all(
         .get("vendor-filter")
         .cloned()
         .unwrap_or("all".to_string());
-    let is_errors_only = params.contains_key("errors-only");
+    let is_errors_only = params
+        .get("errors-only")
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false);
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
         filter_name: "All",
@@ -310,7 +313,10 @@ pub async fn show_html_unpaired(
         .get("vendor-filter")
         .cloned()
         .unwrap_or("all".to_string());
-    let is_errors_only = params.contains_key("errors-only");
+    let is_errors_only = params
+        .get("errors-only")
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false);
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
         filter_name: "Unpaired",
@@ -562,7 +568,11 @@ fn query_filter_for(
             }),
             _ => Box::new(|_| true),
         };
-    let ef: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> = if params.contains_key("errors-only") {
+    let ef: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> = if params
+        .get("errors-only")
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false)
+    {
         Box::new(|ep: &ExploredEndpointDisplay| !ep.last_exploration_error.is_empty())
     } else {
         Box::new(|_| true)
