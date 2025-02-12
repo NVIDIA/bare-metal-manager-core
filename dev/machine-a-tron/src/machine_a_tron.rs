@@ -1,14 +1,12 @@
-use std::collections::HashSet;
-
-use crate::api_throttler::ApiThrottler;
 use crate::host_machine::HostMachineActor;
-use crate::machine_state_machine::BmcRegistrationMode;
 use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use crate::{
-    api_client, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
-    host_machine::HostMachine, machine_utils::get_next_free_machine, tui::UiEvent,
+    config::MachineATronContext, dhcp_relay::DhcpRelayClient, host_machine::HostMachine,
+    machine_utils::get_next_free_machine, tui::UiEvent,
 };
+use std::collections::HashSet;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -19,20 +17,18 @@ pub enum AppEvent {
 }
 
 pub struct MachineATron {
-    app_context: MachineATronContext,
+    app_context: Arc<MachineATronContext>,
 }
 
 impl MachineATron {
-    pub fn new(app_context: MachineATronContext) -> Self {
+    pub fn new(app_context: Arc<MachineATronContext>) -> Self {
         Self { app_context }
     }
 
     pub async fn make_machines(
         &self,
         dhcp_client: &DhcpRelayClient,
-        bmc_listen_mode: BmcRegistrationMode,
         paused: bool,
-        api_throttler: ApiThrottler,
     ) -> eyre::Result<Vec<HostMachineActor>> {
         let machines = self
             .app_context
@@ -46,8 +42,6 @@ impl MachineATron {
                         self.app_context.clone(),
                         config.clone(),
                         dhcp_client.clone(),
-                        bmc_listen_mode.clone(),
-                        api_throttler.clone(),
                     );
 
                     host_machine.start(paused)
@@ -57,13 +51,15 @@ impl MachineATron {
 
         for machine in &machines {
             // Inform the API that we have finished our reboot (ie. scout is now running)
-            api_client::add_expected_machine(
-                &self.app_context,
-                machine.host_machine_info.bmc_mac_address.to_string(),
-                machine.host_machine_info.serial.clone(),
-            )
-            .await?;
+            self.app_context
+                .api_client()
+                .add_expected_machine(
+                    machine.host_machine_info.bmc_mac_address.to_string(),
+                    machine.host_machine_info.serial.clone(),
+                )
+                .await?;
         }
+
         // Useful for comparing values in logs with machine-a-tron's state
         tracing::info!(
             "Machine-a-tron using machines: {:?}",
@@ -96,7 +92,10 @@ impl MachineATron {
             let host_port_str =
                 format!("{}:{}", host_str, self.app_context.app_config.bmc_mock_port);
             tracing::info!("Configuring carbide API to use {host_port_str} as bmc_proxy",);
-            _ = api_client::configure_bmc_proxy_host(&self.app_context, host_port_str)
+            _ = self
+                .app_context
+                .api_client()
+                .configure_bmc_proxy_host(host_port_str)
                 .await
                 .inspect_err(
                     |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),
@@ -106,19 +105,12 @@ impl MachineATron {
         for (_config_name, config) in self.app_context.app_config.machines.iter() {
             for _ in 0..config.vpc_count {
                 let app_context = self.app_context.clone();
-                let vpc = Vpc::new(app_context, config.clone(), tui_event_tx.clone()).await;
+                let vpc = Vpc::new(app_context, tui_event_tx.clone()).await;
 
                 for _ in 0..config.subnets_per_vpc {
                     let app_context = self.app_context.clone();
 
-                    match Subnet::new(
-                        app_context,
-                        config.clone(),
-                        tui_event_tx.clone(),
-                        &vpc.vpc_name,
-                    )
-                    .await
-                    {
+                    match Subnet::new(app_context, tui_event_tx.clone(), &vpc.vpc_name).await {
                         Ok(subnet) => {
                             subnet_handles.push(subnet);
                         }
@@ -164,12 +156,11 @@ impl MachineATron {
                     };
 
                     // TODO: Remove the hardcoded subnet_0 to be user specified through CLI.
-                    match api_client::allocate_instance(
-                        &self.app_context.clone(),
-                        &hid_for_instance.to_string(),
-                        "subnet_0",
-                    )
-                    .await
+                    match self
+                        .app_context
+                        .api_client()
+                        .allocate_instance(&hid_for_instance.to_string(), "subnet_0")
+                        .await
                     {
                         Ok(_) => {
                             assigned_mat_ids.insert(free_machine.mat_id);
@@ -187,7 +178,7 @@ impl MachineATron {
         // It rather soft deletes the VPCs by updating the deleted column of a vpc.
         for vpc in vpc_handles {
             tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
-            if let Err(e) = api_client::delete_vpc(&self.app_context.clone(), &vpc.vpc_id).await {
+            if let Err(e) = self.app_context.api_client().delete_vpc(&vpc.vpc_id).await {
                 tracing::error!("Delete VPC Api call failed with {}", e)
             }
         }
@@ -197,9 +188,11 @@ impl MachineATron {
                 "Attempting to delete network segment with id: {} from db.",
                 subnet.segment_id
             );
-            if let Err(e) =
-                api_client::delete_network_segment(&self.app_context.clone(), &subnet.segment_id)
-                    .await
+            if let Err(e) = self
+                .app_context
+                .api_client()
+                .delete_network_segment(&subnet.segment_id)
+                .await
             {
                 tracing::error!("Delete network segment Api call failed with {}", e)
             }
@@ -212,7 +205,10 @@ impl MachineATron {
             .is_some()
         {
             tracing::info!("Removing bmc_proxy configuration from carbide API");
-            _ = api_client::configure_bmc_proxy_host(&self.app_context, "".to_string())
+            _ = self
+                .app_context
+                .api_client()
+                .configure_bmc_proxy_host("".to_string())
                 .await
                 .inspect_err(
                     |e| tracing::warn!(error = ?e, "Could not configure carbide bmc_proxy"),

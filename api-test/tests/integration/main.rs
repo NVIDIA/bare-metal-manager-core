@@ -629,7 +629,7 @@ where
     let mat_config = MachineATronConfig {
         machines: BTreeMap::from([(
             "config".to_string(),
-            MachineConfig {
+            Arc::new(MachineConfig {
                 host_count,
                 dpu_per_host_count,
                 boot_delay: 1,
@@ -650,13 +650,13 @@ where
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
                 dpus_in_nic_mode,
-            },
+            }),
         )]),
-        carbide_api_url: Some(format!(
+        carbide_api_url: format!(
             "https://{}:{}",
             test_env.carbide_api_addr.ip(),
             test_env.carbide_api_addr.port()
-        )),
+        ),
         log_file: None,
         bmc_mock_host_tar: PathBuf::from(format!(
             "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",

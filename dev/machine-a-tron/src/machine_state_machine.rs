@@ -9,8 +9,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use crate::api_client;
-use crate::api_client::{record_dpu_network_status, ClientApiError, MockDiscoveryData};
+use crate::api_client::{ClientApiError, MockDiscoveryData};
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
@@ -43,10 +42,9 @@ pub struct MachineStateMachine {
     bmc_dhcp_id: Uuid,
     bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
 
-    config: MachineConfig,
-    app_context: MachineATronContext,
+    config: Arc<MachineConfig>,
+    app_context: Arc<MachineATronContext>,
     dhcp_client: DhcpRelayClient,
-    bmc_registration_mode: BmcRegistrationMode,
     tpm_ek_certificate: Option<Vec<u8>>,
 }
 
@@ -92,11 +90,10 @@ enum NextState {
 impl MachineStateMachine {
     pub fn new(
         machine_info: MachineInfo,
-        config: MachineConfig,
-        app_context: MachineATronContext,
+        config: Arc<MachineConfig>,
+        app_context: Arc<MachineATronContext>,
         dhcp_client: DhcpRelayClient,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
-        bmc_listen_mode: BmcRegistrationMode,
         tpm_ek_certificate: Option<Vec<u8>>,
     ) -> MachineStateMachine {
         // TODO: we want to support cases where machines are racked and plugged in but powered off,
@@ -114,7 +111,6 @@ impl MachineStateMachine {
             config,
             app_context,
             dhcp_client,
-            bmc_registration_mode: bmc_listen_mode,
             tpm_ek_certificate,
         }
     }
@@ -419,7 +415,10 @@ impl MachineStateMachine {
                 .ok_or(MissingMachineId)?;
 
             // Inform the API that we have finished our reboot (ie. scout is now running)
-            api_client::reboot_completed(&self.app_context, machine_id.clone()).await?;
+            self.app_context
+                .api_client()
+                .reboot_completed(machine_id.clone())
+                .await?;
 
             return Ok(NextState::Advance(
                 machine_up_state
@@ -446,17 +445,18 @@ impl MachineStateMachine {
             Action::Discovery => self.send_discovery_complete(machine_id).await?,
             Action::MachineValidation => {
                 if let Some(validation_id) = get_validation_id(&control_response) {
-                    api_client::machine_validation_complete(
-                        &self.app_context,
-                        machine_id,
-                        validation_id,
-                    )
-                    .await?;
+                    self.app_context
+                        .api_client()
+                        .machine_validation_complete(machine_id, validation_id)
+                        .await?;
                 }
             }
             Action::Reset => {
                 tracing::debug!("Got Reset action in scout image, sending cleanup_complete");
-                api_client::cleanup_complete(&self.app_context, machine_id).await?;
+                self.app_context
+                    .api_client()
+                    .cleanup_complete(machine_id)
+                    .await?;
             }
             Action::Noop => {}
             _ => {
@@ -483,25 +483,27 @@ impl MachineStateMachine {
         };
 
         let start = Instant::now();
-        let machine_discovery_result = api_client::discover_machine(
-            &self.app_context,
-            &self.config.template_dir,
-            rpc_machine_type(&self.machine_info),
-            MockDiscoveryData {
-                machine_interface_id,
-                network_interface_macs: self
-                    .machine_info
-                    .dhcp_mac_addresses()
-                    .iter()
-                    .map(MacAddress::to_string)
-                    .collect(),
-                product_serial: self.machine_info.product_serial(),
-                chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
-                host_mac_address: self.machine_info.host_mac_address(),
-                tpm_ek_certificate: self.tpm_ek_certificate.clone(),
-            },
-        )
-        .await?;
+        let machine_discovery_result = self
+            .app_context
+            .api_client()
+            .discover_machine(
+                &self.config.template_dir,
+                rpc_machine_type(&self.machine_info),
+                MockDiscoveryData {
+                    machine_interface_id,
+                    network_interface_macs: self
+                        .machine_info
+                        .dhcp_mac_addresses()
+                        .iter()
+                        .map(MacAddress::to_string)
+                        .collect(),
+                    product_serial: self.machine_info.product_serial(),
+                    chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
+                    host_mac_address: self.machine_info.host_mac_address(),
+                    tpm_ek_certificate: self.tpm_ek_certificate.clone(),
+                },
+            )
+            .await?;
 
         tracing::trace!("discover_machine took {}ms", start.elapsed().as_millis());
         Ok(machine_discovery_result)
@@ -511,9 +513,11 @@ impl MachineStateMachine {
         &self,
         machine_id: rpc::MachineId,
     ) -> Result<(), MachineStateError> {
-        let network_config =
-            api_client::get_managed_host_network_config(&self.app_context, machine_id.clone())
-                .await?;
+        let network_config = self
+            .app_context
+            .api_client()
+            .get_managed_host_network_config(machine_id.clone())
+            .await?;
 
         let mut instance_network_config_version: Option<String> = None;
         let instance_config_version: Option<String> = None;
@@ -556,16 +560,17 @@ impl MachineStateMachine {
             }
         };
 
-        record_dpu_network_status(
-            &self.app_context,
-            machine_id.clone(),
-            network_config.managed_host_config_version,
-            instance_network_config_version,
-            instance_config_version,
-            network_config.instance_id.clone(),
-            interfaces,
-        )
-        .await?;
+        self.app_context
+            .api_client()
+            .record_dpu_network_status(
+                machine_id.clone(),
+                network_config.managed_host_config_version,
+                instance_network_config_version,
+                instance_config_version,
+                network_config.instance_id.clone(),
+                interfaces,
+            )
+            .await?;
         Ok(())
     }
 
@@ -735,7 +740,7 @@ impl MachineStateMachine {
             self.app_context.clone(),
         );
 
-        let maybe_bmc_mock_handle = match &self.bmc_registration_mode {
+        let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
             BmcRegistrationMode::None(port) => {
                 let address = SocketAddr::new(ip_address.into(), *port);
                 let handle = bmc_mock.start(address, true).await?;
@@ -760,7 +765,10 @@ impl MachineStateMachine {
         machine_id: &rpc::MachineId,
     ) -> Result<(), ClientApiError> {
         let start = Instant::now();
-        api_client::discovery_complete(&self.app_context, machine_id.clone()).await?;
+        self.app_context
+            .api_client()
+            .discovery_complete(machine_id.clone())
+            .await?;
         tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
         Ok(())
     }
