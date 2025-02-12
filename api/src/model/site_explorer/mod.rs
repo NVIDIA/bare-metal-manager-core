@@ -935,6 +935,8 @@ pub struct ComputerSystem {
     #[serde(default)]
     pub power_state: PowerState,
     pub sku: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_order: Option<BootOrder>,
 }
 
 impl ComputerSystem {
@@ -970,6 +972,7 @@ impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
             )),
             pcie_devices: system.pcie_devices.into_iter().map(Into::into).collect(),
             power_state: rpc::site_explorer::PowerState::from(system.power_state) as _,
+            boot_order: system.boot_order.map(|order| order.into()),
         }
     }
 }
@@ -1213,6 +1216,21 @@ impl From<ForgeSetupStatus> for rpc::site_explorer::ForgeSetupStatus {
     }
 }
 
+/// `BootOrder` definition.
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct BootOrder {
+    pub boot_order: Vec<BootOption>,
+}
+
+impl From<BootOrder> for rpc::site_explorer::BootOrder {
+    fn from(order: BootOrder) -> Self {
+        rpc::site_explorer::BootOrder {
+            boot_order: order.boot_order.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// `ForgeSetupDiff` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -1228,6 +1246,27 @@ impl From<ForgeSetupDiff> for rpc::site_explorer::ForgeSetupDiff {
             key: forge_setup_diff.key,
             expected: forge_setup_diff.expected,
             actual: forge_setup_diff.actual,
+        }
+    }
+}
+
+/// `BootOption` definition.
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct BootOption {
+    pub display_name: String,
+    pub id: String,
+    pub boot_option_enabled: Option<bool>,
+    pub uefi_device_path: Option<String>,
+}
+
+impl From<BootOption> for rpc::site_explorer::BootOption {
+    fn from(boot_option: BootOption) -> Self {
+        rpc::site_explorer::BootOption {
+            display_name: boot_option.display_name,
+            id: boot_option.id,
+            boot_option_enabled: boot_option.boot_option_enabled,
+            uefi_device_path: boot_option.uefi_device_path,
         }
     }
 }
@@ -1438,6 +1477,7 @@ mod tests {
                 base_mac: Some("A088C208804C".to_string()),
                 power_state: PowerState::On,
                 sku: None,
+                boot_order: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -1495,6 +1535,7 @@ mod tests {
                 base_mac: Some("A088C208804C".to_string()),
                 power_state: PowerState::On,
                 sku: None,
+                boot_order: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),

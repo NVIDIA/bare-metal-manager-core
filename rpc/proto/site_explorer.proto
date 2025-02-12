@@ -136,6 +136,7 @@ message ComputerSystem {
     repeated EthernetInterface ethernet_interfaces = 11;
     repeated PCIeDevice pcie_devices = 12;
     PowerState power_state = 13;
+    optional BootOrder boot_order = 14;
 }
 
 enum PowerState {
@@ -222,4 +223,15 @@ message SystemStatus {
   optional string health = 1;
   optional string health_rollup = 2;
   string state = 3;
+}
+
+message BootOrder {
+    repeated BootOption boot_order = 1;
+}
+
+message BootOption {
+    string display_name = 1;
+    string id = 2;
+    optional bool boot_option_enabled = 3;
+    optional string uefi_device_path = 4;
 }

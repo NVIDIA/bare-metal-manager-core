@@ -174,3 +174,17 @@ where
         None => String::new(),
     })
 }
+
+/// Formats the boot order list
+pub fn boot_order_fmt(
+    boot_order: &Option<rpc::site_explorer::BootOrder>,
+) -> ::askama::Result<String> {
+    let json_result = boot_order
+        .as_ref()
+        .and_then(|order| serde_json::to_string_pretty(order).ok())
+        .unwrap_or_default();
+
+    Ok(json_result
+        .trim_matches(|c| c == '{' || c == '}')
+        .to_string())
+}

@@ -229,6 +229,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 base_mac: None,
                 power_state: PowerState::On,
                 sku: None,
+                boot_order: None,
             }],
             chassis: vec![Chassis {
                 id: "System.Embedded.1".to_string(),
