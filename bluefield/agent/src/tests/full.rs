@@ -292,6 +292,30 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             .map(|ip| ip.to_string()),
         tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),
         is_l2_segment: false,
+        network_security_group: None,
+    };
+    assert_eq!(admin_interface.svi_ip, None);
+
+    let tenant_interface_prefix: IpNetwork = "192.168.1.12/32".parse().unwrap();
+
+    let tenant_interface = rpc::forge::FlatInterfaceConfig {
+        function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+        vlan_id: 10,
+        vni: 10100,
+        vpc_vni: 10101,
+        gateway: "192.168.1.0/16".to_string(),
+        ip: "192.168.1.12".to_string(),
+        interface_prefix: tenant_interface_prefix.to_string(),
+        virtual_function_id: None,
+        vpc_prefixes: vec![],
+        prefix: "192.168.1.1/32".to_string(),
+        fqdn: "host1".to_string(),
+        booturl: None,
+        svi_ip: get_svi_ip(&admin_network_prefix, virtualization_type, false, 3)
+            .unwrap()
+            .map(|ip| ip.to_string()),
+        tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),
+        is_l2_segment: false,
         network_security_group: Some(FlatInterfaceNetworkSecurityGroupConfig {
             id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
             version: "V1-1".to_string(),
@@ -305,10 +329,10 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                         .into(),
                     ipv6: false,
                     src_port_start: Some(80),
-                    src_port_end: Some(32768),
+                    src_port_end: Some(81),
                     dst_port_start: Some(80),
-                    dst_port_end: Some(32768),
-                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+                    dst_port_end: Some(81),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
                     action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
@@ -325,7 +349,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             }],
         }),
     };
-    assert_eq!(admin_interface.svi_ip, None);
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
         asn: 65535,
@@ -338,7 +361,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         managed_host_config_version: config_version.clone(),
         use_admin_network: true,
         admin_interface: Some(admin_interface),
-        tenant_interfaces: vec![],
+        tenant_interfaces: vec![tenant_interface],
         instance_network_config_version: config_version,
         instance_id: None,
         network_virtualization_type: Some(virtualization_type as i32),
