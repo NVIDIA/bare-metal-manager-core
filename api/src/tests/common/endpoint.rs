@@ -112,5 +112,6 @@ fn build_exploration_report(
         machine_id,
         versions: HashMap::default(),
         model: None,
+        forge_setup_status: None,
     }
 }

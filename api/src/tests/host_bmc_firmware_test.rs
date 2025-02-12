@@ -344,6 +344,7 @@ fn build_exploration_report(
         machine_id,
         versions: HashMap::default(),
         model: None,
+        forge_setup_status: None,
     };
     report.model = report.model();
     report
@@ -410,6 +411,7 @@ fn build_dpu_exploration_report(
         machine_id,
         versions: HashMap::default(),
         model: None,
+        forge_setup_status: None,
     }
 }
 

@@ -19,10 +19,8 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{
-    self as forgerpc, admin_power_control_request, BmcEndpointRequest, ForgeSetupStatus,
-};
-use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
+use rpc::forge::{self as forgerpc, admin_power_control_request, BmcEndpointRequest};
+use rpc::site_explorer::{ExploredEndpoint, ForgeSetupStatus, SiteExplorationReport};
 use serde::Deserialize;
 
 use super::filters;
@@ -363,7 +361,6 @@ struct ExploredEndpointDetail {
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
-    forge_setup_status: ForgeSetupStatus,
     credentials_set: String,
 }
 
@@ -377,7 +374,9 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             has_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.as_ref())
                 .is_some(),
-            forge_setup_status: forge_setup_status_to_string(&endpoint_info.forge_setup_status),
+            forge_setup_status: forge_setup_status_to_string(
+                report_ref.and_then(|report| report.forge_setup_status.as_ref()),
+            ),
             endpoint: endpoint_info.endpoint,
             credentials_set: endpoint_info.credentials_set,
         }
@@ -449,27 +448,6 @@ pub async fn detail(
         }
     }
 
-    let forge_setup_status = match state
-        .fetch_forge_setup_status(tonic::Request::new(rpc::forge::ForgeSetupStatusRequest {
-            machine_id: None,
-            bmc_endpoint_request: Some(BmcEndpointRequest {
-                ip_address: endpoint_ip.clone(),
-                mac_address: None,
-            }),
-        }))
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(response) => response,
-        Err(err) => {
-            tracing::error!(%err, endpoint_ip = %endpoint_ip, "forge_setup_status_update");
-            ForgeSetupStatus {
-                is_done: false,
-                diffs: vec![],
-            }
-        }
-    };
-
     let req = tonic::Request::new(forgerpc::BmcIp {
         bmc_ip: endpoint_ip.clone(),
     });
@@ -506,7 +484,6 @@ pub async fn detail(
 
     let endpoint_info = ExploredEndpointInfo {
         endpoint,
-        forge_setup_status,
         credentials_set,
     };
 
@@ -729,23 +706,23 @@ pub async fn forge_setup(
     Redirect::to(&view_url).into_response()
 }
 
-fn forge_setup_status_to_string(status: &ForgeSetupStatus) -> String {
-    if status.is_done {
-        "OK".to_string()
-    } else if status.diffs.is_empty() {
-        "Unable to fetch Forge Setup Status".to_string()
-    } else {
-        let diffs_string = status
-            .diffs
-            .iter()
-            .map(|diff| {
-                format!(
-                    "{} is '{}' expected '{}'",
-                    diff.key, diff.actual, diff.expected
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("Mismatch: {}", diffs_string)
+fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {
+    match status {
+        None => "Unable to fetch Forge Setup Status".to_string(),
+        Some(s) if s.is_done => "OK".to_string(),
+        Some(s) => {
+            let diffs_string = s
+                .diffs
+                .iter()
+                .map(|diff| {
+                    format!(
+                        "{} is '{}' expected '{}'",
+                        diff.key, diff.actual, diff.expected
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Mismatch: {}", diffs_string)
+        }
     }
 }

@@ -18,15 +18,15 @@ use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{EnabledDisabled, MachineSetupStatus, Redfish, RedfishError};
+use libredfish::{EnabledDisabled, Redfish, RedfishError};
 use regex::Regex;
 use serde_json::Value;
 
 use crate::model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
-    NicMode, PCIeDevice, PowerState, Service, SystemStatus, UefiDevicePath,
-    DPU_BIOS_ATTRIBUTES_MISSING,
+    EndpointExplorationReport, EndpointType, EthernetInterface, ForgeSetupDiff, ForgeSetupStatus,
+    Inventory, Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, Service, SystemStatus,
+    UefiDevicePath, DPU_BIOS_ATTRIBUTES_MISSING,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -229,6 +229,11 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_error)?;
 
+        let forge_setup_status = fetch_forge_setup_status(client.as_ref())
+            .await
+            .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge setup status."))
+            .ok();
+
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
@@ -241,6 +246,7 @@ impl RedfishClient {
             vendor,
             versions: HashMap::default(),
             model: None,
+            forge_setup_status,
         })
     }
 
@@ -294,25 +300,6 @@ impl RedfishClient {
             .map_err(map_redfish_error)?;
 
         Ok(())
-    }
-
-    pub async fn forge_setup_status(
-        &self,
-        bmc_ip_address: SocketAddr,
-        username: String,
-        password: String,
-    ) -> Result<MachineSetupStatus, EndpointExplorationError> {
-        let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, username, password)
-            .await
-            .map_err(map_redfish_client_creation_error)?;
-
-        let status = client
-            .machine_setup_status()
-            .await
-            .map_err(map_redfish_error)?;
-
-        Ok(status)
     }
 }
 
@@ -791,6 +778,24 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
     });
 
     Ok(service)
+}
+
+async fn fetch_forge_setup_status(client: &dyn Redfish) -> Result<ForgeSetupStatus, RedfishError> {
+    let status = client.machine_setup_status().await?;
+    let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
+
+    for diff in status.diffs {
+        diffs.push(ForgeSetupDiff {
+            key: diff.key,
+            expected: diff.expected,
+            actual: diff.actual,
+        });
+    }
+
+    Ok(ForgeSetupStatus {
+        is_done: status.is_done,
+        diffs,
+    })
 }
 
 pub(crate) fn map_redfish_client_creation_error(

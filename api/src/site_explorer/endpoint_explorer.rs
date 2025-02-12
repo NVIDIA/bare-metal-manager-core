@@ -17,7 +17,6 @@ use crate::{
         site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     },
 };
-use libredfish::MachineSetupStatus;
 use std::net::SocketAddr;
 
 use super::metrics::SiteExplorationMetrics;
@@ -72,10 +71,4 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
         boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError>;
-
-    async fn forge_setup_status(
-        &self,
-        address: SocketAddr,
-        interface: &MachineInterfaceSnapshot,
-    ) -> Result<MachineSetupStatus, EndpointExplorationError>;
 }
