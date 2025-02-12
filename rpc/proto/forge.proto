@@ -4110,6 +4110,7 @@ enum NetworkSecurityGroupRuleProtocol {
   NSG_RULE_PROTO_ICMP    = 2;
   NSG_RULE_PROTO_UDP     = 3;
   NSG_RULE_PROTO_TCP     = 4;
+  NSG_RULE_PROTO_ICMP6   = 5;
 }
 
 enum NetworkSecurityGroupRuleAction {

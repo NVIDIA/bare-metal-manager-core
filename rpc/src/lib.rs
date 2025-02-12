@@ -572,6 +572,7 @@ impl forge::NetworkSecurityGroupRuleProtocol {
         match s.to_uppercase().as_str() {
             "ANY" => Ok(Self::NsgRuleProtoAny as i32),
             "ICMP" => Ok(Self::NsgRuleProtoIcmp as i32),
+            "ICMP6" => Ok(Self::NsgRuleProtoIcmp6 as i32),
             "UDP" => Ok(Self::NsgRuleProtoUdp as i32),
             "TCP" => Ok(Self::NsgRuleProtoTcp as i32),
             _ => Ok(0),
@@ -594,6 +595,7 @@ impl forge::NetworkSecurityGroupRuleProtocol {
         Ok(match t {
             forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny => "ANY".to_string(),
             forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp => "ICMP".to_string(),
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 => "ICMP6".to_string(),
             forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp => "UDP".to_string(),
             forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp => "TCP".to_string(),
             forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoInvalid => "INVALID".to_string(),

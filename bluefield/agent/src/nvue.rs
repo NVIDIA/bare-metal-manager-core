@@ -26,6 +26,10 @@ pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
+/// This value is added to the priority value specified
+/// by users for their NSG rules.
+const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
+
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     if !conf.vpc_virtualization_type.supports_nvue() {
         return Err(eyre::eyre!(
@@ -81,25 +85,43 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
     let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
 
-    let mut ingress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-    let mut egress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-    let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
-    let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+    let (
+        has_network_security_group,
+        ingress_ipv4_rules,
+        egress_ipv4_rules,
+        ingress_ipv6_rules,
+        egress_ipv6_rules,
+    ) = if let Some(rules) = conf.ct_network_security_group_rules {
+        let mut ingress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+        let mut egress_ipv4_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+        let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
+        let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
 
-    for rule in &conf.ct_network_security_group_rules {
-        match (rule.ingress, rule.ipv6) {
-            (true, false) => ingress_ipv4_rules.push(rule),
-            (false, false) => egress_ipv4_rules.push(rule),
-            (true, true) => ingress_ipv6_rules.push(rule),
-            (false, true) => egress_ipv6_rules.push(rule),
+        for rule in rules.iter() {
+            match (rule.ingress, rule.ipv6) {
+                (true, false) => ingress_ipv4_rules.push(rule),
+                (false, false) => egress_ipv4_rules.push(rule),
+                (true, true) => ingress_ipv6_rules.push(rule),
+                (false, true) => egress_ipv6_rules.push(rule),
+            }
         }
-    }
 
-    // Order the rules by priority
-    ingress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
-    egress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
-    ingress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
-    egress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+        // Order the rules by priority
+        ingress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+        egress_ipv4_rules.sort_by_key(|nsg| nsg.priority);
+        ingress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+        egress_ipv6_rules.sort_by_key(|nsg| nsg.priority);
+
+        (
+            true,
+            expand_network_security_group_rules(ingress_ipv4_rules),
+            expand_network_security_group_rules(egress_ipv4_rules),
+            expand_network_security_group_rules(ingress_ipv6_rules),
+            expand_network_security_group_rules(egress_ipv6_rules),
+        )
+    } else {
+        (false, vec![], vec![], vec![], vec![])
+    };
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
@@ -138,22 +160,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     HostRoute: vl.network,
                 })
                 .collect(),
+            HasNetworkSecurityGroup: has_network_security_group,
             HasIpv4IngressSecurityGroupRules: !ingress_ipv4_rules.is_empty(),
             HasIpv4EgressSecurityGroupRules: !egress_ipv4_rules.is_empty(),
             HasIpv6IngressSecurityGroupRules: !ingress_ipv6_rules.is_empty(),
             HasIpv6EgressSecurityGroupRules: !egress_ipv6_rules.is_empty(),
-            IngressNetworkSecurityGroupRulesIpv4: expand_network_security_group_rules(
-                ingress_ipv4_rules,
-            ),
-            EgressNetworkSecurityGroupRulesIpv4: expand_network_security_group_rules(
-                egress_ipv4_rules,
-            ),
-            IngressNetworkSecurityGroupRulesIpv6: expand_network_security_group_rules(
-                ingress_ipv6_rules,
-            ),
-            EgressNetworkSecurityGroupRulesIpv6: expand_network_security_group_rules(
-                egress_ipv6_rules,
-            ),
+            IngressNetworkSecurityGroupRulesIpv4: ingress_ipv4_rules,
+            EgressNetworkSecurityGroupRulesIpv4: egress_ipv4_rules,
+            IngressNetworkSecurityGroupRulesIpv6: ingress_ipv6_rules,
+            EgressNetworkSecurityGroupRulesIpv6: egress_ipv6_rules,
         }],
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
@@ -213,32 +228,36 @@ fn expand_network_security_group_rules(
                         for si in src_start..=src_end {
                             for di in dst_start..=dst_end {
                                 tmpl_rules.push(TmplNetworkSecurityGroupRule {
-                                    id: rule.id.clone(),
-                                    has_src_port: true,
-                                    src_port: si,
-                                    has_dst_port: true,
-                                    dst_port: di,
-                                    protocol: rule.protocol.clone(),
-                                    action: rule.action.clone(),
-                                    src_prefix: src_prefix.clone(),
-                                    dst_prefix: dst_prefix.clone(),
-                                    priority: rule.priority + 100,
+                                    Id: rule.id.clone(),
+                                    HasSrcPort: true,
+                                    SrcPort: si,
+                                    HasDstPort: true,
+                                    DstPort: di,
+                                    CanMatchAnyProtocol: rule.can_match_any_protocol,
+                                    Protocol: rule.protocol.clone(),
+                                    Action: rule.action.clone(),
+                                    SrcPrefix: src_prefix.clone(),
+                                    DstPrefix: dst_prefix.clone(),
+                                    Priority: rule.priority
+                                        + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                                 });
                             }
                         }
                     } else {
                         for si in src_start..=src_end {
                             tmpl_rules.push(TmplNetworkSecurityGroupRule {
-                                id: rule.id.clone(),
-                                has_src_port: true,
-                                src_port: si,
-                                has_dst_port: false,
-                                dst_port: 0,
-                                protocol: rule.protocol.clone(),
-                                action: rule.action.clone(),
-                                src_prefix: src_prefix.clone(),
-                                dst_prefix: dst_prefix.clone(),
-                                priority: rule.priority + 100,
+                                Id: rule.id.clone(),
+                                HasSrcPort: true,
+                                SrcPort: si,
+                                HasDstPort: false,
+                                DstPort: 0,
+                                CanMatchAnyProtocol: rule.can_match_any_protocol,
+                                Protocol: rule.protocol.clone(),
+                                Action: rule.action.clone(),
+                                SrcPrefix: src_prefix.clone(),
+                                DstPrefix: dst_prefix.clone(),
+                                Priority: rule.priority
+                                    + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                             });
                         }
                     }
@@ -247,30 +266,32 @@ fn expand_network_security_group_rules(
                 {
                     for di in dst_start..=dst_end {
                         tmpl_rules.push(TmplNetworkSecurityGroupRule {
-                            id: rule.id.clone(),
-                            has_src_port: false,
-                            src_port: 0,
-                            has_dst_port: true,
-                            dst_port: di,
-                            protocol: rule.protocol.clone(),
-                            action: rule.action.clone(),
-                            src_prefix: src_prefix.clone(),
-                            dst_prefix: dst_prefix.clone(),
-                            priority: rule.priority + 100,
+                            Id: rule.id.clone(),
+                            HasSrcPort: false,
+                            SrcPort: 0,
+                            HasDstPort: true,
+                            DstPort: di,
+                            CanMatchAnyProtocol: rule.can_match_any_protocol,
+                            Protocol: rule.protocol.clone(),
+                            Action: rule.action.clone(),
+                            SrcPrefix: src_prefix.clone(),
+                            DstPrefix: dst_prefix.clone(),
+                            Priority: rule.priority + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                         });
                     }
                 } else {
                     tmpl_rules.push(TmplNetworkSecurityGroupRule {
-                        id: rule.id.clone(),
-                        has_src_port: false,
-                        src_port: 0,
-                        has_dst_port: false,
-                        dst_port: 0,
-                        protocol: rule.protocol.clone(),
-                        action: rule.action.clone(),
-                        src_prefix: src_prefix.clone(),
-                        dst_prefix: dst_prefix.clone(),
-                        priority: rule.priority + 100,
+                        Id: rule.id.clone(),
+                        HasSrcPort: false,
+                        SrcPort: 0,
+                        HasDstPort: false,
+                        DstPort: 0,
+                        CanMatchAnyProtocol: rule.can_match_any_protocol,
+                        Protocol: rule.protocol.clone(),
+                        Action: rule.action.clone(),
+                        SrcPrefix: src_prefix.clone(),
+                        DstPrefix: dst_prefix.clone(),
+                        Priority: rule.priority + NETWORK_SECURITY_GROUP_RULE_PRIORITY_START,
                     });
                 }
             }
@@ -448,7 +469,7 @@ pub struct NvueConfig {
     pub ct_external_access: Vec<String>,
     pub ct_access_vlans: Vec<VlanConfig>,
     pub ct_internet_l3_vni: Option<u32>,
-    pub ct_network_security_group_rules: Vec<NetworkSecurityGroupRule>,
+    pub ct_network_security_group_rules: Option<Vec<NetworkSecurityGroupRule>>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -461,6 +482,7 @@ pub struct NetworkSecurityGroupRule {
     pub src_port_end: Option<u32>,
     pub dst_port_start: Option<u32>,
     pub dst_port_end: Option<u32>,
+    pub can_match_any_protocol: bool,
     pub protocol: String,
     pub action: String,
     pub src_prefixes: Vec<String>,
@@ -556,16 +578,17 @@ struct TmplNvue {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplNetworkSecurityGroupRule {
-    id: String,
-    has_src_port: bool,
-    src_port: u32,
-    has_dst_port: bool,
-    dst_port: u32,
-    protocol: String,
-    action: String,
-    src_prefix: String,
-    dst_prefix: String,
-    priority: u32,
+    Id: String,
+    HasSrcPort: bool,
+    SrcPort: u32,
+    HasDstPort: bool,
+    DstPort: u32,
+    CanMatchAnyProtocol: bool,
+    Protocol: String,
+    Action: String,
+    SrcPrefix: String,
+    DstPrefix: String,
+    Priority: u32,
 }
 
 #[allow(non_snake_case)]
@@ -602,6 +625,7 @@ struct TmplComputeTenant {
 
     AccessVLANs: Vec<TmplConfigVLAN>,
 
+    HasNetworkSecurityGroup: bool,
     IngressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
     IngressNetworkSecurityGroupRulesIpv6: Vec<TmplNetworkSecurityGroupRule>,
     EgressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,

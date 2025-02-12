@@ -58,7 +58,7 @@ async fn test_network_security_group_create(
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
             action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
@@ -85,7 +85,7 @@ async fn test_network_security_group_create(
             src_port_end: Some(80),
             dst_port_start: Some(80),
             dst_port_end: Some(80),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
             action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
@@ -112,7 +112,7 @@ async fn test_network_security_group_create(
             src_port_end: Some(80),
             dst_port_start: Some(90),
             dst_port_end: Some(90),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
             action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
@@ -322,7 +322,7 @@ async fn test_network_security_group_update(
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
             action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
@@ -349,7 +349,7 @@ async fn test_network_security_group_update(
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
                 action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(

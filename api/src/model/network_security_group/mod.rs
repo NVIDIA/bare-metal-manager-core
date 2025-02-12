@@ -19,15 +19,16 @@ use forge_uuid::{
 };
 use ipnetwork;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{model::metadata::Metadata, CarbideError};
 
 use super::tenant::TenantOrganizationId;
 
-// The maximum priority value allowed for security group rule.
-// We could expose this in config and validate it in the API
-// handlers, but it's based on the hard limit of the field in
-// NVUE, so setting it close to the limit seems sufficient.
+/// The maximum priority value allowed for security group rule.
+/// We could expose this in config and validate it in the API
+/// handlers, but it's based on the hard limit of the field in
+/// NVUE, so setting it close to the limit seems sufficient.
 const MAX_RULE_PRIORITY: u32 = 60000;
 
 /* ********************************** */
@@ -230,6 +231,7 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleDirection> for NetworkSecurityGroupRul
 pub enum NetworkSecurityGroupRuleProtocol {
     Any,
     Icmp,
+    Icmp6,
     Udp,
     Tcp,
 }
@@ -239,6 +241,7 @@ impl fmt::Display for NetworkSecurityGroupRuleProtocol {
         match self {
             NetworkSecurityGroupRuleProtocol::Any => write!(f, "ANY"),
             NetworkSecurityGroupRuleProtocol::Icmp => write!(f, "ICMP"),
+            NetworkSecurityGroupRuleProtocol::Icmp6 => write!(f, "ICMP6"),
             NetworkSecurityGroupRuleProtocol::Udp => write!(f, "UDP"),
             NetworkSecurityGroupRuleProtocol::Tcp => write!(f, "TCP"),
         }
@@ -253,6 +256,9 @@ impl From<NetworkSecurityGroupRuleProtocol> for rpc::NetworkSecurityGroupRulePro
             }
             NetworkSecurityGroupRuleProtocol::Icmp => {
                 rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+            }
+            NetworkSecurityGroupRuleProtocol::Icmp6 => {
+                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6
             }
             NetworkSecurityGroupRuleProtocol::Udp => {
                 rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
@@ -280,6 +286,9 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleProtocol> for NetworkSecurityGroupRule
             }
             rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp => {
                 Ok(NetworkSecurityGroupRuleProtocol::Icmp)
+            }
+            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 => {
+                Ok(NetworkSecurityGroupRuleProtocol::Icmp6)
             }
             rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp => {
                 Ok(NetworkSecurityGroupRuleProtocol::Udp)
@@ -474,34 +483,72 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
     type Error = RpcDataConversionError;
 
     fn try_from(rule: rpc::NetworkSecurityGroupRuleAttributes) -> Result<Self, Self::Error> {
-        match (rule.src_port_start, rule.src_port_end) {
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(RpcDataConversionError::MissingArgument(
-                    "src_port_start and src_port_end are mutually required",
-                ))
+        match rule.protocol() {
+            p @ (rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny
+            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6) => {
+                if rule.src_port_start.is_some()
+                    || rule.src_port_end.is_some()
+                    || rule.dst_port_start.is_some()
+                    || rule.dst_port_end.is_some()
+                {
+                    return Err(RpcDataConversionError::InvalidValue(
+                        "protocol".to_string(),
+                        format!(
+                            "ports cannot be specified with `{}` protocol option",
+                            p.as_str_name()
+                        ),
+                    ));
+                }
             }
-            (Some(s), Some(e)) if e < s => {
-                return Err(RpcDataConversionError::InvalidValue(
-                    "src_port_end".to_string(),
-                    "src_port_end is less than src_port_start".to_string(),
-                ))
+            // If the protocol allows ports, let's make sure
+            // the port options are being used correctly.
+            _ => {
+                match (rule.src_port_start, rule.src_port_end) {
+                    (Some(_), None) | (None, Some(_)) => {
+                        return Err(RpcDataConversionError::MissingArgument(
+                            "src_port_start and src_port_end are mutually required",
+                        ))
+                    }
+                    (Some(s), Some(e)) if e < s => {
+                        return Err(RpcDataConversionError::InvalidValue(
+                            "src_port_end".to_string(),
+                            "src_port_end is less than src_port_start".to_string(),
+                        ))
+                    }
+                    _ => {} // Do nothing.  All is well.
+                }
+
+                match (rule.dst_port_start, rule.dst_port_end) {
+                    (Some(_), None) | (None, Some(_)) => {
+                        return Err(RpcDataConversionError::MissingArgument(
+                            "dst_port_start and dst_port_end are mutually required",
+                        ))
+                    }
+                    (Some(s), Some(e)) if e < s => {
+                        return Err(RpcDataConversionError::InvalidValue(
+                            "dst_port_end".to_string(),
+                            "dst_port_end is less than dst_port_start".to_string(),
+                        ))
+                    }
+                    _ => {} // Do nothing.  All is well.
+                }
             }
-            _ => {} // Do nothing.  All is well.
+        };
+
+        if rule.protocol() == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp && rule.ipv6 {
+            return Err(RpcDataConversionError::InvalidValue(
+                "protocol".to_string(),
+                "ICMP cannot be used with ipv6 rules".to_string(),
+            ));
         }
 
-        match (rule.dst_port_start, rule.dst_port_end) {
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(RpcDataConversionError::MissingArgument(
-                    "dst_port_start and dst_port_end are mutually required",
-                ))
-            }
-            (Some(s), Some(e)) if e < s => {
-                return Err(RpcDataConversionError::InvalidValue(
-                    "dst_port_end".to_string(),
-                    "dst_port_end is less than dst_port_start".to_string(),
-                ))
-            }
-            _ => {} // Do nothing.  All is well.
+        if rule.protocol() == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 && !rule.ipv6
+        {
+            return Err(RpcDataConversionError::InvalidValue(
+                "protocol".to_string(),
+                "ICMP6 cannot be used with ipv4 rules".to_string(),
+            ));
         }
 
         if rule.priority > MAX_RULE_PRIORITY {
@@ -514,7 +561,7 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
             ));
         }
 
-        Ok(NetworkSecurityGroupRule {
+        let converted_rule = NetworkSecurityGroupRule {
             direction: rule.direction().try_into()?,
             protocol: rule.protocol().try_into()?,
             action: rule.action().try_into()?,
@@ -530,14 +577,39 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
                     "dst_net is required",
                 ))?
                 .try_into()?,
-            id: rule.id,
+            id: Some(rule.id.unwrap_or_else(|| format!("{}", Uuid::new_v4()))),
             ipv6: rule.ipv6,
             src_port_start: rule.src_port_start,
             src_port_end: rule.src_port_end,
             dst_port_start: rule.dst_port_start,
             dst_port_end: rule.dst_port_end,
             priority: rule.priority,
-        })
+        };
+
+        // If prefix is used for src or dst, IP version must match rule ipv6 value.
+        // This also implicitly ensures that src and dst are the same IP version.
+        match (&converted_rule.src_net, &converted_rule.dst_net) {
+            (
+                NetworkSecurityGroupRuleNet::Prefix(ref s),
+                NetworkSecurityGroupRuleNet::Prefix(ref d),
+            ) => {
+                if s.is_ipv6() != converted_rule.ipv6 {
+                    return Err(RpcDataConversionError::InvalidValue(
+                        "src_prefix".to_string(),
+                        "IP version of prefix does not match IP version of rule".to_string(),
+                    ));
+                }
+
+                if d.is_ipv6() != converted_rule.ipv6 {
+                    return Err(RpcDataConversionError::InvalidValue(
+                        "dst_prefix".to_string(),
+                        "IP version of prefix does not match IP version of rule".to_string(),
+                    ));
+                }
+            }
+        };
+
+        Ok(converted_rule)
     }
 }
 
@@ -907,6 +979,7 @@ mod tests {
             rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
     }
+
     #[test]
     fn test_model_nsg_to_rpc_conversion() {
         let version = ConfigVersion::initial();
@@ -930,7 +1003,7 @@ mod tests {
                     src_port_end: Some(32768),
                     dst_port_start: Some(80),
                     dst_port_end: Some(32768),
-                    protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+                    protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
                     action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
@@ -971,7 +1044,7 @@ mod tests {
                 src_port_end: Some(32768),
                 dst_port_start: Some(80),
                 dst_port_end: Some(32768),
-                protocol: NetworkSecurityGroupRuleProtocol::Any,
+                protocol: NetworkSecurityGroupRuleProtocol::Tcp,
                 action: NetworkSecurityGroupRuleAction::Deny,
                 priority: 9001,
                 src_net: NetworkSecurityGroupRuleNet::Prefix("0.0.0.0/0".parse().unwrap()),
@@ -984,6 +1057,184 @@ mod tests {
         // Verify that we can go from an internal instance type to the
         // protobuf InstanceType message
         assert_eq!(req_type, rpc::NetworkSecurityGroup::try_from(nsg).unwrap());
+    }
+
+    #[test]
+    fn test_rpc_rule_to_nsg_model_rule_conversion_failures() {
+        // ICMP with ports should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // ICMP6 with ports should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: true,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // ANY with ports should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: true,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // v4 prefixes with v6 rule should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: true,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // v6 prefixes with v4 rule should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // ICMP6 with v4 rule should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: None,
+            src_port_end: None,
+            dst_port_start: None,
+            dst_port_end: None,
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "1.1.1.1/24".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "1.1.1.1/24".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+
+        // ICMP6 with v4 rule should fail
+        let req = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: true,
+            src_port_start: None,
+            src_port_end: None,
+            dst_port_start: None,
+            dst_port_end: None,
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                ),
+            ),
+        };
+        NetworkSecurityGroupRule::try_from(req).unwrap_err();
     }
 
     #[test]
