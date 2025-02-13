@@ -10,11 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 use std::net::SocketAddr;
-
+use std::path::PathBuf;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
+
+pub struct ApiServerTestConfig {
+    pub use_site_explorer: bool,
+    pub firmware_update_mode: TestFirmwareUpdateMode,
+}
+
+pub enum TestFirmwareUpdateMode {
+    Disabled,
+    Enabled { firmware_path: PathBuf },
+}
 
 // Use a struct for the args to start() so that callers can see argument names
 pub struct StartArgs {
@@ -23,19 +33,24 @@ pub struct StartArgs {
     pub db_url: String,
     pub vault_token: String,
     pub bmc_proxy: Option<HostPortPair>,
-    pub use_site_explorer: bool,
+    pub test_config: ApiServerTestConfig,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
 }
 
 pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
+    // Destructure start args
     let StartArgs {
         addr,
         root_dir,
         db_url,
         vault_token,
         bmc_proxy,
-        use_site_explorer,
+        test_config:
+            ApiServerTestConfig {
+                use_site_explorer,
+                firmware_update_mode,
+            },
         stop_channel,
         ready_channel,
     } = start_args;
@@ -55,6 +70,30 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         } else {
             "allow_proxy_to_unknown_host = true"
         };
+
+        let dpu_config = match firmware_update_mode {
+            TestFirmwareUpdateMode::Disabled => {
+                r#"
+                [dpu_config]
+                dpu_nic_firmware_initial_update_enabled = false
+                dpu_nic_firmware_reprovision_update_enabled = false
+                "#
+            }
+            TestFirmwareUpdateMode::Enabled { .. } => {
+                // By putting anything in dpu_config at all, we leave things like dpu_models empty,
+                // which causes carbide-api to not construct a default list. So leave the section blank,
+                // which will enable firmware updates.
+                "# leaving DPU config at default"
+            }
+        };
+
+        let firmware_directory = match firmware_update_mode {
+            TestFirmwareUpdateMode::Disabled => String::new(),
+            TestFirmwareUpdateMode::Enabled { firmware_path } => {
+                firmware_path.to_string_lossy().into_owned()
+            }
+        };
+
         format!(
             r#"
         listen = "{addr}"
@@ -151,11 +190,11 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
 
         [site_explorer]
         enabled = true
-        run_interval = "5s"
+        run_interval = "1s"
         concurrent_explorations = 30
         explorations_per_run = 90
         create_machines = {site_explorer_create_machines}
-        machines_created_per_run = 1
+        machines_created_per_run = 30
         allow_zero_dpu_hosts = true
         {allow_proxy_to_unknown_host}
         {bmc_proxy_cfg}
@@ -185,10 +224,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         max_object_handling_time = "180s"
         max_concurrency = 10
 
-
-        [dpu_config]
-        dpu_nic_firmware_initial_update_enabled = false
-        dpu_nic_firmware_reprovision_update_enabled = false
+        {dpu_config}
 
         [host_models]
 
@@ -199,7 +235,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         run_interval = "5s"
         max_uploads = 4
         concurrency_limit = 16
-        firmware_directory = ""
+        firmware_directory = "{firmware_directory}"
 
         [multi_dpu]
         enabled = false

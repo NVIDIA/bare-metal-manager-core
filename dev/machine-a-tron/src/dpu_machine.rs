@@ -43,7 +43,16 @@ impl DpuMachine {
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
-        let dpu_info = DpuMachineInfo::new(config.dpus_in_nic_mode);
+
+        // Prefer the configured firmware versions, but if any of the version fields are None, use
+        // the ones the server wants.
+        let firmware_versions = config
+            .dpu_firmware_versions
+            .clone()
+            .unwrap_or_default()
+            .fill_missing_from_desired_firmware(&app_context.desired_firmware_versions);
+
+        let dpu_info = DpuMachineInfo::new(config.dpus_in_nic_mode, firmware_versions.into());
         let state_machine = MachineStateMachine::new(
             MachineInfo::Dpu(dpu_info.clone()),
             config,

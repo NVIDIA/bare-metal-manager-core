@@ -459,6 +459,8 @@ service Forge {
   rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
 
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
+
+  rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -4158,4 +4160,17 @@ message NetworkSecurityGroupAttachments {
 
 message GetNetworkSecurityGroupAttachmentsResponse {
   repeated NetworkSecurityGroupAttachments attachments = 1;
+}
+
+message GetDesiredFirmwareVersionsRequest {
+}
+
+message GetDesiredFirmwareVersionsResponse {
+  repeated DesiredFirmwareVersionEntry entries = 1;
+}
+
+message DesiredFirmwareVersionEntry {
+  string vendor = 1;
+  string model = 2;
+  map<string, string> component_versions = 3;
 }

@@ -1235,9 +1235,12 @@ pub enum DpuModel {
     Unknown,
 }
 
-impl From<String> for DpuModel {
-    fn from(model: String) -> Self {
-        match model.to_lowercase().replace("-", " ") {
+impl<T> From<T> for DpuModel
+where
+    T: AsRef<str>,
+{
+    fn from(model: T) -> Self {
+        match model.as_ref().to_lowercase().replace("-", " ") {
             value if value.contains("bluefield 2") => DpuModel::BlueField2,
             value if value.contains("bluefield 3") => DpuModel::BlueField3,
             _ => DpuModel::Unknown,

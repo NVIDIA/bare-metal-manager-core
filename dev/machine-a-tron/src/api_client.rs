@@ -2,7 +2,8 @@ use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, GetDesiredFirmwareVersionsRequest, MachinesByIdsRequest,
+    PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
@@ -35,6 +36,7 @@ pub struct MockDiscoveryData {
     pub chassis_serial: Option<String>,
     pub tpm_ek_certificate: Option<Vec<u8>>,
     pub host_mac_address: Option<MacAddress>,
+    pub dpu_nic_version: Option<String>,
 }
 
 static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -129,6 +131,7 @@ impl ApiClient<'_> {
             chassis_serial,
             host_mac_address,
             tpm_ek_certificate,
+            dpu_nic_version,
         } = discovery_data;
         /*
         tracing::info!(
@@ -171,6 +174,9 @@ impl ApiClient<'_> {
         } else if let Some(ref mut dpu_info) = discovery_data.dpu_info {
             if let Some(host_mac_address) = host_mac_address {
                 dpu_info.factory_mac_address = host_mac_address.to_string();
+            }
+            if let Some(dpu_nic_version) = dpu_nic_version {
+                dpu_info.firmware_version = dpu_nic_version;
             }
         }
         discovery_data.network_interfaces = network_interface_macs
@@ -744,5 +750,20 @@ impl ApiClient<'_> {
         })
         .await
         .map(|r| r.into_inner())
+    }
+
+    pub async fn get_desired_firmware(
+        &self,
+    ) -> ClientApiResult<Vec<rpc::forge::DesiredFirmwareVersionEntry>> {
+        self.with_forge_client(|mut client| async move {
+            client
+                .get_desired_firmware_versions(tonic::Request::new(
+                    GetDesiredFirmwareVersionsRequest {},
+                ))
+                .await
+                .map_err(ClientApiError::InvocationError)
+        })
+        .await
+        .map(|r| r.into_inner().entries)
     }
 }

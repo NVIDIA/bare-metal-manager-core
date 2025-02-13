@@ -13,6 +13,8 @@ pub const DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER: &str = "Unspecified Base Board Se
 pub const DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER: &str = "Unspecified Chassis Board Serial Number";
 pub const DEFAULT_DMI_SYSTEM_MANUFACTURER: &str = "Unspecified System Manufacturer";
 pub const DEFAULT_DMI_SYSTEM_MODEL: &str = "Unspecified Model";
+pub const BF2_PRODUCT_NAME: &str = "BlueField SoC";
+pub const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
 
 /// A string to display to the user. Either the 'reason' or 'err' field, or None.
 pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {

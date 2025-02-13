@@ -4,6 +4,7 @@ use crate::BmcRegistrationMode;
 use axum::Router;
 use clap::Parser;
 use duration_str::deserialize_duration;
+use rpc::forge::DesiredFirmwareVersionEntry;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -82,6 +83,60 @@ pub struct MachineConfig {
     /// If true, DPUs will run in "nic mode" and will not PXE boot, and their BMC JSON will reflect as such
     #[serde(default)]
     pub dpus_in_nic_mode: bool,
+
+    /// What firmware versions to report for DPUs in this host
+    #[serde(default)]
+    pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
+pub struct DpuFirmwareVersions {
+    pub bmc: Option<String>,
+    pub cec: Option<String>,
+    pub uefi: Option<String>,
+    pub nic: Option<String>,
+}
+
+/// BMC-mock has its own version of this data structure to avoid cyclic dependencies
+impl From<DpuFirmwareVersions> for bmc_mock::DpuFirmwareVersions {
+    fn from(value: DpuFirmwareVersions) -> Self {
+        Self {
+            bmc: value.bmc,
+            cec: value.cec,
+            uefi: value.uefi,
+            nic: value.nic,
+        }
+    }
+}
+
+impl DpuFirmwareVersions {
+    pub fn fill_missing_from_desired_firmware(
+        self,
+        desired_firmware: &[DesiredFirmwareVersionEntry],
+    ) -> Self {
+        // We emulate bf3 DPU's, find those from the desired firmware.
+        let Some(bf3_firmware_map) = desired_firmware
+            .iter()
+            .find(|entry| {
+                if entry.vendor != "nvidia" {
+                    return false;
+                }
+                let normalized = entry.model.as_str().to_lowercase().replace("-", " ");
+                normalized.contains("bluefield 3")
+            })
+            .map(|entry| &entry.component_versions)
+        else {
+            return self;
+        };
+
+        // Prefer onese we already have set, falling back on the server-wanted ones.
+        Self {
+            bmc: self.bmc.or_else(|| bf3_firmware_map.get("bmc").cloned()),
+            cec: self.cec.or_else(|| bf3_firmware_map.get("cec").cloned()),
+            uefi: self.uefi.or_else(|| bf3_firmware_map.get("uefi").cloned()),
+            nic: self.nic.or_else(|| bf3_firmware_map.get("nic").cloned()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -172,6 +227,9 @@ pub struct MachineATronContext {
     pub dpu_tar_router: Router,
     pub bmc_registration_mode: BmcRegistrationMode,
     pub api_throttler: ApiThrottler,
+    /// These are the firmware versions the server wants us to be on. If not configured for other
+    /// firmware, DPU's can mock that they already have this installed.
+    pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
 }
 
 impl MachineATronContext {

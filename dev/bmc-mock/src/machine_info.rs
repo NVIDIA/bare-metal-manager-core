@@ -27,16 +27,25 @@ pub struct DpuMachineInfo {
     pub oob_mac_address: MacAddress,
     pub serial: String,
     pub nic_mode: bool,
+    pub firmware_versions: DpuFirmwareVersions,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DpuFirmwareVersions {
+    pub bmc: Option<String>,
+    pub uefi: Option<String>,
+    pub cec: Option<String>,
+    pub nic: Option<String>,
 }
 
 impl Default for DpuMachineInfo {
     fn default() -> Self {
-        Self::new(false)
+        Self::new(false, Default::default())
     }
 }
 
 impl DpuMachineInfo {
-    pub fn new(nic_mode: bool) -> Self {
+    pub fn new(nic_mode: bool, firmware_versions: DpuFirmwareVersions) -> Self {
         let bmc_mac_address = next_mac();
         let host_mac_address = next_mac();
         let oob_mac_address = next_mac();
@@ -45,6 +54,7 @@ impl DpuMachineInfo {
             host_mac_address,
             oob_mac_address,
             nic_mode,
+            firmware_versions,
             serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
         }
     }

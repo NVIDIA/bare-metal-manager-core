@@ -12,10 +12,10 @@
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::{
-    api_throttler, BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor,
-    MachineATron, MachineATronConfig, MachineATronContext,
+    api_client::ApiClient, api_throttler, BmcMockRegistry, BmcRegistrationMode, DhcpRelayService,
+    HostMachineActor, MachineATron, MachineATronConfig, MachineATronContext,
 };
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,14 +47,27 @@ pub async fn run_local(
         forge_client_config.clone(),
     );
 
+    let desired_firmware = ApiClient::from(ApiConfig::new(
+        &app_config.carbide_api_url,
+        &forge_client_config,
+    ))
+    .get_desired_firmware()
+    .await?;
+
+    tracing::info!(
+        "Got desired firmware versions from the server: {:?}",
+        desired_firmware
+    );
+
     let app_context = Arc::new(MachineATronContext {
         app_config,
         forge_client_config,
         bmc_mock_certs_dir: Some(repo_root.join("dev/bmc-mock")),
-        dpu_tar_router,
         host_tar_router,
+        dpu_tar_router,
         bmc_registration_mode: BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
         api_throttler,
+        desired_firmware_versions: desired_firmware,
     });
 
     // Start DHCP relay

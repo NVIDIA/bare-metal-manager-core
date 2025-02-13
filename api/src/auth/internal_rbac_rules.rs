@@ -383,6 +383,10 @@ impl InternalRBACRules {
             "GetNetworkSecurityGroupAttachments",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm(
+            "GetDesiredFirmwareVersions",
+            vec![ForgeAdminCLI, Machineatron],
+        );
 
         x
     }

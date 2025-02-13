@@ -26,6 +26,7 @@ use std::{
 };
 use tracing::{error, warn};
 use uname::uname;
+use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 
 pub mod dpu;
 mod gpu;
@@ -38,9 +39,6 @@ const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
 const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
 const PCI_VENDOR_FROM_DB: &str = "ID_VENDOR_FROM_DATABASE";
 const PCI_DEVICE_ID: &str = "ID_MODEL_ID";
-
-const BF2_PRODUCT_NAME: &str = "BlueField SoC";
-const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
 const BF_PRODUCT_NAME_REGEX: &str = "BlueField";
 const BF3_CPU_PART: &str = "0xd42";
 const NVIDIA_VENDOR_ID: &str = "0x10de";

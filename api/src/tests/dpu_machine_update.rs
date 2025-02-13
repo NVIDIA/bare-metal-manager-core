@@ -266,7 +266,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
             firmware_version: "test_version".to_string(),
             product_name: "BlueField SoC".to_string(),
         }],
-        expected_dpu_firmware_versions.clone(),
+        &expected_dpu_firmware_versions,
     )
     .await
     .unwrap();
@@ -335,7 +335,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
                 product_name: "BlueField SoC".to_string(),
             },
         ],
-        expected_dpu_firmware_versions.clone(),
+        &expected_dpu_firmware_versions,
     )
     .await
     .unwrap();

@@ -21,6 +21,7 @@ use std::{
     time::{self, Duration},
 };
 
+use crate::api_server::{ApiServerTestConfig, TestFirmwareUpdateMode};
 use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
@@ -128,7 +129,10 @@ async fn test_integration() -> eyre::Result<()> {
         )),
         // TODO: enabling create_machines in site explorer causes failures
         // it appears this test was written without site-explorer in mind.
-        false,
+        ApiServerTestConfig {
+            use_site_explorer: false,
+            firmware_update_mode: TestFirmwareUpdateMode::Disabled,
+        },
     )
     .await?;
 
@@ -309,6 +313,12 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     )
     .await?;
 
+    // For preingestion firmware checks to work, carbide needs a directory which exists to be
+    // configured as the firmware_directory. It can be empty, because our mocks should be showing
+    // the desired firmware verisions to carbide (and thus it won't try to update.) This folder will
+    // be deleted on Drop.
+    let empty_firmware_dir = tempdir::TempDir::new("firmware")?;
+
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
     let server_handle = utils::start_api_server(
@@ -317,7 +327,12 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             "127.0.0.1".to_string(),
             bmc_mock_handle.address.port(),
         )),
-        true,
+        ApiServerTestConfig {
+            use_site_explorer: true,
+            firmware_update_mode: TestFirmwareUpdateMode::Enabled {
+                firmware_path: empty_firmware_dir.path().to_path_buf(),
+            },
+        },
     )
     .await?;
 
@@ -650,6 +665,7 @@ where
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
                 dpus_in_nic_mode,
+                dpu_firmware_versions: None,
             }),
         )]),
         carbide_api_url: format!(
