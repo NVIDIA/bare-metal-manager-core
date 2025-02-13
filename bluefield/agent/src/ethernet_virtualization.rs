@@ -307,7 +307,7 @@ pub async fn update_nvue(
                     ingress: rule.direction()
                         == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
                     can_match_any_protocol: rule.protocol()
-                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp,
+                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
                     ipv6: rule.ipv6,
                     priority: rule.priority,
                     src_port_start: rule.src_port_start,

@@ -24,8 +24,16 @@
       pf0hpf_if:
         type: swp
         acl: 
-          security_group: 
-            inbound: {} 
+          deny_prefixes_ipv4:
+            inbound: {}
+          security_group_ipv4_in: 
+            inbound: {}
+          security_group_ipv6_in:
+            inbound: {}
+          security_group_ipv4_out: 
+            outbound: {}
+          security_group_ipv6_out: 
+            outbound: {} 
         ip:
           address:
             192.168.0.0/16: {} 
@@ -151,11 +159,8 @@
                   11414:0: {}
                   auto: {}
     acl:
-      security_group:
-        rule:
-        type: ipv4
-      drop_dhcp_flood_over_overlay:
-        rule:
+      dhcp_flood_prevention:
+        rule: 
           '10':
             action:
               deny: {}
@@ -163,9 +168,83 @@
             match:
               ip:
                 dest-ip: 255.255.255.255
-                protocol: udp
                 dest-port:
                   '67': {}
+                protocol: udp
                 source-port:
                   '68': {}
         type: ipv4
+      deny_prefixes_ipv4:
+        rule:
+      security_group_ipv4_in: 
+        rule:
+          '65535':
+            action:
+              deny: {}
+        type: ipv4
+      security_group_ipv6_in: 
+        rule:
+          '65535':
+            action:
+              deny: {}
+        type: ipv6
+      security_group_ipv4_out: 
+        rule:
+          '2000':
+            action:
+              DENY: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: TCP
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2001':
+            action:
+              DENY: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: TCP
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              DENY: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                dest-port:
+                  '80': {} 
+                protocol: TCP
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              DENY: {}
+            match:
+              ip:
+                dest-ip: 0.0.0.0/0
+                dest-port:
+                  '81': {} 
+                protocol: TCP
+                source-ip: 0.0.0.0/0
+                source-port:
+                  '81': {}
+          '65535':
+            action:
+              deny: {}
+        type: ipv4
+      security_group_ipv6_out: 
+        rule:
+          '65535':
+            action:
+              deny: {}
+        type: ipv6
