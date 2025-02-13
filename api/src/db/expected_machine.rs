@@ -9,11 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::DerefMut;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
+use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
@@ -26,13 +27,23 @@ use forge_uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
-#[derive(Debug, Clone, Default)]
+fn default_metadata_for_deserializer() -> Metadata {
+    Metadata {
+        name: "".to_string(),
+        description: "".to_string(),
+        labels: HashMap::default(),
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
     pub serial_number: String,
     pub bmc_password: String,
+    #[serde(default)]
     pub fallback_dpu_serial_numbers: Vec<String>,
+    #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
 }
 
@@ -299,5 +310,42 @@ FROM expected_machines em
         self.fallback_dpu_serial_numbers = fallback_dpu_serial_numbers;
         self.metadata = metadata;
         Ok(self)
+    }
+
+    /// fn will insert rows that are not currently present in DB for each expected_machine arg in list,
+    /// but will NOT overwrite existing rows matching by MAC addr.
+    pub async fn create_missing_from(
+        txn: &mut Transaction<'_, Postgres>,
+        expected_machines: &[ExpectedMachine],
+    ) -> CarbideResult<()> {
+        let existing_machines = ExpectedMachine::find_all(txn).await?;
+        let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
+            .into_iter()
+            .map(|machine| (machine.bmc_mac_address.to_string(), machine))
+            .collect();
+
+        for expected_machine in expected_machines {
+            if existing_map.contains_key(&expected_machine.bmc_mac_address.to_string()) {
+                tracing::debug!(
+                    "Not overwriting expected-machine with mac_addr: {}",
+                    expected_machine.bmc_mac_address.to_string()
+                );
+                continue;
+            }
+
+            let expected_machine = expected_machine.clone();
+            ExpectedMachine::create(
+                txn,
+                expected_machine.bmc_mac_address,
+                expected_machine.bmc_username,
+                expected_machine.bmc_password,
+                expected_machine.serial_number,
+                expected_machine.fallback_dpu_serial_numbers,
+                expected_machine.metadata,
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 }

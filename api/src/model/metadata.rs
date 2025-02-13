@@ -11,12 +11,12 @@
  */
 
 use crate::model::ConfigValidationError;
+use ::rpc::errors::RpcDataConversionError;
+use serde::Deserialize;
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-
 /// Metadata that can get associated with Forge managed resources
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Metadata {
     /// user-defined resource name
     pub name: String,
