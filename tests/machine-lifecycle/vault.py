@@ -36,11 +36,11 @@ class ForgeVaultClient:
         dpu_bmc_username, dpu_bmc_password = dpu_bmc_creds.split(":", maxsplit=1)
         return dpu_bmc_username, dpu_bmc_password
 
-    def get_host_bmc_credentials(self):
+    def get_host_bmc_password(self):
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
         host_bmc_creds = read_response["data"]["data"]["server_bmc_creds"]
-        host_bmc_username, host_bmc_password = host_bmc_creds.split(":", maxsplit=1)
-        return host_bmc_username, host_bmc_password
+        host_bmc_password = host_bmc_creds.split(":", maxsplit=1)[1]
+        return host_bmc_password
 
     def get_ngc_api_key(self, environment: Literal["prod", "stg"]):
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)

@@ -64,10 +64,10 @@ except IndexError:
 with ForgeVaultClient(path="forge/tokens") as vault_client:
     ngc_api_key = vault_client.get_ngc_api_key(site.environment)
 
-# Get DPU BMC credentials out of corp vault
+# Get BMC credentials out of corp vault
 with ForgeVaultClient(path=site_under_test) as vault_client:
     dpu_bmc_username, dpu_bmc_password = vault_client.get_dpu_bmc_credentials()
-    host_bmc_username, host_bmc_password = vault_client.get_host_bmc_credentials()
+    host_bmc_password = vault_client.get_host_bmc_password()
 
 # Get SSH key out of corp vault (vault kv get -mount=secrets forge/machine-lifecycle-test)
 with ForgeVaultClient(path="forge/machine-lifecycle-test") as vault_client:
@@ -122,15 +122,18 @@ if not admin_cli.check_machine_not_in_maintenance(machine_under_test):
     print(f"ERROR: Machine {machine_under_test} is in Maintenance!\nExiting...", file=sys.stderr)
     sys.exit(1)
 
+# Get vendor name of the host machine
+machine_vendor = admin_cli.get_machine_vendor(machine_under_test)
+if machine_vendor not in ["Lenovo", "Dell"]:
+    print(f"ERROR: {machine_vendor=} is not valid. Expected 'Lenovo' or 'Dell'. \nExiting...", file=sys.stderr)
+    sys.exit(1)
+print(f"Machine vendor is {machine_vendor}")
+
+host_bmc_username = "USERID" if machine_vendor == "Lenovo" else "root"
+
 
 # Optional factory-reset step
 if factory_reset == "true":
-    # Get vendor name of the host machine
-    machine_vendor = admin_cli.get_machine_vendor(machine_under_test)
-    if machine_vendor not in ["Lenovo", "Dell"]:
-        print(f"ERROR: {machine_vendor=} is not valid. Expected 'Lenovo' or 'Dell'. \nExiting...", file=sys.stderr)
-        sys.exit(1)
-    print(f"Machine vendor is {machine_vendor}")
 
     # Factory-reset DPU(s)
     i = 1
