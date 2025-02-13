@@ -20,6 +20,7 @@ use figment::{
 use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
+use crate::db::expected_machine::ExpectedMachine;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
 use crate::{ib::DEFAULT_IB_FABRIC_NAME, legacy};
@@ -181,6 +182,35 @@ pub async fn start_api(
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
+
+    const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
+    if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
+        if let Ok(expected_machines) =
+            serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str())
+        {
+            let mut txn = db_pool.begin().await.map_err(|e| {
+                DatabaseError::new(file!(), line!(), "begin define expected machines", e)
+            })?;
+            if let Err(err) =
+                ExpectedMachine::create_missing_from(&mut txn, &expected_machines).await
+            {
+                tracing::error!(
+                    "Unable to update database from expected_machines list, error: {err}"
+                );
+            } else {
+                // everything worked, commit ok
+                txn.commit().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "commit define expected machines ", e)
+                })?;
+
+                tracing::info!("Successfully wrote expected machines to db, continuing startup.");
+            }
+        } else {
+            tracing::error!("Unable to parse expected_machines file, nothing was written to db.");
+        }
+    } else {
+        tracing::info!("No expected machine file found, continuing startup.");
+    }
 
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
