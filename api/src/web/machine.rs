@@ -441,6 +441,9 @@ impl From<forgerpc::Machine> for MachineDetail {
 
                 ib_interfaces.push(iface_display);
             }
+            // Sort the IB interfaces in the same way the Instance allocation API
+            // would sort them
+            ib_interfaces.sort_by_key(|iface| iface.slot.clone());
         }
         if let Some(inv) = m.inventory.as_ref() {
             inventory.extend(inv.components.iter().cloned());
