@@ -25,6 +25,7 @@
 			<li><input type="submit" value="Internal Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)"></li>
 			<li><input type="submit" value="Out For Repair Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)"></li>
 			<li><input type="submit" value="Degraded" onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)"></li>
+			<li><input type="submit" value="Validation" onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)"></li>
 			<li><input type="submit" value="Suppress External Alerting Only" onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)"></li>
 			<li><input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)"></li>
 			<li><input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)"></li>
@@ -149,6 +150,15 @@ const templateMergeDegradedMaintenance = {
 		source: "manual-maintenance",
 		successes: [],
 		alerts: [{id: "Maintenance", target: "Degraded", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeValidationMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "Validation", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
 	}
 };
 
