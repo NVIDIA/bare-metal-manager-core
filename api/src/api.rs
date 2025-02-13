@@ -43,7 +43,8 @@ use tss_esapi::{
 
 use self::rpc::forge_server::Forge;
 use crate::attestation as attest;
-use crate::cfg::file::CarbideConfig;
+use crate::cfg::file::{CarbideConfig, DpuModel, FirmwareComponentType};
+use crate::db::desired_firmware::DbDesiredFirmwareVersions;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -97,7 +98,7 @@ use crate::{
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
-use utils::HostPortPair;
+use utils::{HostPortPair, BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -4447,6 +4448,67 @@ impl Forge for Api {
         request: tonic::Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
     ) -> Result<tonic::Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
         crate::handlers::network_security_group::get_attachments(self, request).await
+    }
+
+    async fn get_desired_firmware_versions(
+        &self,
+        _request: tonic::Request<rpc::GetDesiredFirmwareVersionsRequest>,
+    ) -> Result<tonic::Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
+        let bf2_nic_version = self
+            .runtime_config
+            .dpu_config
+            .dpu_nic_firmware_update_version
+            .get(BF2_PRODUCT_NAME);
+        let bf3_nic_version = self
+            .runtime_config
+            .dpu_config
+            .dpu_nic_firmware_update_version
+            .get(BF3_PRODUCT_NAME);
+
+        let entries = self
+            .runtime_config
+            .get_firmware_config()
+            .map()
+            .into_values()
+            .map(|firmware| {
+                let vendor = firmware.vendor;
+                let model = firmware.model.clone();
+                let mut component_versions = DbDesiredFirmwareVersions::from(firmware).versions;
+
+                // Manually add components for the Nic component type using
+                // dpu_config.dpu_nic_firmware_update_version, which is kept separately from the
+                // rest of the firmware config.
+                if let Some(bf2_nic_version) = bf2_nic_version {
+                    if vendor.is_nvidia() && matches!(DpuModel::from(&model), DpuModel::BlueField2)
+                    {
+                        component_versions
+                            .insert(FirmwareComponentType::Nic, bf2_nic_version.to_string());
+                    }
+                }
+
+                if let Some(bf3_nic_version) = bf3_nic_version {
+                    if vendor.is_nvidia() && matches!(DpuModel::from(&model), DpuModel::BlueField3)
+                    {
+                        component_versions
+                            .insert(FirmwareComponentType::Nic, bf3_nic_version.to_string());
+                    }
+                }
+
+                Ok::<_, serde_json::Error>(rpc::DesiredFirmwareVersionEntry {
+                    vendor: vendor.to_string(),
+                    model,
+                    // Launder firmware.components through serde::value to convert FirmwareComponentType
+                    // to String (serde is configured to lowercase it.)
+                    component_versions: serde_json::from_value(serde_json::to_value(
+                        component_versions,
+                    )?)?,
+                })
+            })
+            .try_collect()
+            .map_err(CarbideError::from)?;
+        Ok(tonic::Response::new(
+            rpc::GetDesiredFirmwareVersionsResponse { entries },
+        ))
     }
 }
 

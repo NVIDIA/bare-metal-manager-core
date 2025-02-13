@@ -127,6 +127,10 @@ pub fn wrap_router_with_mock_machine(
         )
         .route(rf!("Managers/iDRAC.Embedded.1/Jobs/:job_id"),get(get_dell_job),
         )
+        .route(rf!("UpdateService/FirmwareInventory/BMC_Firmware"), get(get_dpu_bmc_firmware))
+        .route(rf!("UpdateService/FirmwareInventory/Bluefield_FW_ERoT"), get(get_dpu_erot_firmware))
+        .route(rf!("UpdateService/FirmwareInventory/DPU_UEFI"), get(get_dpu_uefi_firmware))
+        .route(rf!("UpdateService/FirmwareInventory/DPU_NIC"), get(get_dpu_nic_firmware))
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
@@ -791,6 +795,91 @@ async fn get_dell_job(
     "TargetSettingsURI": null
         }
       ))?))
+}
+
+async fn get_dpu_bmc_firmware(
+    State(mut state): State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
+    let Some(desired_bmc_version) = dpu_machine.firmware_versions.bmc else {
+        tracing::warn!(
+            "Unknown desired BMC firmware version for {}, not rewriting response",
+            dpu_machine.serial
+        );
+        return Ok(inner_response);
+    };
+    inventory.version = Some(desired_bmc_version);
+    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+}
+
+async fn get_dpu_erot_firmware(
+    State(mut state): State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
+    // We expect to see the cec firmware version in .../FirmwareInventory/Bluefield_FW_ERoT
+    let Some(desired_bmc_version) = dpu_machine.firmware_versions.cec else {
+        tracing::warn!(
+            "Unknown desired CEC firmware version for {}, not rewriting response",
+            dpu_machine.serial
+        );
+        return Ok(inner_response);
+    };
+    inventory.version = Some(desired_bmc_version);
+    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+}
+
+async fn get_dpu_uefi_firmware(
+    State(mut state): State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
+    let Some(desired_bmc_version) = dpu_machine.firmware_versions.uefi else {
+        tracing::warn!(
+            "Unknown desired UEFI firmware version for {}, not rewriting response",
+            dpu_machine.serial
+        );
+        return Ok(inner_response);
+    };
+    inventory.version = Some(desired_bmc_version);
+    Ok(Bytes::from(serde_json::to_string(&inventory)?))
+}
+
+async fn get_dpu_nic_firmware(
+    State(mut state): State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
+    let Some(desired_nic_version) = dpu_machine.firmware_versions.nic else {
+        tracing::warn!(
+            "Unknown desired NIC firmware version for {}, not rewriting response",
+            dpu_machine.serial
+        );
+        return Ok(inner_response);
+    };
+    inventory.version = Some(desired_nic_version);
+    Ok(Bytes::from(serde_json::to_string(&inventory)?))
 }
 
 async fn patch_dpu_settings(

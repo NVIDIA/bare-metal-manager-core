@@ -501,6 +501,11 @@ impl MachineStateMachine {
                     chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
                     host_mac_address: self.machine_info.host_mac_address(),
                     tpm_ek_certificate: self.tpm_ek_certificate.clone(),
+                    dpu_nic_version: if let MachineInfo::Dpu(d) = &self.machine_info {
+                        d.firmware_versions.nic.clone()
+                    } else {
+                        None
+                    },
                 },
             )
             .await?;

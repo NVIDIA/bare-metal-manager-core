@@ -88,7 +88,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                     txn,
                     &host_machine_id,
                     &machine_updates,
-                    self.expected_dpu_firmware_versions.clone(),
+                    &self.expected_dpu_firmware_versions,
                 )
                 .await
             {

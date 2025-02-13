@@ -44,7 +44,7 @@ mod mock_machine_router;
 mod redfish_expander;
 mod tar_router;
 
-pub use machine_info::{DpuMachineInfo, HostMachineInfo, MachineInfo};
+pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{
     wrap_router_with_mock_machine, BmcCommand, SetSystemPowerError, SetSystemPowerResult,
 };

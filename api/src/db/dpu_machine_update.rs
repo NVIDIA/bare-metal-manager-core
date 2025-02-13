@@ -15,7 +15,7 @@ use forge_uuid::machine::MachineId;
 
 use super::DatabaseError;
 
-#[derive(FromRow)]
+#[derive(FromRow, Debug)]
 pub struct DpuMachineUpdate {
     pub host_machine_id: MachineId,
     pub dpu_machine_id: MachineId,
@@ -168,7 +168,7 @@ impl DpuMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
         machine_updates: &[DpuMachineUpdate],
-        expected_versions: HashMap<String, String>,
+        expected_versions: &HashMap<String, String>,
     ) -> Result<(), CarbideError> {
         let mut inner_txn = txn.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

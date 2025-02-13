@@ -10,7 +10,7 @@
       "frequency": "400.00"
     }
   ],
-  "gpus":[],
+  "gpus": [],
   "machine_type": "aarch64",
   "nvme_devices": [],
   "memory_devices": [],
@@ -22,14 +22,14 @@
     }
   ],
   "dmi_data": {
-    "board_name": "BlueField SoC",
+    "board_name": "BlueField-3 SmartNIC Main Card",
     "board_version": "1.0.0",
-    "bios_version": "BlueField:3.9.3-7-g8f2d8ca",
-    "product_serial": "MT2242XZ00NX",
+    "bios_version": "4.2.0.12855",
+    "product_serial": "MT2331XZ0CGM",
     "board_serial": "Unspecified Base Board Serial Number",
     "chassis_serial": "Unspecified Chassis Board Serial Number",
-    "bios_date": "Oct 21 2022",
-    "product_name": "BlueField SoC",
+    "bios_date": "Aug  8 2023",
+    "product_name": "BlueField-3 SmartNIC Main Card",
     "sys_vendor": "https://www.mellanox.com"
   },
   "network_interfaces": [],
@@ -41,27 +41,37 @@
     "firmware_version": "24.35.2000",
     "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
     "factory_mac_address": "00:11:22:33:44:66",
-    "switches": [{
-      "name": "Switch 1",
-      "id": "ID 1",
-      "description": "Description",
-      "local_port": "oob_net0",
-      "ip_address": ["1.2.3.4"],
-      "remote_port": "port 1"
-    },{
-      "name": "Switch 2",
-      "id": "ID 2",
-      "description": "Description",
-      "local_port": "p0",
-      "ip_address": ["2.2.3.4"],
-      "remote_port": "port 2"
-    },{
-      "name": "Switch 3",
-      "id": "ID 2",
-      "description": "Description",
-      "local_port": "p1",
-      "ip_address": ["3.2.3.4"],
-      "remote_port": "port 3"
-    }]
+    "switches": [
+      {
+        "name": "Switch 1",
+        "id": "ID 1",
+        "description": "Description",
+        "local_port": "oob_net0",
+        "ip_address": [
+          "1.2.3.4"
+        ],
+        "remote_port": "port 1"
+      },
+      {
+        "name": "Switch 2",
+        "id": "ID 2",
+        "description": "Description",
+        "local_port": "p0",
+        "ip_address": [
+          "2.2.3.4"
+        ],
+        "remote_port": "port 2"
+      },
+      {
+        "name": "Switch 3",
+        "id": "ID 2",
+        "description": "Description",
+        "local_port": "p1",
+        "ip_address": [
+          "3.2.3.4"
+        ],
+        "remote_port": "port 3"
+      }
+    ]
   }
 }

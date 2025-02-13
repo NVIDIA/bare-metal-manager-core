@@ -26,7 +26,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use utils::HostPortPair;
 
-use crate::api_server::StartArgs;
+use crate::api_server::{ApiServerTestConfig, StartArgs};
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
 
 #[derive(Debug, Clone)]
@@ -112,7 +112,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
     bmc_proxy: Option<HostPortPair>,
-    use_site_explorer: bool,
+    test_config: ApiServerTestConfig,
 ) -> eyre::Result<ApiServerHandle> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
     env::set_var("IGNORE_MGMT_VRF", "true");
@@ -167,7 +167,7 @@ pub async fn start_api_server(
             db_url,
             vault_token,
             bmc_proxy,
-            use_site_explorer,
+            test_config,
             stop_channel: stop_rx,
             ready_channel: ready_tx,
         })

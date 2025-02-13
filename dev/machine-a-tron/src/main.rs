@@ -6,11 +6,11 @@ use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
 use machine_a_tron::{
-    api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext,
-    Tui, TuiHostLogs, UiEvent,
+    api_client::ApiClient, api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig,
+    MachineATronContext, Tui, TuiHostLogs, UiEvent,
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
-use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -107,6 +107,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         forge_client_config.clone(),
     );
 
+    let desired_firmware = ApiClient::from(ApiConfig::new(
+        &app_config.carbide_api_url,
+        &forge_client_config,
+    ))
+    .get_desired_firmware()
+    .await?;
+
+    tracing::info!(
+        "Got desired firmware versions from the server: {:?}",
+        desired_firmware
+    );
+
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
     let app_context = Arc::new(MachineATronContext {
@@ -117,6 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         dpu_tar_router,
         bmc_registration_mode,
         api_throttler,
+        desired_firmware_versions: desired_firmware,
     });
 
     let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());

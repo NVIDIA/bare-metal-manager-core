@@ -298,6 +298,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "tempdir",
  "tempfile",
  "tokio",
  "tracing",
