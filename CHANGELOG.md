@@ -9,6 +9,8 @@
   default for this option if not specified. `open` disables VPC isolation inside
   the site.
 - Network Security Group support in API, CLI, and web UI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances (API and CLI only).  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
+- Added another health override template target
+  - "Validation": Describes that a Machine is currently used for either machine or network validation.
 
 ### Changed
 
@@ -119,7 +121,7 @@
 - Show Machine Capabilities in admin UI
   With this change, we show the carbide derived set of capabilities for Machines on the /machine page of the admin web UI.
   This will make it easier to check whether the capability generation works as expected.
-- Added health overrride template that allows operators to add new "Maintenance" health alerts with different targets. The targets are defines as follows:
+- Added health override template that allows operators to add new "Maintenance" health alerts with different targets. The targets are defines as follows:
   - null (no target): Describes that the host is in maintenance by Forge internal workflows. This mode is used by setting the currently existing Maintenance mode on hosts, as well as by update workflows.
   - "OutForRepair": Describes that a Machine is out for repair and requires intervention by an external party.
   - "Degraded": Describes that a Machine is still in use by a Tenant, but is known to have issues.
