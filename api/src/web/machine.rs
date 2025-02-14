@@ -319,6 +319,7 @@ struct MachineDetail {
     version: String,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
+    validation_results: Vec<ValidationResult>,
 }
 
 struct MachineCapability {
@@ -352,6 +353,19 @@ struct MachineIbInterfaceDisplay {
     slot: String,
     lid: String,
     ufm_visible: String,
+}
+
+struct ValidationResult {
+    name: String,
+    status: String,
+    context: String,
+    command: String,
+    args: String,
+    stdout: String,
+    stderr: String,
+    validation_id: String,
+    start_time: String,
+    end_time: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail {
@@ -450,6 +464,7 @@ impl From<forgerpc::Machine> for MachineDetail {
         }
 
         let machine_id = m.id.unwrap_or_default().id;
+
         MachineDetail {
             id: machine_id.clone(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
@@ -584,6 +599,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                     caps
                 })
                 .unwrap_or_default(),
+            validation_results: Vec::new(),
         }
     }
 }
@@ -629,6 +645,49 @@ pub async fn detail(
     };
 
     let mut display: MachineDetail = machine.into();
+
+    // Get validation results
+    let validation_request = tonic::Request::new(rpc::forge::MachineValidationGetRequest {
+        machine_id: Some(rpc::common::MachineId {
+            id: machine_id.clone(),
+        }),
+        include_history: false,
+        validation_id: None,
+    });
+
+    let validation_results = match state
+        .get_machine_validation_results(validation_request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(results) => results
+            .results
+            .into_iter()
+            .map(|vr| ValidationResult {
+                name: vr.name,
+                status: if vr.exit_code == 0 {
+                    "success".to_string()
+                } else {
+                    "warning".to_string()
+                },
+                context: vr.context,
+                command: vr.command,
+                args: vr.args,
+                stdout: vr.std_out,
+                stderr: vr.std_err,
+                validation_id: vr.validation_id.unwrap_or_default().to_string(),
+                start_time: vr.start_time.unwrap_or_default().to_string(),
+                end_time: vr.end_time.unwrap_or_default().to_string(),
+            })
+            .collect(),
+        Err(err) => {
+            tracing::warn!(%err, %machine_id, "get_machine_validation_results failed");
+            Vec::new() // Empty validation results on error
+        }
+    };
+
+    display.validation_results = validation_results;
+
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(::rpc::common::MachineId {
