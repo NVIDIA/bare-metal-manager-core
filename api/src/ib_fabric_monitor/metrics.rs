@@ -149,7 +149,10 @@ impl IbFabricMonitorInstruments {
             attrs.pop();
 
             if !metrics.fabric_error.is_empty() {
-                let error_attr = KeyValue::new("error", metrics.fabric_error.clone());
+                let error_attr = KeyValue::new(
+                    "error",
+                    truncate_error_for_metric_label(metrics.fabric_error.clone()),
+                );
                 attrs.push(error_attr);
                 observer.observe_u64(&self.fabric_errors, 1, &attrs);
                 attrs.pop();
@@ -217,4 +220,19 @@ impl MetricHolder {
         metrics.recording_finished_at = std::time::Instant::now();
         self.last_iteration_metrics.store(Some(Arc::new(metrics)));
     }
+}
+
+/// Truncates an error message in order to use it as label
+/// TODO: This is not a preferred approach, since it will lead to a set of non-descriptive
+/// labels. We should rather get better Error Codes from the IB/UFM library
+fn truncate_error_for_metric_label(mut error: String) -> String {
+    const MAX_LEN: usize = 32;
+
+    let upto = error
+        .char_indices()
+        .map(|(i, _)| i)
+        .nth(MAX_LEN)
+        .unwrap_or(error.len());
+    error.truncate(upto);
+    error
 }

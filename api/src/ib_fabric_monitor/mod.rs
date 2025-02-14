@@ -151,7 +151,10 @@ impl IbFabricMonitor {
             .await
             {
                 tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "IB fabric health check failed");
-                fabric_metrics.fabric_error = error_as_metric_label(e);
+                // TODO: This isn't efficient because we will get a lot of different dimensions
+                // We need to have better defined errors from the UFM APIs, so we can convert
+                // those into a smaller set of labels
+                fabric_metrics.fabric_error = e.to_string();
             }
         }
 
@@ -194,21 +197,4 @@ async fn check_ib_fabric(
     metrics.ports_by_state = Some(ports_by_state);
 
     Ok(())
-}
-
-fn error_as_metric_label(error: CarbideError) -> String {
-    const MAX_LEN: usize = 32;
-
-    // TODO: This isn't efficient because we will get a lot of different dimensions
-    // We need to have better defined errors from the UFM APIs, so we can convert
-    // those into a smaller set of labels
-    let mut err = error.to_string();
-
-    let upto = err
-        .char_indices()
-        .map(|(i, _)| i)
-        .nth(MAX_LEN)
-        .unwrap_or(err.len());
-    err.truncate(upto);
-    err
 }
