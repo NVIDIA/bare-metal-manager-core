@@ -357,7 +357,7 @@ pub async fn nsg_show_attachments(
                     // If it was seen already, then it's not propagated.
                     if id_set.contains(&id) {
                         propagation_table.add_row(row![
-                            vpc.id.clone(),
+                            id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
                             forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
@@ -365,7 +365,7 @@ pub async fn nsg_show_attachments(
                         ]);
                     } else {
                         propagation_table.add_row(row![
-                            vpc.id.clone(),
+                            id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
                             forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
