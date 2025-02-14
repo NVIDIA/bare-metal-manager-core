@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
 use std::path::Path;
@@ -51,7 +51,6 @@ use crate::{
     nvue, sysfs, upgrade, HBNDeviceNames, RunOptions, FMDS_MINIMUM_HBN_VERSION,
     NVUE_MINIMUM_HBN_VERSION,
 };
-use eyre::eyre;
 
 // Main loop when running in daemon mode
 pub async fn setup_and_run(
@@ -134,9 +133,6 @@ pub async fn setup_and_run(
             tracing::warn!("Error getting host boot timestamp: {e:#}");
         }
     }
-
-    move_doca_configs_files_into_place()
-        .map_err(|e| eyre!("failed to move HBN kubelet files into place: {e:#}"))?;
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
         "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
@@ -1033,49 +1029,6 @@ fn write_machine_id(dir_path: &str, machine_id: &str) -> Result<(), Box<dyn std:
     fs::create_dir_all(dir_path)?;
     let file_path = Path::new(dir_path).join("machine-id");
     fs::write(file_path, format!("machine.id={}\n", machine_id))?;
-    Ok(())
-}
-
-const DOCA_HBN_YAML_NAME: &str = "doca_hbn.yaml";
-const DOCA_TELEMETRY_YAML_NAME: &str = "doca_telemetry.yaml";
-
-fn move_doca_configs_files_into_place() -> eyre::Result<()> {
-    move_doca_container_config_into_place(DOCA_HBN_YAML_NAME)?;
-    move_doca_container_config_into_place(DOCA_TELEMETRY_YAML_NAME)?;
-    Ok(())
-}
-
-const DOCA_CONFIG_SRC_BASE_PATH: &str = "/opt/forge/doca_container_configs/configs/";
-const DOCA_CONFIG_DST_BASE_PATH: &str = "/etc/kubelet.d/";
-
-fn move_doca_container_config_into_place(config: &str) -> eyre::Result<()> {
-    let src: String = format!("{DOCA_CONFIG_SRC_BASE_PATH}{config}");
-    let dst = format!("{DOCA_CONFIG_DST_BASE_PATH}{config}");
-
-    if fs::metadata(&dst).is_ok() {
-        tracing::info!("doca config {dst} already exists; skip copying");
-        return Ok(());
-    }
-
-    // we didnt find the doca config file in /etc/kubelet.d
-    if fs::metadata(&src).is_ok() {
-        tracing::info!("found doca config {src}");
-        fs::copy(&src, &dst).map_err(|e| eyre!("failed to copy from {src} to {dst}: {e}"))?;
-        let f: File = File::open(&dst).map_err(|e| eyre!("failed to open {dst}: {e}"))?;
-        let metadata = f
-            .metadata()
-            .map_err(|e| eyre!("failed to query metadata for {dst}: {e}"))?;
-        tracing::info!(
-            "succesfully copied doca config file {config} that has size: {} bytes",
-            metadata.len()
-        );
-        f.sync_all()
-            .map_err(|e| eyre!("failed to do a file sync on {dst}: {e}"))?;
-        return Ok(());
-    } else {
-        tracing::error!("could not find doca config {src}");
-    }
-
     Ok(())
 }
 
