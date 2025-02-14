@@ -2056,6 +2056,22 @@ impl SiteExplorer {
             return Ok(true);
         }
 
+        // DPU's in NIC mode do not have full redfish functionality,
+        // for example, we will not be able to retrieve the base GUID
+        // from the redfish response. Skip the next check because the DPUs
+        // in NIC mode will not expose a pf0 interface to the host.
+        if dpu_endpoint
+            .report
+            .nic_mode()
+            .is_some_and(|m| m == NicMode::Nic)
+        {
+            tracing::info!(
+                "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
+                dpu_endpoint.address
+            );
+            return Ok(true);
+        }
+
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
