@@ -175,7 +175,14 @@
                   '68': {}
         type: ipv4
       deny_prefixes_ipv4:
+        type: ipv4
         rule:
+          '1000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 1.1.1.1/32
       security_group_ipv4_in: 
         rule:
           '65535':

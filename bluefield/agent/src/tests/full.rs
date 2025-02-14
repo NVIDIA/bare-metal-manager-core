@@ -368,7 +368,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
-        deny_prefixes: vec![],
+        deny_prefixes: vec!["1.1.1.1/32".to_string()],
         enable_dhcp: false,
         host_interface_id: None,
         min_dpu_functioning_links: None,
