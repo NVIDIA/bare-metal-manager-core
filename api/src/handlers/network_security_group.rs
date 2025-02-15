@@ -73,7 +73,7 @@ pub(crate) async fn create(
         .runtime_config
         .network_security_group
         .max_network_security_group_size as usize;
-    if rules.len() > max_nsg_size || calculate_expanded_rule_set(&rules) > max_nsg_size {
+    if !is_valid_expanded_rule_set_size(&rules, max_nsg_size) {
         return Err(CarbideError::InvalidArgument(format!(
             "expanded rule set contains more than {max_nsg_size} maximum number of rules"
         ))
@@ -312,7 +312,7 @@ pub(crate) async fn update(
         .runtime_config
         .network_security_group
         .max_network_security_group_size as usize;
-    if rules.len() > max_nsg_size || calculate_expanded_rule_set(&rules) > max_nsg_size {
+    if !is_valid_expanded_rule_set_size(&rules, max_nsg_size) {
         return Err(CarbideError::InvalidArgument(format!(
             "expanded rule set contains more than {max_nsg_size} maximum number of rules"
         ))
@@ -698,28 +698,40 @@ pub(crate) async fn get_attachments(
     Ok(Response::new(rpc_out))
 }
 
-fn calculate_expanded_rule_set(rules: &[NetworkSecurityGroupRule]) -> usize {
+fn is_valid_expanded_rule_set_size(rules: &[NetworkSecurityGroupRule], limit: usize) -> bool {
     let mut total_rules = 0u32;
+
+    if rules.len() > limit {
+        return false;
+    }
 
     for rule in rules {
         match (&rule.src_net, &rule.dst_net) {
             (NetworkSecurityGroupRuleNet::Prefix(_), NetworkSecurityGroupRuleNet::Prefix(_)) => {
                 // Negative ranges are caught when we convert from rpc to internal struct.
                 // so we can keep this simple.
-                let rule_count = rule.src_port_end.unwrap_or_default()
-                    - rule.src_port_start.unwrap_or_default()
-                    + rule.dst_port_end.unwrap_or_default()
-                    - rule.dst_port_start.unwrap_or_default();
+                let rule_count = (rule.src_port_end.unwrap_or_default()
+                    - rule.src_port_start.unwrap_or_default())
+                .saturating_mul(
+                    rule.dst_port_end.unwrap_or_default() - rule.dst_port_start.unwrap_or_default(),
+                );
 
-                total_rules += if rule_count > 0 {
+                total_rules = match total_rules.overflowing_add(if rule_count > 0 {
                     rule_count
                 } else {
                     //  A rule with no ports specified still has a cost.
                     1
+                }) {
+                    (_, true) => return false,
+                    (v, false) => v,
                 };
+
+                if total_rules as usize > limit {
+                    return false;
+                }
             }
         }
     }
 
-    total_rules as usize
+    true
 }

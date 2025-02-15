@@ -30,6 +30,21 @@ const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 /// by users for their NSG rules.
 const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
 
+/// This limits the number of rules we'll allow into the set for
+/// nvue.  We do not expect to ever hit this as the rules should
+/// have been limited before they reached the DPU.  It's purpose here
+/// is defense-in-depth.
+///
+/// We have something similar on the controller side, though the limit
+/// there is likely to stay in the hundreds.  The limit here will
+/// likely always be far larger because we're only concerned with
+/// protecting the DPU from getting a rule set that would expand
+/// into something big enough to exhaust its physical resources.
+/// We want a limit small enough to protect us but big enough that we
+/// don't have to remember to keep bumping this up as we decide nvue
+/// can handle more rules.
+const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
+
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     if !conf.vpc_virtualization_type.supports_nvue() {
         return Err(eyre::eyre!(
@@ -97,7 +112,48 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         let mut ingress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
         let mut egress_ipv6_rules: Vec<&NetworkSecurityGroupRule> = vec![];
 
+        let mut total_rule_count: usize = 0;
+
         for rule in rules.iter() {
+            // Calculate and accumulate what the number of rules
+            // would be after expansion so we can cut things off
+            // and err if we got a bad payload that could risk
+            // the DPU itself.
+            total_rule_count = match total_rule_count.overflowing_add(
+                rule.src_prefixes
+                    .len()
+                    .saturating_mul(rule.dst_prefixes.len())
+                    .saturating_mul(
+                        (rule
+                            .src_port_end
+                            .unwrap_or_default()
+                            .saturating_sub(rule.src_port_start.unwrap_or_default()))
+                            as usize,
+                    )
+                    .saturating_mul(
+                        (rule
+                            .dst_port_end
+                            .unwrap_or_default()
+                            .saturating_sub(rule.dst_port_start.unwrap_or_default()))
+                            as usize,
+                    ),
+            ) {
+                (_, true) => {
+                    return Err(eyre::eyre!(
+                        "supplied network security group rule count exceeds limit of {}",
+                        NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
+                    ))
+                }
+                (v, false) => v,
+            };
+
+            if total_rule_count > NETWORK_SECURITY_GROUP_RULE_COUNT_MAX {
+                return Err(eyre::eyre!(
+                    "supplied network security group rule count exceeds limit of {}",
+                    NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
+                ));
+            }
+
             match (rule.ingress, rule.ipv6) {
                 (true, false) => ingress_ipv4_rules.push(rule),
                 (false, false) => egress_ipv4_rules.push(rule),
