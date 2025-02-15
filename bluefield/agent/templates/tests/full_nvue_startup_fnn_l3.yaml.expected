@@ -199,49 +199,49 @@
         rule:
           '2000':
             action:
-              DENY: {}
+              deny: {}
             match:
               ip:
                 dest-ip: 0.0.0.0/0
                 dest-port:
                   '80': {} 
-                protocol: TCP
+                protocol: tcp
                 source-ip: 0.0.0.0/0
                 source-port:
                   '80': {}
           '2001':
             action:
-              DENY: {}
+              deny: {}
             match:
               ip:
                 dest-ip: 0.0.0.0/0
                 dest-port:
                   '81': {} 
-                protocol: TCP
+                protocol: tcp
                 source-ip: 0.0.0.0/0
                 source-port:
                   '80': {}
           '2002':
             action:
-              DENY: {}
+              deny: {}
             match:
               ip:
                 dest-ip: 0.0.0.0/0
                 dest-port:
                   '80': {} 
-                protocol: TCP
+                protocol: tcp
                 source-ip: 0.0.0.0/0
                 source-port:
                   '81': {}
           '2003':
             action:
-              DENY: {}
+              deny: {}
             match:
               ip:
                 dest-ip: 0.0.0.0/0
                 dest-port:
                   '81': {} 
-                protocol: TCP
+                protocol: tcp
                 source-ip: 0.0.0.0/0
                 source-port:
                   '81': {}

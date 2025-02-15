@@ -316,8 +316,10 @@ pub async fn update_nvue(
                     dst_port_end: rule.dst_port_end,
                     protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
                         rule.protocol,
-                    )?,
-                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?,
+                    )?
+                    .to_lowercase(),
+                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
+                        .to_lowercase(),
                     src_prefixes: resolved_rule.src_prefixes.clone(),
                     dst_prefixes: resolved_rule.dst_prefixes.clone(),
                 });
