@@ -1,5 +1,12 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc3-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...trunk)
+
+### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2025.02.14-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...v2025.02.14-rc2-0)
 
 ### Added
 
@@ -8,24 +15,87 @@
   `mutual_isolation` is the name for the old default behavior, and is the
   default for this option if not specified. `open` disables VPC isolation inside
   the site.
-- Network Security Group support in API, CLI, and web UI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances (API and CLI only).  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
 - Added another health override template target
   - "Validation": Describes that a Machine is currently used for either machine or network validation.
+- Added a new `flags` field to the gRPC message for `NetworkSegment` that can hold a `CAN_STRETCH` flag for any tenant network segment that can be used by multiple VTEPs (read: DPUs) in the network fabric.
+- Machine validation support for lenovo 675v3 servers.
+- Log `user_id` in each request span instead of separate log line.
+- [FORGE-5396](https://jirasw.nvidia.com/browse/FORGE-5396) Make the UnsupportedVendor enum properly serializable.
+- Display ManagedHostNetworkConfigResponse in tabular form (json and yaml also).
+- Add support for network security groups.
+  - Introduces `NetworkSecurityGroup` and a bunch of supporting structures.
+  - Adds CRUD endpoints for working with security groups.
+  - Adds an endpoint for querying NSG propagation across objects (VPCs, Instances).
+  - Updates VPC and Instance tables, structs, and protos to accept and store NSG IDs for attaching NSGs during creation and update.
+  - Updates the Carbide network config endpoints to provide DPU agent with NSG details if configured.
+  - Updates DPU agent to plumb the new NSG details through to the NVUE template context.
+  - Does NOT update the NVUE template.  Attilla will be doing that separately.
+  - Does NOT cover admin-cli updates to support NSG management.  That'll be a separate MR.
+- Add icmp6 proto option to NSGs and has_network_security_group for nvue template.
+  - Adds icmp6 as a protocol option for NSGs.
+  - Sends along details to the NVUE template about whether an NSG was not applied vs applied but contains no rules.
+  - Adds some extra validation to block things like icmp6 with ipv4 rules and prefixes, or the ANY protocol option with ports defined.
+- Add network security group commands.
+  - Adds an additional API endpoint for pulling the details of which objects (VPC/Instance) are are using to which NSGs.
+  - Adds commands necessary for managing network security groups via the admin-cli.
+  - Allows the cli to update instance and VPC config (for attaching/removing NSGs).
+- Network Security Group support in API, CLI, and web UI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances (API and CLI only).  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
+- Run CPU and MEM benchpress tests on host instead of container.
+- Added flag to make sure scout can onboard hosts without TPM module.  Carbide allow generating machine_id from serial chasis if TPM certificate is not provided, but api rejects such hosts anyway. Added new flag `tpm_required` which defaulted to true, and if is set, current logic will still apply (TPM required), but if flag is set to `false` this means host can bypass TPM certificate verificationm enforcement.
+- [FORGE-5410](https://jirasw.nvidia.com/browse/FORGE-5410) Add support for alternative carbide-web auth flow.
+  - This allows programmatic access to the carbide API for external services, such as nautobot synchronization.
+  - The secrets are app client credentials, similar to the one used by carbide-web itself for the oauth2 flow, which lets us manage them directly in the [Entra portal](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false) along with the other carbide-web app settings, and we can assign and revoke individual credentials to be handed out as needed.
+- Display network prefix range in ns command in admin cli.
+- Ability to reboot host with zero dpu's via grpc.
+- Add OpenTelemetry DPU agent to renew mTLS certs.
+- [FORGE-5122](https://jirasw.nvidia.com/browse/FORGE-5122) Add model filter to managed host view and update filter design.
+- [FORGE-5218](https://jirasw.nvidia.com/browse/FORGE-5218) Make the explored endpoint detail page load faster.
+- [FORGE-5217](https://jirasw.nvidia.com/browse/FORGE-5217) Display boot order on the explored endpoint details page.
+- Add health override template for validation.
+- Populate expected-machines from optional file if present
+- Sort Machine InfiniBand interfaces in Admin Web UI by PCI Slot.
+- Show machine-validation results in Forge admin UI.
 
 ### Changed
 
 - InstanceType records can now have their metadata updated even when already associated with machines to align with Forge-Cloud.
 - InstanceType records can now be deleted even when already associated with a machine as long as no associated machines have instances.  Machine associations will be cleaned up automatically to align with Forge-Cloud requirements.
+- Stop printing unwanted logs on secondary DPU.  This fix will store the last made interface changes and update the state only when interface state is change like enable to disable, or vice versa.
+- Updated libredfish to 0.29.4 for HPE server support and extending timeout for Viking H1000 servers.
+- Do not preingest DPUs if they are at the BMC & CEC versions corresponding to DOCA 2.5.
+- Carbide config is now redacted in gRPC response and admin web ui.
+- [FORGE-5408](https://jirasw.nvidia.com/browse/FORGE-5408) The DPU agent moves the DOCA config files from /opt/forge/doca_container_configs/ to /etc/kubelet.d as opposed to having cloud-init do it.
+  - Prevents an issue where NVUE was unable to startup blocking DPU startup.
 
 ### Fixed
 
+- Deal with race condition in container based host firmware configs by reading the files on usage.
+- Set the DPU's boot order prior to restarting it.
+- Retain full IB fabric error in IbFabricMonitor logs.  IbFabricMonitor generates a log entry for each fabric on every iteration.  The log entry should show logs messages for errors while interacting with the fabric manager.  Since the errors have been truncated to 32 characters, the information was however not useful.
+  - Example:
+    ```
+    2025-02-13 15:44:50.442
+    level=SPAN span_id=0x4b56af00fb34e826 span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.91.66.240:443\"],\"fabric_error\":\"Failed to call IBFabricManager: \"}" num_fabrics=1
+    ```
+- Fix deny prefixes YAML nesting in FNN template and update test.
+- [FORGE-5182](https://jirasw.nvidia.com/browse/FORGE-5182) Add `opensm` config data into `FabricMetrics` metrics.
+- Do not retrieve host pf0 interface from DPUs in NIC mode.
+
 ### Removed
+
 - The following set of metrics had been removed, due to being replaced with metrics
   with other names earlier in the `v2024.11.22` release:
   `forge_available_gpus_count`, `forge_allocatable_gpus_count`, `forge_allocatable_hosts_count`,
   `forge_assigned_gpus_count`, `forge_assigned_gpus_by_tenant_count`, `forge_hosts_in_use_by_tenant_count`
 - Host health metrics no longer emit the `assigned` attribute, since it had been replaced with an
   `in_use` attribute in the `v2024.12.06` release.
+- Assign SVI IP only if network segment has at least 3 IPs reserved.
+
+## [v2025.01.31-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc3-0...v2025.01.31-rc4-0)
+
+### Changed
+
+- Updated libredfish to 0.29.2 for additional workarounds for Lenovo 675v3 bug preventing power forcerestart.
 
 ## [v2025.01.31-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc2-0...v2025.01.31-rc3-0)
 
@@ -197,6 +267,12 @@
 ### Removed
 
 - Removed OpenTelemetry DPU agent to renew mTLS certs.
+
+## [v2025.01.17-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc6-0...v2025.01.17-rc7-0)
+
+### Changed
+
+- Updated libredfish to 0.29.2 for additional workarounds for Lenovo 675v3 bug preventing power forcerestart.
 
 ## [v2025.01.17-rc6-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc5-0...v2025.01.17-rc6-0)
 
