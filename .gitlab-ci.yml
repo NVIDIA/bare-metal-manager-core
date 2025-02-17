@@ -1021,6 +1021,7 @@ scheduled-test:prepare:
   stage: .pre
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && ($AUTO_DEPLOY == "true" || $RUN_TESTS == "true")
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CERT_REQUEST_ONLY == "true"
   retry:
     when:
       - runner_system_failure
