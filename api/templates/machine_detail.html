@@ -187,37 +187,20 @@ Missing BMC Data
         <thead>
             <tr>
                 <th>Validation ID</th>
-				<th>Name</th>
                 <th>Context</th>
-                <th>Status</th>
-                <th>Command</th>
-                <th>Args</th>
-                <th>Stdout</th>
-                <th>Stderr</th>
                 <th>Start Time</th>
                 <th>End Time</th>
+                <th>State</th>>
             </tr>
         </thead>
         <tbody>
-            {% for result in validation_results %}
+            {% for run in validation_runs %}
             <tr>
-                <td>{{ result.validation_id }}</td>
-                <td>{{ result.name }}</td>
-                <td>{{ result.context }}</td>
-                <td>
-                    {% if result.status == "success" %}
-                    <span class="badge success">✓</span>
-                    {% else %}
-                    <span class="badge warning">!</span>
-                    {% endif %}
-                </td>
-                <td>{{ result.command }}</td>
-                <td>{{ result.args }}</td>
-                <td>{{ result.stdout }}</td>
-                <td>{{ result.stderr }}</td>
-                <td>{{ result.start_time }}</td>
-                <td>{{ result.end_time }}</td>
-
+				<tr><th>ID</th><td><a href="/admin/machinevalidation/{{ run.validation_id }}">{{ run.validation_id }}</a></td></tr>
+                <td>{{ run.context }}</td>
+                <td>{{ run.start_time }}</td>
+                <td>{{ run.end_time }}</td>
+                <td>{{ run.status }}</td>
             </tr>
             {% endfor %}
         </tbody>
