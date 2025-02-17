@@ -16,7 +16,7 @@ from vault import ForgeVaultClient
 urllib3.disable_warnings()
 
 
-WAIT_FOR_HOSTINIT = 60 * 90
+WAIT_FOR_HOSTINIT = 60 * 120
 WAIT_FOR_READY = 60 * 120
 
 # Get config variables from environment
