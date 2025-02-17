@@ -55,10 +55,13 @@ def wait_for_state(machine_id: str, desired_state: str, timeout: int, allow_miss
             raise Exception(f"Failure! Machine id {machine_id} went into {state}.")
         # Allow partial state names to be queried
         if desired_state in state:
-            print(f"{now}: machine {machine_id} reached desired state ({desired_state})!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} reached desired state ({desired_state})!")
             return
         else:
-            print(f"{now}: machine {machine_id} not in desired state ({desired_state}) yet, current state: {state}")
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not in desired state ({desired_state}) "
+                f"yet, current state: {state}"
+            )
             time.sleep(60)
     else:
         raise TimeoutError(
