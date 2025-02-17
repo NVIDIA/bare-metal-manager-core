@@ -55,6 +55,7 @@ mod ib_partition;
 mod instance;
 mod interface;
 mod machine;
+mod machine_validation;
 mod managed_host;
 mod network_device;
 mod network_security_group;
@@ -325,6 +326,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(tenant_keyset::detail),
             )
             .route(&format!("/{AUTH_CALLBACK_ROOT}"), get(auth::callback))
+            .route(
+                "/admin/machine_validation/:validation_id",
+                get(machine_validation::validation_results_detail),
+            )
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

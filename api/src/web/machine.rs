@@ -319,7 +319,7 @@ struct MachineDetail {
     version: String,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
-    validation_results: Vec<ValidationResult>,
+    validation_runs: Vec<ValidationRuns>,
 }
 
 struct MachineCapability {
@@ -355,14 +355,9 @@ struct MachineIbInterfaceDisplay {
     ufm_visible: String,
 }
 
-struct ValidationResult {
-    name: String,
+struct ValidationRuns {
     status: String,
     context: String,
-    command: String,
-    args: String,
-    stdout: String,
-    stderr: String,
     validation_id: String,
     start_time: String,
     end_time: String,
@@ -599,7 +594,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                     caps
                 })
                 .unwrap_or_default(),
-            validation_results: Vec::new(),
+            validation_runs: Vec::new(),
         }
     }
 }
@@ -647,46 +642,40 @@ pub async fn detail(
     let mut display: MachineDetail = machine.into();
 
     // Get validation results
-    let validation_request = tonic::Request::new(rpc::forge::MachineValidationGetRequest {
+    let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
         machine_id: Some(rpc::common::MachineId {
             id: machine_id.clone(),
         }),
         include_history: false,
-        validation_id: None,
     });
 
-    let validation_results = match state
-        .get_machine_validation_results(validation_request)
+    let validation_runs = match state
+        .get_machine_validation_runs(validation_request)
         .await
         .map(|response| response.into_inner())
     {
         Ok(results) => results
-            .results
+            .runs
             .into_iter()
-            .map(|vr| ValidationResult {
-                name: vr.name,
-                status: if vr.exit_code == 0 {
-                    "success".to_string()
-                } else {
-                    "warning".to_string()
-                },
-                context: vr.context,
-                command: vr.command,
-                args: vr.args,
-                stdout: vr.std_out,
-                stderr: vr.std_err,
+            .map(|vr| ValidationRuns {
+                status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
+                    rpc::forge::machine_validation_status::MachineValidationState::Completed(
+                        rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
+                    ),
+                )),
+                context: vr.context.unwrap_or_default(),
                 validation_id: vr.validation_id.unwrap_or_default().to_string(),
                 start_time: vr.start_time.unwrap_or_default().to_string(),
                 end_time: vr.end_time.unwrap_or_default().to_string(),
             })
             .collect(),
         Err(err) => {
-            tracing::warn!(%err, %machine_id, "get_machine_validation_results failed");
+            tracing::warn!(%err, %machine_id, "get_machine_validation_runs failed");
             Vec::new() // Empty validation results on error
         }
     };
 
-    display.validation_results = validation_results;
+    display.validation_runs = validation_runs;
 
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
