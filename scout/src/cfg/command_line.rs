@@ -83,7 +83,7 @@ pub(crate) struct Options {
     #[clap(
         long,
         help = "How many times to reattempt discovery admist failure",
-        default_value_t = 10080u32
+        default_value_t = 10080u32*52*10 // times per one week x 52 weeks x 10 years
     )]
     pub discovery_retries_max: u32,
 
