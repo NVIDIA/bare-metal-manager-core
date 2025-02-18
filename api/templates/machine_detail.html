@@ -196,7 +196,7 @@ Missing BMC Data
         <tbody>
             {% for run in validation_runs %}
             <tr>
-				<tr><th>ID</th><td><a href="/admin/machinevalidation/{{ run.validation_id }}">{{ run.validation_id }}</a></td></tr>
+				<td><a href="/admin/machinevalidation/runs/{{ run.validation_id }}">{{ run.validation_id }}</a></td>
                 <td>{{ run.context }}</td>
                 <td>{{ run.start_time }}</td>
                 <td>{{ run.end_time }}</td>

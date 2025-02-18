@@ -1,3 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use std::sync::Arc;
 
 use askama::Template;
@@ -29,7 +41,7 @@ struct ValidationResultsDetail {
     validation_results: Vec<ValidationResult>,
 }
 
-pub async fn validation_results_detail(
+pub async fn results_details(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
 ) -> Response {
@@ -40,6 +52,7 @@ pub async fn validation_results_detail(
         include_history: false,
         machine_id: None,
     });
+    tracing::info!(%validation_id, "results_details");
 
     let validation_results = match state
         .get_machine_validation_results(request)
@@ -71,6 +84,7 @@ pub async fn validation_results_detail(
                 .into_response();
         }
     };
+    // tracing::info!(%validation_results, "results_details");
 
     let tmpl = ValidationResultsDetail { validation_results };
 
