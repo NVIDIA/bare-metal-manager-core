@@ -30,10 +30,10 @@ def wait_for_machine_not_in_maintenance(machine_id: str, timeout: int) -> None:
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         not_in_maintenance = check_machine_not_in_maintenance(machine_id)
         if not_in_maintenance:
-            print(f"{now}: machine {machine_id} is not in maintenance!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} is not in maintenance!")
             return
         else:
-            print(f"{now}: machine {machine_id} not out of maintenance yet")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not out of maintenance yet")
             time.sleep(60)
     else:
         raise TimeoutError(f"Machine id {machine_id} still in maintenance after {timeout} seconds")

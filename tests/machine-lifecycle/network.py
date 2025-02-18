@@ -53,7 +53,7 @@ def wait_for_redfish_endpoint(hostname: str, max_retries: int = 20, sleep_time: 
 
 
 def _time_print(message) -> str:
-    string = f"{datetime.datetime.now(datetime.UTC)}: {message}"
+    string = f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}: {message}"
     print(string)
     return string
 

@@ -125,22 +125,24 @@ def get_virtual_private_cloud_uuid(vpc_name: str) -> str:
 
 
 def wait_for_machine_ready(machine_id: str, site: Site, timeout: int) -> None:
-    """Check repeatedly until the specified machine has status Ready, for up to `timeout` seconds."""
+    """Check repeatedly until the specified machine has status Ready (provider view), for up to `timeout` seconds."""
     wait_for_machine_status(machine_id, site, "Ready", timeout)
 
 
 def wait_for_machine_status(
     machine_id: str, site: Site, desired_status: str, timeout: int, allow_missing_machine: bool = False
 ) -> None:
-    """Check repeatedly until the specified machine has a specific status, for up to `timeout` seconds."""
+    """Check repeatedly until the specified machine has a specific status (provider view),
+    for up to `timeout` seconds.
+    """
     end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         status = get_machine_status(machine_id, site, allow_missing_machine)
         if status == desired_status:
-            print(f"{now}: machine {machine_id} reached desired status ({desired_status})!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} reached desired status ({desired_status})!")
             return
         else:
-            print(f"{now}: machine {machine_id} not in desired status ({desired_status}) yet, current status: {status}")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not in desired status ({desired_status}) yet, current status: {status}")
             time.sleep(60)
     else:
         raise TimeoutError(
@@ -149,7 +151,7 @@ def wait_for_machine_status(
 
 
 def get_machine_status(machine_id: str, site: Site, allow_missing_machine: bool = False) -> str:
-    """Get the current status of the specified machine.
+    """Get the current status of the specified machine (provider view).
 
     If the machine doesn't exist, and allow_missing_machine is True,
     assume that it is expected to exist in the future and return "<Missing>".
@@ -169,6 +171,67 @@ def get_machine_status(machine_id: str, site: Site, allow_missing_machine: bool 
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode == 1 and "Client Error: 404 Response" in ngc_process.stderr and allow_missing_machine:
         return "<Missing>"
+    elif ngc_process.returncode:
+        print(f"machine info stdout: {ngc_process.stdout}")
+        print(f"machine info stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+
+    try:
+        data = json.loads(ngc_process.stdout)
+    except JSONDecodeError:
+        print(f"JSON decode error:\n{ngc_process.stdout}", file=sys.stderr)
+        raise
+    else:
+        return data["status"]
+
+
+def wait_for_instance_ready(instance_uuid: str, site: Site, timeout: int) -> None:
+    """Check repeatedly until the specified instance has status Ready (tenant view), for up to `timeout` seconds."""
+    wait_for_instance_status(instance_uuid, site, "Ready", timeout)
+
+
+def wait_for_instance_status(instance_uuid: str, site: Site, desired_status: str, timeout: int) -> None:
+    """Check repeatedly until the specified instance has a specific status (tenant view),
+    for up to `timeout` seconds.
+    """
+    end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
+    while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
+        status = get_instance_status(instance_uuid, site)
+        if status == desired_status:
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} reached desired status ({desired_status})!")
+            return
+        else:
+            print(
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: instance {instance_uuid} not in desired status ({desired_status}) yet, current status: {status}")
+            time.sleep(60)
+    else:
+        raise TimeoutError(
+            f"Instance {instance_uuid} did not get to desired status ({desired_status}) within {timeout} seconds"
+        )
+
+
+def get_instance_status(instance_uuid: str, site: Site) -> str:
+    """Get the current status of the specified instance (tenant view).
+
+    If the instance doesn't exist, raise an exception.
+    """
+    ngc_command = [
+        "ngc",
+        "--format_type",
+        "json",
+        "forge",
+        "instance",
+        "info",
+        "--org",
+        ENVS[site.environment].tenant_org_name,
+        instance_uuid,
+    ]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode == 1 and "Client Error: 400 Response" in ngc_process.stderr:
+        print(f"Instance {instance_uuid} not found:\n{ngc_process.stdout}", file=sys.stderr)
+        raise
     elif ngc_process.returncode:
         print(f"machine info stdout: {ngc_process.stdout}")
         print(f"machine info stderr: {ngc_process.stderr}")
@@ -209,6 +272,7 @@ def create_instance(
         operating_system_uuid,
         "--vpc",
         virtual_private_cloud_uuid,
+        "--enable-phone-home",
         instance_name,
     ]
     print(f"Executing {ngc_command}")
@@ -260,7 +324,7 @@ def wait_for_instance_ip(instance_uuid: str, subnet_uuid: str, timeout: int) -> 
         if ip_address:
             return ip_address
         else:
-            print(f"{now}: Instance {instance_uuid} doesn't have an IP address yet")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Instance {instance_uuid} doesn't have an IP address yet")
             time.sleep(60)
     else:
         raise TimeoutError(f"Instance {instance_uuid} did not get an IP address empty within {timeout} seconds.")
@@ -326,10 +390,10 @@ def wait_for_empty_vpc(site_uuid: str, vpc_uuid: str, timeout: int) -> None:
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         instances = get_instances(site_uuid, vpc_uuid)
         if not instances:
-            print(f"{now}: VPC {vpc_uuid} has no instances!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} has no instances!")
             return
         else:
-            print(f"{now}: VPC {vpc_uuid} still has {len(instances)} instances")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still has {len(instances)} instances")
             time.sleep(60)
     else:
         raise TimeoutError(f"VPC {vpc_uuid} did not become empty within {timeout} seconds.\n{instances}")
@@ -342,10 +406,10 @@ def wait_for_vpc_to_not_contain_instance(site_uuid: str, vpc_uuid: str, instance
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         instances = get_instances(site_uuid, vpc_uuid)
         if not any(instance["id"] == instance_uuid for instance in instances):
-            print(f"{now}: VPC {vpc_uuid} no longer contains instance {instance_uuid}!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} no longer contains instance {instance_uuid}!")
             return
         else:
-            print(f"{now}: VPC {vpc_uuid} still contains instance {instance_uuid}")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: VPC {vpc_uuid} still contains instance {instance_uuid}")
             time.sleep(60)
     else:
         raise TimeoutError(f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}")
