@@ -22,7 +22,6 @@ use forge_uuid::machine::MachineId;
 /// * `dpu_nic_firmware_update_version` the version of the DPU NIC firmware that is expected to be running on the DPU.
 ///
 /// Note that if the version does not match in either direction, the DPU will be updated.
-
 pub struct DpuNicFirmwareUpdate {
     pub expected_dpu_firmware_versions: HashMap<String, String>,
     pub metrics: Option<DpuNicFirmwareUpdateMetrics>,

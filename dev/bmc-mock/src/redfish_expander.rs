@@ -15,9 +15,7 @@ use std::str::FromStr;
 This module exists to support `$expand=.($levels=N)` per the redfish spec:
 
 https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2024.2.pdf
-
 */
-
 pub fn wrap_router_with_redfish_expander(router: Router) -> Router {
     Router::new()
         .route("/*all", get(redfish_expand).fallback(fallback))

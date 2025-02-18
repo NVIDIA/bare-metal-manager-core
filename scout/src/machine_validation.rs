@@ -51,7 +51,7 @@ pub async fn get_system_manufacturer_name() -> String {
                     .replace('\n', "");
 
                 let re = Regex::new(r"[ =;:@#\!?\-]").unwrap();
-                return re.replace_all(&sku, "_").to_string().to_ascii_lowercase();
+                re.replace_all(&sku, "_").to_string().to_ascii_lowercase()
             }
             // let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
         }

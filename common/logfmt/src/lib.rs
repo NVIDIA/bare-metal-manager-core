@@ -335,7 +335,7 @@ enum EscapedKeyName<'a> {
     Escaped(String),
 }
 
-impl<'a> std::fmt::Display for EscapedKeyName<'a> {
+impl std::fmt::Display for EscapedKeyName<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EscapedKeyName::Original(s) => s.fmt(f),
@@ -395,7 +395,7 @@ struct SpanAttributeVisitor<'a> {
     data: &'a mut LogFmtData,
 }
 
-impl<'a> field::Visit for SpanAttributeVisitor<'a> {
+impl field::Visit for SpanAttributeVisitor<'_> {
     fn record_bool(&mut self, field: &field::Field, value: bool) {
         match field.name() {
             "logfmt.suppress" => {

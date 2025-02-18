@@ -245,14 +245,14 @@ pub fn verify_signature(
         }
     };
 
-    return match pub_key.verify(
+    match pub_key.verify(
         rsa::Pss::new::<sha2::Sha256>(),
         &attest_hash,
         rsa_signature.signature().value(),
     ) {
         Ok(()) => Ok(true),
         Err(_) => Ok(false),
-    };
+    }
 }
 
 pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {

@@ -723,7 +723,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     }
 }
 
-impl<'a> NewInstance<'a> {
+impl NewInstance<'_> {
     /// Persists the new instance to the DB.
     ///
     /// Does ***not*** check for the existence of the associated machine.

@@ -44,12 +44,9 @@ pub async fn new_with_txn(
     create_measurement_journal(txn, machine_id, report_id, profile_id, bundle_id, state).await
 }
 
-////////////////////////////////////////////////////////////
 /// from_id populates an existing MeasurementJournal
 /// instance from data in the database for the given
 /// journal ID.
-////////////////////////////////////////////////////////////
-
 pub async fn from_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,

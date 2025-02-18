@@ -690,9 +690,9 @@ impl HardwareInfo {
         if self.machine_type != CpuArchitecture::Aarch64 {
             return false;
         }
-        self.dmi_data.as_ref().map_or(false, |dmi| {
-            dmi.board_name.to_lowercase().contains("bluefield")
-        })
+        self.dmi_data
+            .as_ref()
+            .is_some_and(|dmi| dmi.board_name.to_lowercase().contains("bluefield"))
     }
 
     /// This function returns factory_mac_address from dpu_info.

@@ -352,7 +352,7 @@ mod tests {
         }
     }
 
-    impl<'a> std::io::Write for &'a MutexWriter {
+    impl std::io::Write for &MutexWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let mut guard = self.writer.lock().unwrap();
             guard.write(buf)

@@ -242,7 +242,6 @@ impl TestMeter {
 
 impl Default for TestMeter {
     /// Builds an OpenTelemetry `Meter` for unit-testing purposes
-
     fn default() -> Self {
         // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
         // for tracking milliseconds

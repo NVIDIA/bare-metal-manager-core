@@ -31,7 +31,7 @@ use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 // TODO(chet): Consider making default an &Option<Timestamp>,
 // and if None, generate a default timestamp when called.
 fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
-    return ts.as_ref().unwrap_or(default).to_string();
+    ts.as_ref().unwrap_or(default).to_string()
 }
 
 fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<String> {

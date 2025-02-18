@@ -37,7 +37,6 @@ use forge_uuid::machine::MachineId;
 /// Object::delete returns nothing on success
 /// Object::update returns nothing on success
 /// Object::persist returns nothing on success
-
 impl StorageCluster {
     pub async fn list(txn: &mut Transaction<'_, Postgres>) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * from storage_clusters".to_string();

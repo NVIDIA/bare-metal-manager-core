@@ -35,8 +35,8 @@ use crate::cfg::cli_options::{
 };
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
-pub async fn with_forge_client<'a, T, F>(
-    api_config: &ApiConfig<'a>,
+pub async fn with_forge_client<T, F>(
+    api_config: &ApiConfig<'_>,
     callback: impl FnOnce(ForgeClientT) -> F,
 ) -> CarbideCliResult<T>
 where
@@ -135,25 +135,15 @@ async fn get_all_machines_deprecated(
                 if only_maintenance && m.maintenance_reference.is_none() {
                     return false;
                 }
-                if !include_dpus
-                    && m.id
-                        .as_ref()
-                        .map_or(false, |id| id.id.starts_with("fm100d"))
-                {
+                if !include_dpus && m.id.as_ref().is_some_and(|id| id.id.starts_with("fm100d")) {
                     return false;
                 }
                 if !include_predicted_host
-                    && m.id
-                        .as_ref()
-                        .map_or(false, |id| id.id.starts_with("fm100p"))
+                    && m.id.as_ref().is_some_and(|id| id.id.starts_with("fm100p"))
                 {
                     return false;
                 }
-                if exclude_hosts
-                    && m.id
-                        .as_ref()
-                        .map_or(false, |id| !id.id.starts_with("fm100d"))
-                {
+                if exclude_hosts && m.id.as_ref().is_some_and(|id| !id.id.starts_with("fm100d")) {
                     return false;
                 }
                 true

@@ -113,13 +113,10 @@ pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<C
     get_candidate_machines(txn).await
 }
 
-////////////////////////////////////////////////////////////////
 /// discovery_attributes returns the mock machine attribute
 /// records into a generic "discovery attributes" hashmap,
 /// which is intended for making the transition from this PoC
 /// to actual discovery data easier.
-////////////////////////////////////////////////////////////////
-
 pub fn discovery_attributes(machine: &CandidateMachine) -> CarbideResult<HashMap<String, String>> {
     common::filter_machine_discovery_attrs(&machine.attrs)
 }

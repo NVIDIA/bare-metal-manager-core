@@ -216,9 +216,9 @@ impl FromStr for ConfigVersion {
             return Err(ConfigVersionParseError::VersionFormat(s.to_string()));
         }
 
-        if version_nr_str.as_bytes().is_empty()
+        if version_nr_str.is_empty()
             || version_nr_str.as_bytes()[0] != b'V'
-            || timestamp_str.as_bytes().is_empty()
+            || timestamp_str.is_empty()
             || timestamp_str.as_bytes()[0] != b'T'
         {
             return Err(ConfigVersionParseError::VersionFormat(s.to_string()));

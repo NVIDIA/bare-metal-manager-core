@@ -78,9 +78,9 @@ where
     }
 
     /// Get a resource from the pool
-    pub async fn allocate<'c>(
+    pub async fn allocate(
         &self,
-        txn: &mut Transaction<'c, Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         owner_type: OwnerType,
         owner_id: &str,
     ) -> Result<T, ResourcePoolError> {

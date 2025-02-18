@@ -16,7 +16,7 @@ use prettytable::{row, Table};
 use crate::rpc;
 use utils::admin_cli::CarbideCliResult;
 
-pub async fn list<'a>(api_config: &ApiConfig<'a>) -> CarbideCliResult<()> {
+pub async fn list(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
     let response =
         rpc::list_resource_pools(forgerpc::ListResourcePoolsRequest {}, api_config).await?;
     if response.pools.is_empty() {

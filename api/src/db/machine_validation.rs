@@ -91,10 +91,10 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
     }
 }
 impl MachineValidation {
-    async fn find_by<'a>(
+    async fn find_by(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, String>,
-        column: &'a str,
+        column: &str,
     ) -> Result<Vec<MachineValidation>, DatabaseError> {
         let base_query =
             "SELECT * FROM machine_validation result {where} ORDER BY result.start_time".to_owned();
@@ -588,10 +588,10 @@ impl MachineValidationResult {
         .map_err(CarbideError::from)
     }
 
-    async fn find_by<'a>(
+    async fn find_by(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, String>,
-        column: &'a str,
+        column: &str,
     ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
         let base_query =
             "SELECT * FROM machine_validation_results result {where} ORDER BY result.start_time"
