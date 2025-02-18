@@ -18,6 +18,7 @@ urllib3.disable_warnings()
 
 WAIT_FOR_HOSTINIT = 60 * 120
 WAIT_FOR_READY = 60 * 120
+WAIT_FOR_INSTANCE = 60 * 45
 
 # Get config variables from environment
 site_under_test = os.environ.get("SITE_UNDER_TEST")  # e.g. "reno-dev4"
@@ -330,13 +331,12 @@ instance_uuid = instance["id"]
 print(f"Instance {instance_uuid} creation success")
 
 try:
-    print(f"Waiting for {machine_under_test} to report state 'Assigned/Ready'")
+    print("Waiting for carbide to report machine 'Assigned/Ready'")
     admin_cli.wait_for_machine_assigned_ready(machine_under_test, timeout=60 * 10)
 
-    print("Sleeping for 30 minutes for instance installation...")
-    # The problem is that here, there will be an instance reboot, and we want to wait until
-    # after that before attempting to test out SSH connection.
-    time.sleep(60 * 30)
+    # With 'phone-home' enabled, Forge Cloud will only report the instance 'Ready' once it has booted and reported back
+    print("Waiting for Forge Cloud to report instance 'Ready' to the tenant")
+    ngc.wait_for_instance_ready(instance_uuid, site, timeout=WAIT_FOR_INSTANCE)
 
     instance_ip_address = ngc.wait_for_instance_ip(instance_uuid, subnet_uuid, timeout=60 * 20)
 
@@ -391,5 +391,5 @@ admin_cli.wait_for_machine_not_in_maintenance(machine_under_test, timeout=60 * 9
 print("Checking again that carbide reports the managed host Ready")
 admin_cli.check_machine_ready(machine_under_test)
 
-print("Waiting for the Cloud to also report machine Ready")
+print("Waiting for Forge Cloud to also report machine Ready to the provider")
 ngc.wait_for_machine_ready(machine_under_test, site, timeout=60 * 10)
