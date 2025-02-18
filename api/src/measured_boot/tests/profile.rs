@@ -10,24 +10,24 @@
  * its affiliates is strictly prohibited.
  */
 
-/// tests/profile.rs
-///
-/// Bundles:
-/// [ ] test_bundle_crudl: Ensure basic CRUDL works as expected.
-/// [ ] test_bundle_duplicates: Ensure we can't make duplicates.
-/// [ ] test_bundle_matching: Ensure matching logic works as expected.
-/// [ ] test_bundle_set_state: Ensure updating bundle states works as expected.
-/// [ ] test_bundle_journal: Ensure journal is updated on bundle changes.
-///
-/// Profiles:
-/// [x] test_profile_crudl: Make sure basic CRUDL works as expected.
-/// [x] test_profile_duplicates: Make sure we can't make duplicates
-/// [x] test_profile_matching: Make sure matching logic works as expected.
-///
-/// Site:
-/// [ ] test_site_import_export: Make sure an export/import looks good.
-/// [ ] test_site_approved_machine: Make sure approved machine mgmt works.
-/// [ ] test_site_approved_profile: Make sure approved profile mgmt works.
+//! tests/profile.rs
+//!
+//! Bundles:
+//! [ ] test_bundle_crudl: Ensure basic CRUDL works as expected.
+//! [ ] test_bundle_duplicates: Ensure we can't make duplicates.
+//! [ ] test_bundle_matching: Ensure matching logic works as expected.
+//! [ ] test_bundle_set_state: Ensure updating bundle states works as expected.
+//! [ ] test_bundle_journal: Ensure journal is updated on bundle changes.
+//!
+//! Profiles:
+//! [x] test_profile_crudl: Make sure basic CRUDL works as expected.
+//! [x] test_profile_duplicates: Make sure we can't make duplicates
+//! [x] test_profile_matching: Make sure matching logic works as expected.
+//!
+//! Site:
+//! [ ] test_site_import_export: Make sure an export/import looks good.
+//! [ ] test_site_approved_machine: Make sure approved machine mgmt works.
+//! [ ] test_site_approved_profile: Make sure approved profile mgmt works.
 
 #[cfg(test)]
 mod tests {

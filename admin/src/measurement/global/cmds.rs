@@ -19,7 +19,7 @@ use crate::cfg::measurement::GlobalOptions;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
-pub async fn get_forge_client<'a>(api_config: &ApiConfig<'a>) -> CarbideCliResult<ForgeClientT> {
+pub async fn get_forge_client(api_config: &ApiConfig<'_>) -> CarbideCliResult<ForgeClientT> {
     ForgeTlsClient::retry_build(api_config)
         .await
         .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))
@@ -27,7 +27,6 @@ pub async fn get_forge_client<'a>(api_config: &ApiConfig<'a>) -> CarbideCliResul
 
 /// CliData is a simple struct containing the single database connection
 /// and parsed arguments, which is passed down to all subcommands.
-
 pub struct CliData<'g, 'a> {
     pub grpc_conn: &'g mut ForgeClientT,
     pub args: &'a GlobalOptions,

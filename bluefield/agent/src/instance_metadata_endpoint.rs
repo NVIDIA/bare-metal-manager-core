@@ -204,7 +204,7 @@ fn extract_metadata(
     if let (Some(metadata), Some(network_config)) =
         (state.read().0.as_ref(), state.read().1.as_ref())
     {
-        return match category.as_str() {
+        match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
             USER_DATA_CATEGORY => (StatusCode::OK, metadata.user_data.clone()),
@@ -213,7 +213,7 @@ fn extract_metadata(
                 StatusCode::NOT_FOUND,
                 format!("metadata category not found: {}", category),
             ),
-        };
+        }
     } else {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -221,6 +221,7 @@ fn extract_metadata(
         )
     }
 }
+
 async fn get_machine_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
@@ -426,28 +427,24 @@ async fn get_instance_attribute(
         }
         let inst = &dev.instances[instance_index];
 
-        return match attribute.as_str() {
+        match attribute.as_str() {
             GUID => match &inst.ib_guid {
                 Some(guid) => (StatusCode::OK, guid.clone()),
-                None => {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        format!("guid not found at index: {}", instance_index),
-                    );
-                }
+                None => (
+                    StatusCode::NOT_FOUND,
+                    format!("guid not found at index: {}", instance_index),
+                ),
             },
             IB_PARTITION => match &inst.ib_partition_id {
                 Some(ib_partition_id) => (StatusCode::OK, ib_partition_id.to_string()),
-                None => {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        format!("ib partition not found at index: {}", instance_index),
-                    );
-                }
+                None => (
+                    StatusCode::NOT_FOUND,
+                    format!("ib partition not found at index: {}", instance_index),
+                ),
             },
             LID => (StatusCode::OK, inst.lid.to_string()),
             _ => (StatusCode::NOT_FOUND, "no such attribute".to_string()),
-        };
+        }
     } else {
         (StatusCode::NOT_FOUND, "devices not available".to_string())
     }

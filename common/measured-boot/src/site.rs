@@ -71,7 +71,6 @@ impl SiteModel {
     /// proto response from the API) and attempts to convert it
     /// to the backing model.
     ////////////////////////////////////////////////////////////
-
     pub fn from_grpc(some_pb: Option<&SiteModelPb>) -> crate::Result<Self> {
         some_pb
             .ok_or(crate::Error::RpcConversion(

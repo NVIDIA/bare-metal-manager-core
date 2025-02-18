@@ -300,7 +300,7 @@ impl SocketAddrs {
                     .iter
                     .as_slice()
                     .first()
-                    .map_or(false, SocketAddr::is_ipv6);
+                    .is_some_and(SocketAddr::is_ipv6);
 
                 let (preferred, fallback) = self
                     .iter

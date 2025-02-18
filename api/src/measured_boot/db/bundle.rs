@@ -158,11 +158,8 @@ pub async fn from_name_with_txn(
     }
 }
 
-/////////////////////////////////////////////////////
 /// set_state_for_id sets the bundle state for
 /// the given bundle ID.
-/////////////////////////////////////////////////////
-
 pub async fn set_state_for_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -175,11 +172,8 @@ pub async fn set_state_for_id(
     Ok(bundle)
 }
 
-/////////////////////////////////////////////////////
 /// get_all returns all populated MeasurementBundle
 /// models from records in the database.
-/////////////////////////////////////////////////////
-
 pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<MeasurementBundle>> {
     let mut res: Vec<MeasurementBundle> = Vec::new();
     let mut bundle_records = get_measurement_bundle_records_with_txn(txn).await?;
@@ -191,11 +185,8 @@ pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<M
     Ok(res)
 }
 
-/////////////////////////////////////////////////////
 /// get_all_for_profile_id returns all populated
 /// MeasurementBundle models for a given profile ID.
-/////////////////////////////////////////////////////
-
 pub async fn get_all_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,

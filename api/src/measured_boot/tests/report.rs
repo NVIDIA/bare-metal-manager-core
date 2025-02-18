@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-/// tests/report.rs
-///
-/// Reports:
-/// [x] test_report_crudl: Make sure basic CRUDL works as expected.
-/// [x] test_report_journal: Make sure journal is updated on reports.
-/// [x] test_report_to_active_bundle: Make sure active bundle promotion works.
-/// [x] test_report_to_revoked_bundle: Ensure revoked bundle promotion works.
+//! tests/report.rs
+//!
+//! Reports:
+//! [x] test_report_crudl: Make sure basic CRUDL works as expected.
+//! [x] test_report_journal: Make sure journal is updated on reports.
+//! [x] test_report_to_active_bundle: Make sure active bundle promotion works.
+//! [x] test_report_to_revoked_bundle: Ensure revoked bundle promotion works.
 
 #[cfg(test)]
 mod tests {
