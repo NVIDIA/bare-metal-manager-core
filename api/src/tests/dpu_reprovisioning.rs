@@ -386,7 +386,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -420,7 +422,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -1038,7 +1042,9 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -1074,7 +1080,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe.pxe_script.contains("exit"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -1314,7 +1320,9 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_ne!(pxe.pxe_script, "exit".to_string());
+    assert!(!pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -1354,7 +1362,9 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -1390,7 +1400,9 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -2431,7 +2443,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -2465,7 +2479,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe.pxe_script.contains("exit into the OS in 5 seconds"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -2788,7 +2802,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -2822,7 +2838,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig"));
 
     let response = forge_agent_control(&env, dpu_rpc_id_1.clone()).await;
     assert_eq!(
@@ -3117,7 +3135,9 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -3153,7 +3173,9 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -3258,7 +3280,9 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_ne!(pxe.pxe_script, "exit".to_string());
+    assert!(!pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -3298,7 +3322,9 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -3334,7 +3360,9 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert_eq!(pxe.pxe_script, "exit".to_string());
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(

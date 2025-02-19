@@ -62,12 +62,16 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
 
     // Second boot should return "exit"
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
-    assert_eq!(pxe.pxe_script, "exit");
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Ready"));
 
     // A regular reboot attempt should still lead to returning "exit"
     invoke_instance_power(&env, host_machine_id, false).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
-    assert_eq!(pxe.pxe_script, "exit");
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Ready"));
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
     invoke_instance_power(&env, host_machine_id, true).await;
@@ -77,7 +81,9 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     // The next reboot should again lead to returning "exit"
     invoke_instance_power(&env, host_machine_id, false).await;
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
-    assert_eq!(pxe.pxe_script, "exit");
+    assert!(pxe
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Assigned/Ready"));
 }
 
 #[crate::sqlx_test]

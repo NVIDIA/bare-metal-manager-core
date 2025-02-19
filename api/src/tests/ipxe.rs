@@ -75,7 +75,9 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
-    assert_eq!(instructions.pxe_script, "exit".to_string());
+    assert!(instructions
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - Ready"));
 }
 
 #[crate::sqlx_test]
@@ -116,7 +118,9 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     )
     .await;
 
-    assert_eq!(instructions.pxe_script, "exit".to_string());
+    assert!(instructions
+        .pxe_script
+        .contains("exit into the OS in 5 seconds - DPUInitializing/WaitingForNetworkConfig"));
     assert!(!instructions.pxe_script.contains("aarch64/carbide.root"));
 }
 

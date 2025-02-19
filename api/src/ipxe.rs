@@ -108,6 +108,17 @@ exit ||
             )
         };
 
+        let exit_instructions = |x: &ManagedHostState| -> String {
+            format!(
+                r#"
+echo the current state assumes an OS is provisioned and will exit into the OS in 5 seconds - {} ||
+sleep 5 ||
+exit ||
+"#,
+                x
+            )
+        };
+
         let mut console = "ttyS0";
         let interface = db::machine_interface::find_one(txn, interface_id).await?;
 
@@ -183,12 +194,12 @@ exit ||
                             ));
                         }
                         _ => {
-                            return Ok("exit".to_string());
+                            return Ok(exit_instructions(machine.current_state()));
                         }
                     }
                 }
                 _ => {
-                    return Ok("exit".to_string());
+                    return Ok(exit_instructions(machine.current_state()));
                 }
             }
         }
@@ -274,7 +285,7 @@ exit ||
                                     // this is a block storage os image
                                     // boot will be via the block storage snapshot volume
                                     // no ipxe script for os imaging
-                                    "exit".to_string()
+                                    exit_instructions(machine.current_state())
                                 } else {
                                     let mut qcow_imaging_ipxe = format!(
                                         "{} console={},115200 image_url={} image_sha={}",
@@ -312,7 +323,7 @@ exit ||
                             }
                         }
                     } else {
-                        "exit".to_string()
+                        exit_instructions(machine.current_state())
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { .. } => {
