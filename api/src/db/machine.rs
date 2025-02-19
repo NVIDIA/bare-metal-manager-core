@@ -14,6 +14,7 @@
 //!
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
@@ -1259,23 +1260,38 @@ pub async fn set_maintenance_mode(
     machine_id: &MachineId,
     mode: &MaintenanceMode,
 ) -> Result<(), DatabaseError> {
+    set_maintenance_mode_with_condition(txn, machine_id, mode, None).await
+}
+
+pub async fn set_maintenance_mode_with_condition(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    mode: &MaintenanceMode,
+    condition: Option<String>,
+) -> Result<(), DatabaseError> {
     match mode {
         MaintenanceMode::On { reference } => {
-            let query = "UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE id=$2";
-            sqlx::query(query)
+            let mut query = "UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE id=$2".to_string();
+            if let Some(condition) = condition {
+                write!(&mut query, " AND {condition}").unwrap();
+            }
+            sqlx::query(&query)
                 .bind(reference)
                 .bind(machine_id.to_string())
                 .execute(txn.deref_mut())
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         }
         MaintenanceMode::Off => {
-            let query = "UPDATE machines SET maintenance_reference=NULL, maintenance_start_time=NULL WHERE id=$1";
-            sqlx::query(query)
+            let mut query = "UPDATE machines SET maintenance_reference=NULL, maintenance_start_time=NULL WHERE id=$1".to_string();
+            if let Some(condition) = condition {
+                write!(&mut query, " AND {condition}").unwrap();
+            }
+            sqlx::query(&query)
                 .bind(machine_id.to_string())
                 .execute(txn.deref_mut())
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         }
     }
     Ok(())

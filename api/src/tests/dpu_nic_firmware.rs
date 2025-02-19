@@ -1,13 +1,15 @@
+use crate::machine_update_manager::machine_update_module::{
+    HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
+};
 use crate::tests::common;
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::string::ToString;
 
-use crate::model::machine::Machine;
+use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     db,
-    db::{machine::MachineSearchConfig, ObjectFilter},
     machine_update_manager::{
         dpu_nic_firmware::DpuNicFirmwareUpdate,
         machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
@@ -16,7 +18,6 @@ use crate::{
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
-use sqlx::Row;
 
 #[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -32,6 +33,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_versions,
         metrics: None,
+        config: env.config.clone(),
     };
 
     let mut txn = env
@@ -48,29 +50,26 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert!(!started_count.contains(&dpu_machine_id));
     assert!(started_count.contains(&host_machine_id));
 
-    let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like $1";
-    let count: i32 = sqlx::query::<_>(query)
-        .bind(reference)
+    // Maintenance mode is no longer used
+    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
+    let (count,) = sqlx::query_as::<_, (i32,)>(query)
         .fetch_one(&mut *txn)
         .await
-        .unwrap()
-        .try_get("count")
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count, 0);
 
-    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    // Health override is placed
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    check_for_update_host_health_override(&managed_host);
 
-    assert_eq!(machines.len(), 2);
-    let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = &dpu_machine
-        .reprovision_requested
-        .as_ref()
-        .unwrap()
-        .initiator;
-    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    for dpu in managed_host.dpu_snapshots.iter() {
+        let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
+        assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    }
 
     Ok(())
 }
@@ -109,6 +108,7 @@ async fn test_start_updates_with_multidpu(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_versions,
         metrics: None,
+        config: env.config.clone(),
     };
 
     let mut txn = env
@@ -126,31 +126,54 @@ async fn test_start_updates_with_multidpu(
     assert!(!dpus_started.contains(&dpu_machine_id2));
     assert!(dpus_started.contains(&host_machine_id));
 
-    let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like $1";
-    let count: i32 = sqlx::query::<_>(query)
-        .bind(reference)
+    // Maintenance mode is no longer used
+    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
+    let (count,) = sqlx::query_as::<_, (i32,)>(query)
         .fetch_one(&mut *txn)
         .await
-        .unwrap()
-        .try_get("count")
         .unwrap();
-    assert_eq!(count, 3);
+    assert_eq!(count, 0);
 
-    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    // Health override is placed
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    check_for_update_host_health_override(&managed_host);
 
-    assert_eq!(machines.len(), 3);
-    let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = &dpu_machine
-        .reprovision_requested
-        .as_ref()
-        .unwrap()
-        .initiator;
-    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    for dpu in managed_host.dpu_snapshots.iter() {
+        let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
+        assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    }
 
     Ok(())
+}
+
+fn check_for_update_host_health_override(managed_host: &ManagedHostStateSnapshot) {
+    println!(
+        "Overrides: {:?}",
+        serde_json::to_string(&managed_host.host_snapshot.health_report_overrides).unwrap()
+    );
+    assert!(managed_host
+        .host_snapshot
+        .health_report_overrides
+        .merges
+        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    let health = &managed_host.aggregate_health;
+    println!("Health: {:?}", serde_json::to_string(health).unwrap());
+    let update_alert = health
+        .alerts
+        .iter()
+        .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID)
+        .expect("Expect Update Alert to be placed");
+    assert!(update_alert
+        .message
+        .contains(AutomaticFirmwareUpdateReference::REF_NAME));
+    assert!(update_alert
+        .classifications
+        .iter()
+        .any(|c| c == &health_report::HealthAlertClassification::prevent_allocations()));
 }
 
 #[crate::sqlx_test]
@@ -169,6 +192,7 @@ async fn test_get_updates_in_progress(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_versions,
         metrics: None,
+        config: env.config.clone(),
     };
 
     let mut txn = env
@@ -214,6 +238,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_versions,
         metrics: None,
+        config: env.config.clone(),
     };
 
     let mut txn = env
@@ -231,7 +256,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 }
 
 #[crate::sqlx_test]
-async fn test_clear_complated_updates(
+async fn test_clear_completed_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
@@ -246,6 +271,7 @@ async fn test_clear_complated_updates(
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_versions,
         metrics: None,
+        config: env.config.clone(),
     };
 
     let mut txn = env
@@ -261,22 +287,28 @@ async fn test_clear_complated_updates(
     assert!(!started_count.contains(&dpu_machine_id));
     assert!(started_count.contains(&host_machine_id));
 
-    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
+    let (count,) = sqlx::query_as::<_, (i32,)>(query)
+        .fetch_one(&mut *txn)
         .await
         .unwrap();
+    assert_eq!(count, 0);
 
-    assert_eq!(machines.len(), 2);
-    let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = &dpu_machine
-        .reprovision_requested
-        .as_ref()
-        .unwrap()
-        .initiator;
-    let reference = dpu_machine.maintenance_reference.as_ref().unwrap();
-    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
-    assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    // Health override is placed
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    check_for_update_host_health_override(&managed_host);
+
+    for dpu in managed_host.dpu_snapshots.iter() {
+        let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
+        assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    }
 
     txn.commit().await.expect("commit failed");
+
     let mut txn = env
         .pool
         .begin()
@@ -288,21 +320,18 @@ async fn test_clear_complated_updates(
         .await
         .unwrap();
 
-    let machines: Vec<Machine> =
-        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    // Health override is still in place since update did not complete
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
             .await
+            .unwrap()
             .unwrap();
+    check_for_update_host_health_override(&managed_host);
 
-    assert_eq!(machines.len(), 2);
-    let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
-    let initiator = &dpu_machine
-        .reprovision_requested
-        .as_ref()
-        .unwrap()
-        .initiator;
-    let reference = dpu_machine.maintenance_reference.as_ref().unwrap();
-    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
-    assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    for dpu in managed_host.dpu_snapshots.iter() {
+        let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
+        assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    }
 
     txn.rollback().await.unwrap();
 
@@ -339,18 +368,18 @@ async fn test_clear_complated_updates(
         .await
         .unwrap();
 
-    let dpu_machine = db::machine::find(
-        &mut txn,
-        ObjectFilter::One(dpu_machine_id),
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .into_iter()
-    .next()
-    .unwrap();
-
-    assert_eq!(dpu_machine.maintenance_reference, None);
+    // Health override is removed
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(!managed_host
+        .host_snapshot
+        .health_report_overrides
+        .merges
+        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    assert!(managed_host.aggregate_health.alerts.is_empty());
 
     Ok(())
 }

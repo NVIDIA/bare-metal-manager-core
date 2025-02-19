@@ -30,6 +30,7 @@ use crate::db::network_security_group;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
+use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::model::hardware_info::MachineInventory;
 use crate::model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
@@ -966,10 +967,19 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         id: machine_id.to_string(),
     })?;
 
-    // Start reprovisioning only machine is in maintenance mode.
-    if !snapshot.host_snapshot.is_maintenance_mode() {
+    // Start reprovisioning only if the host has an HostUpdateInProgress health alert
+    let update_alert = snapshot
+        .aggregate_health
+        .alerts
+        .iter()
+        .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID);
+    if !update_alert.is_some_and(|alert| {
+        alert
+            .classifications
+            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+    }) {
         return Err(Status::invalid_argument(
-            "Machine is not in maintenance mode. Set it first.",
+            "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.",
         ));
     }
 

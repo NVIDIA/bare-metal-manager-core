@@ -53,16 +53,7 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -215,16 +206,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -571,16 +553,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
 
@@ -769,16 +742,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
     env.api
@@ -1183,16 +1147,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
     env.api
@@ -1493,16 +1448,7 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -1570,16 +1516,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -1833,16 +1770,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -1983,16 +1911,7 @@ async fn test_clear_with_function_call(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -2031,16 +1950,7 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -2100,16 +2010,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     assert!(env
         .api
@@ -2235,16 +2136,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id_1.to_string(), Mode::Set, true).await;
 
@@ -2583,16 +2475,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id_1.to_string(), Mode::Set, true).await;
     trigger_dpu_reprovisioning(&env, dpu_machine_id_2.to_string(), Mode::Set, true).await;
@@ -2958,16 +2841,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
     env.api
@@ -3445,16 +3319,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    env.api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 0,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .unwrap();
+    mark_machine_for_updates(&env, &host_machine_id).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -3484,4 +3349,36 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
             assert!(matches!(e.code(), tonic::Code::InvalidArgument));
         }
     }
+}
+
+async fn mark_machine_for_updates(env: &TestEnv, host_machine_id: &MachineId) {
+    env.api
+        .insert_health_report_override(tonic::Request::new(
+            rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(host_machine_id.to_string().into()),
+                r#override: Some(rpc::forge::HealthReportOverride {
+                    report: Some(
+                        health_report::HealthReport {
+                            source: "host-update".to_string(),
+                            observed_at: None,
+                            successes: Vec::new(),
+                            alerts: vec![health_report::HealthProbeAlert {
+                                id: "HostUpdateInProgress".parse().unwrap(),
+                                target: None,
+                                in_alert_since: None,
+                                message: "Update".to_string(),
+                                tenant_message: None,
+                                classifications: vec![
+                                    health_report::HealthAlertClassification::prevent_allocations(),
+                                ],
+                            }],
+                        }
+                        .into(),
+                    ),
+                    mode: rpc::forge::OverrideMode::Merge.into(),
+                }),
+            },
+        ))
+        .await
+        .unwrap();
 }
