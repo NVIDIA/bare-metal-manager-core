@@ -41,6 +41,44 @@ struct ValidationResultsDetail {
     validation_results: Vec<ValidationResult>,
 }
 
+#[derive(Template)]
+#[template(path = "validate_tests_details.html")]
+struct ValidateTestsDetail {
+    validate_tests: Vec<ValidateTest>,
+}
+
+struct ValidateTest {
+    id: String,
+    version: String,
+    name: String,
+    description: String,
+    contexts: String,
+    supported_platforms: String,
+    command: String,
+    args: String,
+    tags: String,
+    is_verified: bool,
+    is_enabled: bool,
+}
+
+impl From<forgerpc::MachineValidationTest> for ValidateTest {
+    fn from(test: forgerpc::MachineValidationTest) -> Self {
+        ValidateTest {
+            id: test.test_id,
+            version: test.version,
+            name: test.name,
+            description: test.description.unwrap_or_default(),
+            contexts: test.contexts.join(", "),
+            supported_platforms: test.supported_platforms.join(", "),
+            command: test.command,
+            args: test.args,
+            tags: test.custom_tags.join(", "),
+            is_verified: test.verified,
+            is_enabled: test.is_enabled,
+        }
+    }
+}
+
 pub async fn results_details(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
@@ -89,4 +127,38 @@ pub async fn results_details(
     let tmpl = ValidationResultsDetail { validation_results };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn show_tests_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let validate_tests = match fetch_validation_tests(state).await {
+        Ok(tests) => tests,
+        Err(err) => {
+            tracing::error!(%err, "fetch_validation_tests");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading validation tests",
+            )
+                .into_response();
+        }
+    };
+
+    let tmpl = ValidateTestsDetail {
+        validate_tests: validate_tests.into_iter().map(ValidateTest::from).collect(),
+    };
+
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+async fn fetch_validation_tests(
+    api: Arc<Api>,
+) -> Result<Vec<forgerpc::MachineValidationTest>, tonic::Status> {
+    let request = tonic::Request::new(forgerpc::MachineValidationTestsGetRequest {
+        supported_platforms: Vec::new(),
+        contexts: Vec::new(),
+        test_id: None,
+        ..forgerpc::MachineValidationTestsGetRequest::default()
+    });
+    api.get_machine_validation_tests(request)
+        .await
+        .map(|response| response.into_inner().tests)
 }
