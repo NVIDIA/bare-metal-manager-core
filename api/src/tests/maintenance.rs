@@ -487,14 +487,23 @@ async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(
                         health_report::HealthReport {
-                            source: "cli".to_string(),
+                            source: "host-update".to_string(),
                             observed_at: None,
                             successes: Vec::new(),
-                            alerts: Vec::new(),
+                            alerts: vec![health_report::HealthProbeAlert {
+                                id: "HostUpdateInProgress".parse().unwrap(),
+                                target: None,
+                                in_alert_since: None,
+                                message: "Update".to_string(),
+                                tenant_message: None,
+                                classifications: vec![
+                                    health_report::HealthAlertClassification::prevent_allocations(),
+                                ],
+                            }],
                         }
                         .into(),
                     ),
-                    mode: rpc::forge::OverrideMode::Replace.into(),
+                    mode: rpc::forge::OverrideMode::Merge.into(),
                 }),
             },
         ))
@@ -509,6 +518,27 @@ async fn test_migrate_legacy_maintenance_mode_does_not_block_state_machine(
             update_firmware: false,
             machine_id: Some(dpu_machine_id.to_string().into()),
         }))
+        .await
+        .unwrap();
+
+    env.api
+        .insert_health_report_override(tonic::Request::new(
+            rpc::forge::InsertHealthReportOverrideRequest {
+                machine_id: Some(rpc_host_id.clone()),
+                r#override: Some(rpc::forge::HealthReportOverride {
+                    report: Some(
+                        health_report::HealthReport {
+                            source: "cli".to_string(),
+                            observed_at: None,
+                            successes: Vec::new(),
+                            alerts: Vec::new(),
+                        }
+                        .into(),
+                    ),
+                    mode: rpc::forge::OverrideMode::Replace.into(),
+                }),
+            },
+        ))
         .await
         .unwrap();
 

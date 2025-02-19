@@ -1,4 +1,9 @@
-use crate::tests::common;
+use crate::{
+    machine_update_manager::machine_update_module::{
+        create_host_update_health_report, HOST_UPDATE_HEALTH_REPORT_SOURCE,
+    },
+    tests::common,
+};
 
 use std::{
     collections::HashSet,
@@ -191,7 +196,7 @@ async fn test_put_machine_in_maintenance(
 }
 
 #[crate::sqlx_test]
-async fn test_remove_machine_from_maintenance(
+async fn test_remove_machine_update_markers(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
@@ -231,37 +236,63 @@ async fn test_remove_machine_from_maintenance(
         "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
         reference
     );
-    let count: i32 = sqlx::query::<_>(&query)
+    let (count,) = sqlx::query_as::<_, (i32,)>(&query)
         .fetch_one(&mut *txn)
         .await
-        .unwrap()
-        .try_get("count")
         .unwrap();
+    txn.commit().await.unwrap();
 
     // the dpu and host are put in maintenance
     assert_eq!(count, 2);
-
-    MachineUpdateManager::remove_machine_from_maintenance(&mut txn, &machine_update)
-        .await
-        .unwrap();
-
-    txn.commit().await.unwrap();
 
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Failed to create transaction");
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like '$1%'";
-    let count: i32 = sqlx::query::<_>(query)
-        .bind(AutomaticFirmwareUpdateReference::REF_NAME)
-        .fetch_one(&mut *txn)
+    MachineUpdateManager::remove_machine_update_markers(&mut txn, &machine_update)
         .await
-        .unwrap()
-        .try_get("count")
         .unwrap();
 
+    let (count,) = sqlx::query_as::<_, (i32,)>(&query)
+        .fetch_one(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
     assert_eq!(count, 0);
+
+    // Apply health override
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
+    add_host_update_alert(&mut txn, &machine_update, reference).await?;
+    txn.commit().await.unwrap();
+
+    // Check that health override gets removed
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
+    MachineUpdateManager::remove_machine_update_markers(&mut txn, &machine_update)
+        .await
+        .unwrap();
+
+    let managed_host =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(!managed_host
+        .host_snapshot
+        .health_report_overrides
+        .merges
+        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    assert!(managed_host.aggregate_health.alerts.is_empty());
+    txn.commit().await.unwrap();
 
     Ok(())
 }
@@ -309,9 +340,7 @@ fn test_start(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
-async fn test_get_machines_in_maintenance(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id1, dpu_machine_id1) = create_managed_host(&env).await;
     let (host_machine_id2, dpu_machine_id2) = create_managed_host(&env).await;
@@ -334,10 +363,8 @@ async fn test_get_machines_in_maintenance(
         to: "y".to_owned(),
     });
 
-    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, reference)
-        .await
-        .unwrap();
-
+    add_host_update_alert(&mut txn, &machine_update, reference).await?;
+    // Host 2 should be ignored due to the mismatching reference
     db::machine::set_maintenance_mode(
         &mut txn,
         &host_machine_id2,
@@ -365,12 +392,32 @@ async fn test_get_machines_in_maintenance(
         .begin()
         .await
         .expect("Failed to create transaction");
-    let machines = MachineUpdateManager::get_machines_in_maintenance(&mut txn)
+    let machines = MachineUpdateManager::get_updating_machines(&mut txn)
         .await
         .unwrap();
 
     assert_eq!(machines.len(), 1);
     assert_eq!(machines.iter().next().unwrap(), &host_machine_id1);
+
+    Ok(())
+}
+
+/// Manually adds the HostUpdateInProgress health alert to a Machine
+async fn add_host_update_alert(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_update: &DpuMachineUpdate,
+    reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
+) -> CarbideResult<()> {
+    let health_override =
+        create_host_update_health_report(Some("DpuFirmware".to_string()), reference.to_string());
+
+    db::machine::insert_health_report_override(
+        txn,
+        &machine_update.host_machine_id,
+        health_report::OverrideMode::Merge,
+        &health_override,
+    )
+    .await?;
 
     Ok(())
 }

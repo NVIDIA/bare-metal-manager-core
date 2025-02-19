@@ -37,6 +37,7 @@ async fn test_find_available_outdated_dpus(
         &mut txn,
         &expected_dpu_firmware_versions,
         None,
+        &env.config,
     )
     .await?;
 
@@ -105,6 +106,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         &mut txn,
         &expected_dpu_firmware_versions,
         None,
+        &env.config,
     )
     .await?;
 
@@ -138,6 +140,7 @@ async fn test_find_available_outdated_dpus_limit(
         &mut txn,
         &expected_dpu_firmware_versions,
         Some(1),
+        &env.config,
     )
     .await?;
 
@@ -163,9 +166,12 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "24.35.2000".to_owned());
 
-    let dpus =
-        DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &expected_dpu_firmware_versions)
-            .await?;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
+        &mut txn,
+        &expected_dpu_firmware_versions,
+        &env.config,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), 0);
     Ok(())
@@ -193,9 +199,12 @@ async fn test_find_unavailable_outdated_dpus(
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
 
-    let dpus =
-        DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &expected_dpu_firmware_versions)
-            .await?;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
+        &mut txn,
+        &expected_dpu_firmware_versions,
+        &env.config,
+    )
+    .await?;
 
     assert_eq!(dpus.len(), 1);
     assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
@@ -225,6 +234,7 @@ async fn test_find_available_outdated_dpus_multidpu(
         &mut txn,
         &expected_dpu_firmware_versions,
         None,
+        &env.config,
     )
     .await?;
 
@@ -278,6 +288,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
         &mut txn,
         &expected_dpu_firmware_versions,
         None,
+        &env.config,
     )
     .await?;
 
@@ -347,6 +358,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
         &mut txn,
         &expected_dpu_firmware_versions,
         None,
+        &env.config,
     )
     .await?;
 

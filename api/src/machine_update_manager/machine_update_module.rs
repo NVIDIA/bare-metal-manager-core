@@ -16,9 +16,10 @@ use std::{
 };
 
 use async_trait::async_trait;
+use lazy_static::lazy_static;
 use sqlx::{Postgres, Transaction};
 
-use crate::CarbideResult;
+use crate::{model::machine::Machine, CarbideResult};
 use forge_uuid::machine::MachineId;
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
@@ -49,6 +50,41 @@ pub trait MachineUpdateModule: Send + Sync + fmt::Display {
     async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>);
 }
 
+lazy_static! {
+    pub static ref HOST_UPDATE_HEALTH_PROBE_ID: health_report::HealthProbeId =
+        "HostUpdateInProgress".parse().unwrap();
+}
+
+/// The name of the Health Override which will be used to indicate an ongoing host update
+pub const HOST_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-update";
+
+/// Creates a Health override report that indicates that a host update is in progress
+pub fn create_host_update_health_report(
+    target: Option<String>,
+    message: String,
+) -> health_report::HealthReport {
+    health_report::HealthReport {
+        source: HOST_UPDATE_HEALTH_REPORT_SOURCE.to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: HOST_UPDATE_HEALTH_PROBE_ID.clone(),
+            target,
+            in_alert_since: Some(chrono::Utc::now()),
+            message,
+            tenant_message: None,
+            // While the Machine is in process of being updated, no tenant should be
+            // able to acquire the Machine.
+            // If the Machine becomes unhealthy during updates (which might happen
+            // e.g. due to powering the host down and up), no pages should be triggered
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    }
+}
+
 pub struct AutomaticFirmwareUpdateReference {
     pub from: String,
     pub to: String,
@@ -74,4 +110,28 @@ impl Display for DpuReprovisionInitiator {
             ),
         }
     }
+}
+
+/// Returns whether a Machine is marked as having updates in progress
+///
+/// The marking can happen in 2 ways:
+/// 1. The legacy way of Marking machines for updates was using Maintenance mode
+///    and including a special update text description. This way will be removed
+///    in the future.
+/// 2. Applying a special health override and health alert on the Machine
+pub fn machine_updates_in_progress(machine: &Machine) -> bool {
+    machine
+        .maintenance_reference
+        .as_ref()
+        .is_some_and(|maint_ref| maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME))
+        || machine
+            .health_report_overrides
+            .merges
+            .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+            .is_some_and(|updater_report| {
+                updater_report
+                    .alerts
+                    .iter()
+                    .any(|alert| alert.id == *HOST_UPDATE_HEALTH_PROBE_ID)
+            })
 }

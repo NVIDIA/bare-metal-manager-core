@@ -1,19 +1,19 @@
-use sqlx::Acquire;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
 
 use crate::{
+    cfg::file::CarbideConfig,
+    db::{self, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions, DatabaseError},
     machine_update_manager::machine_update_module::{
+        create_host_update_health_report, machine_updates_in_progress,
         AutomaticFirmwareUpdateReference, DpuReprovisionInitiator,
     },
-    model::machine::ReprovisionRequest,
+    model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
     CarbideError,
 };
 use forge_uuid::machine::MachineId;
-
-use super::DatabaseError;
 
 #[derive(FromRow, Debug)]
 pub struct DpuMachineUpdate {
@@ -29,125 +29,158 @@ impl DpuMachineUpdate {
     /// 1. the installed firmware does not match the expected firmware
     /// 2. the DPU is not marked for reprovisioning
     /// 3. the DPU is not marked for maintenance.
-    /// 4. If all DPUs need upgrade, put all in queue. State machine supports upgrading multiple
+    /// 4. the Host is healthy (no pending health alert)
+    /// 5. If all DPUs need upgrade, put all in queue. State machine supports upgrading multiple
     ///    DPUs of a managedhost.
-    /// 5. If some of the DPUs for a managed host need upgrade, put them in queue.
-    ///     5.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
-    ///       managedhost. This is done by confirming that Host is not under maintenance.
+    /// 6. If some of the DPUs for a managed host need upgrade, put them in queue.
+    ///     6.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
+    ///       managedhost. This is done by confirming that Host is not marked for updates
     ///
     pub async fn find_available_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
         expected_firmware_versions: &HashMap<String, String>,
         limit: Option<i32>,
+        config: &CarbideConfig,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         if limit.is_some_and(|l| l <= 0) {
             return Ok(vec![]);
         }
+
+        let outdated_dpus =
+            Self::find_outdated_dpus(txn, expected_firmware_versions, config).await?;
+
+        let mut scheduled_host_updates = 0;
+        let available_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
+            .into_iter()
+            .filter_map(|outdated_host| {
+                // If the limit on scheduled host updates is reached, skip creating more
+                if let Some(limit) = limit {
+                    if scheduled_host_updates >= limit {
+                        return None;
+                    }
+                }
+                if !outdated_host.is_available_for_updates() {
+                    return None;
+                }
+                scheduled_host_updates += 1;
+                Some(outdated_host.outdated_dpus)
+            })
+            .flatten()
+            .collect();
+
+        Ok(available_outdated_dpus)
+    }
+
+    pub async fn find_unavailable_outdated_dpus(
+        txn: &mut Transaction<'_, Postgres>,
+        expected_firmware_versions: &HashMap<String, String>,
+        config: &CarbideConfig,
+    ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
+        let outdated_dpus =
+            Self::find_outdated_dpus(txn, expected_firmware_versions, config).await?;
+
+        let unavailable_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
+            .into_iter()
+            .filter_map(|outdated_host| {
+                if outdated_host.is_available_for_updates() {
+                    return None;
+                }
+                Some(outdated_host.outdated_dpus)
+            })
+            .flatten()
+            .collect();
+
+        Ok(unavailable_outdated_dpus)
+    }
+
+    pub async fn find_outdated_dpus(
+        txn: &mut Transaction<'_, Postgres>,
+        expected_firmware_versions: &HashMap<String, String>,
+        config: &CarbideConfig,
+    ) -> Result<Vec<OutdatedHost>, DatabaseError> {
         if expected_firmware_versions.is_empty() {
             return Err(DatabaseError::new(
                 file!(),
                 line!(),
-                "find_available_outdated_dpus",
+                "find_outdated_dpus",
                 sqlx::Error::Configuration(Box::new(CarbideError::InvalidArgument(
                     "Missing expected_firmware_versions".to_string(),
                 ))),
             ));
         }
 
-        let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id,
-            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version,
-            topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' as product_name
-            FROM machines m
-            INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
-            INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-            WHERE m.reprovisioning_requested IS NULL 
-            AND mi.machine_id != mi.attached_dpu_machine_id
-            AND m.controller_state = '{"state": "ready"}'
-            AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
-            AND coalesce(jsonb_array_length(m.dpu_agent_health_report->'alerts'), 0) = 0
-            "#.to_owned();
+        let machine_ids = db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_dpus: false,
+                include_history: false,
+                include_predicted_host: true,
+                only_maintenance: false,
+                exclude_hosts: false,
+                for_update: false,
+            },
+        )
+        .await?;
+        let snapshots = db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                hardware_health: config.host_health.hardware_health_reports,
+            },
+        )
+        .await?;
 
-        let mut bind_index = 1;
-        for (ind, _) in expected_firmware_versions.iter().enumerate() {
-            if ind == 0 {
-                query += " AND (\n"
-            } else {
-                query += " OR ";
-            }
-            query += &format!(
-                "(topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' = ${} \n",
-                bind_index
-            );
-            query += &format!("AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != ${}\n)", bind_index + 1);
-            bind_index += 2;
-        }
-        query += ")\n";
+        let outdated_hosts: Vec<OutdatedHost> = snapshots
+            .into_iter()
+            .filter_map(|(machine_id, managed_host)| {
+                let outdated_dpus: Vec<DpuMachineUpdate> = managed_host
+                    .dpu_snapshots
+                    .iter()
+                    .filter_map(|dpu| {
+                        let firmware_version = dpu
+                            .hardware_info
+                            .as_ref()
+                            .and_then(|info| info.dpu_info.as_ref())
+                            .map(|dpu_info| dpu_info.firmware_version.clone())
+                            .unwrap_or_default();
+                        let product_name = dpu
+                            .hardware_info
+                            .as_ref()
+                            .and_then(|info| info.dmi_data.as_ref())
+                            .map(|dmi_data| dmi_data.product_name.clone())
+                            .unwrap_or_default();
 
-        if limit.is_some() {
-            query += &format!(" LIMIT ${};", bind_index);
-        }
+                        let is_outdated = match expected_firmware_versions.get(&product_name) {
+                            Some(expected_version) => expected_version != &firmware_version,
+                            None => false,
+                        };
+                        if !is_outdated {
+                            return None;
+                        }
 
-        let mut q = sqlx::query_as(&query);
-        for (product_name, expected_version) in expected_firmware_versions {
-            q = q.bind(product_name).bind(expected_version);
-        }
+                        Some(DpuMachineUpdate {
+                            host_machine_id: machine_id,
+                            dpu_machine_id: dpu.id,
+                            firmware_version,
+                            product_name,
+                        })
+                    })
+                    .collect();
 
-        if let Some(limit) = limit {
-            q = q.bind(limit);
-        }
+                if outdated_dpus.is_empty() {
+                    return None;
+                }
 
-        let result = q
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+                Some(OutdatedHost {
+                    managed_host,
+                    outdated_dpus,
+                })
+            })
+            .collect();
 
-        Ok(result)
-    }
-
-    pub async fn find_unavailable_outdated_dpus(
-        txn: &mut Transaction<'_, Postgres>,
-        expected_firmware_versions: &HashMap<String, String>,
-    ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id,
-            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version,
-            topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' as product_name
-            FROM machines m
-            INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
-            INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-            WHERE m.reprovisioning_requested IS NULL 
-            AND mi.machine_id != mi.attached_dpu_machine_id 
-            AND (SELECT maintenance_reference from machines WHERE id=mi.machine_id) IS NULL
-            AND (m.controller_state != '{"state": "ready"}'
-            OR coalesce(jsonb_array_length(m.dpu_agent_health_report->'alerts'), 0) != 0)
-            AND m.maintenance_start_time IS NULL "#.to_owned();
-
-        let mut bind_index = 1;
-        for (ind, _) in expected_firmware_versions.iter().enumerate() {
-            if ind == 0 {
-                query += " AND (\n"
-            } else {
-                query += " OR ";
-            }
-            query += &format!(
-                "(topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' = ${} \n",
-                bind_index
-            );
-            query += &format!("AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != ${}\n)", bind_index + 1);
-            bind_index += 2;
-        }
-        query += ")\n";
-
-        let mut q = sqlx::query_as(&query);
-        for (product_name, expected_version) in expected_firmware_versions {
-            q = q.bind(product_name).bind(expected_version);
-        }
-
-        let result = q
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
-
-        Ok(result)
+        Ok(outdated_hosts)
     }
 
     pub async fn get_fw_updates_running_count(
@@ -211,10 +244,9 @@ impl DpuMachineUpdate {
                 restart_reprovision_requested_at: reprovision_time,
             };
 
-            let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL RETURNING id"#;
+            let query = r#"UPDATE machines SET reprovisioning_requested=$1 WHERE controller_state = '{"state": "ready"}' AND id=$2 RETURNING id"#;
             sqlx::query(query)
                 .bind(sqlx::types::Json(req))
-                .bind(initiator.to_string())
                 .bind(machine_update.dpu_machine_id.to_string())
                 .fetch_one(inner_txn.deref_mut())
                 .await
@@ -233,9 +265,24 @@ impl DpuMachineUpdate {
             to: host_expected_version.unwrap_or("".to_string()),
         });
 
-        let query = r#"UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$2 AND maintenance_reference IS NULL RETURNING id"#;
+        let health_override = create_host_update_health_report(
+            Some("DpuFirmware".to_string()),
+            initiator_host.to_string(),
+        );
+
+        // Mark the Host as in update.
+        // If an update is already scheduled (host-update field is set),
+        // then the process is aborted
+        let query = r#"UPDATE machines SET health_report_overrides = jsonb_set(
+                coalesce(health_report_overrides, '{"merges": {}}'::jsonb),
+                '{merges,host-update}',
+                $1::jsonb
+            )
+            WHERE controller_state = '{"state": "ready"}' AND id=$2
+            AND coalesce(health_report_overrides, '{"merges": {}}'::jsonb)->'merges' ? 'host-update' = FALSE
+            RETURNING id"#;
         sqlx::query(query)
-            .bind(initiator_host.to_string())
+            .bind(sqlx::types::Json(&health_override))
             .bind(host_machine_id.to_string())
             .fetch_one(inner_txn.deref_mut())
             .await
@@ -281,26 +328,114 @@ impl DpuMachineUpdate {
 
     pub async fn get_updated_machines(
         txn: &mut Transaction<'_, Postgres>,
+        config: &CarbideConfig,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
+        let machine_ids = db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_dpus: false,
+                include_history: false,
+                include_predicted_host: true,
+                only_maintenance: false,
+                exclude_hosts: false,
+                for_update: false,
+            },
+        )
+        .await?;
+        let snapshots = db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                hardware_health: config.host_health.hardware_health_reports,
+            },
+        )
+        .await?;
 
-        let query = r#"SELECT mi.machine_id as host_machine_id, mi.attached_dpu_machine_id as dpu_machine_id,
-        mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version,
-        topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' as product_name
-        FROM machines m
-        INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
-        INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-        WHERE mi.machine_id != mi.attached_dpu_machine_id
-        AND m.controller_state = '{"state": "ready"}'
-        AND m.maintenance_reference like $1
-        AND m.reprovisioning_requested IS NULL"#;
+        let updated_machines: Vec<DpuMachineUpdate> = snapshots
+            .into_iter()
+            .filter_map(|(machine_id, managed_host)| {
+                // Skip looking at any machines that are not marked for updates
+                if !machine_updates_in_progress(&managed_host.host_snapshot) {
+                    return None;
+                }
+                // Skip any machines that are not done updating
+                if !matches!(managed_host.managed_state, ManagedHostState::Ready) {
+                    return None;
+                }
+                // Check if all DPUs have the `reprovisioning_requested` flag cleared
+                if managed_host
+                    .dpu_snapshots
+                    .iter()
+                    .any(|dpu| dpu.reprovision_requested.is_some())
+                {
+                    return None;
+                }
 
-        let updated_machines: Vec<DpuMachineUpdate> = sqlx::query_as(query)
-            .bind(&reference)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                // We only signal an update as complete once ALL DPUs are done
+                // That prevents removing the updating flags from the Host
+                // if just one DPU completes the update
+                let completed_updates: Vec<DpuMachineUpdate> = managed_host
+                    .dpu_snapshots
+                    .iter()
+                    .map(|dpu| DpuMachineUpdate {
+                        host_machine_id: machine_id,
+                        dpu_machine_id: dpu.id,
+                        firmware_version: dpu
+                            .hardware_info
+                            .as_ref()
+                            .and_then(|info| info.dpu_info.as_ref())
+                            .map(|dpu_info| dpu_info.firmware_version.clone())
+                            .unwrap_or_default(),
+                        product_name: dpu
+                            .hardware_info
+                            .as_ref()
+                            .and_then(|info| info.dmi_data.as_ref())
+                            .map(|dmi_data| dmi_data.product_name.clone())
+                            .unwrap_or_default(),
+                    })
+                    .collect();
+
+                Some(completed_updates)
+            })
+            .flatten()
+            .collect();
 
         Ok(updated_machines)
+    }
+}
+
+pub struct OutdatedHost {
+    pub managed_host: ManagedHostStateSnapshot,
+    pub outdated_dpus: Vec<DpuMachineUpdate>,
+}
+
+impl OutdatedHost {
+    pub fn is_available_for_updates(&self) -> bool {
+        // Skip any machines that have pending health alerts
+        if !self.managed_host.aggregate_health.alerts.is_empty() {
+            return false;
+        }
+        // Skip looking at any machines that are marked for updates
+        if machine_updates_in_progress(&self.managed_host.host_snapshot) {
+            return false;
+        }
+        // Skip any machines that are not Ready
+        if !matches!(self.managed_host.managed_state, ManagedHostState::Ready) {
+            return false;
+        }
+
+        // Check if all DPUs have the `reprovisioning_requested` flag cleared
+        if self
+            .managed_host
+            .dpu_snapshots
+            .iter()
+            .any(|dpu| dpu.reprovision_requested.is_some())
+        {
+            return false;
+        }
+
+        true
     }
 }

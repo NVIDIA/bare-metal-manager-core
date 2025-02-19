@@ -22,6 +22,7 @@
 		<b>Presets:</b>
 		<ul>
 			<li><input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)"></li>
+			<li><input type="submit" value="Host Update (To allow manual DPU Reprovisioning)" onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)"></li>
 			<li><input type="submit" value="Internal Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)"></li>
 			<li><input type="submit" value="Out For Repair Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)"></li>
 			<li><input type="submit" value="Degraded" onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)"></li>
@@ -123,6 +124,15 @@ const templateHealthReport = {
 		source: "carbide-web",
 		successes: [{id: "", target: null}],
 		alerts: [{id: "", target: null, message: "", tenant_message: null, classifications: [""]}]
+	}
+};
+
+const templateMergeHostUpdateMaintenance = {
+	mode: "Merge",
+	health_report: {
+		source: "host-update",
+		successes: [],
+		alerts: [{id: "HostUpdateInProgress", target: "WebUi", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
 	}
 };
 

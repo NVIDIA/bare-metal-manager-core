@@ -16,6 +16,7 @@ pub mod machine_update_module;
 mod metrics;
 
 use host_firmware::HostFirmwareUpdate;
+use machine_update_module::{machine_updates_in_progress, HOST_UPDATE_HEALTH_REPORT_SOURCE};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::atomic::Ordering;
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -169,8 +170,8 @@ impl MachineUpdateManager {
             }
 
             // current host machines in maintenance
-            let mut current_updating_machines =
-                MachineUpdateManager::get_machines_in_maintenance(&mut txn).await?;
+            let mut current_updating_machines: HashSet<MachineId> =
+                MachineUpdateManager::get_updating_machines(&mut txn).await?;
 
             for update_module in self.update_modules.iter() {
                 current_updating_machines = update_module
@@ -229,7 +230,9 @@ impl MachineUpdateManager {
         Ok(())
     }
 
-    #[cfg(test)] // currently only used in tests
+    /// Reflects the old mechanism of putting host and DPUs under updates into Maintenance Mode
+    /// Only used in Tests
+    #[cfg(test)]
     pub async fn put_machine_in_maintenance(
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
@@ -257,40 +260,64 @@ impl MachineUpdateManager {
         Ok(())
     }
 
-    pub async fn remove_machine_from_maintenance(
+    /// Removes all markers from a Host that are used to indicate that updates are applied
+    /// This includes
+    /// - A Health Override
+    /// - Maintenance mode for machines which had been in the update state before maintenance mode was removed
+    ///   from the process.
+    ///   TODO: Remove the Maintenance mode interaction in a future release once pending
+    ///   updates that used maintenance mode are completed
+    pub async fn remove_machine_update_markers(
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        db::machine::set_maintenance_mode(
+        db::machine::set_maintenance_mode_with_condition(
             txn,
             &machine_update.host_machine_id,
             &MaintenanceMode::Off,
+            Some(format!(
+                "starts_with(maintenance_reference, '{}')",
+                AutomaticFirmwareUpdateReference::REF_NAME
+            )),
         )
         .await
         .map_err(CarbideError::from)?;
 
-        db::machine::set_maintenance_mode(
+        db::machine::set_maintenance_mode_with_condition(
             txn,
             &machine_update.dpu_machine_id,
             &MaintenanceMode::Off,
+            Some(format!(
+                "starts_with(maintenance_reference, '{}')",
+                AutomaticFirmwareUpdateReference::REF_NAME
+            )),
         )
         .await
         .map_err(CarbideError::from)?;
+
+        db::machine::remove_health_report_override(
+            txn,
+            &machine_update.host_machine_id,
+            health_report::OverrideMode::Merge,
+            HOST_UPDATE_HEALTH_REPORT_SOURCE,
+        )
+        .await?;
+
         Ok(())
     }
 
-    /// get host machines in maintenance
-    pub async fn get_machines_in_maintenance(
+    /// get host machines that are applying updates
+    pub async fn get_updating_machines(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
         let machines = db::machine::find(
             txn,
             ObjectFilter::All,
             MachineSearchConfig {
-                include_dpus: true,
+                include_dpus: false,
                 include_history: false,
                 include_predicted_host: true,
-                only_maintenance: true,
+                only_maintenance: false,
                 exclude_hosts: false,
                 for_update: false,
             },
@@ -300,11 +327,7 @@ impl MachineUpdateManager {
         Ok(machines
             .into_iter()
             .filter_map(|m| {
-                if !m.is_dpu()
-                    && m.maintenance_reference.as_ref().is_some_and(|maint_ref| {
-                        maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
-                    })
-                {
+                if !m.is_dpu() && machine_updates_in_progress(&m) {
                     Some(m.id)
                 } else {
                     None
