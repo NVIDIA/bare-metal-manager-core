@@ -42,7 +42,6 @@ mod ib_fabric_monitor;
 mod instance;
 mod ipmitool;
 mod ipxe;
-mod legacy;
 mod listener;
 mod logging;
 mod machine_update_manager;

@@ -21,9 +21,9 @@ use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
 use crate::db::expected_machine::ExpectedMachine;
+use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
-use crate::{ib::DEFAULT_IB_FABRIC_NAME, legacy};
 
 use crate::{
     api::Api,
@@ -380,10 +380,6 @@ pub async fn start_api(
 
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
-    // This can take couple of seconds to migrate, by this time machine state controller will throw
-    // error. Ignore it.
-    // This can be removed once all environments are updated to new states.
-    legacy::states::machine::start_migration(db_pool.clone()).await?;
 
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
