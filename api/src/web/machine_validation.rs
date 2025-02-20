@@ -48,6 +48,28 @@ struct ValidateTest {
     is_enabled: bool,
 }
 
+struct ValidateTestDetails {
+    test_id: String,
+    version: String,
+    name: String,
+    description: String,
+    contexts: String,
+    supported_platforms: String,
+    command: String,
+    args: String,
+    tags: String,
+    is_verified: bool,
+    is_enabled: bool,
+    timeout: String,
+    extra_output_file: String,
+    extra_err_file: String,
+    pre_condition: String,
+    img_name: String,
+    container_arg: String,
+    external_config_file: String,
+    components: String,
+}
+
 #[derive(Debug)]
 struct ValidationResultDetail {
     validation_id: String,
@@ -75,9 +97,14 @@ struct ValidationResults {
 }
 
 #[derive(Template)]
-#[template(path = "validate_tests_details.html")]
-struct ValidateTestsDetail {
-    validate_tests: Vec<ValidateTest>,
+#[template(path = "validation_tests.html")]
+struct ValidateTests {
+    validation_tests: Vec<ValidateTest>,
+}
+#[derive(Template)]
+#[template(path = "validation_test_details.html")]
+struct ValidateTestDetailsDisplay {
+    validation_tests: Vec<ValidateTestDetails>,
 }
 
 #[derive(Template)]
@@ -104,6 +131,31 @@ impl From<forgerpc::MachineValidationTest> for ValidateTest {
     }
 }
 
+impl From<forgerpc::MachineValidationTest> for ValidateTestDetails {
+    fn from(test: forgerpc::MachineValidationTest) -> Self {
+        ValidateTestDetails {
+            test_id: test.test_id,
+            version: test.version,
+            name: test.name,
+            description: test.description.unwrap_or_default(),
+            contexts: test.contexts.join(", "),
+            supported_platforms: test.supported_platforms.join(", "),
+            command: test.command,
+            args: test.args,
+            tags: test.custom_tags.join(", "),
+            is_verified: test.verified,
+            is_enabled: test.is_enabled,
+            timeout: test.timeout.unwrap_or_default().to_string(),
+            extra_output_file: test.extra_output_file.unwrap_or_default(),
+            extra_err_file: test.extra_err_file.unwrap_or_default(),
+            pre_condition: test.pre_condition.unwrap_or_default(),
+            img_name: test.img_name.unwrap_or_default(),
+            container_arg: test.container_arg.unwrap_or_default(),
+            external_config_file: test.external_config_file.unwrap_or_default(),
+            components: test.components.join(", "),
+        }
+    }
+}
 pub async fn results(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
@@ -203,7 +255,7 @@ pub async fn result_details(
 }
 
 pub async fn show_tests_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let validate_tests = match fetch_validation_tests(state).await {
+    let validate_tests = match fetch_validation_tests(state, None).await {
         Ok(tests) => tests,
         Err(err) => {
             tracing::error!(%err, "fetch_validation_tests");
@@ -215,20 +267,46 @@ pub async fn show_tests_html(AxumState(state): AxumState<Arc<Api>>) -> Response 
         }
     };
 
-    let tmpl = ValidateTestsDetail {
-        validate_tests: validate_tests.into_iter().map(ValidateTest::from).collect(),
+    let tmpl = ValidateTests {
+        validation_tests: validate_tests.into_iter().map(ValidateTest::from).collect(),
     };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
+pub async fn show_tests_details_html(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(test_id): AxumPath<String>,
+) -> Response {
+    let validate_tests = match fetch_validation_tests(state, Some(test_id)).await {
+        Ok(tests) => tests,
+        Err(err) => {
+            tracing::error!(%err, "fetch_validation_tests");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading validation tests",
+            )
+                .into_response();
+        }
+    };
+
+    let tmpl = ValidateTestDetailsDisplay {
+        validation_tests: validate_tests
+            .into_iter()
+            .map(ValidateTestDetails::from)
+            .collect(),
+    };
+
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
 async fn fetch_validation_tests(
     api: Arc<Api>,
+    test_id: Option<String>,
 ) -> Result<Vec<forgerpc::MachineValidationTest>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::MachineValidationTestsGetRequest {
         supported_platforms: Vec::new(),
         contexts: Vec::new(),
-        test_id: None,
+        test_id,
         ..forgerpc::MachineValidationTestsGetRequest::default()
     });
     api.get_machine_validation_tests(request)
