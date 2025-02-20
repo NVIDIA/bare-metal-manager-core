@@ -339,6 +339,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(machine_validation::show_tests_html),
             )
             .route("/machinevalidation", get(machine_validation::runs))
+            .route(
+                "/machinevalidation/tests/:test_id",
+                get(machine_validation::show_tests_details_html),
+            )
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

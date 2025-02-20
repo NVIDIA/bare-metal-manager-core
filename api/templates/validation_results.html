@@ -20,13 +20,14 @@
 		{% for result in validation_results %}
 		<tr>
 			<td>{{ result.validation_id }}</td>
-			<td><a href="/admin/machinevalidation/tests">{{ result.test_id }}</a></td>
-			<td><a href="/admin/machinevalidation/resultdetails/{{ result.validation_id }}/{{ result.test_id }}">{{ result.name }}</a></td>
+			<td><a href="/admin/machinevalidation/tests/{{ result.test_id }}">{{ result.test_id }}</a></td>
+			<td><a href="/admin/machinevalidation/resultdetails/{{ result.validation_id }}/{{ result.test_id }}">{{
+					result.name }}</a></td>
 			<td>{{ result.context }}</td>
 			<td>{{ result.status }}</td>
 			<td>{{ result.start_time }}</td>
 			<td>{{ result.end_time }}</td>
-			
+
 		</tr>
 		{% endfor %}
 	</tbody>
