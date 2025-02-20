@@ -11,23 +11,28 @@
  */
 
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::db;
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use crate::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
+use crate::db::network_segment::{
+    NetworkSegment, NetworkSegmentType, NewNetworkSegment, VpcColumn,
+};
+use crate::db::vpc::{IdColumn, UpdateVpcVirtualization, Vpc};
 use crate::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
     NetworkSegmentDeletionState,
 };
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
+use crate::{db, db_init};
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
 };
+use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use mac_address::MacAddress;
@@ -35,7 +40,7 @@ use mac_address::MacAddress;
 use crate::db::{network_segment, ObjectColumnFilter};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
-    create_test_env_with_overrides, get_vpc_fixture_id, TestEnvOverrides,
+    create_test_env, create_test_env_with_overrides, get_vpc_fixture_id, TestEnvOverrides,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
@@ -196,6 +201,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
+            svi_ip: None,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -572,6 +578,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
+            svi_ip: None,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -825,4 +832,207 @@ async fn test_network_segment_metrics_tor(
         "tor".to_string(),
     )
     .await;
+}
+
+#[crate::sqlx_test]
+async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    let mut txn = env.pool.begin().await?;
+    let segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(VpcColumn, &vpc_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+
+    for segment in segments {
+        for prefix in segment.prefixes {
+            assert!(prefix.svi_ip.is_none());
+        }
+    }
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let update_request = UpdateVpcVirtualization {
+        id: vpc_id,
+        if_version_match: None,
+        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+    };
+    update_request.update(&mut txn).await?;
+    txn.commit().await?;
+
+    // Already created segments must have SVI allocated.
+    let mut txn = env.pool.begin().await?;
+    let segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(VpcColumn, &vpc_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+
+    for segment in segments {
+        for prefix in segment.prefixes {
+            assert!(prefix.svi_ip.is_some());
+        }
+    }
+
+    // Newly created segments should have SVI allocated once created.
+    let _ = common::api_fixtures::network_segment::create_tenant_network_segment(
+        &env.api,
+        Some(::rpc::common::Uuid {
+            value: vpc_id.to_string(),
+        }),
+        ipnetwork::IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap(),
+        "TENANT",
+        true,
+    )
+    .await;
+
+    // Get the tenant segment into ready state
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await?;
+    let segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(VpcColumn, &vpc_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+
+    for segment in segments {
+        for prefix in segment.prefixes {
+            assert!(prefix.svi_ip.is_some());
+        }
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_update_svi_ip_admin_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // This should create VPC for admin segment
+    db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
+
+    let mut txn = env.pool.begin().await?;
+    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    assert!(admin_segment.vpc_id.is_some());
+    let admin_vpc = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
+    )
+    .await?;
+    assert_eq!(
+        admin_vpc[0].network_virtualization_type,
+        VpcVirtualizationType::Fnn
+    );
+    db_init::update_network_segments_svi_ip(&env.pool).await?;
+    let admin_segment = NetworkSegment::admin(&mut txn).await?;
+    for prefix in admin_segment.prefixes {
+        assert!(prefix.svi_ip.is_some());
+    }
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_update_svi_ip_post_instance_allocation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let query = "UPDATE network_prefixes SET num_reserved = 2 WHERE id=$1";
+
+    let mut txn = env.pool.begin().await?;
+    let segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+
+    // Let's make num_reserved 2 so that 3rd IP is assigned to instance.
+    // This will force carbide to pick next free IP as SVI IP.
+    sqlx::query(query)
+        .bind(segments[0].prefixes[0].id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+    txn.commit().await?;
+
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    let dpu_loopback_ip = common::api_fixtures::dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    assert!(
+        db::instance::Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        db::instance_address::InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+            .await
+            .unwrap(),
+        0
+    );
+    txn.commit().await.unwrap();
+
+    let (_instance_id, _instance) = common::api_fixtures::instance::create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(common::api_fixtures::instance::single_interface_network_config(segment_id)),
+        None,
+        None,
+        vec![],
+    )
+    .await;
+
+    // At this moment, the third IP is taken from the tenant subnet for the instance.
+    let mut txn = env.pool.begin().await?;
+    let mut segment = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segment.remove(0);
+    let update_request = UpdateVpcVirtualization {
+        id: segment.vpc_id.unwrap(),
+        if_version_match: None,
+        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+    };
+    update_request.update(&mut txn).await?;
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let mut segment = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segment.remove(0);
+    txn.rollback().await?;
+
+    // Now the 4th IP is next available IP, so it should be assigned as SVI IP.
+    assert_eq!(
+        segment.prefixes[0].svi_ip.unwrap().to_string(),
+        "192.0.4.3".to_string()
+    );
+
+    Ok(())
 }

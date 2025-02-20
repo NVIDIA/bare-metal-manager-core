@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
+use forge_network::virtualization::VpcVirtualizationType;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 
@@ -19,6 +20,7 @@ use crate::db::network_segment::NetworkSegment;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::network_segment::NetworkSegmentType;
 use crate::db::network_segment::NewNetworkSegment;
+use crate::db::vpc::Vpc;
 use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::CarbideError;
@@ -212,7 +214,29 @@ pub(crate) async fn create(
             e,
         ))
     })?;
-    let network_segment = save(api, &mut txn, new_network_segment, false).await?;
+
+    let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
+        if new_network_segment.can_stretch.unwrap_or(true) {
+            let vpcs = Vpc::find_by(
+                &mut txn,
+                ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
+            )
+            .await
+            .map_err(CarbideError::from)?;
+
+            let vpc = vpcs
+                .first()
+                .ok_or_else(|| CarbideError::internal(format!("VPC ID: {} not found.", vpc_id)))?;
+
+            vpc.network_virtualization_type == VpcVirtualizationType::Fnn
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let network_segment = save(api, &mut txn, new_network_segment, false, allocate_svi_ip).await?;
 
     let response = Ok(Response::new(network_segment.try_into()?));
     txn.commit().await.map_err(|e| {
@@ -330,6 +354,7 @@ pub(crate) async fn save(
     txn: &mut Transaction<'_, Postgres>,
     mut ns: NewNetworkSegment,
     set_to_ready: bool,
+    allocate_svi_ip: bool,
 ) -> Result<NetworkSegment, CarbideError> {
     if ns.segment_type != NetworkSegmentType::Underlay {
         ns.vlan_id = Some(allocate_vlan_id(api, txn, &ns.name).await?);
@@ -340,7 +365,7 @@ pub(crate) async fn save(
     } else {
         NetworkSegmentControllerState::Provisioning
     };
-    let network_segment = match ns.persist(txn, initial_state).await {
+    let mut network_segment = match ns.persist(txn, initial_state).await {
         Ok(segment) => segment,
         Err(DatabaseError {
             source: sqlx::Error::Database(e),
@@ -354,6 +379,25 @@ pub(crate) async fn save(
             return Err(err.into());
         }
     };
+
+    if allocate_svi_ip {
+        network_segment.allocate_svi_ip(txn).await?;
+        let network_segments = NetworkSegment::find_by(
+            txn,
+            ObjectColumnFilter::One(network_segment::IdColumn, &network_segment.id),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
+
+        network_segment = network_segments
+            .first()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "NetworkSegment",
+                id: network_segment.id.to_string(),
+            })?
+            .clone();
+    }
+
     Ok(network_segment)
 }
 

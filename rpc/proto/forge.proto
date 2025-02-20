@@ -1126,6 +1126,7 @@ message NetworkPrefix {
   repeated NetworkPrefixEvent events = 6;
   optional string circuit_id = 7;
   uint32 free_ip_count = 8;
+  optional string svi_ip = 9;
 }
 
 message MachineState {

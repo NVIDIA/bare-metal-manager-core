@@ -60,6 +60,17 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct VpcColumn;
+impl ColumnInfo<'_> for VpcColumn {
+    type TableType = NetworkSegment;
+    type ColumnType = VpcId;
+
+    fn column_name(&self) -> &'static str {
+        "vpc_id"
+    }
+}
+
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
     pub include_history: bool,
@@ -677,6 +688,12 @@ impl NetworkSegment {
         all_records: &mut [NetworkSegment],
     ) -> Result<(), DatabaseError> {
         for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
+            let mut busy_ips = vec![];
+            for prefix in &record.prefixes {
+                if let Some(svi_ip) = prefix.svi_ip {
+                    busy_ips.push(svi_ip);
+                }
+            }
             let dhcp_handler: Box<dyn UsedIpResolver + Send> = if record.segment_type.is_tenant() {
                 // Note on UsedOverlayNetworkIpResolver:
                 // In this case, the IpAllocator isn't being used to iterate to get
@@ -692,6 +709,7 @@ impl NetworkSegment {
                 // more IPs).
                 Box::new(UsedOverlayNetworkIpResolver {
                     segment_id: record.id,
+                    busy_ips,
                 })
             } else {
                 // Note on UsedAdminNetworkIpResolver:
@@ -704,6 +722,7 @@ impl NetworkSegment {
                 // interface.
                 Box::new(UsedAdminNetworkIpResolver {
                     segment_id: record.id,
+                    busy_ips,
                 })
             };
 
@@ -793,12 +812,12 @@ impl NetworkSegment {
         Ok(())
     }
 
-    pub async fn set_vpc_id(
+    pub async fn set_vpc_id_and_can_stretch(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
         vpc_id: VpcId,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE network_segments SET vpc_id=$1 WHERE id=$2";
+        let query = "UPDATE network_segments SET vpc_id=$1, can_stretch=true WHERE id=$2";
         sqlx::query(query)
             .bind(vpc_id.0)
             .bind(self.id)
@@ -954,5 +973,51 @@ impl NetworkSegment {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(id)
+    }
+
+    /// SVI IP is needed for Network Segments attached to FNN VPCs.
+    /// Usually third IP of a prefix is used as SVI IP. In case, first 3 IPs are not reserved,
+    /// carbide will pick any available free IP and store it in DB for further use.
+    pub async fn allocate_svi_ip(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<IpAddr, CarbideError> {
+        let Some(ipv4_prefix) = self.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
+            return Err(CarbideError::NotFoundError {
+                kind: "ipv4_prefix",
+                id: self.id.to_string(),
+            });
+        };
+
+        if let Some(svi_ip) = ipv4_prefix.svi_ip {
+            // SVI IP is already allocated.
+            return Ok(svi_ip);
+        }
+
+        let (prefix_id, svi_ip) = if ipv4_prefix.num_reserved < 3 {
+            // Need to allocate a IP from prefix.
+            if !self.segment_type.is_tenant() {
+                db::machine_interface::allocate_svi_ip(txn, self).await?
+            } else {
+                db::instance_address::allocate_svi_ip(txn, self).await?
+            }
+        } else {
+            // Pick the third IP to use as SVI IP.
+            (
+                ipv4_prefix.id,
+                ipv4_prefix.prefix.iter().nth(2).ok_or_else(|| {
+                    CarbideError::internal(format!(
+                        "Prefix {} does not have 3 valid IPs.",
+                        ipv4_prefix.id
+                    ))
+                })?,
+            )
+        };
+
+        NetworkPrefix::set_svi_ip(txn, prefix_id, &svi_ip)
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(svi_ip)
     }
 }

@@ -37,6 +37,7 @@ impl NetworkSegmentHelper {
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
+            svi_ip: None,
         }];
         let inner = NetworkSegmentCreationRequest {
             vpc_id: Some(vpc_id.into()),
@@ -98,6 +99,7 @@ pub async fn create_network_segment_with_api(
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
+            svi_ip: None,
         }],
         subdomain_id: use_subdomain.then(|| env.domain.into()),
         vpc_id,

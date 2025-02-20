@@ -12,10 +12,12 @@
 
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
+use forge_network::virtualization::VpcVirtualizationType;
+use itertools::Itertools;
 use sqlx::{Pool, Postgres};
 
-use crate::db::vpc::{NewVpc, Vpc};
-use crate::db::ObjectColumnFilter;
+use crate::db::vpc::{self, NewVpc, Vpc};
+use crate::db::{network_segment, ObjectColumnFilter};
 use crate::model::metadata::Metadata;
 use crate::{
     api::Api,
@@ -88,13 +90,93 @@ pub async fn create_initial_networks(
             tracing::debug!("Network segment {name} exists");
             continue;
         }
-        let ns = NewNetworkSegment::build_from(name, domain_id, def)?;
-        crate::handlers::network_segment::save(api, &mut txn, ns, true).await?;
+        let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
+        ns.can_stretch = Some(true);
+        // update_network_segments_svi_ip will take care of allocating svi ip.
+        crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         tracing::info!("Created network segment {name}");
     }
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit create_initial_networks", e))?;
+    Ok(())
+}
+
+pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
+    let mut txn = db_pool
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate SVI IP", e))?;
+    let all_segments = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::<network_segment::IdColumn>::All,
+        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+
+    let all_segments = all_segments
+        .into_iter()
+        .filter(|x| x.can_stretch.is_some_and(|x| x))
+        .collect::<Vec<_>>();
+
+    let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
+    let all_vpcs = Vpc::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
+    )
+    .await?;
+
+    let all_vpcs = all_vpcs
+        .iter()
+        .map(|x| (x.id, x))
+        .collect::<HashMap<_, _>>();
+
+    txn.rollback()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "rollback update svi_ip", e))?;
+
+    // Allocate SVI IP for the segments attached to a FNN VPC.
+    for segment in all_segments {
+        let Some(vpc_id) = segment.vpc_id else {
+            continue;
+        };
+
+        let Some(vpc) = all_vpcs.get(&vpc_id) else {
+            continue;
+        };
+
+        // SVI IP is needed only for FNN.
+        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+            continue;
+        }
+
+        // Already SVI IP is allocated.
+        if segment.prefixes.iter().any(|x| x.svi_ip.is_some()) {
+            continue;
+        }
+
+        let mut txn = db_pool.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin inetrnal allocate SVI IP", e)
+        })?;
+
+        match segment.allocate_svi_ip(&mut txn).await {
+            Ok(_) => {
+                txn.commit()
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "commit update svi_ip", e))?;
+            }
+            Err(err) => {
+                tracing::error!(
+                    "Updating SVI IP filed for segment: {} - Error: {err}",
+                    segment.id
+                );
+                txn.rollback()
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "commit update svi_ip", e))?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -180,7 +262,9 @@ pub(crate) async fn create_admin_vpc(
             return Ok(());
         } else {
             // Somehow vni field is not updated in network segment table. do it now.
-            admin_segment.set_vpc_id(&mut txn, existing_vpc.id).await?;
+            admin_segment
+                .set_vpc_id_and_can_stretch(&mut txn, existing_vpc.id)
+                .await?;
             return Ok(());
         }
     }
@@ -202,7 +286,9 @@ pub(crate) async fn create_admin_vpc(
     Vpc::set_vni(&mut txn, vpc.id, vpc_vni as i32).await?;
 
     // Attach it to admin network segment.
-    admin_segment.set_vpc_id(&mut txn, vpc.id).await?;
+    admin_segment
+        .set_vpc_id_and_can_stretch(&mut txn, vpc.id)
+        .await?;
 
     txn.commit()
         .await

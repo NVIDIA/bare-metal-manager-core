@@ -569,7 +569,7 @@ impl UpdateVpcVirtualization {
             .fetch_one(txn.deref_mut())
             .await;
 
-        match query_result {
+        let vpc: Vpc = match query_result {
             Ok(r) => Ok(r),
             Err(sqlx::Error::RowNotFound) => {
                 // TODO(chet): This can actually happen on both invalid ID and invalid
@@ -586,7 +586,35 @@ impl UpdateVpcVirtualization {
                 query,
                 e,
             ))),
+        }?;
+
+        // Update SVI IP for stretchable segments.
+        let network_segments = NetworkSegment::find_by(
+            txn,
+            ObjectColumnFilter::One(network_segment::VpcColumn, &vpc.id),
+            network_segment::NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
+
+        for network_segment in network_segments {
+            if !network_segment.can_stretch.unwrap_or_default() {
+                continue;
+            }
+
+            let Some(prefix) = network_segment.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
+                return Err(CarbideError::internal(format!(
+                    "NetworkSegment {} does not have Ipv4 Prefix attached.",
+                    network_segment.id
+                )));
+            };
+
+            if prefix.svi_ip.is_none() {
+                // If we can't update SVI IP in any of these segment, we have to fail whole operation.
+                network_segment.allocate_svi_ip(txn).await?;
+            }
         }
+
+        Ok(vpc)
     }
 }
 

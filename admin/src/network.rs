@@ -53,6 +53,14 @@ async fn convert_network_to_nice_format(
             ),
         ),
         (
+            "VPC",
+            segment
+                .vpc_id
+                .clone()
+                .unwrap_or_else(default_uuid)
+                .to_string(),
+        ),
+        (
             "DOMAIN",
             format!(
                 "{}/{}",
@@ -93,6 +101,7 @@ async fn convert_network_to_nice_format(
                         .unwrap_or_else(|| "Unknown".to_string())
                         .to_string(),
                 ),
+                ("SVI IP", prefix.svi_ip.unwrap_or_default()),
                 ("Reserve First", prefix.reserve_first.to_string()),
                 ("Circuit ID", prefix.circuit_id.unwrap_or_default()),
                 ("Free IP Count", prefix.free_ip_count.to_string()),
@@ -153,10 +162,7 @@ async fn get_domain_name(
     }
 }
 
-async fn convert_network_to_nice_table(
-    segments: forgerpc::NetworkSegmentList,
-    api_config: &ApiConfig<'_>,
-) -> Box<Table> {
+async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -164,7 +170,7 @@ async fn convert_network_to_nice_table(
         "Name",
         "Created",
         "State",
-        "Sub Domain",
+        "Vpc ID",
         "MTU",
         "Prefixes",
         "Last IP",
@@ -174,7 +180,6 @@ async fn convert_network_to_nice_table(
     ]);
 
     for segment in segments.network_segments {
-        let domain = get_domain_name(segment.subdomain_id, api_config).await;
         let net = ipnet::IpNet::from_str(&segment.prefixes.first().unwrap().prefix).unwrap();
         let end_ip = net.broadcast().to_string();
 
@@ -186,7 +191,7 @@ async fn convert_network_to_nice_table(
                 "{:?}",
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
-            domain,
+            segment.vpc_id.map(|x| x.value).unwrap_or_default(),
             segment.mtu.unwrap_or(-1),
             segment
                 .prefixes
@@ -229,9 +234,7 @@ async fn show_all_segments(
     if json {
         println!("{}", serde_json::to_string_pretty(&all_segments).unwrap());
     } else {
-        convert_network_to_nice_table(all_segments, api_config)
-            .await
-            .printstd();
+        convert_network_to_nice_table(all_segments).await.printstd();
     }
     Ok(())
 }

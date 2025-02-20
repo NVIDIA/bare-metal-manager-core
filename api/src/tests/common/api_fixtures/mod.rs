@@ -803,6 +803,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap_or(&TEST_SITE_PREFIXES)
         .to_vec();
     let site_fabric_count = site_fabric_networks.len() as u8;
+    println!("Fabric Prefix: {:?}", site_fabric_networks);
     let site_fabric_prefixes = { SiteFabricPrefixList::from_ipnetwork_vec(site_fabric_networks) };
 
     let eth_virt_data = EthVirtData {

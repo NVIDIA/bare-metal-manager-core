@@ -535,6 +535,7 @@ impl ApiClient<'_> {
                                 events: vec![],
                                 circuit_id: None,
                                 free_ip_count: 1022,
+                                svi_ip: None
                             }],
                             mtu: Some(1500),
                             subdomain_id: None,

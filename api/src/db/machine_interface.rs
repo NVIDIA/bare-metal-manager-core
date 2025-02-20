@@ -39,6 +39,8 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: NetworkSegmentId,
+    // All the IPs which can not be allocated, e.g. SVI IP.
+    pub busy_ips: Vec<IpAddr>,
 }
 
 #[derive(Clone, Copy)]
@@ -378,13 +380,19 @@ pub async fn create(
     // Use the UsedAdminNetworkIpResolver, which specifically looks at
     // the machine interface addresses table in the database for finding
     // the next available IP.
+    let mut busy_ips = vec![];
+    for prefix in &segment.prefixes {
+        if let Some(svi_ip) = prefix.svi_ip {
+            busy_ips.push(svi_ip);
+        }
+    }
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
         segment_id: segment.id,
+        busy_ips,
     });
 
     // In the case of machine interfaces, the IpAllocator is going to remain
-    // a hard-coded /32 allocation prefix. This is in constrast to tenant
-    // instances, which may be a /32, or in the case of FNN, a /30 or otherwise.
+    // a hard-coded /32 allocation prefix.
     let prefix_length = 32;
     let addresses_allocator = IpAllocator::new(
         &mut inner_txn,
@@ -441,6 +449,42 @@ pub async fn create(
             .await?
             .remove(0),
     )
+}
+
+pub async fn allocate_svi_ip(
+    txn: &mut Transaction<'_, Postgres>,
+    segment: &NetworkSegment,
+) -> CarbideResult<(uuid::Uuid, IpAddr)> {
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
+        segment_id: segment.id,
+        busy_ips: vec![],
+    });
+
+    // If either requested addresses are auto-generated, we lock the entire table
+    let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    let mut addresses_allocator = IpAllocator::new(
+        txn,
+        segment,
+        dhcp_handler,
+        AddressSelectionStrategy::Automatic,
+        32,
+    )
+    .await?;
+
+    // Carbide supports only one prefix with Ipv4.
+    match addresses_allocator.next() {
+        Some((id, Ok(address))) => Ok((id, address.ip())),
+        Some((_, Err(err))) => Err(err),
+        _ => Err(CarbideError::ResourceExhausted(format!(
+            "SVI IP not found for {}.",
+            segment.id
+        ))),
+    }
 }
 
 // Support dpu-agent/scout transition from machine_interface_id to source IP.
@@ -843,7 +887,9 @@ WHERE network_segments.id = $1::uuid";
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(containers.iter().map(|c| c.address).collect())
+        let mut ips: Vec<IpAddr> = containers.iter().map(|c| c.address).collect();
+        ips.extend(self.busy_ips.iter());
+        Ok(ips)
     }
 
     // used_prefixes returns the used (or allocated) prefixes
