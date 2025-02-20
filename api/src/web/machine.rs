@@ -14,11 +14,12 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
-use axum::response::{Html, IntoResponse, Response};
-use axum::Json;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::{Form, Json};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
@@ -308,6 +309,9 @@ struct MachineDetail {
     board_serial: String,
     chassis_serial: String,
     sys_vendor: String,
+    maintenance_reference_is_link: bool,
+    maintenance_reference: String,
+    maintenance_start_time: String,
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
@@ -459,7 +463,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             inventory.extend(inv.components.iter().cloned());
         }
 
-        let machine_id = m.id.unwrap_or_default().id;
+        let machine_id = m.id.clone().unwrap_or_default().id;
 
         MachineDetail {
             id: machine_id.clone(),
@@ -510,6 +514,14 @@ impl From<forgerpc::Machine> for MachineDetail {
             ib_interfaces,
             interfaces,
             inventory,
+            maintenance_reference_is_link: m
+                .maintenance_reference
+                .as_ref()
+                .map(|r| r.starts_with("http"))
+                .unwrap_or_default(),
+            maintenance_reference: m.maintenance_reference.unwrap_or_default(),
+            maintenance_start_time: to_time(m.maintenance_start_time, &m.id.unwrap_or_default())
+                .unwrap_or_default(),
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
@@ -706,4 +718,52 @@ pub fn get_machine_type(machine_id: &str) -> String {
         "DPU"
     }
     .to_string()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MaintenanceAction {
+    action: String,
+    reference: Option<String>,
+}
+
+/// Enter / Exit maintenance mode
+pub async fn maintenance(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    Form(form): Form<MaintenanceAction>,
+) -> impl IntoResponse {
+    let view_url = format!("/admin/machine/{machine_id}");
+
+    let req = if form.action == "enter" {
+        forgerpc::MaintenanceRequest {
+            operation: forgerpc::MaintenanceOperation::Enable.into(),
+            host_id: Some(machine_id.clone().into()),
+            reference: form.reference,
+        }
+    } else if form.action == "exit" {
+        forgerpc::MaintenanceRequest {
+            operation: forgerpc::MaintenanceOperation::Disable.into(),
+            host_id: Some(machine_id.clone().into()),
+            reference: None,
+        }
+    } else {
+        tracing::error!("Expected action to be 'enter' or 'exit' but got neither");
+        return Redirect::to(&view_url);
+    };
+
+    if machine_id.trim().starts_with("fm100d") {
+        tracing::error!("Maintenance Mode can not be set on DPUs");
+        return Redirect::to(&view_url);
+    }
+
+    if let Err(err) = state
+        .set_maintenance(tonic::Request::new(req))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, machine_id, "set_maintenance");
+        return Redirect::to(&view_url);
+    }
+
+    Redirect::to(&view_url)
 }

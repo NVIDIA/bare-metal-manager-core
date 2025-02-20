@@ -268,6 +268,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/:machine_id", get(machine::detail))
+            .route(
+                "/machine/:machine_id/maintenance",
+                post(machine::maintenance),
+            )
             .route("/machine/health/:machine_id", get(health::health))
             .route(
                 "/machine/health/:machine_id/override/add",
