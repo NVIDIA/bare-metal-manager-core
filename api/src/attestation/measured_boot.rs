@@ -17,7 +17,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
-use tempdir::TempDir;
+use temp_dir::TempDir;
 
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::model::hardware_info::TpmEkCertificate;
@@ -122,7 +122,7 @@ pub fn cli_make_cred(
     session_key: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>), CarbideError> {
     // now construct the temp directory
-    let tmp_dir = TempDir::new("make_cred").map_err(|e| {
+    let tmp_dir = TempDir::with_prefix("make_cred").map_err(|e| {
         CarbideError::AttestBindKeyError(format!("Could not create TempDir: {0}", e))
     })?;
     let tmp_dir_path = tmp_dir.path();
