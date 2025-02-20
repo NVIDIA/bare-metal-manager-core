@@ -118,7 +118,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<()> {
         let updated_machines = DpuMachineUpdate::get_updated_machines(txn, &self.config).await?;
-        tracing::info!("found {} updated machines", updated_machines.len());
+        tracing::debug!("found {} updated machines", updated_machines.len());
         for updated_machine in updated_machines {
             if let Some(expected_dpu_firmware_version) = self
                 .expected_dpu_firmware_versions
