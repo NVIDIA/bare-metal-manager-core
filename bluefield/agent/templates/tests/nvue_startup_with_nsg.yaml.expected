@@ -4,13 +4,23 @@
     rev-id: 1.0
     version: Cumulus Linux 5.6.0
 - set:
+    bridge:
+      domain:
+        br_default:
+          vlan:
+            '196':
+              vni:
+                '1025196': {}
+            '185':
+              vni:
+                '1025185': {}
     evpn:
       enable: on
     interface:
       lo:
         ip:
           address:
-            127.0.0.1/32: {}
+            10.217.5.39/32: {}
         type: loopback
       pf0dpu1_if:
         ip:
@@ -20,11 +30,16 @@
         type: swp
       p1_if:
         type: swp
- 
-      pf0hpf_if:
+      pf0vf0_if:
         type: swp
-        acl: 
-          deny_prefixes_ipv4:
+        bridge:
+          domain:
+            br_default:
+              access: 196
+        acl:
+          ACL_tenancy:
+            inbound: {}
+          drop_dhcp_flood_over_overlay:
             inbound: {}
           security_group_ipv4_in: 
             inbound: {}
@@ -33,27 +48,62 @@
           security_group_ipv4_out: 
             outbound: {}
           security_group_ipv6_out: 
-            outbound: {} 
+            outbound: {}
+      vlan196:
+        type: svi
+        vlan: 196
         ip:
           address:
-            192.168.0.0/16: {} 
-          vrf: vpc_0 
+            10.217.5.169/29: {}
+      pf0hpf_if:
+        type: swp
+        bridge:
+          domain:
+            br_default:
+              access: 185
+        acl:
+          ACL_tenancy:
+            inbound: {}
+          drop_dhcp_flood_over_overlay:
+            inbound: {}
+          security_group_ipv4_in: 
+            inbound: {}
+          security_group_ipv6_in:
+            inbound: {}
+          security_group_ipv4_out: 
+            outbound: {}
+          security_group_ipv6_out: 
+            outbound: {}
+      vlan185:
+        type: svi
+        vlan: 185
+        ip:
+          address:
+            10.217.5.161/30: {}
     nve:
       vxlan:
         arp-nd-suppress: on
         enable: on
         source:
-          address: 127.0.0.1 
+          address: 10.217.5.39
     router:
       bgp:
-        autonomous-system: 65535 
+        autonomous-system: 4259912557
         enable: on
-        router-id: 127.0.0.1
-      vrr:
-        enable: on
+        router-id: 10.217.5.39
       policy:
         prefix-list:
-          dpu_from_instance: 
+          FORGE_FROM_UNDERLAY:
+            rule:
+              '10':
+                action: permit
+                match:
+                  0.0.0.0/0: {}
+              '1000':
+                action: deny
+                match:
+                  any: {}
+          dpu_from_instance:
             rule:
               '10':
                 action: permit
@@ -61,20 +111,64 @@
                   0.0.0.0/0:
                     min-prefix-len: 32
         route-map:
+          FORGE_TO_UNDERLAY:
+            rule:
+              '10':
+                action:
+                  deny: {}
+                match:
+                  interface: vlan196
+              '20':
+                action:
+                  deny: {}
+                match:
+                  interface: vlan185
+              '1000':
+                action:
+                  permit: {}
           dpu_to_instance:
             rule:
               '10':
                 action:
                   deny: {}
+    service:
+      dhcp-relay:
+        default:
+          source-ip: gateway
+          gateway-interface:
+            lo: {}
+          interface:
+            p0_if: {}
+            p1_if: {}
+            vlan196: {}
+            vlan185: {}
+          server:
+            10.217.5.197: {}
+            10.217.5.197: {}
     vrf:
       default:
         router:
           nexthop-tracking:
             ipv4:
               resolved-via-default: on
+          static:
+            10.217.5.170/32:
+              address-family: ipv4-unicast
+              via:
+                vlan196:
+                  type: interface
+            10.217.5.162/32:
+              address-family: ipv4-unicast
+              via:
+                vlan185:
+                  type: interface
           bgp:
             address-family:
               ipv4-unicast:
+                network:
+                  10.217.5.39/32: {}
+                  10.217.5.170/32: {}
+                  10.217.5.162/32: {}
                 enable: on
                 multipaths:
                   ebgp: 128
@@ -85,12 +179,26 @@
                 enable: on
             enable: on
             neighbor:
+              172.43.0.1:
+                peer-group: routeserver
+                type: numbered
+              172.43.0.2:
+                peer-group: routeserver
+                type: numbered
               p0_if:
                 peer-group: underlay
                 type: unnumbered
               p1_if:
                 peer-group: underlay
                 type: unnumbered
+              10.217.5.170:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+              10.217.5.162:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
             path-selection:
               multipath:
                 aspath-ignore: on
@@ -100,39 +208,13 @@
                   ipv4-unicast:
                     enable: off
                   l2vpn-evpn:
+                    aspath:
+                      allow-my-asn:
+                        enable: on
                     enable: on
                 multihop-ttl: 255
                 remote-as: external
                 update-source: lo
-              underlay:
-                remote-as: external
-      vpc_0: 
-        evpn:
-          enable: on
-          vni:
-            '0': {} 
-        loopback:
-          ip:
-            address:
-              10.1.1.1/32: {} 
-        router:
-          bgp:
-            address-family:
-              ipv4-unicast:
-                enable: on
-                redistribute:
-                  connected:
-                    enable: on
-                route-export:
-                  to-evpn:
-                    enable: on
-            enable: on
-            neighbor:
-              192.168.0.12:
-                passive-mode: on
-                peer-group: tenant
-                type: numbered
-            peer-group:
               tenant:
                 address-family:
                   ipv4-unicast:
@@ -148,41 +230,34 @@
                   hold: 9
                   keepalive: 3
                   route-advertisement: none
-            route-export:
-              to-evpn:
-                route-target:
-                  11414:0: {}
-            route-import:
-              from-evpn:
-                route-target:
-                  11414:1337: {}
-                  11414:0: {}
-                  auto: {}
+              underlay:
+                remote-as: external
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        prefix-list: FORGE_FROM_UNDERLAY
+                      outbound:
+                        route-map: FORGE_TO_UNDERLAY
+                    aspath:
+                      allow-my-asn:
+                        enable: on
     acl:
-      dhcp_flood_prevention:
-        rule: 
-          '10':
-            action:
-              deny: {}
-            hw-offload: off
-            match:
-              ip:
-                dest-ip: 255.255.255.255
-                dest-port:
-                  '67': {}
-                protocol: udp
-                source-port:
-                  '68': {}
-        type: ipv4
-      deny_prefixes_ipv4:
-        type: ipv4
+      ACL_tenancy:
         rule:
           '1000':
             action:
               deny: {}
             match:
               ip:
-                dest-ip: 1.1.1.1/32
+                dest-ip: 192.0.2.0/24
+          '1001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 198.51.100.0/24
+        type: ipv4
       security_group_ipv4_in: 
         rule:
           '2000':
@@ -298,7 +373,7 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
                 dest-port:
                   '80': {} 
                 protocol: tcp
@@ -310,7 +385,7 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
                 dest-port:
                   '81': {} 
                 protocol: tcp
@@ -322,7 +397,7 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
                 dest-port:
                   '80': {} 
                 protocol: tcp
@@ -334,7 +409,7 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
+                dest-ip: 1.0.0.0/0
                 dest-port:
                   '81': {} 
                 protocol: tcp
@@ -346,6 +421,7 @@
               deny: {}
         type: ipv4
       security_group_ipv6_out: 
+        type: ipv6
         rule:
           '2000':
             action:
@@ -398,4 +474,18 @@
           '65535':
             action:
               deny: {}
-        type: ipv6
+      drop_dhcp_flood_over_overlay:
+        rule:
+          '10':
+            action:
+              deny: {}
+            hw-offload: off
+            match:
+              ip:
+                dest-ip: 255.255.255.255
+                protocol: udp
+                dest-port:
+                  '67': {}
+                source-port:
+                  '68': {}
+        type: ipv4

@@ -127,15 +127,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                         (rule
                             .src_port_end
                             .unwrap_or_default()
-                            .saturating_sub(rule.src_port_start.unwrap_or_default()))
-                            as usize,
+                            .saturating_sub(rule.src_port_start.unwrap_or_default())
+                            + 1) as usize,
                     )
                     .saturating_mul(
                         (rule
                             .dst_port_end
                             .unwrap_or_default()
-                            .saturating_sub(rule.dst_port_start.unwrap_or_default()))
-                            as usize,
+                            .saturating_sub(rule.dst_port_start.unwrap_or_default())
+                            + 1) as usize,
                     ),
             ) {
                 (_, true) => {

@@ -711,17 +711,14 @@ fn is_valid_expanded_rule_set_size(rules: &[NetworkSecurityGroupRule], limit: us
                 // Negative ranges are caught when we convert from rpc to internal struct.
                 // so we can keep this simple.
                 let rule_count = (rule.src_port_end.unwrap_or_default()
-                    - rule.src_port_start.unwrap_or_default())
+                    - rule.src_port_start.unwrap_or_default()
+                    + 1)
                 .saturating_mul(
-                    rule.dst_port_end.unwrap_or_default() - rule.dst_port_start.unwrap_or_default(),
+                    rule.dst_port_end.unwrap_or_default() - rule.dst_port_start.unwrap_or_default()
+                        + 1,
                 );
 
-                total_rules = match total_rules.overflowing_add(if rule_count > 0 {
-                    rule_count
-                } else {
-                    //  A rule with no ports specified still has a cost.
-                    1
-                }) {
+                total_rules = match total_rules.overflowing_add(rule_count) {
                     (_, true) => return false,
                     (v, false) => v,
                 };
