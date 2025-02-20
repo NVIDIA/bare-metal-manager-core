@@ -21,30 +21,17 @@ use rpc::forge::{self as forgerpc};
 
 use crate::api::Api;
 
+use super::machine::ValidationRun;
+
 #[derive(Debug)]
 struct ValidationResult {
     validation_id: String,
     name: String,
+    test_id: String,
     context: String,
     status: String,
-    command: String,
-    args: String,
-    stdout: String,
-    stderr: String,
     start_time: String,
     end_time: String,
-}
-
-#[derive(Template)]
-#[template(path = "validation_results_details.html")]
-struct ValidationResultsDetail {
-    validation_results: Vec<ValidationResult>,
-}
-
-#[derive(Template)]
-#[template(path = "validate_tests_details.html")]
-struct ValidateTestsDetail {
-    validate_tests: Vec<ValidateTest>,
 }
 
 struct ValidateTest {
@@ -59,6 +46,44 @@ struct ValidateTest {
     tags: String,
     is_verified: bool,
     is_enabled: bool,
+}
+
+#[derive(Debug)]
+struct ValidationResultDetail {
+    validation_id: String,
+    name: String,
+    context: String,
+    status: String,
+    command: String,
+    args: String,
+    stdout: String,
+    stderr: String,
+    start_time: String,
+    end_time: String,
+}
+
+#[derive(Template)]
+#[template(path = "validation_result_details.html")]
+struct ValidationResultDetailDisplay {
+    validation_results: Vec<ValidationResultDetail>,
+}
+
+#[derive(Template)]
+#[template(path = "validation_results.html")]
+struct ValidationResults {
+    validation_results: Vec<ValidationResult>,
+}
+
+#[derive(Template)]
+#[template(path = "validate_tests_details.html")]
+struct ValidateTestsDetail {
+    validate_tests: Vec<ValidateTest>,
+}
+
+#[derive(Template)]
+#[template(path = "validation.html")]
+struct ValidationRunDisplay {
+    validation_runs: Vec<ValidationRun>,
 }
 
 impl From<forgerpc::MachineValidationTest> for ValidateTest {
@@ -79,7 +104,7 @@ impl From<forgerpc::MachineValidationTest> for ValidateTest {
     }
 }
 
-pub async fn results_details(
+pub async fn results(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(validation_id): AxumPath<String>,
 ) -> Response {
@@ -90,7 +115,7 @@ pub async fn results_details(
         include_history: false,
         machine_id: None,
     });
-    tracing::info!(%validation_id, "results_details");
+    tracing::info!(%validation_id, "results");
 
     let validation_results = match state
         .get_machine_validation_results(request)
@@ -103,12 +128,9 @@ pub async fn results_details(
             .map(|r: forgerpc::MachineValidationResult| ValidationResult {
                 validation_id: r.validation_id.unwrap_or_default().to_string(),
                 name: r.name,
+                test_id: r.test_id.unwrap_or_default().to_string(),
                 context: r.context,
                 status: r.exit_code.to_string(),
-                command: r.command,
-                args: r.args,
-                stdout: r.std_out,
-                stderr: r.std_err,
                 start_time: r.start_time.unwrap_or_default().to_string(),
                 end_time: r.end_time.unwrap_or_default().to_string(),
             })
@@ -124,7 +146,58 @@ pub async fn results_details(
     };
     // tracing::info!(%validation_results, "results_details");
 
-    let tmpl = ValidationResultsDetail { validation_results };
+    let tmpl = ValidationResults { validation_results };
+
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn result_details(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath((validation_id, test_id)): AxumPath<(String, String)>,
+) -> Response {
+    let request = tonic::Request::new(forgerpc::MachineValidationGetRequest {
+        validation_id: Some(rpc::common::Uuid {
+            value: validation_id.clone(),
+        }),
+        include_history: false,
+        machine_id: None,
+    });
+
+    let validation_results = match state
+        .get_machine_validation_results(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(results) => results
+            .results
+            .into_iter()
+            .filter(|r| r.test_id.as_ref() == Some(&test_id))
+            .map(
+                |r: forgerpc::MachineValidationResult| ValidationResultDetail {
+                    validation_id: r.validation_id.unwrap_or_default().to_string(),
+                    name: r.name,
+                    context: r.context,
+                    status: r.exit_code.to_string(),
+                    command: r.command,
+                    args: r.args,
+                    stdout: r.std_out,
+                    stderr: r.std_err,
+                    start_time: r.start_time.unwrap_or_default().to_string(),
+                    end_time: r.end_time.unwrap_or_default().to_string(),
+                },
+            )
+            .collect(),
+        Err(err) => {
+            tracing::error!(%err, %validation_id, "get_validation_results failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get validation results",
+            )
+                .into_response();
+        }
+    };
+
+    let tmpl = ValidationResultDetailDisplay { validation_results };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -161,4 +234,43 @@ async fn fetch_validation_tests(
     api.get_machine_validation_tests(request)
         .await
         .map(|response| response.into_inner().tests)
+}
+
+pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    // Get validation results
+    let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
+        machine_id: None,
+        include_history: false,
+    });
+
+    let validation_runs = match state
+        .get_machine_validation_runs(validation_request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(results) => results
+            .runs
+            .into_iter()
+            .map(|vr| ValidationRun {
+                machine_id: vr.machine_id.unwrap_or_default().to_string(),
+                status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
+                    rpc::forge::machine_validation_status::MachineValidationState::Completed(
+                        rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
+                    ),
+                )),
+                context: vr.context.unwrap_or_default(),
+                validation_id: vr.validation_id.unwrap_or_default().to_string(),
+                start_time: vr.start_time.unwrap_or_default().to_string(),
+                end_time: vr.end_time.unwrap_or_default().to_string(),
+            })
+            .collect(),
+        Err(err) => {
+            tracing::warn!(%err,"get_machine_validation_runs failed");
+            Vec::new() // Empty validation results on error
+        }
+    };
+
+    let tmpl = ValidationRunDisplay { validation_runs };
+
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

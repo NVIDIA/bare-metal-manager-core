@@ -8,13 +8,10 @@
 	<thead>
 		<tr>
 			<th>Validation ID</th>
+			<th>Test ID</th>
 			<th>Name</th>
 			<th>Context</th>
 			<th>Status</th>
-			<th>Command</th>
-			<th>Args</th>
-			<th>Stdout</th>
-			<th>Stderr</th>
 			<th>Start Time</th>
 			<th>End Time</th>
 		</tr>
@@ -23,22 +20,13 @@
 		{% for result in validation_results %}
 		<tr>
 			<td>{{ result.validation_id }}</td>
-			<td>{{ result.name }}</td>
+			<td><a href="/admin/machinevalidation/tests">{{ result.test_id }}</a></td>
+			<td><a href="/admin/machinevalidation/resultdetails/{{ result.validation_id }}/{{ result.test_id }}">{{ result.name }}</a></td>
 			<td>{{ result.context }}</td>
-			<td>
-				{% if result.status == "success" %}
-				<span class="badge success">✓</span>
-				{% else %}
-				<span class="badge warning">!</span>
-				{% endif %}
-			</td>
-			<td>{{ result.command }}</td>
-			<td>{{ result.args }}</td>
-			<td>{{ result.stdout }}</td>
-			<td>{{ result.stderr }}</td>
+			<td>{{ result.status }}</td>
 			<td>{{ result.start_time }}</td>
 			<td>{{ result.end_time }}</td>
-
+			
 		</tr>
 		{% endfor %}
 	</tbody>
