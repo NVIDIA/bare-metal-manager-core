@@ -12,8 +12,8 @@
 		<tr><th>Status</th><td>{{ result.status }}</td></tr>
 		<tr><th>Command</th><td>{{ result.command }}</td></tr>
 		<tr><th>Args</th><td>{{ result.args }}</td></tr>
-		<tr><th>Stdout</th><td>{{ result.stdout }}</td></tr>
-		<tr><th>Stderr</th><td>{{ result.stderr }}</td></tr>
+		<tr><th>Stdout</th><td>{{ result.stdout|escape("html")|linebreaksbr|safe }}</td></tr>
+		<tr><th>Stderr</th><td>{{ result.stderr|escape("html")|linebreaksbr|safe }}</td></tr>
 		<tr><th>Start Time</th><td>{{ result.start_time }}</td></tr>
 		<tr><th>End Time</th><td>{{ result.end_time }}</td></tr>
 	{% endfor %}
