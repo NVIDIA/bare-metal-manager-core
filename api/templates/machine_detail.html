@@ -47,9 +47,9 @@
 	<tr><th>Health Reports</th>
 		<td>
 			{% if !is_host %}
-				<a href="/admin/machine/health/{{ host_id }}">Go to ManagedHost health reports</a>
+				<a href="/admin/machine/{{ host_id }}/health">Go to ManagedHost health reports</a>
 			{% else %}
-				<a href="/admin/machine/health/{{ id }}">Go to ManagedHost health reports</a>
+				<a href="/admin/machine/{{ id }}/health">Go to ManagedHost health reports</a>
 			{% endif %}
 		</td>
 	</tr>
@@ -59,7 +59,7 @@
 		<th>Health Probe Alerts</th>
 		<td>
 			{% if health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-			<a href="/admin/machine/health/{{ id }}">
+			<a href="/admin/machine/{{ id }}/health">
 				{{ health.alerts|health_alerts_fmt(true)|safe }}
 			</a>
 			</div>
@@ -72,7 +72,7 @@
 	<tr>
 		<th>Health Overrides</th>
 		<td>
-			<a href="/admin/machine/health/{{ id }}">
+			<a href="/admin/machine/{{ id }}/health">
 				{{ health_overrides|join("\n")|linebreaksbr|safe }}
 			</a>
 		</td>
