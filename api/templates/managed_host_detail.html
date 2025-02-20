@@ -59,7 +59,7 @@
 		<th>Health Probe Alerts</th>
 		<td>
 			{% if health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-			<a href="/admin/machine/health/{{ machine_id }}">
+			<a href="/admin/machine/{{ machine_id }}/health">
 				{{ health.alerts|health_alerts_fmt(true)|safe }}
 			</a>
 			</div>
@@ -72,7 +72,7 @@
 	<tr>
 		<th>Health Overrides</th>
 		<td>
-			<a href="/admin/machine/health/{{ machine_id }}">
+			<a href="/admin/machine/{{ machine_id }}/health">
 				{{ health_overrides|join("\n")|linebreaksbr|safe }}
 			</a>
 		</td>
@@ -121,7 +121,7 @@
 		<th>Health Probe Alerts</th>
 		<td>
 			{% if dpu.health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-			<a href="/admin/machine/health/{{ dpu.machine_id }}">
+			<a href="/admin/machine/{{ dpu.machine_id }}/health">
 				{{ dpu.health.alerts|health_alerts_fmt(true)|safe }}
 			</a>
 			</div>

@@ -41,12 +41,12 @@
 			</td>
 			<td>
 				{% if m.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-					<a href="/admin/machine/health/{{ m.id }}">
+					<a href="/admin/machine/{{ m.id }}/health">
 						{{ m.health_probe_alerts|health_alerts_fmt(false)|safe }}
 					</a>
 				</div>
 			</td>
-			<td><a href="/admin/machine/health/{{ m.id }}">{{ m.override_mode_counts }}</a></td>
+			<td><a href="/admin/machine/{{ m.id }}/health">{{ m.override_mode_counts }}</a></td>
 			<td>{% if m.is_host %}
 				{% for dpu_id in m.associated_dpu_ids %}
 				{{ dpu_id|machine_id_link|safe }}

@@ -272,13 +272,13 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/:machine_id/maintenance",
                 post(machine::maintenance),
             )
-            .route("/machine/health/:machine_id", get(health::health))
+            .route("/machine/:machine_id/health", get(health::health))
             .route(
-                "/machine/health/:machine_id/override/add",
+                "/machine/:machine_id/health/override/add",
                 post(health::add_override),
             )
             .route(
-                "/machine/health/:machine_id/override/remove",
+                "/machine/:machine_id/health/override/remove",
                 post(health::remove_override),
             )
             .route("/managed-host", get(managed_host::show_html))
