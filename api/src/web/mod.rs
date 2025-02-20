@@ -328,12 +328,17 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route(&format!("/{AUTH_CALLBACK_ROOT}"), get(auth::callback))
             .route(
                 "/machinevalidation/runs/:validation_id",
-                get(machine_validation::results_details),
+                get(machine_validation::results),
+            )
+            .route(
+                "/machinevalidation/resultdetails/:validation_id/:test_id",
+                get(machine_validation::result_details),
             )
             .route(
                 "/machinevalidation/tests",
                 get(machine_validation::show_tests_html),
             )
+            .route("/machinevalidation", get(machine_validation::runs))
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

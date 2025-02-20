@@ -319,7 +319,7 @@ struct MachineDetail {
     version: String,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
-    validation_runs: Vec<ValidationRuns>,
+    validation_runs: Vec<ValidationRun>,
 }
 
 struct MachineCapability {
@@ -355,12 +355,13 @@ struct MachineIbInterfaceDisplay {
     ufm_visible: String,
 }
 
-struct ValidationRuns {
-    status: String,
-    context: String,
-    validation_id: String,
-    start_time: String,
-    end_time: String,
+pub struct ValidationRun {
+    pub status: String,
+    pub context: String,
+    pub validation_id: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub machine_id: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail {
@@ -657,7 +658,8 @@ pub async fn detail(
         Ok(results) => results
             .runs
             .into_iter()
-            .map(|vr| ValidationRuns {
+            .map(|vr| ValidationRun {
+                machine_id: machine_id.clone(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
                     rpc::forge::machine_validation_status::MachineValidationState::Completed(
                         rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
