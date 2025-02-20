@@ -900,10 +900,13 @@ tag-image-for-nspect-scanning:
     name: gcr.io/go-containerregistry/crane:debug
     entrypoint: [""]
   dependencies:
+    - prepare-ci
     - get-crane
     - export-docker-json-config
     - build-release-container-x86_64
   needs:
+    - job: prepare-ci
+      optional: false
     - job: get-crane
       optional: false
     - job: export-docker-json-config
