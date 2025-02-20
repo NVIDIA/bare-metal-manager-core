@@ -913,7 +913,6 @@ tag-image-for-nspect-scanning:
       optional: false
     - job: build-release-container-x86_64
       optional: false
-  when: manual
   before_script: |
     mkdir -p /root/.docker
     cp .docker/config.json /root/.docker/config.json
