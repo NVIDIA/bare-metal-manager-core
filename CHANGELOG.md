@@ -1,10 +1,16 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...trunk)
 
 ### Added
 ### Changed
 ### Fixed
 ### Removed
+
+## [v2025.02.14-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc2-0...v2025.02.14-rc3-0)
+
+### Fixed
+
+- Remove UEFI component from DPU preingestion.
 
 ## [v2025.02.14-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...v2025.02.14-rc2-0)
 
@@ -90,6 +96,12 @@
 - Host health metrics no longer emit the `assigned` attribute, since it had been replaced with an
   `in_use` attribute in the `v2024.12.06` release.
 - Assign SVI IP only if network segment has at least 3 IPs reserved.
+
+## [v2025.01.31-rc4-1](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...v2025.01.31-rc4-1)
+
+### Fixed
+
+- Remove UEFI component from DPU preingestion.
 
 ## [v2025.01.31-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc3-0...v2025.01.31-rc4-0)
 
