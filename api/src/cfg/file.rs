@@ -974,18 +974,6 @@ impl Default for DpuConfig {
                             checksum: None,
                             install_only_specified: false,
                         }],
-                    }), (FirmwareComponentType::Uefi, FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("DPU_UEFI").unwrap()),
-                        preingest_upgrade_when_below: Some("4.9.0-13378".to_string()),
-                        known_firmware: vec![FirmwareEntry {
-                            version: "4.9.0-13378".to_string(),
-                            mandatory_upgrade_from_priority: None,
-                            default: true,
-                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf-fwbundle-2.9.0-90_24.10-prod.bfb".to_string()),
-                            url: Some("http://carbide-pxe.forge".to_string()),
-                            checksum: Some("f4d4e0954b5635e6c9a8c79ebaa95218".to_string()),
-                            install_only_specified: false,
-                        }],
                     })]),
             })]),
         }
