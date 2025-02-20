@@ -84,6 +84,13 @@ struct ValidationResultDetail {
     end_time: String,
 }
 
+#[derive(Debug)]
+struct ValidationExternalConfig {
+    name: String,
+    description: String,
+    version: String,
+    timestamp: String,
+}
 #[derive(Template)]
 #[template(path = "validation_result_details.html")]
 struct ValidationResultDetailDisplay {
@@ -111,6 +118,11 @@ struct ValidateTestDetailsDisplay {
 #[template(path = "validation.html")]
 struct ValidationRunDisplay {
     validation_runs: Vec<ValidationRun>,
+}
+#[derive(Template)]
+#[template(path = "validation_external_config.html")]
+struct ValidationExternalConfigs {
+    validation_configs: Vec<ValidationExternalConfig>,
 }
 
 impl From<forgerpc::MachineValidationTest> for ValidateTest {
@@ -153,6 +165,17 @@ impl From<forgerpc::MachineValidationTest> for ValidateTestDetails {
             container_arg: test.container_arg.unwrap_or_default(),
             external_config_file: test.external_config_file.unwrap_or_default(),
             components: test.components.join(", "),
+        }
+    }
+}
+
+impl From<forgerpc::MachineValidationExternalConfig> for ValidationExternalConfig {
+    fn from(test: forgerpc::MachineValidationExternalConfig) -> Self {
+        ValidationExternalConfig {
+            name: test.name,
+            description: test.description.unwrap_or_default(),
+            version: test.version,
+            timestamp: test.timestamp.unwrap_or_default().to_string(),
         }
     }
 }
@@ -349,6 +372,38 @@ pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
 
     let tmpl = ValidationRunDisplay { validation_runs };
+
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn external_configs(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    // Get validation results
+    let request = tonic::Request::new(rpc::forge::GetMachineValidationExternalConfigsRequest {
+        names: Vec::new(),
+    });
+
+    let validation_configs = match state
+        .get_machine_validation_external_configs(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(configs) => configs
+            .configs
+            .into_iter()
+            .map(|c| ValidationExternalConfig {
+                name: c.name,
+                description: c.description.unwrap_or_default(),
+                version: c.version,
+                timestamp: c.timestamp.unwrap_or_default().to_string(),
+            })
+            .collect(),
+        Err(err) => {
+            tracing::warn!(%err,"get_machine_validation_runs failed");
+            Vec::new() // Empty validation results on error
+        }
+    };
+
+    let tmpl = ValidationExternalConfigs { validation_configs };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
