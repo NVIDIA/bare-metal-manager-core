@@ -276,9 +276,16 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 // the instance addresses table in the database for finding
                 // the next available IP prefix allocation (with [assumed] support for
                 // allocations of varying-sized networks).
+                let busy_ips = network_prefix
+                    .svi_ip
+                    .iter()
+                    .copied()
+                    .collect::<Vec<IpAddr>>();
+
                 let dhcp_handler: Box<dyn UsedIpResolver + Send> =
                     Box::new(UsedOverlayNetworkIpResolver {
                         segment_id: segment.id,
+                        busy_ips,
                     });
 
                 // TODO(chet): FNN will be leveraging the IpAllocator to allocate
@@ -327,6 +334,8 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
 pub struct UsedOverlayNetworkIpResolver {
     pub segment_id: NetworkSegmentId,
+    // All the IPs which can not be allocated, e.g. SVI IP.
+    pub busy_ips: Vec<IpAddr>,
 }
 
 #[async_trait::async_trait]
@@ -369,7 +378,9 @@ WHERE network_segments.id = $1::uuid";
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(containers.iter().map(|c| c.address).collect())
+        let mut used_ips: Vec<IpAddr> = containers.iter().map(|c| c.address).collect();
+        used_ips.extend(self.busy_ips.iter());
+        Ok(used_ips)
     }
 
     // used_prefixes returns the used (or allocated) prefixes
@@ -524,6 +535,42 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
         }
 
         Ok(addresses)
+    }
+}
+
+pub async fn allocate_svi_ip(
+    txn: &mut Transaction<'_, Postgres>,
+    segment: &NetworkSegment,
+) -> CarbideResult<(uuid::Uuid, IpAddr)> {
+    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
+        segment_id: segment.id,
+        busy_ips: vec![],
+    });
+
+    // If either requested addresses are auto-generated, we lock the entire table
+    let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    let mut addresses_allocator = IpAllocator::new(
+        txn,
+        segment,
+        dhcp_handler,
+        AddressSelectionStrategy::Automatic,
+        32,
+    )
+    .await?;
+
+    // Carbide supports only one prefix that too Ipv4 only.
+    match addresses_allocator.next() {
+        Some((id, Ok(address))) => Ok((id, address.ip())),
+        Some((_, Err(err))) => Err(err),
+        _ => Err(CarbideError::ResourceExhausted(format!(
+            "Unable to allocate SVI IP for : No free IPs in segment {}.",
+            segment.id
+        ))),
     }
 }
 

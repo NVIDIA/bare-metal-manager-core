@@ -36,6 +36,7 @@ pub struct NetworkPrefix {
     pub circuit_id: Option<String>,
     pub vpc_prefix_id: Option<VpcPrefixId>,
     pub vpc_prefix: Option<IpNetwork>,
+    pub svi_ip: Option<IpAddr>,
     #[serde(default)]
     pub num_free_ips: u32,
 }
@@ -72,6 +73,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
             circuit_id: row.try_get("circuit_id")?,
+            svi_ip: row.try_get("svi_ip")?,
             num_free_ips: 0,
         })
     }
@@ -109,6 +111,7 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             events: vec![],
             circuit_id: src.circuit_id,
             free_ip_count: src.num_free_ips,
+            svi_ip: src.svi_ip.map(|x| x.to_string()),
         }
     }
 }
@@ -284,6 +287,7 @@ impl NetworkPrefix {
     pub fn smells_like_fnn(&self) -> bool {
         self.vpc_prefix_id.is_some()
             && match self.prefix {
+                // A 31 network prefix is used for FNN.
                 IpNetwork::V4(v4) => v4.prefix() >= 30,
                 IpNetwork::V6(_) => {
                     // We don't have any IPv6 segment prefixes at the time of
@@ -292,6 +296,23 @@ impl NetworkPrefix {
                     false
                 }
             }
+    }
+
+    // Update the SVI IP.
+    pub async fn set_svi_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        prefix_id: uuid::Uuid,
+        svi_ip: &IpAddr,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE network_prefixes SET svi_ip=$1::inet WHERE id=$2 RETURNING *";
+        sqlx::query_as::<_, Self>(query)
+            .bind(svi_ip)
+            .bind(prefix_id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }
 

@@ -368,6 +368,9 @@ pub async fn start_api(
         }
     }
 
+    // Update SVI IP to segments which have VPC attached and type is FNN.
+    db_init::update_network_segments_svi_ip(&db_pool).await?;
+
     db_init::store_initial_dpu_agent_upgrade_policy(
         &db_pool,
         carbide_config.initial_dpu_agent_upgrade_policy,

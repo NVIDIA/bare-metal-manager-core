@@ -2047,6 +2047,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     // Check the allocated IP for the PF/primary interface.
     let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
         segment_id: segment_id_1,
+        busy_ips: vec![],
     };
     let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
@@ -2058,6 +2059,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     // Check the allocated VF.
     let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
         segment_id: segment_id_2,
+        busy_ips: vec![],
     };
     let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();

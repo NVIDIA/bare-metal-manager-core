@@ -187,6 +187,7 @@ pub async fn create_network_segment(
             events: vec![],
             circuit_id: None,
             free_ip_count: 0,
+            svi_ip: None,
         }],
         subdomain_id,
         vpc_id,

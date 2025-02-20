@@ -14,6 +14,8 @@ use forge_network::virtualization::get_svi_ip;
 
 use std::fs;
 use std::io::Write;
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -272,7 +274,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
-    let admin_network_prefix: IpNetwork = "192.168.0.0/28".parse().unwrap();
+    let svi_ip = IpAddr::from_str("192.168.0.3").unwrap();
 
     let admin_interface = rpc::forge::FlatInterfaceConfig {
         function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
@@ -287,7 +289,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         prefix: "192.168.0.1/32".to_string(),
         fqdn: "host1".to_string(),
         booturl: None,
-        svi_ip: get_svi_ip(&admin_network_prefix, virtualization_type, false, 3)
+        svi_ip: get_svi_ip(&Some(svi_ip), virtualization_type, false, 28)
             .unwrap()
             .map(|ip| ip.to_string()),
         tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),

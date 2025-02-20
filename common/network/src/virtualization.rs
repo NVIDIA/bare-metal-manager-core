@@ -164,24 +164,17 @@ pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<std::net::IpAddr> {
 /// get_svi_ip returns the SVI IP (also known as the gateway IP)
 /// for a tenant instance for a given IpNetwork. This is valid only for l2 segments under FNN.
 pub fn get_svi_ip(
-    network: &IpNetwork,
+    svi_ip: &Option<std::net::IpAddr>,
     virtualization_type: VpcVirtualizationType,
     is_l2_segment: bool,
-    num_reserved: i32,
+    prefix: u8,
 ) -> eyre::Result<Option<IpNetwork>> {
     if virtualization_type == VpcVirtualizationType::Fnn && is_l2_segment {
-        if num_reserved < 3 {
-            return Err(eyre::eyre!(format!(
-                "Can not get SVI IP as num_reserved {num_reserved} is insufficient for prefix {network}.",
-            )));
-        }
-        return match network.iter().nth(2) {
-            Some(ip_addr) => Ok(Some(IpNetwork::new(ip_addr, network.prefix())?)),
-            None => Err(eyre::eyre!(format!(
-                "no viable SVI IP found in network: {}",
-                network
-            ))),
+        let Some(svi_ip) = svi_ip else {
+            return Err(eyre::eyre!(format!("SVI IP is not allocated.",)));
         };
+
+        return Ok(Some(IpNetwork::new(*svi_ip, prefix)?));
     }
     Ok(None)
 }

@@ -164,10 +164,10 @@ pub async fn admin_network(
         None
     } else {
         get_svi_ip(
-            &prefix.prefix,
+            &prefix.svi_ip,
             VpcVirtualizationType::Fnn,
             true,
-            prefix.num_reserved,
+            prefix.prefix.prefix(),
         )
         .map_err(|e| {
             Status::internal(format!(
@@ -340,10 +340,10 @@ pub async fn tenant_network(
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let svi_ip = get_svi_ip(
-        &v4_prefix.prefix,
+        &v4_prefix.svi_ip,
         network_virtualization_type,
         is_l2_segment,
-        v4_prefix.num_reserved,
+        v4_prefix.prefix.prefix(),
     )
     .map_err(|e| {
         Status::internal(format!(

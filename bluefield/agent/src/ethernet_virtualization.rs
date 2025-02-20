@@ -1504,6 +1504,7 @@ mod tests {
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::{Path, PathBuf};
+    use std::str::FromStr;
 
     use eyre::WrapErr;
     use rpc::forge as rpc;
@@ -1712,12 +1713,8 @@ mod tests {
             .parse()
             .unwrap();
 
-        let network_prefix_1: IpNetwork = format!("10.217.5.170/{}", network_prefix_length)
-            .parse()
-            .unwrap();
-        let network_prefix_2: IpNetwork = format!("10.217.5.162/{}", network_prefix_length)
-            .parse()
-            .unwrap();
+        let svi_ip1: IpAddr = IpAddr::from_str("10.217.5.172").unwrap();
+        let svi_ip2: IpAddr = IpAddr::from_str("10.217.5.164").unwrap();
 
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -1733,9 +1730,14 @@ mod tests {
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&network_prefix_1, virtualization_type, true, 3)
-                    .unwrap()
-                    .map(|ip| ip.to_string()),
+                svi_ip: get_svi_ip(
+                    &Some(svi_ip1),
+                    virtualization_type,
+                    true,
+                    network_prefix_length,
+                )
+                .unwrap()
+                .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: true,
                 network_security_group: None,
@@ -1753,9 +1755,14 @@ mod tests {
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&network_prefix_2, virtualization_type, false, 3)
-                    .unwrap()
-                    .map(|ip| ip.to_string()),
+                svi_ip: get_svi_ip(
+                    &Some(svi_ip2),
+                    virtualization_type,
+                    false,
+                    network_prefix_length,
+                )
+                .unwrap()
+                .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: false,
                 network_security_group: Some(rpc::FlatInterfaceNetworkSecurityGroupConfig {
@@ -2098,7 +2105,7 @@ mod tests {
 
         let interface_prefix_1: IpNetwork = "10.217.5.170/32".parse().unwrap();
         let interface_prefix_2: IpNetwork = "10.217.5.162/32".parse().unwrap();
-        let instance_network_1: IpNetwork = "10.217.5.0/24".parse().unwrap();
+        let svi_ip: IpAddr = IpAddr::from_str("10.217.5.2").unwrap();
 
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -2114,7 +2121,7 @@ mod tests {
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, true, 3)
+                svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, true, 24)
                     .unwrap()
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
@@ -2134,7 +2141,7 @@ mod tests {
                 prefix: "10.217.5.162/30".to_string(),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
-                svi_ip: get_svi_ip(&instance_network_1, VpcVirtualizationType::Fnn, false, 3)
+                svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, false, 24)
                     .unwrap()
                     .map(|x| x.to_string()),
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
