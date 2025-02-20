@@ -892,6 +892,35 @@ nspect-container-scan-x86_64:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH|| $CI_COMMIT_BRANCH =~ /^release\//
+      when: never
+
+tag-image-for-nspect-scanning:
+  stage: security
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  dependencies:
+    - get-crane
+    - export-docker-json-config
+    - build-release-container-x86_64
+  needs:
+    - job: get-crane
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-release-container-x86_64
+      optional: false
+  when: manual
+  before_script: |
+    mkdir -p /root/.docker
+    cp .docker/config.json /root/.docker/config.json
+  script: |
+    set -euo pipefail
+    crane copy $APPLICATION_DOCKER_IMAGE:$VERSION $APPLICATION_DOCKER_IMAGE_PRODUCTION:to-be-scanned
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH =~ /^release\//
 
 promote-images-to-production:
   stage: promote
@@ -906,7 +935,7 @@ promote-images-to-production:
     - job: build-release-container-x86_64
       optional: false
     - job: nspect-container-scan-x86_64
-      optional: false
+      optional: true
   when: manual
   before_script: |
     mkdir -p /root/.docker
