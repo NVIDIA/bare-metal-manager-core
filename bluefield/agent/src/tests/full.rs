@@ -77,6 +77,10 @@ pub async fn test_etv() -> eyre::Result<()> {
 
 // test_etv_nvue tests that config is being generated successfully
 // for the OG networking config, but using nvue templating mechanism.
+// NOTE: This is currently a _very_ light test because it takes the
+// UseAdminNetwork paths in the template, which leaves out a lot
+// of config.  Some of what's missing seems to be covered in
+// ethernet_virtualization tests, though.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv_nvue() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_etv.yaml.expected");
@@ -343,6 +347,85 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     destination_net: Some(
                         rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "0.0.0.0/0".to_string(),
+                        ),
+                    ),
+                }),
+            },                    rpc::forge::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["0.0.0.0/0".to_string()],
+                dst_prefixes: vec!["1.0.0.0/0".to_string()],
+                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                        .into(),
+                    ipv6: false,
+                    src_port_start: Some(80),
+                    src_port_end: Some(81),
+                    dst_port_start: Some(80),
+                    dst_port_end: Some(81),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 9001,
+                    source_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "1.0.0.0/0".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "1.0.0.0/0".to_string(),
+                        ),
+                    ),
+                }),
+            },
+            rpc::forge::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
+                dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
+                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                        .into(),
+                    ipv6: true,
+                    src_port_start: Some(80),
+                    src_port_end: Some(81),
+                    dst_port_start: Some(80),
+                    dst_port_end: Some(81),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 9001,
+                    source_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
+                        ),
+                    ),
+                }),
+            },                    rpc::forge::ResolvedNetworkSecurityGroupRule {
+                src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
+                dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
+                rule: Some(rpc::forge::NetworkSecurityGroupRuleAttributes {
+                    id: Some("anything".to_string()),
+                    direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                        .into(),
+                    ipv6: true,
+                    src_port_start: Some(80),
+                    src_port_end: Some(81),
+                    dst_port_start: Some(80),
+                    dst_port_end: Some(81),
+                    protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    priority: 9001,
+                    source_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
+                        ),
+                    ),
+                    destination_net: Some(
+                        rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                            "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                         ),
                     ),
                 }),

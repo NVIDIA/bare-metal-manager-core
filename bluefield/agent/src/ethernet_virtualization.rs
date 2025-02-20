@@ -1540,7 +1540,7 @@ mod tests {
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
     fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
-        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizer, 32, 24);
+        let network_config = netconf(VpcVirtualizationType::EthernetVirtualizer, 32, 24, true);
 
         let f = tempfile::NamedTempFile::new()?;
         let fp = FPath(f.path().to_owned());
@@ -1612,7 +1612,10 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let network_config = netconf(virtualization_type, 32, 24);
+
+        // Test without an NSG to make sure there are no changes for pre-FNN users
+        // if they don't opt-in to a network security group.
+        let network_config = netconf(virtualization_type, 32, 24, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1644,9 +1647,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_nvue_with_nsg() -> Result<(), Box<dyn std::error::Error>> {
+        // Test WITH an NSG
+        let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+
+        let network_config = netconf(virtualization_type, 32, 24, true);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup_with_nsg.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24);
+        let network_config = netconf(virtualization_type, 32, 24, true);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1683,6 +1722,7 @@ mod tests {
         virtualization_type: VpcVirtualizationType,
         interface_prefix_length: u8,
         network_prefix_length: u8,
+        include_network_security_group: bool,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -1760,13 +1800,16 @@ mod tests {
                     .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: false,
-                network_security_group: Some(rpc::FlatInterfaceNetworkSecurityGroupConfig {
+                network_security_group: if !include_network_security_group {
+                    None
+                } else {
+                    Some(rpc::FlatInterfaceNetworkSecurityGroupConfig {
                     id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
                     version: "V1-1".to_string(),
                     source: rpc::NetworkSecurityGroupSource::NsgSourceVpc.into(),
                     rules: vec![rpc::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["0.0.0.0/0".to_string()],
-                        dst_prefixes: vec!["0.0.0.0/0".to_string()],
+                        dst_prefixes: vec!["1.0.0.0/0".to_string()],
                         rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
                             direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -1790,8 +1833,89 @@ mod tests {
                                 ),
                             ),
                         }),
+                    },
+                    rpc::ResolvedNetworkSecurityGroupRule {
+                        src_prefixes: vec!["0.0.0.0/0".to_string()],
+                        dst_prefixes: vec!["1.0.0.0/0".to_string()],
+                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                            id: Some("anything".to_string()),
+                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                                .into(),
+                            ipv6: false,
+                            src_port_start: Some(80),
+                            src_port_end: Some(81),
+                            dst_port_start: Some(80),
+                            dst_port_end: Some(81),
+                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            priority: 9001,
+                            source_net: Some(
+                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                    "1.0.0.0/0".to_string(),
+                                ),
+                            ),
+                            destination_net: Some(
+                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                    "1.0.0.0/0".to_string(),
+                                ),
+                            ),
+                        }),
+                    },
+                    rpc::ResolvedNetworkSecurityGroupRule {
+                        src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
+                        dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
+                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                            id: Some("anything".to_string()),
+                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                                .into(),
+                            ipv6: true,
+                            src_port_start: Some(80),
+                            src_port_end: Some(81),
+                            dst_port_start: Some(80),
+                            dst_port_end: Some(81),
+                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            priority: 9001,
+                            source_net: Some(
+                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                    "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
+                                ),
+                            ),
+                            destination_net: Some(
+                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                    "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
+                                ),
+                            ),
+                        }),
+                    },                    rpc::ResolvedNetworkSecurityGroupRule {
+                        src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
+                        dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
+                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                            id: Some("anything".to_string()),
+                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                                .into(),
+                            ipv6: true,
+                            src_port_start: Some(80),
+                            src_port_end: Some(81),
+                            dst_port_start: Some(80),
+                            dst_port_end: Some(81),
+                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            priority: 9001,
+                            source_net: Some(
+                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                    "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
+                                ),
+                            ),
+                            destination_net: Some(
+                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                    "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
+                                ),
+                            ),
+                        }),
                     }],
-                }),
+                })
+                },
             },
         ];
 
