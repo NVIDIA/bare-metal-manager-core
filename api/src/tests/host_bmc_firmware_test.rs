@@ -43,7 +43,7 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-use tempdir::TempDir;
+use temp_dir::TempDir;
 
 #[crate::sqlx_test]
 async fn test_preingestion_bmc_upgrade(
@@ -766,7 +766,7 @@ async fn test_host_fw_upgrade_enabledisable_generic(
 
 #[test]
 fn test_merge_firmware_configs() -> Result<(), eyre::Report> {
-    let tmpdir = TempDir::new("test_merge_firmware_configs")?;
+    let tmpdir = TempDir::with_prefix("test_merge_firmware_configs")?;
 
     // B_1 comes later alphabetically but because it's written first, should be parsed first
     test_merge_firmware_configs_write(

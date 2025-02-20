@@ -317,7 +317,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
     // the desired firmware verisions to carbide (and thus it won't try to update.) This folder will
     // be deleted on Drop.
-    let empty_firmware_dir = tempdir::TempDir::new("firmware")?;
+    let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.

@@ -20,7 +20,7 @@ tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 futures = "0.3"
 itertools = "0.14"
 ctor = "0.2"
-tempdir = "0.3.7"
+temp-dir = "0.1.14"
 
 # [local-dependencies]
 agent = { path = "../bluefield/agent" }

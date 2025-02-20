@@ -74,7 +74,7 @@ strum_macros = "*"
 strum = "*"
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 thiserror = "2.0"
-tempdir = "0.3.7"
+temp-dir = "0.1.14"
 tokio = { workspace = true }
 tokio-rustls = "0.26"
 rustls-pemfile = "2.2"
