@@ -190,13 +190,13 @@ Missing BMC Data
                 <th>Context</th>
                 <th>Start Time</th>
                 <th>End Time</th>
-                <th>State</th>>
+                <th>State</th>
             </tr>
         </thead>
         <tbody>
             {% for run in validation_runs %}
             <tr>
-				<td><a href="/admin/machinevalidation/runs/{{ run.validation_id }}">{{ run.validation_id }}</a></td>
+                <td><a href="/admin/machinevalidation/runs/{{ run.validation_id }}">{{ run.validation_id }}</a></td>
                 <td>{{ run.context }}</td>
                 <td>{{ run.start_time }}</td>
                 <td>{{ run.end_time }}</td>
