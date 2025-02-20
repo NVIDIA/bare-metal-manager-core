@@ -346,7 +346,7 @@ impl PreingestionManagerStatic {
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
                 tracing::debug!(
-                    "check_firmware_versions_below_preingestion {}: No maching firmware info found",
+                    "check_firmware_versions_below_preingestion {}: No matching firmware info found",
                     endpoint.address
                 );
                 // No desired firmware description found for this host, nothing to do.
@@ -359,12 +359,12 @@ impl PreingestionManagerStatic {
         for (fwtype, desc) in &fw_info.components {
             if let Some(min_preingestion) = &desc.preingest_upgrade_when_below {
                 if let Some(current) = endpoint.find_version(&fw_info, *fwtype) {
-                    tracing::debug!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
+                    tracing::info!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
 
                     if version_compare::compare(current, min_preingestion)
                         .is_ok_and(|c| c == version_compare::Cmp::Lt)
                     {
-                        tracing::debug!(
+                        tracing::info!(
                              "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
                              endpoint.address
                          );
@@ -374,7 +374,7 @@ impl PreingestionManagerStatic {
                             .await?;
                         return Ok(delayed_upgrade);
                     } else {
-                        tracing::debug!(
+                        tracing::info!(
                             "check_firmware_versions_below_preingestion {}: {fwtype:?} is good",
                             endpoint.address
                         );
