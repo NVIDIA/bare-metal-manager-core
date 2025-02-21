@@ -284,10 +284,6 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_json))
             .route("/managed-host/:machine_id", get(managed_host::detail))
-            .route(
-                "/managed-host/:machine_id/maintenance",
-                post(managed_host::maintenance),
-            )
             .route("/expected-machine", get(expected_machine::show_all_html))
             .route(
                 "/expected-machine-definition.json",

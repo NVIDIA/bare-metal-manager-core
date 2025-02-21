@@ -22,7 +22,7 @@
 	<tbody>
 	{% for host in hosts %}
 		<tr>
-			<td>{{ host.machine_id|managed_host_id_link|safe }}</td>
+			<td>{{ host.machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe }}</td>
 			{% if active_maintenance_filter == "maintenance" %}
 				<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
