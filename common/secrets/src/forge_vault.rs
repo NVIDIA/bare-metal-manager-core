@@ -498,18 +498,7 @@ impl VaultTask<Certificate> for GetCertificateHelper {
 
 #[async_trait]
 impl CertificateProvider for ForgeVaultClient {
-    async fn get_certificate(&self, unique_identifier: &str) -> Result<Certificate, eyre::Report> {
-        let get_certificate_helper = GetCertificateHelper {
-            unique_identifier: unique_identifier.to_string(),
-            pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
-            pki_role_name: self.vault_client_config.pki_role_name.clone(),
-            alt_names: None,
-            ttl: None,
-        };
-        let vault_task_helper = VaultTaskHelper::new(get_certificate_helper);
-        vault_task_helper.execute(self).await
-    }
-    async fn get_certificate_ex(
+    async fn get_certificate(
         &self,
         unique_identifier: &str,
         alt_names: Option<String>,

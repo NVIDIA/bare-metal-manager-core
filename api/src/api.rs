@@ -581,7 +581,7 @@ impl Forge for Api {
         {
             let certificate = self
                 .certificate_provider
-                .get_certificate(machine_identity)
+                .get_certificate(machine_identity, None, None)
                 .await
                 .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
 
@@ -870,7 +870,7 @@ impl Forge for Api {
                 forge_secrets::certificates::Certificate::default()
             } else {
                 self.certificate_provider
-                    .get_certificate(id_str.as_str())
+                    .get_certificate(id_str.as_str(), None, None)
                     .await
                     .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
             };
@@ -3390,7 +3390,7 @@ impl Forge for Api {
             forge_secrets::certificates::Certificate::default()
         } else {
             self.certificate_provider
-                .get_certificate(id_str.as_str())
+                .get_certificate(id_str.as_str(), None, None)
                 .await
                 .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
         };
