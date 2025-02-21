@@ -55,7 +55,7 @@ flowchart LR
 In order to view metrics on Thanos as well as any dashboards hosted on Thanos, users must join the DLs
 referenced in [Thanos: Grafana Access - NGC Observability](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=PLATFORM&title=Thanos%3A+Grafana+Access#Thanos:GrafanaAccess-8.NGCObservability).
 
-For viewing access the DL `grafana-ngcobservability-viewer` is required, editing access requires `grafana-ngcobservability-editor`.
+For viewing access the DL `grafana-ngcobservability-viewers` is required, editing access requires `grafana-ngcobservability-editors`.
 
 Thanos access is only possible from a set of allowlisted VPN endpoints. These endpoints are documented on the linked Thanos page.
 
@@ -63,4 +63,13 @@ Thanos access is only possible from a set of allowlisted VPN endpoints. These en
 
 The Grafana endpoints on sites (e.g. [https://grafana-dev3.frg.nvidia.com](https://grafana-dev3.frg.nvidia.com)) support login via single sign on (Active Directory / OICD). Select `Sign in with AzureAD` on the login page.
 
-In order for the sign in to succeed, users need to be members of the DL groups `TODO`.
+In order for the sign in to succeed, users need to be members of the following DL groups:
+| DL Group                          | Permission       |
+|-----------------------------------|------------------|
+| `grafana-ngcobservability-viewers`| Grafana Viewer   |
+| `grafana-ngcobservability-editors`| Grafana Editor   |
+| `swngc-forge-dev`                 | Grafana Admin    |
+| `ngc-forge-sre`                   | Grafana Admin    |
+
+These group permissions can be reviewed at the bottom of the `Users and Groups` page in the
+[Forge Grafana Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/ccf37af4-c630-4025-9e87-cf59868ae205/appId/dda30e19-7fe7-415f-9750-adc7ee3e0ebd).
