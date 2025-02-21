@@ -9,6 +9,7 @@ receivers:
     include:
       - /var/log/doca/hbn/frr/frr.log
       - /var/log/doca/hbn/nl2docad.log
+      - /var/log/doca/hbn/nvued.log
       - /var/log/doca/hbn/supervisor/supervisord.log
       - /var/log/doca/hbn/syslog
     include_file_name: false
