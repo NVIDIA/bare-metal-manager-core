@@ -39,6 +39,23 @@ def wait_for_machine_not_in_maintenance(machine_id: str, timeout: int) -> None:
         raise TimeoutError(f"Machine id {machine_id} still in maintenance after {timeout} seconds")
 
 
+def wait_for_machine_not_updating(machine_id: str, timeout: int) -> None:
+    """Check repeatedly until the specified host is not receiving a DPU FW update from Forge,
+    for up to `timeout` seconds.
+    """
+    end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=timeout)
+    while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
+        not_updating = check_machine_not_updating(machine_id)
+        if not_updating:
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine is not receiving a DPU FW update.")
+            return
+        else:
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine is receiving a DPU FW update.")
+            time.sleep(60)
+    else:
+        raise TimeoutError(f"Machine still receiving DPU FW update after {timeout} seconds.")
+
+
 def wait_for_state(machine_id: str, desired_state: str, timeout: int, allow_missing_machine: bool = False) -> None:
     """Check repeatedly until the specified machine is in a specific state, for up to `timeout` seconds.
 
@@ -114,6 +131,18 @@ def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
                     return mach
         else:
             return None
+
+
+def check_machine_not_updating(host_id: str) -> bool:
+    """Check once if the specified host is receiving a DPU FW update from Forge. This is indicated by a
+    health alert labelled with id 'HostUpdateInProgress'.
+
+    :param host_id: Note: must not be the DPU ID
+    """
+    update_alert = "HostUpdateInProgress"
+    machine = get_machine(host_id)
+    health_alerts = [alert["id"] for alert in machine["health"]["alerts"]]
+    return update_alert not in health_alerts
 
 
 def check_machine_not_in_maintenance(machine_id: str) -> bool:
