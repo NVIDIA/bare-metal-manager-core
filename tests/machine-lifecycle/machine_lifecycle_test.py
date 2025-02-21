@@ -116,12 +116,17 @@ machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_
 # Check the initial state is good before we get started
 print(f"Checking managed host {machine_under_test} is Ready")
 if not admin_cli.check_machine_ready(machine_under_test):
-    print(f"ERROR: Machine {machine_under_test} is not Ready!\nExiting...", file=sys.stderr)
+    print("ERROR: Machine is not Ready!\nExiting...", file=sys.stderr)
     sys.exit(1)
 print(f"Checking machine {machine_under_test} is not in maintenance mode")
 if not admin_cli.check_machine_not_in_maintenance(machine_under_test):
-    print(f"ERROR: Machine {machine_under_test} is in Maintenance!\nExiting...", file=sys.stderr)
+    print("ERROR: Machine is in maintenance mode!\nExiting...", file=sys.stderr)
     sys.exit(1)
+print(f"Checking machine {machine_under_test} is not receiving a DPU FW update")
+if not admin_cli.check_machine_not_updating(machine_under_test):
+    print("ERROR: Machine is receiving a DPU FW update!\nExiting...", file=sys.stderr)
+    sys.exit(1)
+
 
 # Get vendor name of the host machine
 machine_vendor = admin_cli.get_machine_vendor(machine_under_test)
@@ -291,13 +296,13 @@ except Exception as e:
         sys.exit(1)
 
 
-# After the DPU state gets to Ready, allow for the possibility that carbide tries to upgrade the DPU FW.
+# After the DPU state gets to Ready, allow for the possibility that Forge tries to update the DPU FW.
 # Then confirm the managed host and Cloud machine states both show Ready too.
-print("Sleeping for 2 minutes to allow carbide to possibly grab the machine for a DPU FW upgrade...")
+print("Sleeping for 2 minutes to allow Forge to possibly grab the machine for a DPU FW upgrade...")
 time.sleep(60 * 2)
 
-print("Waiting for the machine not to be in maintenance mode (in case carbide is upgrading the DPU FW)")
-admin_cli.wait_for_machine_not_in_maintenance(machine_under_test, timeout=60 * 90)
+print("Waiting for the machine not to be receiving a DPU FW update from Forge...")
+admin_cli.wait_for_machine_not_updating(machine_under_test, timeout=60 * 90)
 
 print("Checking that carbide reports the managed host Ready")
 admin_cli.check_machine_ready(machine_under_test)
@@ -381,13 +386,13 @@ except Exception as e:
     sys.exit(1)
 
 
-# After the managed host state gets to Ready, allow for the possibility that carbide tries to upgrade the DPU FW.
+# After the managed host state gets to Ready, allow for the possibility that Forge tries to upgrade the DPU FW.
 # Then confirm the managed host state once more and wait for Cloud machine state to be Ready too.
-print("Sleeping for 2 minutes to allow carbide to possibly grab the machine for a DPU FW upgrade...")
+print("Sleeping for 2 minutes to allow Forge to possibly grab the machine for a DPU FW upgrade...")
 time.sleep(60 * 2)
 
-print("Waiting for the machine not to be in maintenance mode (in case carbide is upgrading the DPU FW)")
-admin_cli.wait_for_machine_not_in_maintenance(machine_under_test, timeout=60 * 90)
+print("Waiting for the machine not to be receiving a DPU FW update from Forge...")
+admin_cli.wait_for_machine_not_updating(machine_under_test, timeout=60 * 90)
 
 print("Checking again that carbide reports the managed host Ready")
 admin_cli.check_machine_ready(machine_under_test)
