@@ -125,7 +125,7 @@ if not admin_cli.check_machine_not_in_maintenance(machine_under_test):
 
 # Get vendor name of the host machine
 machine_vendor = admin_cli.get_machine_vendor(machine_under_test)
-if "Lenovo" not in machine_vendor or "Dell" not in machine_vendor:
+if "Lenovo" not in machine_vendor and "Dell" not in machine_vendor:
     print(f"ERROR: {machine_vendor=} is not valid. Expected to contain 'Lenovo' or 'Dell'. \nExiting...", file=sys.stderr)
     sys.exit(1)
 print(f"Machine vendor is {machine_vendor}")
