@@ -10,9 +10,9 @@
 		<th>Managed Host</th>
 		<td>
 		{% if !is_host %}
-			{{ host_id|managed_host_id_link|safe }}
+			{{ host_id|machine_id_link|safe }}
 		{% else %}
-			{{ id|managed_host_id_link|safe }}
+			{{ id|machine_id_link|safe }}
 		{% endif %}
 		</td>
 	</tr>
@@ -318,5 +318,29 @@ Missing BMC Data
 	{% endfor %}
 	</tbody>
 </table>
+
+<script>
+	function are_you_sure(event) {
+		event.preventDefault();
+		let form = document.getElementById("maintenance_action");
+		{% if maintenance_reference.is_empty() %}
+			if (!document.getElementById("ref").value) {
+				alert("Reference is required. It is usually a ticket tracker URL.");
+				return;
+			}
+			let confirm = window.confirm("Take machine out of service and put it into maintenance mode?");
+		{% else %}
+			let confirm = window.confirm("Put machine back into service, exiting maintenance mode?");
+		{% endif %}
+		if (confirm) {
+			form.removeEventListener("submit", are_you_sure);
+			form.submit();
+		}
+	}
+	document.addEventListener("DOMContentLoaded", function(event){
+		let form = document.getElementById("maintenance_action");
+		form.addEventListener("submit", are_you_sure);
+	});
+</script>
 
 {% endblock %}

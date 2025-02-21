@@ -42,7 +42,7 @@
 					{% if m.machine_id.is_empty() %}
 						<td style="background-color: yellow">Unlinked</td>
 					{% else %}
-						<td>{{ m.machine_id|managed_host_id_link|safe }}</td>
+						<td>{{ m.machine_id|machine_id_link|safe }}</td>
 					{% endif %}
 				{% endif %}
 			{% endif %}

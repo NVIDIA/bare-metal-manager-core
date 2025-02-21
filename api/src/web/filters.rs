@@ -24,11 +24,6 @@ pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> 
     machine_link(id.to_string(), "machine")
 }
 
-/// Generates HTML links to the Managed Host page for Machine IDs
-pub fn managed_host_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
-    machine_link(id.to_string(), "managed-host")
-}
-
 /// Generates a formatted link for Machine IDs to a predefined path
 fn machine_link(id: String, path: &str) -> ::askama::Result<String> {
     let short_id = if id.len() < 25
