@@ -125,16 +125,17 @@ if not admin_cli.check_machine_not_in_maintenance(machine_under_test):
 
 # Get vendor name of the host machine
 machine_vendor = admin_cli.get_machine_vendor(machine_under_test)
-if machine_vendor not in ["Lenovo", "Dell"]:
-    print(f"ERROR: {machine_vendor=} is not valid. Expected 'Lenovo' or 'Dell'. \nExiting...", file=sys.stderr)
+if "Lenovo" not in machine_vendor or "Dell" not in machine_vendor:
+    print(f"ERROR: {machine_vendor=} is not valid. Expected to contain 'Lenovo' or 'Dell'. \nExiting...", file=sys.stderr)
     sys.exit(1)
 print(f"Machine vendor is {machine_vendor}")
 
-host_bmc_username = "USERID" if machine_vendor == "Lenovo" else "root"
+host_bmc_username = "USERID" if "Lenovo" in machine_vendor else "root"
 
 
 # Optional factory-reset step
 if factory_reset == "true":
+    print("\n*** Starting factory-reset ***")
 
     # Factory-reset DPU(s)
     i = 1
@@ -171,7 +172,7 @@ if factory_reset == "true":
         i += 1
 
     # Factory-reset Host
-    if machine_vendor == "Lenovo":
+    if "Lenovo" in machine_vendor:
         print("Resetting BIOS settings on the host")
         url = "https://%s/redfish/v1/Systems/1/Bios/Actions/Bios.ResetBios" % host_bmc_ip
         data = '{"ResetType": "default"}'
@@ -235,7 +236,7 @@ if factory_reset == "true":
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=host_bmc_ip)
 
-    elif machine_vendor == "Dell":
+    elif "Dell" in machine_vendor:
         # TODO: support Dell factory-reset
         print("Dell machines not yet supported for factory-reset. Skipping...")
 
