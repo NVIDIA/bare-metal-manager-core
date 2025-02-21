@@ -460,7 +460,7 @@ pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideErr
 
     let certificate = api
         .certificate_provider
-        .get_certificate_ex(fabric.as_str(), Some(alt_names), Some(ttl))
+        .get_certificate(fabric.as_str(), Some(alt_names), Some(ttl))
         .await
         .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
 
