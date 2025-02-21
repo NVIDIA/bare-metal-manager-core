@@ -81,7 +81,7 @@
 
 {% if is_host %}
 <h3>Maintenance Mode</h3>
-<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/health/{{ id }}">Health Override</a> instead of entering Maintenance Mode.</i>
+<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
 <table class="detailsview">
 	{% if !maintenance_reference.is_empty() %}
 	<tr>
