@@ -13,6 +13,7 @@
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_test_env, TestEnvOverrides};
 use crate::{
+    assert_metrics_match,
     cfg::file::FirmwareComponentType,
     db,
     db::{
@@ -243,6 +244,7 @@ async fn test_preingestion_bmc_upgrade(
             .unwrap(),
         "0"
     );
+    assert_metrics_match!(env.test_meter, "test_preingestion_bmc_upgrade.txt");
     Ok(())
 }
 
@@ -674,6 +676,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         "1.2.3".to_string()
     );
 
+    assert_metrics_match!(env.test_meter, "test_postingestion_bmc_upgrade.txt");
     Ok(())
 }
 

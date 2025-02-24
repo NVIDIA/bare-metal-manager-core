@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 pub mod dpu_nic_firmware;
-mod dpu_nic_firmware_metrics;
-mod host_firmware;
+pub mod dpu_nic_firmware_metrics;
+pub mod host_firmware;
 pub mod machine_update_module;
-mod metrics;
+pub mod metrics;
 
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::{machine_updates_in_progress, HOST_UPDATE_HEALTH_REPORT_SOURCE};

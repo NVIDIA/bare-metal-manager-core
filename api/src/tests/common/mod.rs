@@ -17,6 +17,7 @@ pub mod endpoint;
 pub mod mac_address_pool;
 pub mod metadata;
 pub mod network_segment;
+pub mod prometheus_text_parser;
 pub mod sqlx_fixtures;
 pub mod test_certificates;
 pub mod test_meter;

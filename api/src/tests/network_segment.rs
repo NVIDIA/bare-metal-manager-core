@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -27,7 +28,7 @@ use crate::model::network_segment::{
 };
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
-use crate::{db, db_init};
+use crate::{assert_metrics_match, db, db_init};
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
@@ -42,6 +43,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     create_test_env, create_test_env_with_overrides, get_vpc_fixture_id, TestEnvOverrides,
 };
+use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
@@ -340,6 +342,10 @@ async fn test_network_segment_max_history_length(
     }
     txn.rollback().await.unwrap();
 
+    assert_metrics_match!(
+        env.test_meter,
+        "test_network_segment_max_history_length.txt"
+    );
     Ok(())
 }
 
@@ -642,13 +648,14 @@ async fn test_segment_prefix_in_unconfigured_address_space(
 
 async fn test_network_segment_metrics(
     pool: sqlx::PgPool,
-    seg_type: i32,
-    seg_type_str: String,
+    test_type: MetricsTestType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env =
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::no_network_segments()).await;
 
-    let segment = create_network_segment_with_api(&env, true, true, None, seg_type, 1).await;
+    let segment =
+        create_network_segment_with_api(&env, true, true, None, test_type.segment_type() as i32, 1)
+            .await;
     let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
 
     env.run_network_segment_controller_iteration().await;
@@ -662,12 +669,12 @@ async fn test_network_segment_metrics(
 
     let avail_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
-        seg_type_str
+        test_type
     );
 
     // We don't return stats for tenant network segments
     // We do return stats for underlay and tor type network segments
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_available_ips_count")
@@ -683,10 +690,10 @@ async fn test_network_segment_metrics(
 
     let total_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
-        seg_type_str
+        test_type
     );
 
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_total_ips_count")
@@ -702,10 +709,10 @@ async fn test_network_segment_metrics(
 
     let reserved_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
-        seg_type_str
+        test_type
     );
 
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_reserved_ips_count")
@@ -740,10 +747,10 @@ async fn test_network_segment_metrics(
     // is not in the Ready state.
     let avail_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
-        seg_type_str
+        test_type
     );
 
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_available_ips_count")
@@ -759,10 +766,10 @@ async fn test_network_segment_metrics(
 
     let total_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
-        seg_type_str
+        test_type
     );
 
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_total_ips_count")
@@ -778,10 +785,10 @@ async fn test_network_segment_metrics(
 
     let reserved_str = format!(
         "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
-        seg_type_str
+        test_type
     );
 
-    if seg_type_str == "tenant" {
+    if matches!(test_type, MetricsTestType::Tenant) {
         assert!(env
             .test_meter
             .formatted_metric("forge_reserved_ips_count")
@@ -795,43 +802,83 @@ async fn test_network_segment_metrics(
         );
     }
 
+    assert_eq!(
+        env.test_meter
+            .export_metrics()
+            .parse::<ParsedPrometheusMetrics>()
+            .unwrap(),
+        test_type.fixture()
+    );
+
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum MetricsTestType {
+    Admin,
+    Tenant,
+    Tor,
+}
+
+impl Display for MetricsTestType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MetricsTestType::Admin => write!(f, "admin"),
+            MetricsTestType::Tenant => write!(f, "tenant"),
+            MetricsTestType::Tor => write!(f, "tor"),
+        }
+    }
+}
+
+impl MetricsTestType {
+    fn fixture(&self) -> ParsedPrometheusMetrics {
+        match self {
+            MetricsTestType::Admin => {
+                include_str!("metrics_fixtures/test_network_segment_metrics_admin.txt")
+                    .parse()
+                    .unwrap()
+            }
+            MetricsTestType::Tenant => {
+                include_str!("metrics_fixtures/test_network_segment_metrics_tenant.txt")
+                    .parse()
+                    .unwrap()
+            }
+            MetricsTestType::Tor => {
+                include_str!("metrics_fixtures/test_network_segment_metrics_tor.txt")
+                    .parse()
+                    .unwrap()
+            }
+        }
+    }
+
+    fn segment_type(&self) -> NetworkSegmentType {
+        match self {
+            MetricsTestType::Admin => NetworkSegmentType::Admin,
+            MetricsTestType::Tor => NetworkSegmentType::Underlay,
+            MetricsTestType::Tenant => NetworkSegmentType::Tenant,
+        }
+    }
 }
 
 #[crate::sqlx_test]
 async fn test_network_segment_metrics_admin(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    return test_network_segment_metrics(
-        pool,
-        rpc::forge::NetworkSegmentType::Admin as i32,
-        "admin".to_string(),
-    )
-    .await;
+    test_network_segment_metrics(pool, MetricsTestType::Admin).await
 }
 
 #[crate::sqlx_test]
 async fn test_network_segment_metrics_tenant(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    return test_network_segment_metrics(
-        pool,
-        rpc::forge::NetworkSegmentType::Tenant as i32,
-        "tenant".to_string(),
-    )
-    .await;
+    test_network_segment_metrics(pool, MetricsTestType::Tenant).await
 }
 
 #[crate::sqlx_test]
 async fn test_network_segment_metrics_tor(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    return test_network_segment_metrics(
-        pool,
-        rpc::forge::NetworkSegmentType::Underlay as i32,
-        "tor".to_string(),
-    )
-    .await;
+    test_network_segment_metrics(pool, MetricsTestType::Tor).await
 }
 
 #[crate::sqlx_test]

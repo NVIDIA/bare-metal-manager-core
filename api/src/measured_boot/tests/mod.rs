@@ -17,6 +17,7 @@
 pub mod common;
 mod integration;
 mod journal;
+mod metrics;
 mod profile;
 mod report;
 mod rpc;

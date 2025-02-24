@@ -142,3 +142,36 @@ impl MetricHolder {
         self.last_iteration_metrics.store(Some(Arc::new(metrics)));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::preingestion_manager::metrics::PreingestionMetrics;
+    use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
+    use crate::tests::common::test_meter::TestMeter;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn test_metrics_collector() {
+        let mut metrics = PreingestionMetrics::new();
+        metrics.delayed_uploading = 10;
+        metrics.waiting_for_installation = 15;
+        metrics.machines_in_preingestion = 20;
+        let test_meter = TestMeter::default();
+
+        let metric_holder = Arc::new(MetricHolder::new(test_meter.meter(), Duration::MAX));
+        metric_holder.update_metrics(metrics);
+        metric_holder.register_callback();
+
+        assert_eq!(
+            test_meter
+                .export_metrics()
+                .parse::<ParsedPrometheusMetrics>()
+                .unwrap(),
+            include_str!("fixtures/test_metrics_collector.txt")
+                .parse::<ParsedPrometheusMetrics>()
+                .unwrap()
+        );
+    }
+}
