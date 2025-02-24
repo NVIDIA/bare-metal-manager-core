@@ -2266,6 +2266,9 @@ pub struct ShowMachineValidationTestOptions {
 
     #[clap(short, long, help = "List of contexts/tags")]
     pub contexts: Vec<String>,
+
+    #[clap(long, default_value = "false", help = "List unverfied tests also.")]
+    pub show_un_verfied: bool,
 }
 
 #[derive(Parser, Debug)]

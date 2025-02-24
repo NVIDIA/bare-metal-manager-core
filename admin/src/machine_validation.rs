@@ -396,9 +396,14 @@ pub async fn show_tests(
     output_format: OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {
-    let tests =
-        rpc::get_machine_validation_tests(api_config, args.test_id, args.platforms, args.contexts)
-            .await?;
+    let tests = rpc::get_machine_validation_tests(
+        api_config,
+        args.test_id,
+        args.platforms,
+        args.contexts,
+        args.show_un_verfied,
+    )
+    .await?;
     if extended {
         let _ = show_tests_details(output_format == OutputFormat::Json, tests);
     } else {
