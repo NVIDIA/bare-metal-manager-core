@@ -2943,12 +2943,15 @@ pub async fn get_machine_validation_tests(
     test_id: Option<String>,
     platforms: Vec<String>,
     contexts: Vec<String>,
+    show_un_verfied: bool,
 ) -> CarbideCliResult<rpc::MachineValidationTestsGetResponse> {
+    let verified = if show_un_verfied { None } else { Some(true) };
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineValidationTestsGetRequest {
             supported_platforms: platforms,
             contexts,
             test_id,
+            verified,
             ..rpc::MachineValidationTestsGetRequest::default()
         });
         let ret = client

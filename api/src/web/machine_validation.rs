@@ -330,6 +330,7 @@ async fn fetch_validation_tests(
         supported_platforms: Vec::new(),
         contexts: Vec::new(),
         test_id,
+        verified: Some(true),
         ..forgerpc::MachineValidationTestsGetRequest::default()
     });
     api.get_machine_validation_tests(request)
