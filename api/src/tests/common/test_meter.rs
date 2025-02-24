@@ -93,6 +93,28 @@ impl TestMeter {
     }
 }
 
+/// This macro ensures that the given TestMeter's metrics match the given fixture from `metrics_fixtures/*`.
+#[macro_export]
+macro_rules! assert_metrics_match {
+    ($meter:expr, $fixture:literal) => {{
+        let fixture_data = include_str!(concat!("metrics_fixtures/", $fixture));
+
+        let expected = fixture_data
+            .parse::<$crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics>()
+            .expect("Failed to parse fixture");
+
+        assert_eq!(
+            $meter
+                .export_metrics()
+                .parse::<$crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics>()
+                .expect("Failed to parse exported metrics"),
+            expected,
+            "Metrics did not match fixture: {}",
+            $fixture
+        );
+    }};
+}
+
 impl Default for TestMeter {
     /// Builds an OpenTelemetry `Meter` for unit-testing purposes
     fn default() -> Self {

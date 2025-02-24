@@ -19,6 +19,7 @@ use tokio::runtime::Runtime;
 use crate::{tls, CarbideDhcpContext, CarbideDhcpMetrics, CONFIG};
 
 use ::metrics_endpoint::{new_metrics_setup, run_metrics_endpoint, MetricsEndpointConfig};
+use metrics_endpoint::MetricsSetup;
 use opentelemetry::KeyValue;
 
 const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
@@ -42,6 +43,48 @@ pub async fn certificate_loop() {
     }
 }
 
+fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
+    let metrics = CarbideDhcpMetrics {
+        total_requests_counter: mconf
+            .meter
+            .u64_counter("carbide-dhcp.requests")
+            .with_description("The total number of DHCP requests")
+            .init(),
+        dropped_requests_counter: mconf
+            .meter
+            .u64_counter("carbide-dhcp.dropped_requests")
+            .with_description("The number of dropped DHCP requests")
+            .init(),
+        forge_client_config: tls::build_forge_client_config(),
+        certificate_expiration_value: Arc::new(AtomicI64::new(0)),
+        certificate_expiration_gauge: mconf
+            .meter
+            .i64_observable_gauge("carbide-dhcp.certificate_expiration_time")
+            .with_description("The certificate expiration time (epoch seconds)")
+            .init(),
+    };
+    let metrics_clone = metrics.clone();
+    let certificate_expiration_value_clone = metrics_clone.certificate_expiration_value.clone();
+    mconf
+        .meter
+        .register_callback(
+            &[metrics_clone.certificate_expiration_gauge.as_any()],
+            move |observer| {
+                let measurement = certificate_expiration_value_clone
+                    .deref()
+                    .load(Ordering::SeqCst);
+                observer.observe_i64(
+                    &metrics_clone.certificate_expiration_gauge,
+                    measurement,
+                    &[],
+                );
+            },
+        )
+        .expect("unable to register callback?");
+
+    metrics
+}
+
 pub fn metrics_server() {
     let metrics_endpoint = CONFIG
         .read()
@@ -49,48 +92,12 @@ pub fn metrics_server() {
         .metrics_endpoint;
 
     if let Some(metrics_endpoint) = metrics_endpoint {
-        let mconf = new_metrics_setup("carbide-dhcp", "forge-system");
+        let mconf = new_metrics_setup("carbide-dhcp", "forge-system", true);
         match mconf {
             Ok(mconf) => {
-                // initialize metrics
-                let metrics = CarbideDhcpMetrics {
-                    total_requests_counter: mconf
-                        .meter
-                        .u64_counter("carbide-dhcp.requests")
-                        .with_description("The total number of DHCP requests")
-                        .init(),
-                    dropped_requests_counter: mconf
-                        .meter
-                        .u64_counter("carbide-dhcp.dropped_requests")
-                        .with_description("The number of dropped DHCP requests")
-                        .init(),
-                    forge_client_config: tls::build_forge_client_config(),
-                    certificate_expiration_value: Arc::new(AtomicI64::new(0)),
-                    certificate_expiration_gauge: mconf
-                        .meter
-                        .i64_observable_gauge("carbide-dhcp.certificate_expiration_time")
-                        .with_description("The certificate expiration time (epoch seconds)")
-                        .init(),
-                };
-                let metrics_clone = metrics.clone();
-                let certificate_expiration_value_clone =
-                    metrics_clone.certificate_expiration_value.clone();
-                mconf
-                    .meter
-                    .register_callback(
-                        &[metrics_clone.certificate_expiration_gauge.as_any()],
-                        move |observer| {
-                            let measurement = certificate_expiration_value_clone
-                                .deref()
-                                .load(Ordering::SeqCst);
-                            observer.observe_i64(
-                                &metrics_clone.certificate_expiration_gauge,
-                                measurement,
-                                &[],
-                            );
-                        },
-                    )
-                    .expect("unable to register callback?");
+                // initialize metrics.
+                let metrics = initialize_metrics(&mconf);
+
                 CONFIG.write().unwrap().metrics = Some(metrics);
                 let runtime: &Runtime = CarbideDhcpContext::get_tokio_runtime();
                 // start certificate loop
@@ -139,5 +146,30 @@ pub fn increment_dropped_requests(reason: String) {
         metrics
             .dropped_requests_counter
             .add(1, &[KeyValue::new("reason", reason.clone())]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prometheus::{Encoder, TextEncoder};
+
+    #[test]
+    fn test_metrics() {
+        let mconf = new_metrics_setup("carbide-dhcp", "forge-system", false).unwrap();
+        let metrics = initialize_metrics(&mconf);
+        metrics
+            .certificate_expiration_value
+            .store(1740173562, Ordering::SeqCst);
+        metrics.total_requests_counter.add(1, &[]);
+        metrics.dropped_requests_counter.add(1, &[]);
+
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        let metric_families = mconf.registry.gather();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+
+        let prom_metrics = String::from_utf8(buffer).unwrap();
+        assert_eq!(prom_metrics, include_str!("../tests/fixtures/metrics.txt"));
     }
 }

@@ -30,6 +30,7 @@ use crate::tests::common::{
     test_meter::TestMeter,
 };
 use crate::{
+    assert_metrics_match,
     cfg::file::SiteExplorerConfig,
     db::{
         self, expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint,
@@ -472,6 +473,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         "2"
     );
 
+    assert_metrics_match!(test_meter, "test_site_explorer_main.txt");
+
     txn.commit().await?;
     Ok(())
 }
@@ -833,6 +836,10 @@ async fn test_site_explorer_audit_exploration_results(
     assert!(!m.is_empty());
     assert_eq!(m.get("{expectation=\"expected\"}").unwrap(), "1");
 
+    assert_metrics_match!(
+        env.test_meter,
+        "test_site_explorer_audit_exploration_results.txt"
+    );
     Ok(())
 }
 

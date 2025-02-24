@@ -169,6 +169,11 @@ impl MeasuredBootMetricsCollectorInstruments {
             metrics.num_bundles as u64,
             attributes,
         );
+        observer.observe_u64(
+            &self.num_machines_total,
+            metrics.num_machines as u64,
+            attributes,
+        );
 
         for (profile_id, total) in metrics.num_machines_per_profile.iter() {
             let mut attrs: Vec<KeyValue> = attributes.to_vec();

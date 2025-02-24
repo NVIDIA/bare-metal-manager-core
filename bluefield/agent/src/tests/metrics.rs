@@ -1,0 +1,62 @@
+use crate::instrumentation::NetworkMonitorMetricsState;
+use crate::network_monitor::NetworkMonitorError;
+use opentelemetry::metrics::MeterProvider;
+use prometheus::{Encoder, TextEncoder};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[test]
+fn test_metrics() {
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_exporter = opentelemetry_prometheus::exporter()
+        .with_registry(prometheus_registry.clone())
+        .without_scope_info()
+        .without_target_info()
+        .build()
+        .unwrap();
+    let meter_provider = opentelemetry_sdk::metrics::MeterProviderBuilder::default()
+        .with_reader(metrics_exporter)
+        .build();
+    let meter = meter_provider.meter("agent");
+
+    let metrics = crate::instrumentation::create_metrics(meter.clone());
+    metrics.record_machine_boot_time(1740171762);
+    metrics.record_agent_start_time(1740171801);
+
+    let network_monitor_metrics = NetworkMonitorMetricsState::initialize(
+        meter,
+        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0".to_string(),
+    );
+    network_monitor_metrics.record_network_loss_percent(
+        0.5,
+        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0".to_string(),
+        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
+    );
+    network_monitor_metrics.record_monitor_error(
+        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0".to_string(),
+        NetworkMonitorError::PingError.to_string(),
+    );
+    network_monitor_metrics.record_network_latency(
+        Duration::from_millis(2),
+        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0".to_string(),
+        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
+    );
+    network_monitor_metrics.record_communication_error(
+        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0".to_string(),
+        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
+        NetworkMonitorError::PingError.to_string(),
+    );
+    network_monitor_metrics.update_network_reachable_map(Arc::new(HashMap::from([(
+        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
+        true,
+    )])));
+
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus_registry.gather();
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    let prom_metrics = String::from_utf8(buffer).unwrap();
+    assert_eq!(prom_metrics, include_str!("fixtures/metrics.txt"));
+}

@@ -17,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    db,
+    assert_metrics_match, db,
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::Instance,
@@ -2332,6 +2332,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
             .unwrap(),
         "1"
     );
+
+    assert_metrics_match!(env.test_meter, "test_bootingwithdiscoveryimage_delay.txt");
 }
 
 #[crate::sqlx_test]

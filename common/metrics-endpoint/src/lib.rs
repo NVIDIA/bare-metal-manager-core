@@ -54,6 +54,7 @@ pub struct MetricsEndpointConfig {
 pub fn new_metrics_setup(
     service_name: &'static str,
     service_namespace: &'static str,
+    set_global_meter: bool,
 ) -> eyre::Result<MetricsSetup> {
     // This defines attributes that are set on the exported metrics
     let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
@@ -77,8 +78,11 @@ pub fn new_metrics_setup(
         .with_view(create_metric_view_for_retry_histograms("*_attempts_*")?)
         .with_view(create_metric_view_for_retry_histograms("*_retries_*")?)
         .build();
-    // After this call `global::meter()` will be available
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+
+    if set_global_meter {
+        // After this call `global::meter()` will be available
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+    }
 
     Ok(MetricsSetup {
         registry: prometheus_registry,

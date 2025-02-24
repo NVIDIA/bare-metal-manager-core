@@ -70,7 +70,7 @@ impl IntegrationTestEnvironment {
             carbide_metrics_addr,
             db_url,
             db_pool,
-            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system")?, // unique to each test
+            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
         }))
     }
 }

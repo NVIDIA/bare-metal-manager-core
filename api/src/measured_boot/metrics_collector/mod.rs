@@ -17,7 +17,7 @@ use crate::{cfg::file::MeasuredBootMetricsCollectorConfig, db::DatabaseError, Ca
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
 
-mod metrics;
+pub(crate) mod metrics;
 use crate::measured_boot::db;
 use forge_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;

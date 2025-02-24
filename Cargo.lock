@@ -1960,6 +1960,7 @@ dependencies = [
  "metrics-endpoint",
  "once_cell",
  "opentelemetry",
+ "prometheus",
  "prost",
  "rpc",
  "serde_json",
