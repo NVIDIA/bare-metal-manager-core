@@ -31,6 +31,7 @@ fn convert_machine_to_nice_format(
     let width = 14;
     let mut lines = String::new();
     let machine_id = machine.id.clone().unwrap_or_default().id;
+    let sku = machine.hw_sku.unwrap_or_default();
 
     let mut data = vec![
         ("ID", machine.id.clone().unwrap_or_default().id),
@@ -45,6 +46,7 @@ fn convert_machine_to_nice_format(
                 .unwrap_or("None".to_string()),
         ),
         ("VERSION", machine.version),
+        ("SKU", sku),
     ];
     if let Some(di) = machine.discovery_info.as_ref() {
         if let Some(dmi) = di.dmi_data.as_ref() {

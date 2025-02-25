@@ -255,6 +255,20 @@ async fn handle_action(
         Action::Discovery => {
             // This is temporary. All cleanup must be done when API call Reset.
             deprovision::run_no_api();
+            let retry = registration::DiscoveryRetry {
+                secs: config.discovery_retry_secs,
+                max: config.discovery_retries_max,
+            };
+
+            register::run(
+                &config.api,
+                config.root_ca.clone(),
+                config.machine_interface_id,
+                &retry,
+                &config.tpm_path,
+            )
+            .await?;
+
             discovery::completed(config, machine_id).await?;
         }
         Action::Reset => {

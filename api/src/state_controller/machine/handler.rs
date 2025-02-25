@@ -14,11 +14,12 @@
 
 use std::{net::IpAddr, sync::Arc};
 
+use crate::cfg::file::BomValidationConfig;
 use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
 use crate::db::network_segment::NetworkSegment;
 use crate::db::vpc::VpcDpuLoopback;
 use crate::model::instance::config::network::NetworkDetails;
-use crate::model::machine::DisableSecureBootState;
+use crate::model::machine::{BomValidating, BomValidatingContext, DisableSecureBootState};
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::{
     get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
@@ -62,9 +63,9 @@ use crate::{
             HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineState, MachineValidationFilter, ManagedHostState, ManagedHostStateSnapshot,
-            MeasuringState, NextReprovisionState, PerformPowerOperation, ReprovisionState,
-            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState,
+            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+            NextReprovisionState, PerformPowerOperation, ReprovisionState, RetryInfo,
+            StateMachineArea, UefiSetupInfo, UefiSetupState,
         },
         site_explorer::ExploredEndpoint,
     },
@@ -78,8 +79,10 @@ use crate::{
     },
 };
 use measured_boot::records::MeasurementMachineState;
+use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 
 mod ib;
+mod sku;
 mod storage;
 
 // We can't use http::StatusCode because libredfish has a newer version
@@ -99,6 +102,7 @@ pub struct HostHandlerParams {
     pub attestation_enabled: bool,
     pub reachability_params: ReachabilityParams,
     pub machine_validation_config: MachineValidationConfig,
+    pub bom_validation: BomValidationConfig,
 }
 
 /// The actual Machine State handler
@@ -126,6 +130,7 @@ pub struct MachineStateHandlerBuilder {
     upload_limiter: Option<Arc<Semaphore>>,
     machine_validation_config: MachineValidationConfig,
     common_pools: Option<Arc<CommonPools>>,
+    bom_validation: BomValidationConfig,
 }
 
 impl MachineStateHandlerBuilder {
@@ -145,6 +150,7 @@ impl MachineStateHandlerBuilder {
             upload_limiter: None,
             machine_validation_config: MachineValidationConfig { enabled: true },
             common_pools: None,
+            bom_validation: BomValidationConfig::default(),
         }
     }
 
@@ -224,6 +230,12 @@ impl MachineStateHandlerBuilder {
         self.common_pools = Some(common_pools);
         self
     }
+
+    pub fn bom_validation(mut self, bom_validation: BomValidationConfig) -> Self {
+        self.bom_validation = bom_validation;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -237,6 +249,7 @@ impl MachineStateHandler {
                 attestation_enabled: builder.attestation_enabled,
                 reachability_params: builder.reachability_params,
                 machine_validation_config: builder.machine_validation_config,
+                bom_validation: builder.bom_validation,
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 builder.dpu_nic_firmware_initial_update_enabled,
@@ -553,6 +566,16 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
+                if let Some(outcome) = handle_bom_validation_requested(
+                    txn,
+                    &self.host_handler.host_handler_params,
+                    mh_snapshot,
+                )
+                .await?
+                {
+                    return Ok(outcome);
+                }
+
                 if host_reprovisioning_requested(mh_snapshot).await {
                     if let Some(next_state) = self
                         .handle_host_reprovision(mh_snapshot, ctx.services, host_machine_id, txn)
@@ -754,26 +777,12 @@ impl MachineStateHandler {
                         )
                         .await?;
 
-                        let validation_id = MachineValidation::create_new_run(
-                            txn,
-                            &mh_snapshot.host_snapshot.id,
-                            "Cleanup".to_string(),
-                            MachineValidationFilter::default(),
-                        )
-                        .await?;
-                        // Link to machine
-                        let next_state = ManagedHostState::HostInit {
-                            machine_state: MachineState::MachineValidating {
-                                context: "Cleanup".to_string(),
-                                id: validation_id,
-                                completed: 1,
-                                total: 1,
-                                is_enabled: self
-                                    .host_handler
-                                    .host_handler_params
-                                    .machine_validation_config
-                                    .enabled,
-                            },
+                        let next_state = ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::VerifyingSku(
+                                BomValidatingContext {
+                                    machine_validation_context: Some("Cleanup".to_string()),
+                                },
+                            ),
                         };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
@@ -1101,6 +1110,17 @@ impl MachineStateHandler {
                             measuring_state,
                         )
                     })?
+            }
+            ManagedHostState::BomValidating {
+                bom_validating_state,
+            } => {
+                handle_bom_validation_state(
+                    txn,
+                    &self.host_handler.host_handler_params,
+                    mh_snapshot,
+                    bom_validating_state,
+                )
+                .await
             }
         }
     }
@@ -4522,24 +4542,8 @@ impl StateHandler for HostMachineStateHandler {
                                 )
                                 .await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
-                                    let validation_id = MachineValidation::create_new_run(
-                                        txn,
-                                        &mh_snapshot.host_snapshot.id,
-                                        "Discovery".to_string(),
-                                        MachineValidationFilter::default(),
-                                    )
-                                    .await?;
-                                    let next_state = ManagedHostState::HostInit {
-                                        machine_state: MachineState::MachineValidating {
-                                            context: "Discovery".to_string(),
-                                            id: validation_id,
-                                            completed: 1,
-                                            total: 1,
-                                            is_enabled: self
-                                                .host_handler_params
-                                                .machine_validation_config
-                                                .enabled,
-                                        },
+                                    let next_state = ManagedHostState::BomValidating {
+                                        bom_validating_state: BomValidating::MatchingSku,
                                     };
                                     Ok(StateHandlerOutcome::Transition(next_state))
                                 } else {

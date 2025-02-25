@@ -20,6 +20,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .file_descriptor_set_path(reflection)
+        .type_attribute(
+            ".google.protobuf.Timestamp",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .include_file("prost_common.rs")
@@ -445,6 +449,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.NetworkSecurityGroupPropagationObjectStatus",
             "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute("Sku", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("SkuList", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute(
+            "SkuComponents",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentChassis",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentCpu",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentGpu",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentMemory",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentInfinibandInterfaces",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentEthernetInterfaces",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentStorage",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SkuComponentTpm",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute("SkuId", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute(
+            "SkuStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .build_server(true)
         .build_client(true)

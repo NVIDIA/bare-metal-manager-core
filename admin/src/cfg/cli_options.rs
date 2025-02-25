@@ -215,6 +215,9 @@ pub enum CliCommand {
         subcommand
     )]
     NetworkSecurityGroup(network_security_group::NetworkSecurityGroupActions),
+
+    #[clap(about = "Manage machine SKUs", subcommand)]
+    Sku(Sku),
 }
 
 #[derive(Parser, Debug)]
@@ -2400,4 +2403,31 @@ pub struct MachineValidationAddTestOptions {
 
     #[clap(long, help = "Is read-only")]
     pub read_only: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
+pub enum Sku {
+    #[clap(about = "Show SKU information", visible_alias = "s")]
+    Show(ShowSku),
+    #[clap(
+        about = "Generate SKU information from an existing machine",
+        visible_alias = "g"
+    )]
+    Generate { machine_id: String },
+    #[clap(about = "Create SKUs from a file", visible_alias = "c")]
+    Create { filename: String },
+    #[clap(about = "Delete a SKU", visible_alias = "d")]
+    Delete { sku_id: String },
+    #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
+    Assign { sku_id: String, machine_id: String },
+    #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
+    Unassign { machine_id: String },
+    #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
+    Verify { machine_id: String },
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowSku {
+    #[clap(help = "Show SKU details")]
+    pub sku_id: Option<String>,
 }

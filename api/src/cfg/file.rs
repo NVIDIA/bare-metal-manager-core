@@ -229,6 +229,9 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub fnn: Option<FnnConfig>,
+
+    #[serde(default)]
+    pub bom_validation: BomValidationConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1610,6 +1613,10 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_find_by_ids: value.max_find_by_ids,
             dpu_network_pinger_type: value.dpu_network_monitor_pinger_type,
             machine_validation_enabled: value.machine_validation_config.enabled,
+            bom_validation_enabled: value.bom_validation.enabled,
+            bom_validation_ignore_unassigned_machines: value
+                .bom_validation
+                .ignore_unassigned_machines,
         }
     }
 }
@@ -1646,6 +1653,19 @@ fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEn
     });
     dirs
 }
+
+/// MachineValidation related configuration
+#[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct BomValidationConfig {
+    /// Whether BOM Validation is enabled
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Allow machines that do not have a sku to bypass sku validation
+    #[serde(default)]
+    pub ignore_unassigned_machines: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use figment::{

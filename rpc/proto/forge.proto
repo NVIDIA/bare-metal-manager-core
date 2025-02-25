@@ -461,6 +461,22 @@ service Forge {
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
+
+  // Create A SKU to be assigned to a machine so the machine hardware can be validated.
+  rpc CreateSku(SkuList) returns (SkuIdList);
+  // Generate a SKU from the hardware inventory of a machine.
+  rpc GenerateSkuFromMachine(common.MachineId) returns (Sku);
+  // Verify the specified machine against its sku.  Must be in Ready or SkuVerifyFailed states.
+  rpc VerifySkuForMachine(common.MachineId) returns (google.protobuf.Empty);
+  // Assing a sku to a machine.  The machine must not have a sku assigned already.
+  rpc AssignSkuToMachine(SkuMachinePair) returns (google.protobuf.Empty);
+  // Remove a SKU assignemnt from a machine.  Must be in the Ready or SkuVerifyFailed states.
+  // The machine will move to the WaitingForSkuAssignment state.
+  rpc RemoveSkuAssociation(common.MachineId) returns (google.protobuf.Empty);
+  // Removes an unused SKU
+  rpc DeleteSku(SkuIdList) returns (google.protobuf.Empty);
+  rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
+  rpc GetSkusForIds(SkuIdList) returns (SkuList);
 }
 
 message TpmCaAddedCaStatus{
@@ -628,6 +644,9 @@ message RuntimeConfig {
     bool machine_validation_enabled = 33;
 
     string vpc_isolation_behavior = 34;
+    
+    bool bom_validation_enabled = 35;
+    bool bom_validation_ignore_unassigned_machines=36;
 }
 
 message EchoRequest {
@@ -1825,6 +1844,8 @@ message Machine {
   // The known capabilities of a machine
   MachineCapabilitiesSet capabilities = 37;
   
+  optional string hw_sku = 38;
+  optional SkuStatus hw_sku_status = 39;
 }
 
 message InstanceNetworkRestrictions {
@@ -3754,7 +3775,7 @@ message MachineValidationTestEnableDisableTestResponse {
 
 message MachineValidationRunRequest {
   common.UUID validation_id = 1;
-  google.protobuf.Duration duration_to_complete = 2;  
+  google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
 }
 message MachineValidationRunResponse {
@@ -4174,4 +4195,100 @@ message DesiredFirmwareVersionEntry {
   string vendor = 1;
   string model = 2;
   map<string, string> component_versions = 3;
+}
+
+message SkuComponentChassis {
+  string vendor = 1;
+  string model = 2;
+  string architecture = 3;
+}
+
+message SkuComponentCpu {
+  string vendor = 1;
+  string model = 2;
+  uint32 thread_count = 3;
+  uint32 count = 4;
+}
+
+message SkuComponentGpu {
+  string vendor = 1;
+  string model = 2;
+  uint32 count = 3;
+  string total_memory = 4;
+}
+
+message SkuComponentEthernetInterfaces {
+  string vendor = 1;
+  string model = 2;
+  bool is_connected = 3;
+  uint32 count = 4;
+}
+
+message SkuComponentInfinibandInterfaces {
+  string vendor = 1;
+  string model = 2;
+  bool is_connected = 3;
+  uint32 count = 4;
+}
+
+message SkuComponentStorage {
+  string vendor = 1;
+  string model = 2;
+  uint32 count = 3;
+  uint32 capacity_mb = 4;
+}
+
+message SkuComponentStorageController {
+  string vendor = 1;
+  string model = 2;
+  uint32 count = 3;
+}
+
+message SkuComponentMemory {
+  string memory_type = 1;
+  uint32 capacity_mb = 2;
+  uint32 count = 3;
+}
+
+message SkuComponentTpm {
+  string vendor = 1;
+  string model = 2;
+  uint32 count = 3;
+  string version = 5;
+}
+
+message SkuComponents {
+  SkuComponentChassis chassis = 1;
+  repeated SkuComponentCpu cpus = 2;
+  repeated SkuComponentGpu gpus = 3;
+  repeated SkuComponentEthernetInterfaces ethernet_adapters = 4;
+  repeated SkuComponentInfinibandInterfaces infiniband_adapters = 5;
+  repeated SkuComponentStorage storage = 6;
+  repeated SkuComponentMemory memory = 7;
+  repeated SkuComponentTpm tpm = 8;
+}
+
+message Sku {
+  string id = 1;
+  optional string description = 2;
+  google.protobuf.Timestamp created = 3;
+  SkuComponents components = 4;
+  uint32 machines_associated_count = 5;
+}
+
+message SkuMachinePair {
+  string sku_id = 1;
+  common.MachineId machine_id = 2;
+}
+
+message SkuList {
+  repeated Sku skus = 1;
+}
+
+message SkuIdList {
+  repeated string ids = 1;
+}
+
+message SkuStatus {
+  optional google.protobuf.Timestamp verify_request_time = 1;
 }

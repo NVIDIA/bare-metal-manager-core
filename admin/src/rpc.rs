@@ -23,7 +23,7 @@ use ::rpc::forge::{
     GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
     IsBmcInManagedHostResponse, MachineBootOverride, MachineSearchConfig, MachineType,
     NetworkDeviceIdList, NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig,
-    OperatingSystem, RedfishBrowseResponse, UpdateNetworkSecurityGroupRequest,
+    OperatingSystem, RedfishBrowseResponse, SkuIdList, UpdateNetworkSecurityGroupRequest,
     VpcVirtualizationType,
 };
 
@@ -3072,6 +3072,144 @@ pub async fn update_machine_metadata(
         });
         client
             .update_machine_metadata(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn get_skus_by_ids(
+    api_config: &ApiConfig<'_>,
+    sku_ids: &[String],
+) -> CarbideCliResult<rpc::SkuList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::forge::SkuIdList {
+            ids: Vec::from(sku_ids),
+        });
+        let sku_details = client
+            .get_skus_for_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(sku_details)
+    })
+    .await
+}
+
+pub async fn assign_sku_to_machine(
+    api_config: &ApiConfig<'_>,
+    sku_id: String,
+    machine_id: ::rpc::common::MachineId,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request: tonic::Request<rpc::SkuMachinePair> =
+            tonic::Request::new(::rpc::forge::SkuMachinePair {
+                sku_id,
+                machine_id: Some(machine_id),
+            });
+        client
+            .assign_sku_to_machine(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn remove_sku_association(
+    api_config: &ApiConfig<'_>,
+    machine_id: ::rpc::common::MachineId,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(machine_id);
+        client
+            .remove_sku_association(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn verify_sku_for_machine(
+    api_config: &ApiConfig<'_>,
+    machine_id: ::rpc::common::MachineId,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(machine_id);
+        client
+            .verify_sku_for_machine(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn get_all_sku_ids(api_config: &ApiConfig<'_>) -> CarbideCliResult<rpc::SkuIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+        let sku_ids = client
+            .get_all_sku_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(sku_ids)
+    })
+    .await
+}
+
+pub async fn generate_sku_from_machine(
+    api_config: &ApiConfig<'_>,
+    machine_id: ::rpc::common::MachineId,
+) -> CarbideCliResult<rpc::Sku> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(machine_id);
+
+        let sku_details = client
+            .generate_sku_from_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(sku_details)
+    })
+    .await
+}
+
+pub async fn create_sku(
+    api_config: &ApiConfig<'_>,
+    sku_list: ::rpc::forge::SkuList,
+) -> CarbideCliResult<rpc::SkuIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(sku_list);
+
+        let sku_details = client
+            .create_sku(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(sku_details)
+    })
+    .await
+}
+
+pub async fn delete_sku(api_config: &ApiConfig<'_>, sku_id: String) -> CarbideCliResult<()> {
+    let sku_id_list = SkuIdList { ids: vec![sku_id] };
+
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(sku_id_list);
+
+        client
+            .delete_sku(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

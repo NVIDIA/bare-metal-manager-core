@@ -21,7 +21,7 @@ use crate::db::network_segment::NetworkSegment;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::metadata::Metadata;
 pub use ::rpc::forge as rpc;
-use ::rpc::forge::BmcEndpointRequest;
+use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use ::rpc::protos::forge::{
     EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
@@ -71,8 +71,9 @@ use crate::model::machine::machine_id::{
     from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
 };
 use crate::model::machine::{
-    get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
-    FailureSource, Machine, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    get_action_for_dpu_state, BomValidating, DpuInitState, DpuInitStates, FailureCause,
+    FailureDetails, FailureSource, Machine, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::tenant::Tenant;
@@ -950,7 +951,7 @@ impl Forge for Api {
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
-        db::machine::update_discovery_time(&machine, &mut txn)
+        db::machine::update_discovery_time(&machine.id, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -1775,6 +1776,22 @@ impl Forge for Api {
                         },
                     ..
                 } => (Action::Reset, None),
+                ManagedHostState::BomValidating {
+                    bom_validating_state: BomValidating::UpdatingInventory(_),
+                } => {
+                    tracing::info!(
+                        "Request Discovery {} < {}",
+                        machine.last_discovery_time.unwrap_or_default(),
+                        machine.current_version().timestamp()
+                    );
+                    if machine.last_discovery_time.unwrap_or_default()
+                        < machine.current_version().timestamp()
+                    {
+                        (Action::Discovery, None)
+                    } else {
+                        (Action::Noop, None)
+                    }
+                }
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
@@ -4358,6 +4375,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
         update_machine_validation_run(self, request).await
     }
+
     async fn create_instance_type(
         &self,
         request: tonic::Request<rpc::CreateInstanceTypeRequest>,
@@ -4509,6 +4527,71 @@ impl Forge for Api {
         Ok(tonic::Response::new(
             rpc::GetDesiredFirmwareVersionsResponse { entries },
         ))
+    }
+
+    async fn create_sku(
+        &self,
+        request: Request<rpc::SkuList>,
+    ) -> Result<Response<rpc::SkuIdList>, Status> {
+        crate::handlers::sku::create(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+    async fn delete_sku(&self, request: Request<SkuIdList>) -> Result<Response<()>, Status> {
+        crate::handlers::sku::delete(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+    async fn generate_sku_from_machine(
+        &self,
+        request: Request<::rpc::common::MachineId>,
+    ) -> Result<Response<rpc::Sku>, Status> {
+        crate::handlers::sku::generate_from_machine(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+    async fn verify_sku_for_machine(
+        &self,
+        request: Request<::rpc::common::MachineId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::sku::verify_for_machine(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+    async fn assign_sku_to_machine(
+        &self,
+        request: Request<::rpc::forge::SkuMachinePair>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::sku::assign_to_machine(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn remove_sku_association(
+        &self,
+        request: Request<::rpc::common::MachineId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::sku::remove_sku_association(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn get_all_sku_ids(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::SkuIdList>, Status> {
+        crate::handlers::sku::get_all_ids(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn get_skus_for_ids(
+        &self,
+        request: Request<rpc::SkuIdList>,
+    ) -> Result<Response<rpc::SkuList>, Status> {
+        crate::handlers::sku::get_skus_for_ids(self, request)
+            .await
+            .map_err(|e| e.into())
     }
 }
 

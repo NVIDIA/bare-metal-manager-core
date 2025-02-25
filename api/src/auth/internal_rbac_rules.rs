@@ -387,6 +387,14 @@ impl InternalRBACRules {
             "GetDesiredFirmwareVersions",
             vec![ForgeAdminCLI, Machineatron],
         );
+        x.perm("CreateSku", vec![ForgeAdminCLI]);
+        x.perm("GenerateSkuFromMachine", vec![ForgeAdminCLI]);
+        x.perm("AssignSkuToMachine", vec![ForgeAdminCLI]);
+        x.perm("VerifySkuForMachine", vec![ForgeAdminCLI]);
+        x.perm("RemoveSkuAssociation", vec![ForgeAdminCLI]);
+        x.perm("GetAllSkuIds", vec![ForgeAdminCLI]);
+        x.perm("GetSkusForIds", vec![ForgeAdminCLI]);
+        x.perm("DeleteSku", vec![ForgeAdminCLI]);
 
         x
     }

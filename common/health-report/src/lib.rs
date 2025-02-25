@@ -45,6 +45,8 @@ impl Default for HealthReport {
 }
 
 impl HealthReport {
+    pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
+
     /// Returns a health report with no successes or errors reported
     pub fn empty(source: String) -> Self {
         Self {
@@ -106,6 +108,29 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::heartbeat_timeout(target, message)],
+        }
+    }
+
+    /// Returns a health report which indicates that a machine failed SKU validation
+    pub fn sku_mismatch(mismatches: Vec<String>) -> Self {
+        Self {
+            source: Self::SKU_VALIDATION_SOURCE.to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::sku_mismatch(mismatches)],
+        }
+    }
+
+    /// Returns a health report which indicates that a machine failed SKU validation
+    pub fn sku_validation_success() -> Self {
+        Self {
+            source: Self::SKU_VALIDATION_SOURCE.to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![HealthProbeSuccess {
+                id: HealthProbeId::sku_validation(),
+                target: None,
+            }],
+            alerts: vec![],
         }
     }
 
@@ -290,6 +315,16 @@ impl HealthProbeAlert {
         }
     }
 
+    pub fn sku_mismatch(mismatches: Vec<String>) -> Self {
+        Self {
+            id: HealthProbeId::sku_validation(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: mismatches.join("\n"),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }
+    }
     /// Merge a HealthProbeAlert with the report from another probe of the same type
     ///
     /// The function does not check whether the Probe ID and target are equivalent.
@@ -367,6 +402,13 @@ impl HealthProbeId {
     /// report is preferrable to failing the workflow.
     pub fn malformed_report() -> Self {
         HealthProbeId("MalformedReport".to_string())
+    }
+
+    /// The ID used by SKU validation for sending health reports
+    ///
+    /// Used by the state machine when SKU validation completes.
+    pub fn sku_validation() -> Self {
+        HealthProbeId("SkuValidation".to_string())
     }
 }
 
