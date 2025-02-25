@@ -10,18 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, marker::PhantomData, time::Duration};
-
-use arc_swap::ArcSwapOption;
-use opentelemetry::{
-    metrics::{self, Counter, Histogram, Meter, ObservableGauge},
-    KeyValue,
-};
-
+use crate::metrics_utils::SharedMetricsHolder;
 use crate::{
     logging::sqlx_query_tracing,
     state_controller::{io::StateControllerIO, state_handler::StateHandlerError},
 };
+use opentelemetry::{
+    metrics::{Counter, Histogram, Meter},
+    KeyValue,
+};
+use std::{collections::HashMap, marker::PhantomData, time::Duration};
+
+// This attributes defines whether we captured the metrics recently,
+// where recently here means in the last Minute. in the case multiple
+// state controllers run in a 3 control plane cluster, this will help
+// differentiating the metrics from a node which has recently acted on
+// objects from metrics that are more outdated
+const MAX_FRESH_DURATION: Duration = Duration::from_secs(60);
 
 /// The result of the state handler processing the state of a single object
 ///
@@ -228,7 +233,11 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
     type IterationMetrics: std::fmt::Debug + Default + Send + Sync + 'static;
 
     /// Initializes a custom metric emitters that are required for this state controller
-    fn new(object_type: &str, meter: &Meter) -> Self;
+    fn new(
+        object_type: &str,
+        meter: &Meter,
+        metrics: SharedMetricsHolder<Self::IterationMetrics>,
+    ) -> Self;
 
     /// Merges the `ObjectMetrics` metrics that are produced by the state handler action on a single
     /// object into the aggregate `IterationMetrics` object that tracks metrics
@@ -237,25 +246,6 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
         iteration_metrics: &mut Self::IterationMetrics,
         object_metrics: &Self::ObjectMetrics,
     );
-
-    /// Emit the value of gauges whose values had been captured in [IterationMetrics]
-    ///
-    /// This method will be called as a callback whenever OpenTelemetry requires
-    /// the latest version of metrics. The `iteration_metrics` that are passed
-    /// are cached values that had been collected on the last controller iteration.
-    ///
-    /// The `attributes` parameters lists additional attributes/labels that should
-    /// be added to each emitted gauge.
-    fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        iteration_metrics: &Self::IterationMetrics,
-        attributes: &[KeyValue],
-    );
-
-    /// Returns the list of instruments that are used by this emitter.
-    /// Used for opentelemetry callback registration
-    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>>;
 
     /// This function is called on called `IterationMetrics` in every state controller
     /// iteration to emit captured counters and histograms
@@ -279,20 +269,12 @@ impl MetricsEmitter for NoopMetricsEmitter {
     ) {
     }
 
-    fn new(_object_type: &str, _meter: &Meter) -> Self {
+    fn new(
+        _object_type: &str,
+        _meter: &Meter,
+        _metrics: SharedMetricsHolder<Self::IterationMetrics>,
+    ) -> Self {
         Self {}
-    }
-
-    fn emit_gauges(
-        &self,
-        _observer: &dyn metrics::Observer,
-        _iteration_metrics: &Self::IterationMetrics,
-        _attributes: &[KeyValue],
-    ) {
-    }
-
-    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        Vec::new()
     }
 
     fn emit_counters_and_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
@@ -303,10 +285,6 @@ impl MetricsEmitter for NoopMetricsEmitter {
 #[derive(Debug)]
 pub struct CommonMetricsEmitter<IO> {
     controller_iteration_latency: Histogram<f64>,
-    total_objects_gauge: ObservableGauge<u64>,
-    objects_per_state_gauge: ObservableGauge<u64>,
-    objects_per_state_above_sla_gauge: ObservableGauge<u64>,
-    errors_per_state_gauge: ObservableGauge<u64>,
     state_entered_counter: Counter<u64>,
     state_exited_counter: Counter<u64>,
     time_in_state_histogram: Histogram<f64>,
@@ -318,7 +296,11 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
     type ObjectMetrics = CommonObjectHandlerMetrics<IO>;
     type IterationMetrics = CommonIterationMetrics;
 
-    fn new(object_type: &str, meter: &Meter) -> Self {
+    fn new(
+        object_type: &str,
+        meter: &Meter,
+        shared_metrics_holder: SharedMetricsHolder<Self::IterationMetrics>,
+    ) -> Self {
         let controller_iteration_latency = meter
             .f64_histogram(format!("{}_iteration_latency", object_type))
             .with_description(format!(
@@ -326,35 +308,129 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 object_type
             ))
             .with_unit("ms")
-            .init();
-        let total_objects_gauge = meter
-            .u64_observable_gauge(format!("{}_total", object_type))
-            .with_description(format!("The total number of {} in the system", object_type))
-            .init();
-        let objects_per_state_gauge: ObservableGauge<u64> = meter
-            .u64_observable_gauge(format!("{}_per_state", object_type))
-            .with_description(format!(
-                "The number of {} in the system with a given state",
-                object_type
-            ))
-            .init();
-        let objects_per_state_above_sla_gauge: ObservableGauge<u64> = meter
-            .u64_observable_gauge(format!("{}_per_state_above_sla", object_type))
-            .with_description(format!(
-                "The number of {} in the system which had been longer in a state than allowed per SLA",
-                object_type
-            ))
-            .init();
-        let errors_per_state_gauge = meter
-            .u64_observable_gauge(format!(
-                "{}_with_state_handling_errors_per_state",
-                object_type
-            ))
-            .with_description(format!(
-                "The number of {} in the system with a given state that failed state handling",
-                object_type
-            ))
-            .init();
+            .build();
+        {
+            let metrics = shared_metrics_holder.clone();
+            meter
+                .u64_observable_gauge(format!("{}_total", object_type))
+                .with_description(format!("The total number of {} in the system", object_type))
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        let num_objects = metrics
+                            .state_metrics
+                            .values()
+                            .map(|m| m.num_objects)
+                            .reduce(|a, b| a + b)
+                            .unwrap_or_default();
+                        observer.observe(num_objects as u64, attrs);
+                    });
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics_holder.clone();
+            meter
+                .u64_observable_gauge(format!("{}_per_state", object_type))
+                .with_description(format!(
+                    "The number of {} in the system with a given state",
+                    object_type
+                ))
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                            observer.observe(
+                                m.num_objects as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("state", state.to_string()),
+                                        KeyValue::new("substate", substate.to_string()),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        {
+            let metrics = shared_metrics_holder.clone();
+            meter
+                .u64_observable_gauge(format!("{}_per_state_above_sla", object_type))
+                .with_description(format!(
+                    "The number of {} in the system which had been longer in a state than allowed per SLA",
+                    object_type
+                ))
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                            observer.observe(
+                                m.num_objects_above_sla as u64,
+                                [
+                                    attrs,
+                                    &[
+                                        KeyValue::new("state", state.to_string()),
+                                        KeyValue::new("substate", substate.to_string()),
+                                    ],
+                                ]
+                                    .concat().as_slice(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        {
+            let metrics = shared_metrics_holder.clone();
+            meter
+                .u64_observable_gauge(format!(
+                    "{}_with_state_handling_errors_per_state",
+                    object_type
+                ))
+                .with_description(format!(
+                    "The number of {} in the system with a given state that failed state handling",
+                    object_type
+                ))
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                            let mut total_errs = 0;
+                            for (error, &count) in m.handling_errors_per_type.iter() {
+                                total_errs += count;
+                                observer.observe(
+                                    count as u64,
+                                    &[
+                                        attrs,
+                                        &[
+                                            KeyValue::new("state", state.to_string()),
+                                            KeyValue::new("substate", substate.to_string()),
+                                            KeyValue::new("error", error.to_string()),
+                                        ],
+                                    ]
+                                    .concat(),
+                                );
+                            }
+
+                            observer.observe(
+                                total_errs as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("state", state.to_string()),
+                                        KeyValue::new("substate", substate.to_string()),
+                                        KeyValue::new("error", "any".to_string()),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
         let state_entered_counter = meter
             .u64_counter(format!("{}_state_entered", object_type))
@@ -362,15 +438,14 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 "The amount of types that objects of type {} have entered a certain state",
                 object_type
             ))
-            .init();
+            .build();
         let state_exited_counter = meter
             .u64_counter(format!("{}_state_exited", object_type))
             .with_description(format!(
                 "The amount of types that objects of type {} have exited a certain state",
                 object_type
             ))
-            .init();
-
+            .build();
         let time_in_state_histogram = meter
             .f64_histogram(format!("{}_time_in_state", object_type))
             .with_description(format!(
@@ -378,7 +453,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 object_type
             ))
             .with_unit("s")
-            .init();
+            .build();
         let handler_latency_in_state_histogram = meter
             .f64_histogram(format!("{}_handler_latency_in_state", object_type))
             .with_description(format!(
@@ -386,14 +461,10 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 object_type
             ))
             .with_unit("ms")
-            .init();
+            .build();
 
         Self {
             controller_iteration_latency,
-            objects_per_state_gauge,
-            objects_per_state_above_sla_gauge,
-            total_objects_gauge,
-            errors_per_state_gauge,
             state_entered_counter,
             state_exited_counter,
             handler_latency_in_state_histogram,
@@ -402,61 +473,11 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         }
     }
 
-    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        vec![
-            self.objects_per_state_gauge.as_any(),
-            self.objects_per_state_above_sla_gauge.as_any(),
-            self.total_objects_gauge.as_any(),
-            self.errors_per_state_gauge.as_any(),
-        ]
-    }
-
     fn merge_object_handling_metrics(
         iteration_metrics: &mut Self::IterationMetrics,
         object_metrics: &Self::ObjectMetrics,
     ) {
         iteration_metrics.merge_object_handling_metrics(object_metrics)
-    }
-
-    fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        iteration_metrics: &Self::IterationMetrics,
-        attributes: &[KeyValue],
-    ) {
-        let mut total_objects = 0;
-
-        for ((state, substate), m) in iteration_metrics.state_metrics.iter() {
-            total_objects += m.num_objects;
-
-            let mut attrs: Vec<KeyValue> = attributes.to_vec();
-            let state_attr = KeyValue::new("state", state.to_string());
-            let substate_attr = KeyValue::new("substate", substate.to_string());
-            attrs.push(state_attr.clone());
-            attrs.push(substate_attr.clone());
-
-            observer.observe_u64(&self.objects_per_state_gauge, m.num_objects as u64, &attrs);
-            observer.observe_u64(
-                &self.objects_per_state_above_sla_gauge,
-                m.num_objects_above_sla as u64,
-                &attrs,
-            );
-
-            // Placeholder attribute that we will mutate for each error via .last_mut()
-            attrs.push(KeyValue::new("error", "".to_string()));
-
-            let mut total_errs = 0;
-            for (error, &count) in m.handling_errors_per_type.iter() {
-                total_errs += count;
-                attrs.last_mut().unwrap().value = error.to_string().into();
-                observer.observe_u64(&self.errors_per_state_gauge, count as u64, &attrs);
-            }
-
-            attrs.last_mut().unwrap().value = "any".to_string().into();
-            observer.observe_u64(&self.errors_per_state_gauge, total_errs as u64, &attrs);
-        }
-
-        observer.observe_u64(&self.total_objects_gauge, total_objects as u64, attributes);
     }
 
     fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
@@ -598,10 +619,17 @@ pub struct StateControllerMetricEmitter<IO: StateControllerIO> {
 }
 
 impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
-    pub fn new(object_type: &str, meter: Meter) -> Self {
-        let common = CommonMetricsEmitter::new(object_type, &meter);
+    pub fn new(
+        object_type: &str,
+        meter: Meter,
+        common_iteration_metrics: SharedMetricsHolder<CommonIterationMetrics>,
+        specific_iteration_metrics: SharedMetricsHolder<
+            <IO::MetricsEmitter as MetricsEmitter>::IterationMetrics,
+        >,
+    ) -> Self {
+        let common = CommonMetricsEmitter::new(object_type, &meter, common_iteration_metrics);
         let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
-        let specific = IO::MetricsEmitter::new(object_type, &meter);
+        let specific = IO::MetricsEmitter::new(object_type, &meter, specific_iteration_metrics);
 
         Self {
             common,
@@ -609,16 +637,6 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
             specific,
             _meter: meter,
         }
-    }
-
-    /// Returns the list of instruments that are used by this emitter.
-    /// Used for opentelemetry callback registration
-    pub fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        // db metrics don't have to be inserted here, since there are not Observable
-        // and are therefore not queried in callbacks
-        let mut instruments = self.common.instruments();
-        instruments.extend(self.specific.instruments());
-        instruments
     }
 
     /// Emits counters and histogram metrics that are captured during a single state handler
@@ -639,29 +657,6 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         // ones that are used for other state controller and for gRPC requests
         let attrs = &[KeyValue::new("operation", log_span_name.to_string())];
         self.db.emit(db_metrics, attrs);
-    }
-
-    pub fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        iteration_metrics: &IterationMetrics<IO>,
-    ) {
-        // This attributes defines whether we captured the metrics recently,
-        // where recently here means in the last Minute. in the case multiple
-        // state controllers run in a 3 control plane cluster, this will help
-        // differentiating the metrics from a node which has recently acted on
-        // objects from metrics that are more outdated
-        const MAX_FRESH_DURATION: Duration = Duration::from_secs(60);
-        let fresh_attr = KeyValue::new(
-            "fresh",
-            iteration_metrics.common.recording_finished_at.elapsed() <= MAX_FRESH_DURATION,
-        );
-
-        let attributes = &[fresh_attr];
-        self.common
-            .emit_gauges(observer, &iteration_metrics.common, attributes);
-        self.specific
-            .emit_gauges(observer, &iteration_metrics.specific, attributes);
     }
 
     /// Emits the metrics that had been collected during a state controller iteration
@@ -685,18 +680,32 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
 /// Stores Metric data shared between the Controller and the OpenTelemetry background task
 pub struct MetricHolder<IO: StateControllerIO> {
     pub emitter: Option<StateControllerMetricEmitter<IO>>,
-    pub last_iteration_metrics: ArcSwapOption<IterationMetrics<IO>>,
+    pub last_iteration_common_metrics: SharedMetricsHolder<CommonIterationMetrics>,
+    pub last_iteration_specific_metrics:
+        SharedMetricsHolder<<IO::MetricsEmitter as MetricsEmitter>::IterationMetrics>,
 }
 
 impl<IO: StateControllerIO> MetricHolder<IO> {
     pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
-        let emitter = meter
-            .as_ref()
-            .map(|meter| StateControllerMetricEmitter::new(object_type_for_metrics, meter.clone()));
+        let last_iteration_common_metrics =
+            SharedMetricsHolder::<CommonIterationMetrics>::with_fresh_period(MAX_FRESH_DURATION);
+        let last_iteration_specific_metrics = SharedMetricsHolder::<
+            <IO::MetricsEmitter as MetricsEmitter>::IterationMetrics,
+        >::with_fresh_period(MAX_FRESH_DURATION);
+
+        let emitter = meter.as_ref().map(|meter| {
+            StateControllerMetricEmitter::new(
+                object_type_for_metrics,
+                meter.clone(),
+                last_iteration_common_metrics.clone(),
+                last_iteration_specific_metrics.clone(),
+            )
+        });
 
         Self {
             emitter,
-            last_iteration_metrics: ArcSwapOption::const_empty(),
+            last_iteration_common_metrics,
+            last_iteration_specific_metrics,
         }
     }
 }

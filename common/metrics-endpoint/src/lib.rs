@@ -57,10 +57,12 @@ pub fn new_metrics_setup(
     set_global_meter: bool,
 ) -> eyre::Result<MetricsSetup> {
     // This defines attributes that are set on the exported metrics
-    let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
-        KeyValue::new(semconv::resource::SERVICE_NAME, service_name),
-        KeyValue::new(semconv::resource::SERVICE_NAMESPACE, service_namespace),
-    ]);
+    let service_telemetry_attributes = opentelemetry_sdk::Resource::builder()
+        .with_attributes(vec![
+            KeyValue::new(semconv::resource::SERVICE_NAME, service_name),
+            KeyValue::new(semconv::resource::SERVICE_NAMESPACE, service_namespace),
+        ])
+        .build();
 
     // This sets the global meter provider
     // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
@@ -98,7 +100,7 @@ pub fn new_metrics_setup(
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
     name_filter: &str,
-) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
+) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry_sdk::metrics::MetricError> {
     let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
     criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
     let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
@@ -233,7 +235,7 @@ mod tests {
                     observer.observe(1, &p3);
                 }
             })
-            .init();
+            .build();
 
         for i in 0..10 {
             let mut buffer = vec![];

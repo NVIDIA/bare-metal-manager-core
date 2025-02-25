@@ -21,9 +21,9 @@ fn test_test_meter() {
 
     let meter = test_meter.meter();
 
-    let a = meter.u64_counter("a").init();
-    let b = meter.u64_counter("b").init();
-    let c = meter.u64_histogram("c").with_unit("s").init();
+    let a = meter.u64_counter("a").build();
+    let b = meter.u64_counter("b").build();
+    let c = meter.u64_histogram("c").with_unit("s").build();
 
     a.add(123, &[]);
     let attrs = &[KeyValue::new("attr1", "abc"), KeyValue::new("attr2", "def")];

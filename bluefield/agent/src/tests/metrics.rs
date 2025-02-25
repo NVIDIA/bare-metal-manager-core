@@ -3,7 +3,6 @@ use crate::network_monitor::NetworkMonitorError;
 use opentelemetry::metrics::MeterProvider;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
@@ -47,10 +46,10 @@ fn test_metrics() {
         "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
         NetworkMonitorError::PingError.to_string(),
     );
-    network_monitor_metrics.update_network_reachable_map(Arc::new(HashMap::from([(
+    network_monitor_metrics.update_network_reachable_map(HashMap::from([(
         "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0".to_string(),
         true,
-    )])));
+    )]));
 
     let mut buffer = vec![];
     let encoder = TextEncoder::new();

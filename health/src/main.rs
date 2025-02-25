@@ -34,9 +34,10 @@ use hyper::{
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
 
-use opentelemetry::logs::{LogError, Logger, LoggerProvider};
+use opentelemetry::logs::{Logger, LoggerProvider};
 use opentelemetry::metrics::{Histogram, MeterProvider};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{LogExporter, WithExportConfig};
+use opentelemetry_sdk::logs::{LogError, SdkLoggerProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{Encoder, TextEncoder};
 use rpc::Machine;
@@ -72,7 +73,7 @@ pub enum HealthError {
     TokioJoinError(#[from] tokio::task::JoinError),
 
     #[error("Opentelemetry error: {0}")]
-    OpentelemetryError(#[from] opentelemetry::metrics::MetricsError),
+    OpentelemetryError(#[from] opentelemetry_sdk::metrics::MetricError),
 
     #[error("Generic error: {0}")]
     LogErr(#[from] LogError),
@@ -268,7 +269,7 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), io::
 
 pub async fn scrape_machines_health(
     provider: SdkMeterProvider,
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     config: Options,
 ) -> Result<(), HealthError> {
     // we may eventually want a config for this service with these items:
@@ -292,19 +293,19 @@ pub async fn scrape_machines_health(
         .f64_histogram("forge_hardware_health_findmachines_latency")
         .with_description("api server response time for FindMachines")
         .with_unit("ms")
-        .init();
+        .build();
 
     let get_bmc_metadata_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_getbmcmetadata_latency")
         .with_description("api server response time for GetBMCMetaData")
         .with_unit("ms")
-        .init();
+        .build();
 
     let iteration_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_iteration_latency")
         .with_description("The time it took to perform one hardware health monitor iteration")
         .with_unit("ms")
-        .init();
+        .build();
 
     loop {
         let loop_start = std::time::Instant::now();
@@ -531,20 +532,26 @@ pub async fn scrape_machines_health(
     }
 }
 
-fn init_logging(
-) -> Result<Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>, LogError>
-{
-    let provider = opentelemetry_otlp::new_pipeline()
-        .logging()
-        .with_resource(opentelemetry_sdk::Resource::new(vec![
-            opentelemetry::KeyValue::new("carbide-hardware-health", "machine-logs"),
-        ]))
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint("http://opentelemetry-collector.otel.svc.cluster.local:4317"),
+fn init_logging() -> Result<
+    Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
+    LogError,
+> {
+    let provider = SdkLoggerProvider::builder()
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_attributes(vec![opentelemetry::KeyValue::new(
+                    "carbide-hardware-health",
+                    "machine-logs",
+                )])
+                .build(),
         )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+        .with_batch_exporter(
+            LogExporter::builder()
+                .with_tonic()
+                .with_endpoint("http://opentelemetry-collector.otel.svc.cluster.local:4317")
+                .build()?,
+        )
+        .build();
     Ok(Arc::new(provider.logger("health")))
 }
 

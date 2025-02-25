@@ -17,7 +17,7 @@ use std::thread;
 use forge_tls::default as tls_default;
 use libc::c_char;
 use once_cell::sync::Lazy;
-use opentelemetry::metrics::{Counter, ObservableGauge};
+use opentelemetry::metrics::Counter;
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicI64;
@@ -60,7 +60,6 @@ pub struct CarbideDhcpMetrics {
     dropped_requests_counter: Counter<u64>,
     forge_client_config: ForgeClientConfig,
     certificate_expiration_value: Arc<AtomicI64>,
-    certificate_expiration_gauge: ObservableGauge<i64>,
 }
 
 impl Default for CarbideDhcpContext {

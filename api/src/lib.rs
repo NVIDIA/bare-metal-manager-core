@@ -46,6 +46,7 @@ mod listener;
 mod logging;
 mod machine_update_manager;
 mod measured_boot;
+mod metrics_utils;
 mod model;
 mod network_segment;
 mod preingestion_manager;

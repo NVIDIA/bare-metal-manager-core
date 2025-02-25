@@ -10,16 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use measured_boot::pcr::PcrRegisterValue;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-
-use arc_swap::ArcSwapOption;
+use crate::metrics_utils::SharedMetricsHolder;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use opentelemetry::{
-    metrics::{self, Meter, ObservableGauge},
-    KeyValue,
-};
+use opentelemetry::{metrics::Meter, KeyValue};
+use std::{collections::HashMap, time::Instant};
 
 /// MeasuredBootMetricsCollectorMetrics stores metrics that are gathered in
 /// one a single `MeasuredBootMetricsCollector` run. These metrics are then
@@ -70,207 +66,185 @@ impl MeasuredBootMetricsCollectorMetrics {
     }
 }
 
-/// MeasuredBootMetricsCollectorInstruments are instruments which get
-/// fed into opentelemetry.
-pub struct MeasuredBootMetricsCollectorInstruments {
-    pub meter: Meter,
-    pub num_profiles_total: ObservableGauge<u64>,
-    pub num_bundles_total: ObservableGauge<u64>,
-    pub num_machines_total: ObservableGauge<u64>,
-    pub num_machines_per_profile_total: ObservableGauge<u64>,
-    pub num_machines_per_bundle_total: ObservableGauge<u64>,
-    pub num_machines_per_bundle_state_total: ObservableGauge<u64>,
-    pub num_machines_per_machine_state_total: ObservableGauge<u64>,
-    pub num_machines_per_pcr_value_total: ObservableGauge<u64>,
-}
-
-impl MeasuredBootMetricsCollectorInstruments {
-    pub fn new(meter: Meter) -> Self {
-        Self {
-            meter: meter.clone(),
-            num_profiles_total: meter
-                .u64_observable_gauge("forge_measured_boot_profiles_total")
-                .with_description("The total number of measured boot profiles.")
-                .init(),
-            num_bundles_total: meter
-                .u64_observable_gauge("forge_measured_boot_bundles_total")
-                .with_description("The total number of measured boot bundles.")
-                .init(),
-            num_machines_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_total")
-                .with_description("The total number of machines reporting measurements.")
-                .init(),
-            num_machines_per_profile_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_per_profile_total")
-                .with_description("The total number of machines per measured boot system profile.")
-                .init(),
-            num_machines_per_bundle_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_per_bundle_total")
-                .with_description("The total number of machines per measured boot bundle.")
-                .init(),
-            num_machines_per_bundle_state_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_per_bundle_state_total")
-                .with_description(
-                    "The total number of machines per a given measured boot bundle state.",
-                )
-                .init(),
-            num_machines_per_machine_state_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_per_machine_state_total")
-                .with_description(
-                    "The total number of machines per a given measured boot machine state.",
-                )
-                .init(),
-            num_machines_per_pcr_value_total: meter
-                .u64_observable_gauge("forge_measured_boot_machines_per_pcr_value_total")
-                .with_description(
-                    "The total number of machines with a given PCR value at a given PCR index.",
-                )
-                .init(),
-        }
+fn hydrate_meter(
+    meter: Meter,
+    shared_metrics: SharedMetricsHolder<MeasuredBootMetricsCollectorMetrics>,
+) {
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_profiles_total")
+            .with_description("The total number of measured boot profiles.")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    observer.observe(metrics.num_profiles as u64, attrs);
+                });
+            })
+            .build();
     }
 
-    /// Returns the list of instruments that are used by this emitter.
-    /// Used for opentelemetry callback registration.
-    pub fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        vec![
-            self.num_profiles_total.as_any(),
-            self.num_bundles_total.as_any(),
-            self.num_machines_total.as_any(),
-            self.num_machines_per_profile_total.as_any(),
-            self.num_machines_per_bundle_total.as_any(),
-            self.num_machines_per_bundle_state_total.as_any(),
-            self.num_machines_per_machine_state_total.as_any(),
-            self.num_machines_per_pcr_value_total.as_any(),
-        ]
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_bundles_total")
+            .with_description("The total number of measured boot bundles.")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    observer.observe(metrics.num_bundles as u64, attrs);
+                });
+            })
+            .build();
     }
 
-    /// Emit the value of gauges whose values had been captured
-    /// in [MeasuredBootMetricsCollectorMetrics].
-    ///
-    /// This method will be called as a callback whenever OpenTelemetry requires
-    /// the latest version of metrics. The `metrics` that are passed
-    /// are cached values that had been collected on the last monitor iteration.
-    ///
-    /// The `attributes` parameters lists additional attributes/labels that should
-    /// be added to each emitted gauge.
-    pub fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        metrics: &MeasuredBootMetricsCollectorMetrics,
-        attributes: &[opentelemetry::KeyValue],
-    ) {
-        observer.observe_u64(
-            &self.num_profiles_total,
-            metrics.num_profiles as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.num_bundles_total,
-            metrics.num_bundles as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.num_machines_total,
-            metrics.num_machines as u64,
-            attributes,
-        );
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_total")
+            .with_description("The total number of machines reporting measurements.")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    observer.observe(metrics.num_machines as u64, attrs);
+                })
+            })
+            .build();
+    }
 
-        for (profile_id, total) in metrics.num_machines_per_profile.iter() {
-            let mut attrs: Vec<KeyValue> = attributes.to_vec();
-            let profile_id_attr = KeyValue::new("profile_id", profile_id.to_string());
-            attrs.push(profile_id_attr);
-            observer.observe_u64(&self.num_machines_per_profile_total, *total as u64, &attrs);
-        }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_per_profile_total")
+            .with_description("The total number of machines per measured boot system profile.")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (profile_id, total) in metrics.num_machines_per_profile.iter() {
+                        observer.observe(
+                            *total as u64,
+                            &[
+                                attrs,
+                                &[KeyValue::new("profile_id", profile_id.to_string())],
+                            ]
+                            .concat(),
+                        );
+                    }
+                });
+            })
+            .build();
+    }
 
-        for (bundle_id, total) in metrics.num_machines_per_bundle.iter() {
-            let mut attrs: Vec<KeyValue> = attributes.to_vec();
-            let bundle_id_attr = KeyValue::new("bundle_id", bundle_id.to_string());
-            attrs.push(bundle_id_attr);
-            observer.observe_u64(&self.num_machines_per_bundle_total, *total as u64, &attrs);
-        }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_per_bundle_total")
+            .with_description("The total number of machines per measured boot bundle.")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (bundle_id, total) in metrics.num_machines_per_bundle.iter() {
+                        observer.observe(
+                            *total as u64,
+                            &[attrs, &[KeyValue::new("bundle_id", bundle_id.to_string())]].concat(),
+                        );
+                    }
+                });
+            })
+            .build();
+    }
 
-        for (bundle_state, total) in metrics.num_machines_per_bundle_state.iter() {
-            let mut attrs: Vec<KeyValue> = attributes.to_vec();
-            let bundle_state_attr = KeyValue::new("bundle_state", bundle_state.to_string());
-            attrs.push(bundle_state_attr);
-            observer.observe_u64(
-                &self.num_machines_per_bundle_state_total,
-                *total as u64,
-                &attrs,
-            );
-        }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_per_bundle_state_total")
+            .with_description(
+                "The total number of machines per a given measured boot bundle state.",
+            )
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (bundle_state, total) in metrics.num_machines_per_bundle_state.iter() {
+                        observer.observe(
+                            *total as u64,
+                            &[
+                                attrs,
+                                &[KeyValue::new("bundle_state", bundle_state.to_string())],
+                            ]
+                            .concat(),
+                        );
+                    }
+                })
+            })
+            .build();
+    }
 
-        for (machine_state, total) in metrics.num_machines_per_machine_state.iter() {
-            let mut attrs: Vec<KeyValue> = attributes.to_vec();
-            let machine_state_attr = KeyValue::new("machine_state", machine_state.to_string());
-            attrs.push(machine_state_attr);
-            observer.observe_u64(
-                &self.num_machines_per_machine_state_total,
-                *total as u64,
-                &attrs,
-            );
-        }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_per_machine_state_total")
+            .with_description(
+                "The total number of machines per a given measured boot machine state.",
+            )
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (machine_state, total) in metrics.num_machines_per_machine_state.iter() {
+                        observer.observe(
+                            *total as u64,
+                            &[
+                                attrs,
+                                &[KeyValue::new("machine_state", machine_state.to_string())],
+                            ]
+                            .concat(),
+                        );
+                    }
+                });
+            })
+            .build();
+    }
 
-        for (pcr_register, total) in metrics.num_machines_per_pcr_value.iter() {
-            let mut attrs = attributes.to_vec();
-            attrs.push(KeyValue::new(
-                "pcr_index",
-                pcr_register.pcr_register.to_string(),
-            ));
-            attrs.push(KeyValue::new("pcr_value", pcr_register.sha256.clone()));
-            observer.observe_u64(
-                &self.num_machines_per_pcr_value_total,
-                *total as u64,
-                &attrs,
-            );
-        }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_measured_boot_machines_per_pcr_value_total")
+            .with_description(
+                "The total number of machines with a given PCR value at a given PCR index.",
+            )
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    for (pcr_register, total) in metrics.num_machines_per_pcr_value.iter() {
+                        observer.observe(
+                            *total as u64,
+                            &[
+                                attrs,
+                                &[
+                                    KeyValue::new(
+                                        "pcr_index",
+                                        pcr_register.pcr_register.to_string(),
+                                    ),
+                                    KeyValue::new("pcr_value", pcr_register.sha256.clone()),
+                                ],
+                            ]
+                            .concat(),
+                        );
+                    }
+                });
+            })
+            .build();
     }
 }
 
 /// Stores Metric data shared between the Fabric Monitor and the OpenTelemetry background task
 pub struct MetricHolder {
-    instruments: MeasuredBootMetricsCollectorInstruments,
-    last_iteration_metrics: ArcSwapOption<MeasuredBootMetricsCollectorMetrics>,
-    /// The maximum time the stored metrics will be treated as up to date and valid.
-    /// This will avoid to emit metrics that are outdated in case new metric
-    /// collection is stuck.
-    hold_period: std::time::Duration,
+    last_iteration_metrics: SharedMetricsHolder<MeasuredBootMetricsCollectorMetrics>,
 }
 
 impl MetricHolder {
     pub fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
-        let instruments = MeasuredBootMetricsCollectorInstruments::new(meter);
+        let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
+        hydrate_meter(meter, last_iteration_metrics.clone());
         Self {
-            instruments,
-            last_iteration_metrics: ArcSwapOption::const_empty(),
-            hold_period,
+            last_iteration_metrics,
         }
-    }
-
-    /// Registers a callback to OpenTelemetry which will lead to
-    /// emitting the latest stored metrics.
-    pub fn register_callback(self: &Arc<Self>) {
-        let self_clone = self.clone();
-        if let Err(e) = self.instruments.meter.register_callback(
-            &self.instruments.instruments(),
-            move |observer| {
-                if let Some(metrics) = self_clone.last_iteration_metrics.load_full() {
-                    let elapsed = metrics.recording_finished_at.elapsed();
-                    if elapsed > self_clone.hold_period {
-                        return;
-                    }
-
-                    self_clone.instruments.emit_gauges(observer, &metrics, &[]);
-                }
-            },
-        ) {
-            tracing::error!("Failed to register MeasuredBootMetricsCollector metrics: {e}");
-        };
     }
 
     /// Updates the most recent metrics
     pub fn update_metrics(&self, mut metrics: MeasuredBootMetricsCollectorMetrics) {
-        metrics.recording_finished_at = std::time::Instant::now();
-        self.last_iteration_metrics.store(Some(Arc::new(metrics)));
+        metrics.recording_finished_at = Instant::now();
+        self.last_iteration_metrics.update(metrics)
     }
 }

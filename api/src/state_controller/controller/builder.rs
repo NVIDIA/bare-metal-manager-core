@@ -184,7 +184,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             ib_fabric_manager,
             redfish_client_pool,
             nvmesh_client_pool,
-            meter: meter.clone(),
             ib_pools: self.ib_pools.unwrap_or_default(),
             ipmi_tool,
             site_config,
@@ -193,24 +192,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
         let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
-        // Now configure OpenTelemetry to fetch those metrics via a callback
-        // This callback will get executed whenever OTEL needs to publish metrics
-        if let Some(meter) = handler_services.meter.as_ref() {
-            let metric_holder_clone = metric_holder.clone();
-            if let Some(emitter) = metric_holder.emitter.as_ref() {
-                meter
-                    .register_callback(&emitter.instruments(), move |observer| {
-                        if let Some(emitter) = metric_holder_clone.emitter.as_ref() {
-                            if let Some(metrics) =
-                                metric_holder_clone.last_iteration_metrics.load_full()
-                            {
-                                emitter.emit_gauges(observer, &metrics);
-                            }
-                        }
-                    })
-                    .unwrap();
-            }
-        }
 
         let controller = StateController::<IO> {
             stop_receiver,

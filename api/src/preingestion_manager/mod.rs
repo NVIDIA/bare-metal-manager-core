@@ -78,7 +78,6 @@ impl PreingestionManager {
             .saturating_add(std::time::Duration::from_secs(60));
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
-        metric_holder.register_callback();
 
         PreingestionManager {
             static_info: Arc::new(PreingestionManagerStatic {

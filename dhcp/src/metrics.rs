@@ -44,43 +44,35 @@ pub async fn certificate_loop() {
 }
 
 fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
+    let certificate_expiration_value = Arc::new(AtomicI64::new(0));
+    // initialize metrics.
     let metrics = CarbideDhcpMetrics {
         total_requests_counter: mconf
             .meter
             .u64_counter("carbide-dhcp.requests")
             .with_description("The total number of DHCP requests")
-            .init(),
+            .build(),
         dropped_requests_counter: mconf
             .meter
             .u64_counter("carbide-dhcp.dropped_requests")
             .with_description("The number of dropped DHCP requests")
-            .init(),
+            .build(),
         forge_client_config: tls::build_forge_client_config(),
-        certificate_expiration_value: Arc::new(AtomicI64::new(0)),
-        certificate_expiration_gauge: mconf
-            .meter
-            .i64_observable_gauge("carbide-dhcp.certificate_expiration_time")
-            .with_description("The certificate expiration time (epoch seconds)")
-            .init(),
+        certificate_expiration_value: certificate_expiration_value.clone(),
     };
-    let metrics_clone = metrics.clone();
-    let certificate_expiration_value_clone = metrics_clone.certificate_expiration_value.clone();
+
+    // Observable gauges don't need to be stored anywhere, they're
+    // stored internally within the meter and the callback is run when metrics are
+    // collected.
     mconf
         .meter
-        .register_callback(
-            &[metrics_clone.certificate_expiration_gauge.as_any()],
-            move |observer| {
-                let measurement = certificate_expiration_value_clone
-                    .deref()
-                    .load(Ordering::SeqCst);
-                observer.observe_i64(
-                    &metrics_clone.certificate_expiration_gauge,
-                    measurement,
-                    &[],
-                );
-            },
-        )
-        .expect("unable to register callback?");
+        .i64_observable_gauge("carbide-dhcp.certificate_expiration_time")
+        .with_description("The certificate expiration time (epoch seconds)")
+        .with_callback(move |observer| {
+            let measurement = certificate_expiration_value.deref().load(Ordering::SeqCst);
+            observer.observe(measurement, &[]);
+        })
+        .build();
 
     metrics
 }

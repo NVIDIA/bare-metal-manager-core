@@ -42,7 +42,7 @@ nonzero_ext = "*"
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
-opentelemetry_sdk = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
 
 prometheus = "0.13.3"
 rand = "0.9"

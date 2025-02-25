@@ -13,7 +13,6 @@
 use std::sync::Arc;
 
 use libredfish::RedfishError;
-use opentelemetry::metrics::Meter;
 
 use crate::cfg::file::CarbideConfig;
 use crate::resource_pool::common::IbPools;
@@ -36,9 +35,6 @@ pub struct StateHandlerServices {
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
-
-    /// Meter for emitting metrics
-    pub meter: Option<Meter>,
 
     /// API for interaction with Forge IBFabricManager
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,

@@ -235,15 +235,15 @@ pub async fn listen_and_serve(
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_attempted")
         .with_description("The amount of tls connections that were attempted")
-        .init();
+        .build();
     let connection_succeeded_counter = meter
         .u64_counter("carbide-api.tls.connection_success")
         .with_description("The amount of tls connections that were successful")
-        .init();
+        .build();
     let connection_failed_counter = meter
         .u64_counter("carbide-api.tls.connection_fail")
         .with_description("The amount of tcp connections that were failures")
-        .init();
+        .build();
 
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;

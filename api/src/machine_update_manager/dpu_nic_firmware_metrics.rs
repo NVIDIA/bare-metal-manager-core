@@ -34,7 +34,7 @@ impl DpuNicFirmwareUpdateMetrics {
             .with_callback(move |observer| {
                 observer.observe(pending_firmware_updates.load(Relaxed), &[]);
             })
-            .init();
+            .build();
 
         meter
             .u64_observable_gauge("forge_unavailable_dpu_nic_firmware_update_count")
@@ -44,7 +44,7 @@ impl DpuNicFirmwareUpdateMetrics {
             .with_callback(move |observer| {
                 observer.observe(unavailable_dpu_updates.load(Relaxed), &[]);
             })
-            .init();
+            .build();
 
         meter
             .u64_observable_gauge("forge_running_dpu_updates_count")
@@ -54,6 +54,6 @@ impl DpuNicFirmwareUpdateMetrics {
             .with_callback(move |observer| {
                 observer.observe(running_dpu_updates.load(Relaxed), &[]);
             })
-            .init();
+            .build();
     }
 }

@@ -2,11 +2,11 @@ use std::ops::Deref;
 use std::sync::LazyLock;
 
 use eyre::WrapErr;
-use opentelemetry::metrics::{Meter, MeterProvider, MetricsError};
+use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry::KeyValue;
 use opentelemetry_prometheus::ExporterBuilder;
 use opentelemetry_sdk::metrics::{
-    Aggregation, Instrument, InstrumentKind, SdkMeterProvider, Stream, View,
+    Aggregation, Instrument, InstrumentKind, MetricError, SdkMeterProvider, Stream, View,
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use prometheus::Registry;
@@ -37,11 +37,13 @@ impl InstrumentationSingleton {
             .context("Could not build Prometheus exporter")?;
 
         // This defines attributes that are set on the exported logs **and** metrics
-        let resource_attributes = {
-            let service_name = KeyValue::new(SERVICE_NAME, "dpu-agent");
-            let service_namespace = KeyValue::new(SERVICE_NAMESPACE, "forge-system");
-            opentelemetry_sdk::Resource::new([service_name, service_namespace])
-        };
+        let resource_attributes = opentelemetry_sdk::Resource::builder()
+            .with_attributes([
+                KeyValue::new(SERVICE_NAME, "dpu-agent"),
+                KeyValue::new(SERVICE_NAMESPACE, "forge-system"),
+            ])
+            .build();
+
         let meter_provider = SdkMeterProvider::builder()
             .with_reader(exporter)
             .with_resource(resource_attributes)
@@ -93,7 +95,7 @@ pub fn get_dpu_agent_meter() -> Meter {
 /// that track the exact amount of retry attempts up to 3, and 2 additional
 /// buckets up to 10. This is more useful than the default histogram range where
 /// the lowest sets of buckets are 0, 5, 10, 25
-fn create_retry_histogram_view() -> Result<Box<dyn View>, MetricsError> {
+fn create_retry_histogram_view() -> Result<Box<dyn View>, MetricError> {
     let mut criteria = Instrument::new().name("*_(attempts|retries)_*");
     criteria.kind = Some(InstrumentKind::Histogram);
     let mask = Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
@@ -103,7 +105,7 @@ fn create_retry_histogram_view() -> Result<Box<dyn View>, MetricsError> {
     opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
-fn create_network_latency_view() -> Result<Box<dyn View>, MetricsError> {
+fn create_network_latency_view() -> Result<Box<dyn View>, MetricError> {
     opentelemetry_sdk::metrics::new_view(
         Instrument::new().name("*_network_latency*"),
         Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
@@ -115,7 +117,7 @@ fn create_network_latency_view() -> Result<Box<dyn View>, MetricsError> {
     )
 }
 
-fn create_network_loss_view() -> Result<Box<dyn View>, MetricsError> {
+fn create_network_loss_view() -> Result<Box<dyn View>, MetricError> {
     opentelemetry_sdk::metrics::new_view(
         Instrument::new().name("*_network_loss_percentage*"),
         Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {

@@ -222,7 +222,6 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             nvmesh_client_pool: self.nvmesh_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
-            meter: Some(self.test_meter.meter()),
             ib_pools: self.common_pools.infiniband.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.clone(),

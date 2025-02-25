@@ -323,7 +323,7 @@ pub async fn start_api(
     start_export_service_health_metrics(ServiceHealthContext {
         meter: meter.clone(),
         database_pool: health_pool,
-        resource_pool_stats: Some(common_pools.pool_stats.clone()),
+        resource_pool_stats: common_pools.pool_stats.clone(),
     });
 
     let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
