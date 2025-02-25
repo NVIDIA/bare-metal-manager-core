@@ -14,6 +14,7 @@ use std::{ops::DerefMut, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use regex::Regex;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{CarbideError, CarbideResult};
@@ -345,10 +346,17 @@ impl MachineValidationTest {
     }
     pub async fn save(
         txn: &mut Transaction<'_, Postgres>,
-        req: rpc::forge::MachineValidationTestAddRequest,
+        mut req: rpc::forge::MachineValidationTestAddRequest,
         version: ConfigVersion,
     ) -> CarbideResult<String> {
         let test_id = Self::generate_test_id(&req.name);
+
+        let re = Regex::new(r"[ =;:@#\!?\-]").unwrap();
+        req.supported_platforms = req
+            .supported_platforms
+            .iter()
+            .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
+            .collect();
 
         let query = Self::build_insert_query(
             req,
@@ -368,11 +376,17 @@ impl MachineValidationTest {
         txn: &mut Transaction<'_, Postgres>,
         req: rpc::forge::MachineValidationTestUpdateRequest,
     ) -> CarbideResult<String> {
-        let Some(payload) = req.payload else {
+        let Some(mut payload) = req.payload else {
             return Err(CarbideError::InvalidArgument(
                 "Payload is missing".to_owned(),
             ));
         };
+        let re = Regex::new(r"[ =;:@#\!?\-]").unwrap();
+        payload.supported_platforms = payload
+            .supported_platforms
+            .iter()
+            .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
+            .collect();
         let query = Self::build_update_query(
             payload,
             "machine_validation_tests",

@@ -741,7 +741,7 @@ async fn test_machine_validation_add_new_test_case(
         pre_condition: Some("nvdia-smi".to_string()),
         timeout: Some(10),
         supported_platforms: vec![
-            "sku_090e_modelname_poweredge_r750".to_string(),
+            "Sku 090e modelname poweredge r750".to_string(),
             "7z73cto1ww".to_string(),
         ],
         read_only: None,
@@ -783,9 +783,11 @@ async fn test_machine_validation_add_new_test_case(
     assert_eq!(test_list[0].contexts, request.contexts);
     assert_eq!(
         test_list[0].supported_platforms,
-        request.supported_platforms
+        vec![
+            "sku_090e_modelname_poweredge_r750".to_string(),
+            "7z73cto1ww".to_string(),
+        ]
     );
-
     assert_eq!(test_list[0].img_name, request.img_name);
     assert_eq!(test_list[0].execute_in_host, request.execute_in_host);
 
@@ -825,6 +827,10 @@ async fn test_machine_validation_update_existing_test(
         extra_output_file: Some("/tmp/output".to_string()),
         external_config_file: Some("/tmp/shoreline".to_string()),
         timeout: Some(100),
+        supported_platforms: vec![
+            "Sku 090e modelname poweredge r750".to_string(),
+            "7z73cto1ww".to_string(),
+        ],
         ..rpc::forge::machine_validation_test_update_request::Payload::default()
     };
     let update_request = rpc::forge::MachineValidationTestUpdateRequest {
@@ -871,7 +877,13 @@ async fn test_machine_validation_update_existing_test(
     );
     assert_eq!(updated_tests[0].timeout, update_payload.timeout);
     assert!(!updated_tests[0].verified);
-
+    assert_eq!(
+        updated_tests[0].supported_platforms,
+        vec![
+            "sku_090e_modelname_poweredge_r750".to_string(),
+            "7z73cto1ww".to_string(),
+        ]
+    );
     Ok(())
 }
 
