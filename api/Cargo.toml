@@ -56,7 +56,7 @@ once_cell = "1.13.1"
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-semantic-conventions = { version = "0.27", features = ["semconv_experimental"] }
 opentelemetry-prometheus.workspace = true
-opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio"] }
+opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio", "spec_unstable_metrics_views"] }
 toml = "0.8.8"
 prometheus = "0.13"
 pkcs1 = "0.7.5"

@@ -180,7 +180,7 @@ impl NetworkMonitor {
                                 );
                             }
                         }
-                        metrics.update_network_reachable_map(Arc::new(reachable_map));
+                        metrics.update_network_reachable_map(reachable_map);
                     }
                 }
                 Err(e) => tracing::error!("Failed to run network check: {}", e),

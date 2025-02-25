@@ -198,9 +198,13 @@ impl<IO: StateControllerIO> StateController<IO> {
         // cache all other metrics that have been captured in this iteration.
         // Those will be queried by OTEL on demand
         if res.is_ok() {
+            let IterationMetrics { common, specific } = metrics;
             self.metric_holder
-                .last_iteration_metrics
-                .store(Some(Arc::new(metrics)));
+                .last_iteration_specific_metrics
+                .update(specific);
+            self.metric_holder
+                .last_iteration_common_metrics
+                .update(common);
         }
 
         controller_span.record("app_timing_end_time", format!("{:?}", chrono::Utc::now()));

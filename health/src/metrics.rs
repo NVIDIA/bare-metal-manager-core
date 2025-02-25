@@ -155,17 +155,17 @@ fn export_temperatures(
         "hw.temperature".to_string()
     };
     let temperature_sensors = meter
-        .i64_observable_gauge(gauge_name)
+        .i64_gauge(gauge_name)
         .with_description("Temperature sensors for this hardware")
         .with_unit("Celsius")
-        .init();
+        .build();
     for temperature in temperatures.iter() {
         if temperature.reading_celsius.is_none() {
             // don't add the reading if there's no value provided
             continue;
         }
         let sensor_name = temperature.name.clone().as_str().replace(' ', "_");
-        temperature_sensors.observe(
+        temperature_sensors.record(
             temperature.reading_celsius.unwrap() as i64,
             &[
                 KeyValue::new("hw.id", sensor_name),
@@ -178,10 +178,10 @@ fn export_temperatures(
 
 fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), HealthError> {
     let fan_sensors = meter
-        .f64_observable_gauge("hw.fan.speed")
+        .f64_gauge("hw.fan.speed")
         .with_description("Fans for this hardware")
         .with_unit("rpm")
-        .init();
+        .build();
     for fan in fans.iter() {
         let sensor_name = match &fan.fan_name {
             Some(fan_name) => fan_name.replace(' ', "_"),
@@ -190,7 +190,7 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
         let Some(reading) = fan.reading else {
             continue;
         };
-        fan_sensors.observe(
+        fan_sensors.record(
             reading,
             &[
                 KeyValue::new("hw.id", sensor_name),
@@ -210,16 +210,16 @@ fn export_voltages(
         return Ok(());
     }
     let voltage_sensors = meter
-        .f64_observable_gauge("hw.voltage")
+        .f64_gauge("hw.voltage")
         .with_description("Voltages for this hardware")
         .with_unit("V")
-        .init();
+        .build();
     for voltage in voltages.unwrap().iter() {
         if voltage.reading_volts.is_none() {
             continue;
         }
         let sensor_name = voltage.name.clone().as_str().replace(' ', "_");
-        voltage_sensors.observe(
+        voltage_sensors.record(
             voltage.reading_volts.unwrap(),
             &[
                 KeyValue::new("hw.id", sensor_name),
@@ -240,29 +240,29 @@ fn export_power_supplies(
         return Ok(());
     }
     let power_supplies_output_watts_sensors = meter
-        .f64_observable_gauge("hw.power_supply.output")
+        .f64_gauge("hw.power_supply.output")
         .with_description("Last output Wattage for this hardware")
         .with_unit("Watts")
-        .init();
+        .build();
     let power_supplies_utilization_sensors = meter
-        .f64_observable_gauge("hw.power_supply.utilization")
+        .f64_gauge("hw.power_supply.utilization")
         .with_description("Utilization of power supply capacity")
         .with_unit("%")
-        .init();
+        .build();
     let power_supplies_input_voltage_sensors = meter
-        .f64_observable_gauge("hw.power_supply.input")
+        .f64_gauge("hw.power_supply.input")
         .with_description("Input line Voltage")
         .with_unit("V")
-        .init();
+        .build();
     let power_state_sensor = meter
-        .i64_observable_up_down_counter("hw.power_state")
+        .i64_up_down_counter("hw.power_state")
         .with_description("Power state")
-        .init();
+        .build();
     let power_state_value: i64 = match power_state {
         PowerState::On => 1,
         _ => 0,
     };
-    power_state_sensor.observe(
+    power_state_sensor.add(
         power_state_value,
         &[
             KeyValue::new("hw.id", "power_state".to_string()),
@@ -278,7 +278,7 @@ fn export_power_supplies(
         let last_power_output_watts = power_supply.last_power_output_watts.unwrap();
         let power_capacity_watts = power_supply.power_capacity_watts.unwrap();
         let sensor_name = power_supply.name.clone().as_str().replace(' ', "_");
-        power_supplies_output_watts_sensors.observe(
+        power_supplies_output_watts_sensors.record(
             last_power_output_watts,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
@@ -286,7 +286,7 @@ fn export_power_supplies(
             ],
         );
         if let Some(line_input_voltage) = power_supply.line_input_voltage {
-            power_supplies_input_voltage_sensors.observe(
+            power_supplies_input_voltage_sensors.record(
                 line_input_voltage,
                 &[
                     KeyValue::new("hw.id", sensor_name.clone()),
@@ -298,7 +298,7 @@ fn export_power_supplies(
         if power_capacity_watts > 0.0 {
             utilization = (last_power_output_watts / power_capacity_watts) * 100.0;
         }
-        power_supplies_utilization_sensors.observe(
+        power_supplies_utilization_sensors.record(
             utilization,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
@@ -323,36 +323,36 @@ fn export_power_control(
         return Ok(());
     }
     let power_capacity_sensors = meter
-        .f64_observable_gauge("hw.power_control.capacity")
+        .f64_gauge("hw.power_control.capacity")
         .with_description("Power Capacity of this host")
         .with_unit("Watts")
-        .init();
+        .build();
     let power_acinput_sensors = meter
-        .f64_observable_gauge("hw.power_control.acinput")
+        .f64_gauge("hw.power_control.acinput")
         .with_description("Power AC Input for this host")
         .with_unit("Watts")
-        .init();
+        .build();
     let power_average_consumed_sensors = meter
-        .f64_observable_gauge("hw.power_control.average")
+        .f64_gauge("hw.power_control.average")
         .with_description("Average Power Consumed for this host")
         .with_unit("Watts")
-        .init();
+        .build();
     let power_min_consumed_sensors = meter
-        .f64_observable_gauge("hw.power_control.min")
+        .f64_gauge("hw.power_control.min")
         .with_description("Min Power Consumed for this host")
         .with_unit("Watts")
-        .init();
+        .build();
     let power_max_consumed_sensors = meter
-        .f64_observable_gauge("hw.power_control.max")
+        .f64_gauge("hw.power_control.max")
         .with_description("Max Power Consumed for this host")
         .with_unit("Watts")
-        .init();
+        .build();
     for power_ctrl in power_control {
         if power_ctrl.member_id != "0" {
             continue;
         }
         if let Some(watts) = power_ctrl.power_capacity_watts.as_ref() {
-            power_capacity_sensors.observe(
+            power_capacity_sensors.record(
                 *watts,
                 &[
                     KeyValue::new("hw.id", "power_capacity_watts".to_string()),
@@ -361,7 +361,7 @@ fn export_power_control(
             );
         }
         if let Some(watts) = power_ctrl.power_consumed_watts.as_ref() {
-            power_acinput_sensors.observe(
+            power_acinput_sensors.record(
                 *watts,
                 &[
                     KeyValue::new("hw.id", "power_consumed_watts".to_string()),
@@ -370,7 +370,7 @@ fn export_power_control(
             );
         }
         if power_ctrl.power_metrics.is_some() {
-            power_average_consumed_sensors.observe(
+            power_average_consumed_sensors.record(
                 power_ctrl
                     .power_metrics
                     .clone()
@@ -382,7 +382,7 @@ fn export_power_control(
                     KeyValue::new("hw.host.id", machine_id.to_string()),
                 ],
             );
-            power_min_consumed_sensors.observe(
+            power_min_consumed_sensors.record(
                 power_ctrl
                     .power_metrics
                     .clone()
@@ -394,7 +394,7 @@ fn export_power_control(
                     KeyValue::new("hw.host.id", machine_id.to_string()),
                 ],
             );
-            power_max_consumed_sensors.observe(
+            power_max_consumed_sensors.record(
                 power_ctrl
                     .power_metrics
                     .clone()
@@ -424,10 +424,10 @@ fn export_gpu_sensors(
     ]
     .map(|(name, unit)| {
         meter
-            .f64_observable_gauge(format!("hw.gpu.{name}"))
+            .f64_gauge(format!("hw.gpu.{name}"))
             .with_description(format!("GPU {name} readings"))
             .with_unit(unit)
-            .init()
+            .build()
     });
     for gpu in gpu_sensors.iter() {
         for sensor in &gpu.sensors {
@@ -446,7 +446,7 @@ fn export_gpu_sensors(
                 ReadingType::Voltage => &mut voltage,
                 _ => continue,
             }
-            .observe(
+            .record(
                 reading,
                 &[
                     KeyValue::new("hw.id", name),
@@ -474,13 +474,13 @@ fn export_localstorage(
         return Ok(());
     }
     let drive_life_sensors = meter
-        .f64_observable_gauge("hw.localstorage.life")
+        .f64_gauge("hw.localstorage.life")
         .with_description("Predicted media life remaining of this drive")
         .with_unit("Pct")
-        .init();
+        .build();
     for drive in localstorage {
         if let Some(life) = drive.predicted_media_life_left_percent.as_ref() {
-            drive_life_sensors.observe(
+            drive_life_sensors.record(
                 *life,
                 &[
                     KeyValue::new("hw.id", drive.id.unwrap_or("".to_string())),
@@ -493,17 +493,17 @@ fn export_localstorage(
 }
 
 fn export_otel_logs(
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     firmwares: Vec<SoftwareInventory>,
     logs: Vec<LogEntry>,
     machine_id: &str,
     description: &str,
 ) -> Result<(), HealthError> {
     let dt = SystemTime::now();
-    let mut log_hdr = opentelemetry_sdk::logs::LogRecord::default();
-    log_hdr.timestamp = Some(dt);
-    log_hdr.observed_timestamp = Some(dt);
-    log_hdr.body = Some(AnyValue::from(description.to_string()));
+    let mut log_hdr = logger.create_log_record();
+    log_hdr.set_timestamp(dt);
+    log_hdr.set_observed_timestamp(dt);
+    log_hdr.set_body(AnyValue::from(description.to_string()));
     log_hdr.add_attributes(vec![
         (
             Key::from("machine_id".to_string()),
@@ -521,10 +521,10 @@ fn export_otel_logs(
         if firmware.version.is_none() {
             continue;
         }
-        let mut log_record = opentelemetry_sdk::logs::LogRecord::default();
-        log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = Some(dt);
-        log_record.body = Some(AnyValue::from(
+        let mut log_record = logger.create_log_record();
+        log_record.set_timestamp(dt);
+        log_record.set_observed_timestamp(dt);
+        log_record.set_body(AnyValue::from(
             format!(
                 "Component: {}, Version: {}\n",
                 firmware.id,
@@ -546,10 +546,10 @@ fn export_otel_logs(
     }
 
     for sel_entry in logs.iter() {
-        let mut log_record = opentelemetry_sdk::logs::LogRecord::default();
-        log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = Some(dt);
-        log_record.body = Some(AnyValue::from(
+        let mut log_record = logger.create_log_record();
+        log_record.set_timestamp(dt);
+        log_record.set_observed_timestamp(dt);
+        log_record.set_body(AnyValue::from(
             format!(
                 "ID: {}, Created: {}, Severity: {}, Message: {}\n",
                 sel_entry.id, sel_entry.created, sel_entry.severity, sel_entry.message
@@ -580,7 +580,7 @@ fn export_otel_logs(
 #[allow(clippy::too_many_arguments)]
 pub async fn export_metrics(
     provider: impl opentelemetry::metrics::MeterProvider,
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     health: HardwareHealth,
     dpu_health: DpuHealth,
     last_firmware_digest: String,
@@ -663,7 +663,7 @@ pub async fn export_metrics(
 pub async fn scrape_machine_health(
     client: &mut ForgeClientT,
     provider: SdkMeterProvider,
-    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::LogRecord> + Send + Sync>,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     machine_id: &str,
     health_hash: &HealthHashData,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {

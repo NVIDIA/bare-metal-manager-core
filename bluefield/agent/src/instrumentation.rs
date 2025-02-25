@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use arc_swap::ArcSwapOption;
 use axum::extract::State;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::routing::get;
@@ -10,7 +9,7 @@ use axum::Router;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
-use opentelemetry::metrics::{Counter, Histogram, Meter, ObservableGauge};
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::KeyValue;
 use tower::ServiceBuilder;
 use tracing::Span;
@@ -38,7 +37,7 @@ impl AgentMetricsState {
             .with_callback(move |machine_boot_time| {
                 machine_boot_time.observe(timestamp, &[]);
             })
-            .init();
+            .build();
     }
 
     // Record the agent process's start time as a Unix timestamp. This only
@@ -51,7 +50,7 @@ impl AgentMetricsState {
             .with_callback(move |agent_start_time| {
                 agent_start_time.observe(timestamp, &[]);
             })
-            .init();
+            .build();
     }
 }
 
@@ -59,12 +58,12 @@ pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
     let http_counter = meter
         .u64_counter("http_requests")
         .with_description("Total number of HTTP requests made.")
-        .init();
+        .build();
     let http_req_latency_histogram: Histogram<f64> = meter
         .f64_histogram("request_latency")
         .with_description("HTTP request latency")
         .with_unit("ms")
-        .init();
+        .build();
 
     Arc::new(AgentMetricsState {
         meter: meter.clone(),
@@ -74,58 +73,73 @@ pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
 }
 
 pub struct NetworkMonitorMetricsState {
-    meter: Meter,
-
     // Metrics for network monitoring
-    network_reachable: ObservableGauge<u64>,
     network_latency: Histogram<f64>,
     network_loss_percent: Histogram<f64>,
     network_monitor_error: Counter<u64>,
     network_communication_error: Counter<u64>,
 
     // Fields used for network_reachable observations
-    network_reachable_map: ArcSwapOption<HashMap<String, bool>>,
-    machine_id: String,
+    network_reachable_map: NetworkReachableMap,
 }
+
+type NetworkReachableMap = Arc<Mutex<Option<HashMap<String, bool>>>>;
 
 impl NetworkMonitorMetricsState {
     pub fn initialize(meter: Meter, machine_id: String) -> Arc<Self> {
-        let network_reachable: ObservableGauge<u64> = meter
-            .u64_observable_gauge("forge_dpu_agent_network_reachable")
-            .with_description("Network reachability status (1 for reachable, 0 for unreachable)")
-            .init();
+        let network_reachable_map = NetworkReachableMap::default();
+
+        {
+            let network_reachable_map = network_reachable_map.clone();
+            let machine_id = machine_id.clone();
+            meter
+                .u64_observable_gauge("forge_dpu_agent_network_reachable")
+                .with_description(
+                    "Network reachability status (1 for reachable, 0 for unreachable)",
+                )
+                .with_callback(move |observer| {
+                    let network_reachable_map = network_reachable_map.lock().unwrap();
+                    if let Some(map) = network_reachable_map.as_ref() {
+                        // Export reachability metrics from the map
+                        for (dpu_id, reachable) in map.iter() {
+                            let reachability = if *reachable { 1 } else { 0 };
+                            observer.observe(
+                                reachability,
+                                &[
+                                    KeyValue::new("source_dpu_id", machine_id.clone()),
+                                    KeyValue::new("dest_dpu_id", dpu_id.clone()),
+                                ],
+                            );
+                        }
+                    }
+                })
+                .build();
+        }
+
         let network_latency = meter
             .f64_histogram("forge_dpu_agent_network_latency")
             .with_unit("ms")
-            .init();
+            .build();
         let network_loss_percent = meter
             .f64_histogram("forge_dpu_agent_network_loss_percentage")
             .with_description("Percentage of failed pings out of total 5 pings")
-            .init();
+            .build();
         let network_monitor_error = meter
             .u64_counter("forge_dpu_agent_network_monitor_error")
             .with_description("Network monitor errors which are unrelated to network connectivity")
-            .init();
+            .build();
         let network_communication_error = meter
             .u64_counter("forge_dpu_agent_network_communication_error")
             .with_description("Network monitor errors related to ping dpu")
-            .init();
-        let network_reachable_map = ArcSwapOption::const_empty();
+            .build();
 
-        let state = Arc::new(Self {
-            meter,
-            network_reachable,
+        Arc::new(Self {
             network_latency,
             network_loss_percent,
             network_monitor_error,
             network_communication_error,
             network_reachable_map,
-            machine_id,
-        });
-
-        state.register_callback();
-
-        state
+        })
     }
 
     /// Records network latency between two DPUs as milliseconds.
@@ -172,8 +186,8 @@ impl NetworkMonitorMetricsState {
     /// # Parameters
     /// - `new_reachable_map`: Records reachability between DPUs where the key is ID of destination DPU
     ///   and value is reachability as bool
-    pub fn update_network_reachable_map(&self, new_reachable_map: Arc<HashMap<String, bool>>) {
-        self.network_reachable_map.store(Some(new_reachable_map));
+    pub fn update_network_reachable_map(&self, new_reachable_map: HashMap<String, bool>) {
+        *self.network_reachable_map.lock().unwrap() = Some(new_reachable_map);
     }
 
     /// Records an error related to network communication with a DPU.
@@ -207,39 +221,6 @@ impl NetworkMonitorMetricsState {
             KeyValue::new("error_type", error_type),
         ];
         self.network_monitor_error.add(1, &attributes);
-    }
-
-    /// Registers a callback function for emitting network reachability metrics.
-    ///
-    /// # Side Effects
-    /// - Registers a callback with the `meter` to export the current network reachability state
-    ///   for each DPU stored in the `network_reachable_map`.
-    /// - Clears the `network_reachable_map` to prevent stale DPU data from being retained.
-    pub fn register_callback(self: &Arc<Self>) {
-        let self_clone = self.clone();
-        if let Err(e) =
-            self.meter
-                .register_callback(&[self.network_reachable.as_any()], move |observer| {
-                    let network_reachable_map = self_clone.network_reachable_map.load();
-                    if let Some(map) = network_reachable_map.as_ref() {
-                        // Export reachability metrics from the map
-                        for (dpu_id, reachable) in map.iter() {
-                            let reachability = if *reachable { 1 } else { 0 };
-                            let attributes = [
-                                KeyValue::new("source_dpu_id", self_clone.machine_id.clone()),
-                                KeyValue::new("dest_dpu_id", dpu_id.clone()),
-                            ];
-                            observer.observe_u64(
-                                &self_clone.network_reachable,
-                                reachability,
-                                &attributes,
-                            );
-                        }
-                    }
-                })
-        {
-            tracing::error!("Failed to register network reachable metric: {e}");
-        };
     }
 }
 

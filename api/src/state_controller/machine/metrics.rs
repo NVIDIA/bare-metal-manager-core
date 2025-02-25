@@ -14,14 +14,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use opentelemetry::{
-    metrics::{self, Histogram, Meter, ObservableGauge},
-    KeyValue,
-};
-
+use crate::metrics_utils::SharedMetricsHolder;
 use crate::{
     model::{hardware_info::MachineInventorySoftwareComponent, tenant::TenantOrganizationId},
     state_controller::metrics::MetricsEmitter,
+};
+use opentelemetry::{
+    metrics::{Histogram, Meter},
+    KeyValue,
 };
 
 #[derive(Debug, Default)]
@@ -92,193 +92,441 @@ pub struct IsInUseByTenant(bool);
 
 #[derive(Debug)]
 pub struct MachineMetricsEmitter {
-    dpus_up_gauge: ObservableGauge<u64>,
-    dpus_healthy_gauge: ObservableGauge<u64>,
-    gpus_in_use_gauge: ObservableGauge<u64>,
-    gpus_in_use_by_tenant_gauge: ObservableGauge<u64>,
-    gpus_total_gauge: ObservableGauge<u64>,
-    hosts_in_use_by_tenant_gauge: ObservableGauge<u64>,
-    hosts_in_use_gauge: ObservableGauge<u64>,
-    hosts_usable_gauge: ObservableGauge<u64>,
-    gpus_usable_gauge: ObservableGauge<u64>,
-    hosts_health_status_gauge: ObservableGauge<u64>,
-    failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
-    unhealthy_hosts_by_probe_id_gauge: ObservableGauge<u64>,
-    unhealthy_hosts_by_classification_gauge: ObservableGauge<u64>,
-    dpu_agent_version_gauge: ObservableGauge<u64>,
-    dpu_firmware_version_gauge: ObservableGauge<u64>,
-    machine_inventory_component_versions_gauge: ObservableGauge<u64>,
-    client_certificate_expiration_gauge: ObservableGauge<i64>,
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
     machine_reboot_attempts_in_failed_during_discovery: Histogram<u64>,
-    hosts_health_overrides_gauge: ObservableGauge<u64>,
-    hosts_with_bios_password_set: ObservableGauge<u64>,
 }
 
 impl MetricsEmitter for MachineMetricsEmitter {
     type ObjectMetrics = MachineMetrics;
     type IterationMetrics = MachineStateControllerIterationMetrics;
 
-    fn new(_object_type: &str, meter: &Meter) -> Self {
-        let gpus_total_gauge = meter
-            .u64_observable_gauge("forge_gpus_total_count")
-            .with_description("The total number of GPUs available in the Forge site")
-            .init();
-        let hosts_usable_gauge = meter
-            .u64_observable_gauge("forge_hosts_usable_count")
-            .with_description("The remaining number of hosts in the Forge site which are available for immediate instance creation")
-            .init();
-        let gpus_usable_gauge = meter
-            .u64_observable_gauge("forge_gpus_usable_count")
-            .with_description("The remaining number of GPUs in the Forge site which are available for immediate instance creation")
-            .init();
-        let gpus_in_use_gauge = meter
-            .u64_observable_gauge("forge_gpus_in_use_count")
-            .with_description("The total number of GPUs that are actively used by tenants in instances in the Forge site")
-            .init();
-        let hosts_in_use_gauge = meter
-            .u64_observable_gauge("forge_hosts_in_use_count")
-            .with_description("The total number of hosts that are actively used by tenants as instances in the Forge site")
-            .init();
-        let gpus_in_use_by_tenant_gauge = meter
-            .u64_observable_gauge("forge_gpus_in_use_by_tenant_count")
-            .with_description(
-                "The number of GPUs that are actively used by tenants as instances - by tenant",
-            )
-            .init();
-        let hosts_in_use_by_tenant_gauge = meter
-            .u64_observable_gauge("forge_hosts_in_use_by_tenant_count")
-            .with_description(
-                "The number of hosts that are actively used by tenants as instances - by tenant",
-            )
-            .init();
+    fn new(
+        _object_type: &str,
+        meter: &Meter,
+        shared_metrics: SharedMetricsHolder<Self::IterationMetrics>,
+    ) -> Self {
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_gpus_total_count")
+                .with_description("The total number of GPUs available in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(metrics.gpus_total as u64, attrs);
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_usable_count")
+                .with_description("The remaining number of hosts in the Forge site which are available for immediate instance creation")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics.hosts_usable as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_gpus_usable_count")
+                .with_description("The remaining number of GPUs in the Forge site which are available for immediate instance creation")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics.gpus_usable as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_gpus_in_use_count")
+                .with_description("The total number of GPUs that are actively used by tenants in instances in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        let total_in_use_gpus = metrics.gpus_in_use_by_tenant.values().copied().reduce(|a,b| a + b).unwrap_or_default();
+                        observer.observe(
+                            total_in_use_gpus as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_in_use_count")
+                .with_description("The total number of hosts that are actively used by tenants as instances in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        let total_in_use_hosts = metrics.hosts_in_use_by_tenant.values().copied().reduce(|a,b| a + b).unwrap_or_default();
+                        observer.observe(
+                            total_in_use_hosts as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_gpus_in_use_by_tenant_count")
+                .with_description(
+                    "The number of GPUs that are actively used by tenants as instances - by tenant",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (org, count) in &metrics.gpus_in_use_by_tenant {
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[KeyValue::new("tenant_org_id", org.to_string())]]
+                                    .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_in_use_by_tenant_count")
+                .with_description(
+                    "The number of hosts that are actively used by tenants as instances - by tenant",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (org, count) in &metrics.hosts_in_use_by_tenant {
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[KeyValue::new("tenant_org_id", org.to_string())]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_dpus_up_count")
+                .with_description("The total number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics.dpus_up as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_dpus_healthy_count")
+                .with_description("The total number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(
+                            metrics.dpus_healthy as u64,
+                            attrs,
+                        );
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_health_status_count")
+                .with_description("The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for healthy in [true, false] {
+                            for in_use in [true, false] {
+                                let count = metrics
+                                    .hosts_healthy
+                                    .get(&(healthy, IsInUseByTenant(in_use)))
+                                    .cloned()
+                                    .unwrap_or_default();
+                                observer.observe(
+                                    count as u64,
+                                    &[attrs, &[
+                                        KeyValue::new("healthy", healthy.to_string()),
+                                        KeyValue::new("in_use", in_use.to_string()),
+                                    ]].concat(),
+                                );
+                            }
+                        }
+                    })
+                })
+                .build()
+        };
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_health_overrides_count")
+                .with_description("The amount of health overrides that are configured in the site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        // The HashMap access is used here instead of iterating order to make sure that
+                        // all 4 combinations always emit metrics. No metric will be absent in case
+                        // no host falls into that category
+                        for override_type in ["merge", "replace"] {
+                            for in_use in [true, false] {
+                                let count = metrics
+                                    .num_overrides
+                                    .get(&(override_type, IsInUseByTenant(in_use)))
+                                    .cloned()
+                                    .unwrap_or_default();
+                                observer.observe(
+                                    count as u64,
+                                    &[
+                                        attrs,
+                                        &[
+                                            KeyValue::new(
+                                                "override_type",
+                                                override_type.to_string(),
+                                            ),
+                                            KeyValue::new("in_use", in_use.to_string()),
+                                        ],
+                                    ]
+                                    .concat(),
+                                );
+                            }
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let dpus_up_gauge = meter
-            .u64_observable_gauge("forge_dpus_up_count")
-            .with_description("The total number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.")
-            .init();
-        let dpus_healthy_gauge = meter
-            .u64_observable_gauge("forge_dpus_healthy_count")
-            .with_description("The total number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.")
-            .init();
-        let hosts_health_status_gauge = meter
-            .u64_observable_gauge("forge_hosts_health_status_count")
-            .with_description("The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts")
-            .init();
-        let hosts_health_overrides_gauge = meter
-            .u64_observable_gauge("forge_hosts_health_overrides_count")
-            .with_description("The amount of health overrides that are configured in the site")
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_dpu_health_check_failed_count")
+                .with_description(
+                    "The total number of DPUs in the system that have failed a health-check.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((probe, target), count) in &metrics.unhealthy_dpus_by_probe_id {
+                            let failure = match target {
+                                None => probe.to_string(),
+                                Some(target) => format!("{probe} [Target: {target}]"),
+                            };
+                            observer.observe(
+                                *count as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("failure", failure.clone()),
+                                        KeyValue::new("probe_id", probe.clone()),
+                                        KeyValue::new(
+                                            "probe_target",
+                                            target.clone().unwrap_or_default(),
+                                        ),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let failed_dpu_healthchecks_gauge = meter
-            .u64_observable_gauge("forge_dpu_health_check_failed_count")
-            .with_description(
-                "The total number of DPUs in the system that have failed a health-check.",
-            )
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_unhealthy_by_probe_id_count")
+                .with_description(
+                    "The amount of ManagedHosts which reported a certain Health Probe Alert",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((probe, target, in_use), count) in &metrics.unhealthy_hosts_by_probe_id
+                        {
+                            observer.observe(
+                                *count as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("probe_id", probe.clone()),
+                                        KeyValue::new(
+                                            "probe_target",
+                                            target.clone().unwrap_or_default(),
+                                        ),
+                                        KeyValue::new("in_use", in_use.0.to_string()),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let unhealthy_hosts_by_probe_id_gauge = meter
-            .u64_observable_gauge("forge_hosts_unhealthy_by_probe_id_count")
-            .with_description(
-                "The amount of ManagedHosts which reported a certain Health Probe Alert",
-            )
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_unhealthy_by_classification_count")
+                .with_description(
+                    "The amount of ManagedHosts which are marked with a certain classification due to being unhealthy",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((classification, in_use), count) in
+                            &metrics.unhealthy_hosts_by_classification_id
+                        {
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[
+                                    KeyValue::new("classification", classification.clone()),
+                                    KeyValue::new("in_use", in_use.0.to_string()),
+                                ]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let unhealthy_hosts_by_classification_gauge = meter
-            .u64_observable_gauge("forge_hosts_unhealthy_by_classification_count")
-            .with_description(
-                "The amount of ManagedHosts which are marked with a certain classification due to being unhealthy",
-            )
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_dpu_agent_version_count")
+                .with_description(
+                    "The amount of Forge DPU agents which have reported a certain version.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (version, count) in &metrics.agent_versions {
+                            // TODO: Can prometheus labels hold arbitrary strings?
+                            // Since there is no `try_into()` into method for those values,
+                            // we assume OpenTelemetry escapes them internally
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[KeyValue::new("version", version.clone())]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let dpu_agent_version_gauge = meter
-            .u64_observable_gauge("forge_dpu_agent_version_count")
-            .with_description(
-                "The amount of Forge DPU agents which have reported a certain version.",
-            )
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_dpu_firmware_version_count")
+                .with_description(
+                    "The amount of DPUs which have reported a certain firmware version.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (version, count) in &metrics.dpu_firmware_versions {
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[KeyValue::new("firmware_version", version.clone())]]
+                                    .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let dpu_firmware_version_gauge = meter
-            .u64_observable_gauge("forge_dpu_firmware_version_count")
-            .with_description("The amount of DPUs which have reported a certain firmware version.")
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_machine_inventory_component_version_count")
+                .with_description(
+                    "The amount of machines report software components with a certain version.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (component, count) in &metrics.machine_inventory_component_versions {
+                            observer.observe(
+                                *count as u64,
+                                [
+                                    attrs,
+                                    &[
+                                        KeyValue::new("name", component.name.clone()),
+                                        KeyValue::new("version", component.version.clone()),
+                                    ],
+                                ]
+                                .concat()
+                                .as_ref(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-        let machine_inventory_component_versions_gauge = meter
-            .u64_observable_gauge("forge_machine_inventory_component_version_count")
-            .with_description(
-                "The amount of machines report software components with a certain version.",
-            )
-            .init();
-
-        let client_certificate_expiration_gauge = meter
-            .i64_observable_gauge("forge_dpu_client_certificate_expiration_time")
-            .with_description("The expiration time (epoch seconds) for the client certificate associated with a given DPU.")
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .i64_observable_gauge("forge_dpu_client_certificate_expiration_time")
+                .with_description("The expiration time (epoch seconds) for the client certificate associated with a given DPU.")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
+                        for (id, time) in &metrics.client_certificate_expiration_times {
+                            observer.observe(
+                                *time,
+                                &[attrs, &[
+                                    KeyValue::new("dpu_machine_id", id.clone()),
+                                ]].concat()
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
         let machine_reboot_attempts_in_booting_with_discovery_image = meter
             .u64_histogram("forge_reboot_attempts_in_booting_with_discovery_image")
             .with_description("The amount of machines rebooted again in BootingWithDiscoveryImage since there is no response after a certain time from host.")
-            .init();
+            .build();
 
         let machine_reboot_attempts_in_failed_during_discovery = meter
             .u64_histogram("forge_reboot_attempts_in_failed_during_discovery")
             .with_description("The amount of machines rebooted again in Failed state due to discovery failure since there is no response after a certain time from host.")
-            .init();
+            .build();
 
-        let hosts_with_bios_password_set = meter
-            .u64_observable_gauge("forge_hosts_with_bios_password_set")
-            .with_description(
-                "The total number of Hosts in the system that have their BIOS password set.",
-            )
-            .init();
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_hosts_with_bios_password_set")
+                .with_description(
+                    "The total number of Hosts in the system that have their BIOS password set.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        observer.observe(metrics.hosts_with_bios_password_set as u64, attrs);
+                    })
+                })
+                .build()
+        };
 
         Self {
-            gpus_in_use_gauge,
-            gpus_in_use_by_tenant_gauge,
-            hosts_in_use_gauge,
-            hosts_in_use_by_tenant_gauge,
-            hosts_usable_gauge,
-            gpus_total_gauge,
-            gpus_usable_gauge,
-            dpus_up_gauge,
-            dpus_healthy_gauge,
-            dpu_agent_version_gauge,
-            hosts_health_status_gauge,
-            failed_dpu_healthchecks_gauge,
-            unhealthy_hosts_by_probe_id_gauge,
-            unhealthy_hosts_by_classification_gauge,
-            hosts_health_overrides_gauge,
-            dpu_firmware_version_gauge,
-            machine_inventory_component_versions_gauge,
-            client_certificate_expiration_gauge,
             machine_reboot_attempts_in_booting_with_discovery_image,
             machine_reboot_attempts_in_failed_during_discovery,
-            hosts_with_bios_password_set,
         }
-    }
-
-    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        vec![
-            self.gpus_total_gauge.as_any(),
-            self.gpus_in_use_gauge.as_any(),
-            self.gpus_in_use_by_tenant_gauge.as_any(),
-            self.hosts_in_use_gauge.as_any(),
-            self.hosts_in_use_by_tenant_gauge.as_any(),
-            self.hosts_usable_gauge.as_any(),
-            self.gpus_usable_gauge.as_any(),
-            self.dpus_up_gauge.as_any(),
-            self.dpus_healthy_gauge.as_any(),
-            self.dpu_agent_version_gauge.as_any(),
-            self.hosts_health_status_gauge.as_any(),
-            self.hosts_health_overrides_gauge.as_any(),
-            self.failed_dpu_healthchecks_gauge.as_any(),
-            self.unhealthy_hosts_by_probe_id_gauge.as_any(),
-            self.unhealthy_hosts_by_classification_gauge.as_any(),
-            self.dpu_firmware_version_gauge.as_any(),
-            self.machine_inventory_component_versions_gauge.as_any(),
-            self.client_certificate_expiration_gauge.as_any(),
-            self.hosts_with_bios_password_set.as_any(),
-        ]
     }
 
     fn merge_object_handling_metrics(
@@ -391,239 +639,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
                     .and_modify(|entry| *entry = *time)
                     .or_insert(*time);
             }
-        }
-    }
-
-    fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        iteration_metrics: &Self::IterationMetrics,
-        attributes: &[KeyValue],
-    ) {
-        observer.observe_u64(
-            &self.hosts_usable_gauge,
-            iteration_metrics.hosts_usable as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.hosts_with_bios_password_set,
-            iteration_metrics.hosts_with_bios_password_set as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.gpus_usable_gauge,
-            iteration_metrics.gpus_usable as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.gpus_total_gauge,
-            iteration_metrics.gpus_total as u64,
-            attributes,
-        );
-
-        let mut tenant_org_attr = attributes.to_vec();
-        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
-        tenant_org_attr.push(KeyValue::new("tenant_org_id", "".to_string()));
-        let mut total_in_use_gpus = 0;
-        for (org, count) in &iteration_metrics.gpus_in_use_by_tenant {
-            total_in_use_gpus += *count;
-            tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
-            observer.observe_u64(
-                &self.gpus_in_use_by_tenant_gauge,
-                *count as u64,
-                &tenant_org_attr,
-            );
-        }
-        let mut total_in_use_hosts = 0;
-        for (org, count) in &iteration_metrics.hosts_in_use_by_tenant {
-            total_in_use_hosts += *count;
-            tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
-            observer.observe_u64(
-                &self.hosts_in_use_by_tenant_gauge,
-                *count as u64,
-                &tenant_org_attr,
-            );
-        }
-
-        observer.observe_u64(
-            &self.gpus_in_use_gauge,
-            total_in_use_gpus as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.hosts_in_use_gauge,
-            total_in_use_hosts as u64,
-            attributes,
-        );
-
-        observer.observe_u64(
-            &self.dpus_up_gauge,
-            iteration_metrics.dpus_up as u64,
-            attributes,
-        );
-        observer.observe_u64(
-            &self.dpus_healthy_gauge,
-            iteration_metrics.dpus_healthy as u64,
-            attributes,
-        );
-
-        let mut health_status_attr = attributes.to_vec();
-        health_status_attr.push(KeyValue::new("healthy", "".to_string()));
-        health_status_attr.push(KeyValue::new("in_use", "".to_string()));
-        let health_status_attr_len = health_status_attr.len();
-        // The HashMap access is used here instead of iterating order to make sure that
-        // all 4 combinations always emit metrics. No metric will be absent in case
-        // no host falls into that category
-        for healthy in [true, false] {
-            for in_use in [true, false] {
-                let count = iteration_metrics
-                    .hosts_healthy
-                    .get(&(healthy, IsInUseByTenant(in_use)))
-                    .cloned()
-                    .unwrap_or_default();
-                health_status_attr[health_status_attr_len - 2].value = healthy.to_string().into();
-                health_status_attr[health_status_attr_len - 1].value = in_use.to_string().into();
-                observer.observe_u64(
-                    &self.hosts_health_status_gauge,
-                    count as u64,
-                    &health_status_attr,
-                );
-            }
-        }
-
-        let mut failed_health_check_attr = attributes.to_vec();
-        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
-        failed_health_check_attr.push(KeyValue::new("failure", "".to_string()));
-        failed_health_check_attr.push(KeyValue::new("probe_id", "".to_string()));
-        failed_health_check_attr.push(KeyValue::new("probe_target", "".to_string()));
-        let failed_health_check_attr_len = failed_health_check_attr.len();
-        for ((probe, target), count) in &iteration_metrics.unhealthy_dpus_by_probe_id {
-            let failure = match target {
-                None => probe.to_string(),
-                Some(target) => format!("{probe} [Target: {target}]"),
-            };
-            failed_health_check_attr[failed_health_check_attr_len - 3].value =
-                failure.clone().into();
-            failed_health_check_attr[failed_health_check_attr_len - 2].value = probe.clone().into();
-            failed_health_check_attr[failed_health_check_attr_len - 1].value =
-                target.clone().unwrap_or_default().into();
-            observer.observe_u64(
-                &self.failed_dpu_healthchecks_gauge,
-                *count as u64,
-                &failed_health_check_attr,
-            );
-        }
-
-        let mut probe_id_attr = attributes.to_vec();
-        probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
-        probe_id_attr.push(KeyValue::new("probe_target", "".to_string()));
-        probe_id_attr.push(KeyValue::new("in_use", "".to_string()));
-        let probe_id_attr_len = probe_id_attr.len();
-        for ((probe, target, in_use), count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
-            probe_id_attr[probe_id_attr_len - 3].value = probe.clone().into();
-            probe_id_attr[probe_id_attr_len - 2].value = target.clone().unwrap_or_default().into();
-            probe_id_attr[probe_id_attr_len - 1].value = in_use.0.to_string().into();
-            observer.observe_u64(
-                &self.unhealthy_hosts_by_probe_id_gauge,
-                *count as u64,
-                &probe_id_attr,
-            );
-        }
-
-        let mut probe_classification_attr = attributes.to_vec();
-        probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
-        probe_classification_attr.push(KeyValue::new("in_use", "".to_string()));
-        let probe_classification_attr_len = probe_classification_attr.len();
-        for ((classification, in_use), count) in
-            &iteration_metrics.unhealthy_hosts_by_classification_id
-        {
-            probe_classification_attr[probe_classification_attr_len - 2].value =
-                classification.clone().into();
-            probe_classification_attr[probe_classification_attr_len - 1].value =
-                in_use.0.to_string().into();
-            observer.observe_u64(
-                &self.unhealthy_hosts_by_classification_gauge,
-                *count as u64,
-                &probe_classification_attr,
-            );
-        }
-
-        let mut override_type_attr = attributes.to_vec();
-        override_type_attr.push(KeyValue::new("override_type", "merge".to_string()));
-        override_type_attr.push(KeyValue::new("in_use", "".to_string()));
-        let override_type_attr_len = override_type_attr.len();
-        // The HashMap access is used here instead of iterating order to make sure that
-        // all 4 combinations always emit metrics. No metric will be absent in case
-        // no host falls into that category
-        for override_type in ["merge", "replace"] {
-            for in_use in [true, false] {
-                let count = iteration_metrics
-                    .num_overrides
-                    .get(&(override_type, IsInUseByTenant(in_use)))
-                    .cloned()
-                    .unwrap_or_default();
-                override_type_attr[override_type_attr_len - 2].value =
-                    override_type.to_string().into();
-                override_type_attr[override_type_attr_len - 1].value = in_use.to_string().into();
-                observer.observe_u64(
-                    &self.hosts_health_overrides_gauge,
-                    count as u64,
-                    &override_type_attr,
-                );
-            }
-        }
-
-        let mut agent_version_attrs = attributes.to_vec();
-        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
-        agent_version_attrs.push(KeyValue::new("version", "".to_string()));
-        for (version, count) in &iteration_metrics.agent_versions {
-            // TODO: Can prometheus labels hold arbitrary strings?
-            // Since there is no `try_into()` into method for those values,
-            // we assume OpenTelemetry escapes them internally
-            agent_version_attrs.last_mut().unwrap().value = version.clone().into();
-            observer.observe_u64(
-                &self.dpu_agent_version_gauge,
-                *count as u64,
-                &agent_version_attrs,
-            );
-        }
-
-        agent_version_attrs.pop();
-        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
-        agent_version_attrs.push(KeyValue::new("firmware_version", "".to_string()));
-        for (version, count) in &iteration_metrics.dpu_firmware_versions {
-            agent_version_attrs.last_mut().unwrap().value = version.clone().into();
-            observer.observe_u64(
-                &self.dpu_firmware_version_gauge,
-                *count as u64,
-                &agent_version_attrs,
-            );
-        }
-
-        let mut component_version_attrs = attributes.to_vec();
-        // Placeholders that are replaced in the loop in order not having to reallocate the Vec each time
-        component_version_attrs.push(KeyValue::new("name", "".to_string()));
-        component_version_attrs.push(KeyValue::new("version", "".to_string()));
-        for (component, count) in &iteration_metrics.machine_inventory_component_versions {
-            component_version_attrs[attributes.len()].value = component.name.clone().into();
-            component_version_attrs[attributes.len() + 1].value = component.version.clone().into();
-            observer.observe_u64(
-                &self.machine_inventory_component_versions_gauge,
-                *count as u64,
-                &component_version_attrs,
-            );
-        }
-
-        let mut dpu_machine_id_attributes = attributes.to_vec();
-        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
-        dpu_machine_id_attributes.push(KeyValue::new("dpu_machine_id", "".to_string()));
-        for (id, time) in &iteration_metrics.client_certificate_expiration_times {
-            dpu_machine_id_attributes.last_mut().unwrap().value = id.clone().into();
-            observer.observe_i64(
-                &self.client_certificate_expiration_gauge,
-                *time,
-                dpu_machine_id_attributes.as_slice(),
-            );
         }
     }
 

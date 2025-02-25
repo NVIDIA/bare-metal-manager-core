@@ -536,27 +536,27 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
     let vault_requests_total_counter = meter
         .u64_counter("carbide-api.vault.requests_attempted")
         .with_description("The amount of tls connections that were attempted")
-        .init();
+        .build();
     let vault_requests_succeeded_counter = meter
         .u64_counter("carbide-api.vault.requests_succeeded")
         .with_description("The amount of tls connections that were successful")
-        .init();
+        .build();
     let vault_requests_failed_counter = meter
         .u64_counter("carbide-api.vault.requests_failed")
         .with_description("The amount of tcp connections that were failures")
-        .init();
+        .build();
     let vault_token_time_remaining_until_refresh_gauge = meter
         .f64_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
             "The amount of time, in seconds, until the vault token is required to be refreshed",
         )
         .with_unit("s")
-        .init();
+        .build();
     let vault_request_duration_histogram = meter
         .u64_histogram("carbide-api.vault.request_duration")
         .with_description("the duration of outbound vault requests, in milliseconds")
         .with_unit("ms")
-        .init();
+        .build();
 
     let forge_vault_metrics = ForgeVaultMetrics {
         vault_requests_total_counter,

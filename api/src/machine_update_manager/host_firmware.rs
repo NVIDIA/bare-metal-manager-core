@@ -194,7 +194,7 @@ impl HostFirmwareUpdateMetrics {
             .with_callback(move |observer| {
                 observer.observe(pending_firmware_updates.load(Ordering::Relaxed), &[])
             })
-            .init();
+            .build();
         meter
             .u64_observable_gauge("forge_active_host_firmware_update_count")
             .with_description(
@@ -202,6 +202,6 @@ impl HostFirmwareUpdateMetrics {
             )
             .with_callback(move |observer|
                 observer.observe(active_firmware_updates.load(Ordering::Relaxed), &[]))
-            .init();
+            .build();
     }
 }

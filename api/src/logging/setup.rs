@@ -109,16 +109,18 @@ pub async fn setup_logging(
     Ok(Logging { filter: dyn_filter })
 }
 
-pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError> {
+pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricError> {
     // This sets the global meter provider
     // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
     // for tracking milliseconds
     // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
     use opentelemetry::KeyValue;
-    let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
-        KeyValue::new(semcov::resource::SERVICE_NAME, "carbide-api"),
-        KeyValue::new(semcov::resource::SERVICE_NAMESPACE, "forge-system"),
-    ]);
+    let service_telemetry_attributes = opentelemetry_sdk::Resource::builder()
+        .with_attributes(vec![
+            KeyValue::new(semcov::resource::SERVICE_NAME, "carbide-api"),
+            KeyValue::new(semcov::resource::SERVICE_NAMESPACE, "forge-system"),
+        ])
+        .build();
     let prometheus_registry = prometheus::Registry::new();
     let metrics_exporter = opentelemetry_prometheus::exporter()
         .with_registry(prometheus_registry.clone())
@@ -149,7 +151,7 @@ pub fn create_metrics() -> Result<Metrics, opentelemetry::metrics::MetricsError>
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
     name_filter: &str,
-) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
+) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry_sdk::metrics::MetricError> {
     let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
     criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
     let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
@@ -190,9 +192,6 @@ mod tests {
             .with_view(create_metric_view_for_retry_histograms("*_retries_*").unwrap())
             .build();
 
-        let meter = meter_provider.meter("myservice");
-        let x = meter.u64_observable_gauge("mygauge").init();
-
         let state = KeyValue::new("state", "mystate");
         let p1 = vec![state.clone(), KeyValue::new("error", "ErrA")];
         let p2 = vec![state.clone(), KeyValue::new("error", "ErrB")];
@@ -200,20 +199,22 @@ mod tests {
 
         let counter = std::sync::Arc::new(AtomicUsize::new(0));
 
-        meter
-            .register_callback(&[x.as_any()], move |observer| {
+        meter_provider
+            .meter("myservice")
+            .u64_observable_gauge("mygauge")
+            .with_callback(move |observer| {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
                 println!("Collection {}", count);
                 if count % 2 == 0 {
-                    observer.observe_u64(&x, 1, &p1);
+                    observer.observe(1, &p1);
                 } else {
-                    observer.observe_u64(&x, 1, &p2);
+                    observer.observe(1, &p2);
                 }
                 if count % 3 == 1 {
-                    observer.observe_u64(&x, 1, &p3);
+                    observer.observe(1, &p3);
                 }
             })
-            .unwrap();
+            .build();
 
         for i in 0..10 {
             let mut buffer = vec![];

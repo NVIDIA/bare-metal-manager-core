@@ -24,7 +24,7 @@ impl MachineUpdateManagerMetrics {
             .with_callback(move |observer| {
                 observer.observe(machines_in_maintenance.load(Ordering::Relaxed), &[])
             })
-            .init();
+            .build();
         meter
             .u64_observable_gauge("forge_machine_updates_started_count")
             .with_description(
@@ -33,6 +33,6 @@ impl MachineUpdateManagerMetrics {
             .with_callback(move |observer| {
                 observer.observe(machine_updates_started.load(Ordering::Relaxed), &[])
             })
-            .init();
+            .build();
     }
 }

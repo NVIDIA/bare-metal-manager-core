@@ -57,7 +57,6 @@ fn test_metrics_collector() {
 
     let test_meter = crate::tests::common::test_meter::TestMeter::default();
     let metric_holder = Arc::new(MetricHolder::new(test_meter.meter(), Duration::MAX));
-    metric_holder.register_callback();
     metric_holder.update_metrics(metrics);
     assert_eq!(
         test_meter

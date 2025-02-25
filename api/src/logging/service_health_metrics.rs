@@ -21,97 +21,99 @@ use crate::resource_pool::ResourcePoolStats;
 pub struct ServiceHealthContext {
     pub meter: Meter,
     pub database_pool: sqlx::PgPool,
-    pub resource_pool_stats: Option<Arc<Mutex<HashMap<String, ResourcePoolStats>>>>,
+    pub resource_pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
 }
 
 /// Starts to export server health metrics
 pub fn start_export_service_health_metrics(health_context: ServiceHealthContext) {
-    let ready_metric = health_context
+    health_context
         .meter
         .u64_observable_gauge("carbide_api_ready")
         .with_description("Whether the Forge Site Controller API is running")
-        .init();
-    let version_metric = health_context
+        .with_callback(|observer| {
+            observer.observe(1, &[]);
+        })
+        .build();
+    health_context
         .meter
         .u64_observable_gauge("carbide_api_version")
         .with_description("Version (git sha, build date, etc) of this service")
-        .init();
-    let db_pool_total_conns_metric = health_context
-        .meter
-        .u64_observable_gauge("carbide_db_pool_total_conns")
-        .with_description(
-            "The amount of total (active + idle) connections in the carbide database pool",
-        )
-        .init();
-    let db_pool_idle_conns_metric = health_context
-        .meter
-        .u64_observable_gauge("carbide_db_pool_idle_conns")
-        .with_description("The amount of idle connections in the carbide database pool")
-        .init();
+        .with_callback(|observer| {
+            observer.observe(
+                1,
+                &[
+                    KeyValue::new(
+                        "build_version",
+                        forge_version::v!(build_version).to_string(),
+                    ),
+                    KeyValue::new("build_date", forge_version::v!(build_date).to_string()),
+                    KeyValue::new("git_sha", forge_version::v!(git_sha).to_string()),
+                    KeyValue::new("rust_version", forge_version::v!(rust_version).to_string()),
+                    KeyValue::new("build_user", forge_version::v!(build_user).to_string()),
+                    KeyValue::new(
+                        "build_hostname",
+                        forge_version::v!(build_hostname).to_string(),
+                    ),
+                ],
+            );
+        })
+        .build();
 
-    let pool_used = health_context
-        .meter
-        .u64_observable_gauge("carbide_resourcepool_used_count")
-        .with_description("Count of values in the pool currently allocated")
-        .init();
-    let pool_free = health_context
-        .meter
-        .u64_observable_gauge("carbide_resourcepool_free_count")
-        .with_description("Count of values in the pool currently available for allocation")
-        .init();
+    {
+        let database_pool = health_context.database_pool.clone();
+        health_context
+            .meter
+            .u64_observable_gauge("carbide_db_pool_idle_conns")
+            .with_description("The amount of idle connections in the carbide database pool")
+            .with_callback(move |observer| {
+                observer.observe(database_pool.num_idle() as u64, &[]);
+            })
+            .build();
+    }
 
-    let version_attributes = [
-        KeyValue::new(
-            "build_version",
-            forge_version::v!(build_version).to_string(),
-        ),
-        KeyValue::new("build_date", forge_version::v!(build_date).to_string()),
-        KeyValue::new("git_sha", forge_version::v!(git_sha).to_string()),
-        KeyValue::new("rust_version", forge_version::v!(rust_version).to_string()),
-        KeyValue::new("build_user", forge_version::v!(build_user).to_string()),
-        KeyValue::new(
-            "build_hostname",
-            forge_version::v!(build_hostname).to_string(),
-        ),
-    ];
+    {
+        let database_pool = health_context.database_pool.clone();
+        health_context
+            .meter
+            .u64_observable_gauge("carbide_db_pool_total_conns")
+            .with_description(
+                "The amount of total (active + idle) connections in the carbide database pool",
+            )
+            .with_callback(move |observer| {
+                observer.observe(database_pool.size() as u64, &[]);
+            })
+            .build();
+    }
 
-    // The metrics is queried inside the callback by the opentelemetry framework
-    // Since it's emitted as long as the service is running, there is nothing else
-    // to do
-    let meter = health_context.meter.clone();
-    meter
-        .register_callback(
-            &[
-                ready_metric.as_any(),
-                version_metric.as_any(),
-                db_pool_idle_conns_metric.as_any(),
-                db_pool_total_conns_metric.as_any(),
-                pool_used.as_any(),
-                pool_free.as_any(),
-            ],
-            move |observer| {
-                observer.observe_u64(&ready_metric, 1, &[]);
-                observer.observe_u64(&version_metric, 1, &version_attributes);
-
-                observer.observe_u64(
-                    &db_pool_total_conns_metric,
-                    health_context.database_pool.size() as u64,
-                    &[],
-                );
-                observer.observe_u64(
-                    &db_pool_idle_conns_metric,
-                    health_context.database_pool.num_idle() as u64,
-                    &[],
-                );
-
-                if let Some(rp_stats) = &health_context.resource_pool_stats {
-                    for (name, stats) in rp_stats.lock().unwrap().iter() {
-                        let name_attr = KeyValue::new("pool", name.to_string());
-                        observer.observe_u64(&pool_used, stats.used as u64, &[name_attr.clone()]);
-                        observer.observe_u64(&pool_free, stats.free as u64, &[name_attr]);
-                    }
+    {
+        let rp_stats = health_context.resource_pool_stats.clone();
+        health_context
+            .meter
+            .u64_observable_gauge("carbide_resourcepool_used_count")
+            .with_description("Count of values in the pool currently allocated")
+            .with_callback(move |observer| {
+                for (name, stats) in rp_stats.lock().unwrap().iter() {
+                    observer.observe(
+                        stats.used as u64,
+                        &[KeyValue::new("pool", name.to_string())],
+                    );
                 }
-            },
-        )
-        .unwrap();
+            })
+            .build();
+    }
+
+    {
+        let rp_stats = health_context.resource_pool_stats.clone();
+        health_context
+            .meter
+            .u64_observable_gauge("carbide_resourcepool_free_count")
+            .with_description("Count of values in the pool currently available for allocation")
+            .with_callback(move |observer| {
+                for (name, stats) in rp_stats.lock().unwrap().iter() {
+                    let name_attr = KeyValue::new("pool", name.to_string());
+                    observer.observe(stats.free as u64, &[name_attr.clone()]);
+                }
+            })
+            .build();
+    }
 }

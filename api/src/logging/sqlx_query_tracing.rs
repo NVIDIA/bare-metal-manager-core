@@ -293,13 +293,13 @@ impl DatabaseMetricEmitters {
         let db_queries_counter = meter
             .u64_counter("carbide-api.db.queries")
             .with_description("The amount of database queries that occured inside a span")
-            .init();
+            .build();
 
         let db_span_query_times = meter
             .f64_histogram("carbide-api.db.span_query_time")
             .with_description("Total time the request spent inside a span on database transactions")
             .with_unit("ms")
-            .init();
+            .build();
 
         Self {
             db_span_query_times,

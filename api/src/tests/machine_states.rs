@@ -64,13 +64,12 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
 
-    assert!(env
-        .test_meter
-        .parsed_metrics("forge_machines_per_state")
-        .contains(&(
-            "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-            "2".to_string()
-        )));
+    let forge_machines_per_state = env.test_meter.parsed_metrics("forge_machines_per_state");
+
+    assert!(forge_machines_per_state.contains(&(
+        "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
+        "2".to_string()
+    )));
 
     let expected_states_entered = &[
         (

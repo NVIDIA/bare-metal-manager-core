@@ -12,15 +12,11 @@
 
 //! Defines custom metrics that are collected and emitted by the Machine State Controller
 
-// use std::backtrace::Backtrace;
 use std::collections::HashMap;
 
-use opentelemetry::{
-    metrics::{self, Meter, ObservableGauge},
-    KeyValue,
-};
-
+use crate::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
+use opentelemetry::{metrics::Meter, KeyValue};
 
 #[derive(Debug, Default, Clone)]
 pub struct NetworkSegmentMetrics {
@@ -42,11 +38,7 @@ pub struct NetworkSegmentStateControllerIterationMetrics {
 }
 
 #[derive(Debug)]
-pub struct NetworkSegmentMetricsEmitter {
-    available_ips_gauge: ObservableGauge<u64>,
-    reserved_ips_gauge: ObservableGauge<u64>,
-    total_ips_gauge: ObservableGauge<u64>,
-}
+pub struct NetworkSegmentMetricsEmitter {}
 
 impl NetworkSegmentStateControllerIterationMetrics {}
 
@@ -54,32 +46,90 @@ impl MetricsEmitter for NetworkSegmentMetricsEmitter {
     type ObjectMetrics = NetworkSegmentMetrics;
     type IterationMetrics = NetworkSegmentStateControllerIterationMetrics;
 
-    fn new(_object_type: &str, meter: &Meter) -> Self {
-        let available_ips_gauge = meter
-            .u64_observable_gauge("forge_available_ips_count")
-            .with_description("The total number of available ips in the Forge site")
-            .init();
-        let reserved_ips_gauge = meter
-            .u64_observable_gauge("forge_reserved_ips_count")
-            .with_description("The total number of reserved ips in the Forge site")
-            .init();
-        let total_ips_gauge = meter
-            .u64_observable_gauge("forge_total_ips_count")
-            .with_description("The total number of ips in the Forge site")
-            .init();
-        Self {
-            available_ips_gauge,
-            reserved_ips_gauge,
-            total_ips_gauge,
-        }
-    }
+    fn new(
+        _object_type: &str,
+        meter: &Meter,
+        shared_metrics: SharedMetricsHolder<Self::IterationMetrics>,
+    ) -> Self {
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_available_ips_count")
+                .with_description("The total number of available ips in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (_seg_id, seg_stats) in metrics.seg_stats.clone() {
+                            observer.observe(
+                                seg_stats.available_ips as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("name", seg_stats.seg_name),
+                                        KeyValue::new("type", seg_stats.seg_type),
+                                        KeyValue::new("prefix", seg_stats.prefix),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
 
-    fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        vec![
-            self.available_ips_gauge.as_any(),
-            self.total_ips_gauge.as_any(),
-            self.reserved_ips_gauge.as_any(),
-        ]
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_reserved_ips_count")
+                .with_description("The total number of reserved ips in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (_seg_id, seg_stats) in metrics.seg_stats.clone() {
+                            observer.observe(
+                                seg_stats.reserved_ips as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("name", seg_stats.seg_name),
+                                        KeyValue::new("type", seg_stats.seg_type),
+                                        KeyValue::new("prefix", seg_stats.prefix),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_total_ips_count")
+                .with_description("The total number of ips in the Forge site")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (_seg_id, seg_stats) in metrics.seg_stats.clone() {
+                            observer.observe(
+                                seg_stats.total_ips as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("name", seg_stats.seg_name),
+                                        KeyValue::new("type", seg_stats.seg_type),
+                                        KeyValue::new("prefix", seg_stats.prefix),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        Self {}
     }
 
     // This routine is called in the context of a single thread.
@@ -101,36 +151,6 @@ impl MetricsEmitter for NetworkSegmentMetricsEmitter {
         iteration_metrics
             .seg_stats
             .insert(this_seg_id, (*object_metrics).clone());
-    }
-
-    fn emit_gauges(
-        &self,
-        observer: &dyn metrics::Observer,
-        iteration_metrics: &Self::IterationMetrics,
-        attributes: &[KeyValue],
-    ) {
-        let iteration_seg_stats = iteration_metrics.seg_stats.clone();
-        for (_seg_id, seg_stats) in iteration_seg_stats {
-            let mut seg_attrs = attributes.to_vec();
-            seg_attrs.push(KeyValue::new("name", seg_stats.seg_name));
-            seg_attrs.push(KeyValue::new("type", seg_stats.seg_type));
-            seg_attrs.push(KeyValue::new("prefix", seg_stats.prefix));
-            observer.observe_u64(
-                &self.available_ips_gauge,
-                seg_stats.available_ips as u64,
-                &seg_attrs,
-            );
-            observer.observe_u64(
-                &self.reserved_ips_gauge,
-                seg_stats.reserved_ips as u64,
-                &seg_attrs,
-            );
-            observer.observe_u64(
-                &self.total_ips_gauge,
-                seg_stats.total_ips as u64,
-                &seg_attrs,
-            );
-        }
     }
 
     fn emit_counters_and_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}

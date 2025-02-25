@@ -45,7 +45,7 @@ impl LogLayer {
             .f64_histogram("carbide-api.grpc.server.duration")
             .with_description("Processing time for a request on the carbide API server")
             .with_unit("ms")
-            .init();
+            .build();
 
         let db = sqlx_query_tracing::DatabaseMetricEmitters::new(&meter);
 

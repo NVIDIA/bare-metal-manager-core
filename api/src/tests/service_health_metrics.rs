@@ -14,7 +14,7 @@ async fn test_service_health_metrics(pool: PgPool) -> Result<(), Box<dyn std::er
     let context = ServiceHealthContext {
         meter: test_meter.meter(),
         database_pool: pool,
-        resource_pool_stats: Some(Arc::new(Mutex::new(HashMap::from([
+        resource_pool_stats: Arc::new(Mutex::new(HashMap::from([
             (
                 "pool1".to_string(),
                 ResourcePoolStats { used: 10, free: 20 },
@@ -23,7 +23,7 @@ async fn test_service_health_metrics(pool: PgPool) -> Result<(), Box<dyn std::er
                 "pool2".to_string(),
                 ResourcePoolStats { used: 20, free: 10 },
             ),
-        ])))),
+        ]))),
     };
     start_export_service_health_metrics(context);
 
