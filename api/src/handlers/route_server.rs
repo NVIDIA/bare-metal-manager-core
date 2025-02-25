@@ -27,19 +27,14 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::RouteServers>, Status> {
     log_request_data(&request);
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_route_servers",
+            e,
+        ))
+    })?;
 
     let route_servers = RouteServer::get(&mut txn).await?;
 
@@ -68,33 +63,25 @@ pub(crate) async fn add(
         .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_route_servers",
+            e,
+        ))
+    })?;
 
     RouteServer::add(&mut txn, &route_servers).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_route_servers",
+            e,
+        ))
+    })?;
 
     Ok(tonic::Response::new(()))
 }
@@ -113,33 +100,25 @@ pub(crate) async fn remove(
         .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_route_servers",
+            e,
+        ))
+    })?;
 
     RouteServer::remove(&mut txn, &route_servers).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_route_servers",
+            e,
+        ))
+    })?;
 
     Ok(tonic::Response::new(()))
 }
@@ -158,33 +137,25 @@ pub(crate) async fn replace(
         .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_route_servers",
+            e,
+        ))
+    })?;
 
     RouteServer::replace(&mut txn, &route_servers).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit get_route_servers",
-                e,
-            ))
-        })
-        .map_err(CarbideError::from)?;
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_route_servers",
+            e,
+        ))
+    })?;
 
     Ok(tonic::Response::new(()))
 }

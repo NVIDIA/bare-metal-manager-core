@@ -500,8 +500,7 @@ pub(crate) async fn delete(
                     Some(&[id.clone()]),
                     Some(&tenant_organization_id),
                 )
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .pop();
 
             if existing_associated_objects

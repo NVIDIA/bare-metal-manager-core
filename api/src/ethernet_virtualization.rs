@@ -399,7 +399,7 @@ pub async fn tenant_network(
                                                     vec![p.to_string()]
                                                 }
                                             },
-                                            rule: Some(r.try_into().map_err(CarbideError::from)?),
+                                            rule: Some(r.try_into()?),
                                         })
                                     })
                                     .collect::<Result<

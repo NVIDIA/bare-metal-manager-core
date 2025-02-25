@@ -82,7 +82,7 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
                 let mut sent = 0;
                 while sent < NUM_MSGS_PER_THREAD && !s_should_stop.load(Ordering::Relaxed) {
                     let mut msg = msg_orig.clone();
-                    msg.set_xid((sent as u32) << 8 | idx as u32);
+                    msg.set_xid(((sent as u32) << 8) | idx as u32);
                     let pkt = DHCPFactory::encode(msg).unwrap();
                     inner_socket.send(&pkt).unwrap();
                     sent += 1;

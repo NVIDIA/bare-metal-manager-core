@@ -397,9 +397,7 @@ impl MachineValidation {
             .map_err(CarbideError::from)?;
 
         //TODO repopulate the status
-        Self::update_end_time(txn, uuid, &status)
-            .await
-            .map_err(CarbideError::from)?;
+        Self::update_end_time(txn, uuid, &status).await?;
         Ok(())
     }
 }

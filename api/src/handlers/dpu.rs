@@ -734,9 +734,7 @@ pub(crate) async fn record_dpu_network_status(
         .map_err(CarbideError::from)?
     {
         let _needs_upgrade =
-            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
     }
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
