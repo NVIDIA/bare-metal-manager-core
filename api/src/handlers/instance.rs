@@ -163,19 +163,18 @@ pub(crate) async fn find(
             vec![InstanceId::try_from(id)
                 .map_err(|_| CarbideError::InvalidArgument("id".to_string()))?]
         }
-        (None, None) => Instance::find_ids(&mut txn, Default::default())
-            .await
-            .map_err(CarbideError::from)?,
+        (None, None) => Instance::find_ids(&mut txn, Default::default()).await?,
 
-        (None, Some(label)) => Instance::find_ids(
-            &mut txn,
-            rpc::InstanceSearchFilter {
-                label: Some(label),
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(CarbideError::from)?,
+        (None, Some(label)) => {
+            Instance::find_ids(
+                &mut txn,
+                rpc::InstanceSearchFilter {
+                    label: Some(label),
+                    ..Default::default()
+                },
+            )
+            .await?
+        }
 
         (Some(_id), Some(_label)) => {
             return Err(CarbideError::InvalidArgument(
@@ -604,9 +603,7 @@ pub(crate) async fn update_operating_system(
         None => instance.config_version,
     };
 
-    Instance::update_os(&mut txn, instance.id, expected_version, os)
-        .await
-        .map_err(CarbideError::from)?;
+    Instance::update_os(&mut txn, instance.id, expected_version, os).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -716,9 +713,7 @@ pub(crate) async fn update_instance_config(
         }
     }
 
-    Instance::update_config(&mut txn, instance.id, expected_version, config, metadata)
-        .await
-        .map_err(CarbideError::from)?;
+    Instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,

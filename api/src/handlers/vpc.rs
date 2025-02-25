@@ -204,8 +204,7 @@ pub(crate) async fn update_virtualization(
             vpc_id: Some(updater.id.to_string()),
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     if !instances.is_empty() {
         return Err(CarbideError::internal(format!(

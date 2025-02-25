@@ -52,9 +52,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        NetworkSegment::list_segment_ids(txn, None)
-            .await
-            .map_err(DatabaseError::from)
+        NetworkSegment::list_segment_ids(txn, None).await
     }
 
     /// Loads a state snapshot from the database

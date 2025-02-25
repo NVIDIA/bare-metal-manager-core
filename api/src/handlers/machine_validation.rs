@@ -91,8 +91,7 @@ pub(crate) async fn mark_machine_validation_complete(
             ..MachineValidationStatus::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let machine_validation_results = match req.machine_validation_error {
         Some(machine_validation_error) => {
             db::machine::update_failure_details_by_machine_id(
@@ -426,8 +425,7 @@ pub(crate) async fn get_machine_validation_runs(
                     .collect(),
             },
         )
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .map(Response::new)?;
     Ok(ret)
 }
 
@@ -606,9 +604,8 @@ pub(crate) async fn update_machine_validation_test(
     //         "Cannot modify read-only test cases",
     //     ));
     // }
-    let test_id = machine_validation_suites::MachineValidationTest::update(&mut txn, req.clone())
-        .await
-        .map_err(CarbideError::from)?;
+    let test_id =
+        machine_validation_suites::MachineValidationTest::update(&mut txn, req.clone()).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -649,15 +646,13 @@ pub(crate) async fn add_machine_validation_test(
             ..rpc::MachineValidationTestsGetRequest::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     if !tests.is_empty() {
         return Err(Status::invalid_argument("Name already exists"));
     }
     let version = ConfigVersion::initial();
-    let test_id = machine_validation_suites::MachineValidationTest::save(&mut txn, req, version)
-        .await
-        .map_err(CarbideError::from)?;
+    let test_id =
+        machine_validation_suites::MachineValidationTest::save(&mut txn, req, version).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -691,9 +686,7 @@ pub(crate) async fn get_machine_validation_tests(
             e,
         ))
     })?;
-    let tests = machine_validation_suites::MachineValidationTest::find(&mut txn, req)
-        .await
-        .map_err(CarbideError::from)?;
+    let tests = machine_validation_suites::MachineValidationTest::find(&mut txn, req).await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestsGetResponse {
@@ -727,15 +720,13 @@ pub(crate) async fn machine_validation_test_verfied(
             ..rpc::MachineValidationTestsGetRequest::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let _ = machine_validation_suites::MachineValidationTest::mark_verified(
         &mut txn,
         req.test_id,
         existing[0].version,
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -773,12 +764,9 @@ pub(crate) async fn machine_validation_test_next_version(
             ..rpc::MachineValidationTestsGetRequest::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let (test_id, next_version) =
-        machine_validation_suites::MachineValidationTest::clone(&mut txn, &existing[0])
-            .await
-            .map_err(CarbideError::from)?;
+        machine_validation_suites::MachineValidationTest::clone(&mut txn, &existing[0]).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -819,8 +807,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
             ..rpc::MachineValidationTestsGetRequest::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let _ = machine_validation_suites::MachineValidationTest::enabled_diable(
         &mut txn,
         req.test_id,
@@ -828,8 +815,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         req.is_enabled,
         existing[0].verified,
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

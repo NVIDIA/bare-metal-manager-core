@@ -1385,18 +1385,13 @@ impl Forge for Api {
                     .into());
                 }
             },
-            (None, None) => {
-                match db::machine_interface::find_all(&mut txn)
-                    .await
-                    .map_err(CarbideError::from)
-                {
-                    Ok(machine_interfaces) => machine_interfaces
-                        .into_iter()
-                        .map(|i| i.into())
-                        .collect_vec(),
-                    Err(error) => return Err(error.into()),
-                }
-            }
+            (None, None) => match db::machine_interface::find_all(&mut txn).await {
+                Ok(machine_interfaces) => machine_interfaces
+                    .into_iter()
+                    .map(|i| i.into())
+                    .collect_vec(),
+                Err(error) => return Err(error.into()),
+            },
             _ => {
                 return Err(CarbideError::internal(
                     "Could not find an ID or IP in the request".to_string(),
@@ -2210,8 +2205,7 @@ impl Forge for Api {
                 &mut txn,
                 true,
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
             if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
                 self.common_pools
@@ -2356,9 +2350,7 @@ impl Forge for Api {
             None => machine.version,
         };
 
-        db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata).await?;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -4769,8 +4761,7 @@ impl Api {
                 machine.id
             );
             crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
         }
 
         Ok(())

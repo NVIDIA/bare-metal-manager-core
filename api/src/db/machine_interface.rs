@@ -779,12 +779,7 @@ pub async fn find_by_machine_and_segment(
         .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
-        .map(|interfaces| {
-            interfaces
-                .into_iter()
-                .map(MachineInterfaceSnapshot::from)
-                .collect()
-        })
+        .map(|interfaces| interfaces.into_iter().collect())
 }
 
 /// Record that this interface just DHCPed, so it must still exist

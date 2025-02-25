@@ -205,10 +205,7 @@ pub(crate) async fn update(
         ))
     })?;
 
-    update_request
-        .update(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    update_request.update(&mut txn).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

@@ -137,9 +137,7 @@ pub(crate) async fn delete(
         ))
     })?;
 
-    ExpectedMachine::delete(parsed_mac, &mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    ExpectedMachine::delete(parsed_mac, &mut txn).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -264,9 +262,7 @@ pub(crate) async fn get_all(
         ))
     })?;
 
-    let expected_machine_list: Vec<ExpectedMachine> = ExpectedMachine::find_all(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let expected_machine_list: Vec<ExpectedMachine> = ExpectedMachine::find_all(&mut txn).await?;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
