@@ -21,7 +21,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::model::machine::Machine;
 use crate::tests::common::api_fixtures::network_segment::{
     create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
@@ -79,6 +78,7 @@ use crate::{
         state_handler::{StateHandler, StateHandlerServices},
     },
 };
+use crate::{cfg::file::BomValidationConfig, model::machine::Machine};
 use crate::{
     cfg::file::{
         HardwareHealthReportsConfig, MachineValidationConfig, NetworkSecurityGroupConfig,
@@ -305,12 +305,10 @@ impl TestEnv {
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
+            ManagedHostState::BomValidating { .. } => state.clone(),
         }
     }
 
-    /// Runs one iteration of the machine state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
         host_machine_id: &MachineId,
@@ -318,6 +316,29 @@ impl TestEnv {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
     ) {
+        self.run_machine_state_controller_iteration_until_state_condition(
+            host_machine_id,
+            max_iterations,
+            txn,
+            |machine| {
+                let fixed_expected_state = self.fill_machine_information(&expected_state, machine);
+                machine.current_state() == &fixed_expected_state
+            },
+        )
+        .await;
+    }
+
+    /// Runs iterations of the machine state controller handler with the services
+    /// in this test environment until the condition is met.  using a callback function
+    /// allows the caller to use "matches!" to compare patterns instead of concrete values.
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn run_machine_state_controller_iteration_until_state_condition(
+        &self,
+        host_machine_id: &MachineId,
+        max_iterations: u32,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        state_check: impl Fn(&Machine) -> bool,
+    ) -> ManagedHostState {
         for _ in 0..max_iterations {
             self.machine_state_controller
                 .borrow_mut()
@@ -333,13 +354,10 @@ impl TestEnv {
             .unwrap()
             .unwrap();
 
-            let comparable_state = self.fill_machine_information(&expected_state, &machine);
-
-            if machine.current_state() == &comparable_state {
-                return;
+            if state_check(&machine) {
+                return machine.state.value;
             }
         }
-
         let machine = db::machine::find_one(
             txn,
             host_machine_id,
@@ -350,8 +368,7 @@ impl TestEnv {
         .unwrap();
 
         panic!(
-            "Expected Machine state to be {:?} after {max_iterations} iterations, but state is {:?}",
-            expected_state.clone(),
+            "Expected Machine state condition not hit after {max_iterations} iterations; state is {:?}",
             machine.current_state()
         );
     }
@@ -715,6 +732,7 @@ pub fn get_config() -> CarbideConfig {
         machine_validation_config: MachineValidationConfig { enabled: true },
         bypass_rbac: false,
         fnn: None,
+        bom_validation: BomValidationConfig::default(),
     }
 }
 
@@ -878,6 +896,7 @@ pub async fn create_test_env_with_overrides(
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
                 })
+                .bom_validation(config.bom_validation)
                 .build(),
         )),
     };

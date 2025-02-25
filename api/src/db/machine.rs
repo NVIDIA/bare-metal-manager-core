@@ -52,6 +52,7 @@ use crate::model::machine::{
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
+use crate::model::sku::SkuStatus;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
@@ -224,6 +225,9 @@ pub struct MachineSnapshotPgJson {
     #[serde(default)] // History is only brought in if the search config requested it
     history: Vec<MachineStateHistory>,
     version: String,
+    hw_sku: Option<String>,
+    hw_sku_status: Option<SkuStatus>,
+    sku_validation_health_report: Option<HealthReport>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -339,6 +343,9 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             // deployed: value.deployed,
             // created: value.created,
             // updated: value.updated,
+            hw_sku: value.hw_sku,
+            hw_sku_status: value.hw_sku_status,
+            sku_validation_health_report: value.sku_validation_health_report,
         })
     }
 }
@@ -796,12 +803,12 @@ pub async fn update_bios_password_set(
 }
 
 pub async fn update_discovery_time(
-    machine: &Machine,
+    machine_id: &MachineId,
     txn: &mut sqlx::Transaction<'_, Postgres>,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine.id.to_string())
+        .bind(machine_id.to_string())
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -1015,6 +1022,20 @@ pub async fn update_site_explorer_health_report(
         txn,
         machine_id,
         "site_explorer_health_report",
+        health_report,
+    )
+    .await
+}
+
+pub async fn update_sku_validation_health_report(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    update_health_report(
+        txn,
+        machine_id,
+        "sku_validation_health_report",
         health_report,
     )
     .await
@@ -1971,6 +1992,55 @@ pub async fn update_dpu_asns(
     txn.commit()
         .await
         .map_err(|e: sqlx::Error| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
+
+pub async fn assign_sku(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    sku_id: &str,
+) -> Result<MachineId, DatabaseError> {
+    let query = "UPDATE machines SET hw_sku=$1 WHERE id=$2 and hw_sku is null RETURNING id";
+
+    let id = sqlx::query_as(query)
+        .bind(sku_id)
+        .bind(machine_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
+
+    Ok(id)
+}
+
+pub async fn unassign_sku(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<MachineId, DatabaseError> {
+    let query = "UPDATE machines SET hw_sku=NULL WHERE id=$1 RETURNING id";
+
+    let id = sqlx::query_as(query)
+        .bind(machine_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
+
+    Ok(id)
+}
+
+pub async fn update_sku_status(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    sku_status: SkuStatus,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET hw_sku_status=$1 WHERE id=$2 RETURNING id";
+
+    sqlx::query_as(query)
+        .bind(sqlx::types::Json(sku_status))
+        .bind(machine_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
 
     Ok(())
 }

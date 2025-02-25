@@ -97,6 +97,7 @@ mod redfish;
 mod resource_pool;
 mod rpc;
 mod site_explorer;
+mod sku;
 mod storage;
 mod tenant_keyset;
 mod tpm;
@@ -1605,6 +1606,21 @@ async fn main() -> color_eyre::Result<()> {
                 network_security_group::nsg_detach(args, api_config).await?
             }
         },
+        CliCommand::Sku(sku_command) => {
+            let mut output_file = if let Some(filename) = config.output {
+                Box::new(
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(filename)?,
+                ) as Box<dyn std::io::Write>
+            } else {
+                Box::new(std::io::stdout()) as Box<dyn std::io::Write>
+            };
+
+            sku::handle_sku_command(api_config, &mut output_file, &config.format, sku_command)
+                .await?;
+        }
     }
 
     Ok(())

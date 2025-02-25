@@ -166,6 +166,18 @@ impl serde::Serialize for Timestamp {
     }
 }
 
+impl<'a> serde::Deserialize<'a> for Timestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let dt =
+            DateTime::<Utc>::from_str(&s).unwrap_or_else(|_e| DateTime::<chrono::Utc>::default());
+        Ok(dt.into())
+    }
+}
+
 impl prost::Message for Timestamp {
     fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut)
     where

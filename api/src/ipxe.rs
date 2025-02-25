@@ -215,6 +215,7 @@ exit ||
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
             | ManagedHostState::HostInit { .. }
+            | ManagedHostState::BomValidating { .. }
             | ManagedHostState::Measuring {
                 measuring_state: MeasuringState::WaitingForMeasurements,
             }

@@ -11,6 +11,7 @@
  */
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use super::sku::SkuStatus;
 use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
@@ -216,6 +217,13 @@ impl ManagedHostStateSnapshot {
 
         let mut output = health_report::HealthReport::empty("".to_string());
         output.merge(&self.host_snapshot.machine_validation_health_report);
+
+        if let Some(sku_validation_health_report) =
+            self.host_snapshot.sku_validation_health_report.as_ref()
+        {
+            output.merge(sku_validation_health_report);
+        }
+
         // log parser reports are only merged if available, heartbeat timeout is not applicable
         if let Some(input) = &self.host_snapshot.log_parser_health_report {
             output.merge(input);
@@ -592,6 +600,9 @@ pub struct Machine {
     // pub updated: DateTime<Utc>,
     // /// When the machine was last deployed
     // pub deployed: Option<DateTime<Utc>>,
+    pub hw_sku: Option<String>,
+    pub hw_sku_status: Option<SkuStatus>,
+    pub sku_validation_health_report: Option<HealthReport>,
 }
 
 impl Machine {
@@ -842,6 +853,8 @@ impl From<Machine> for rpc::forge::Machine {
                     .unwrap_or_default(),
             ),
             instance_network_restrictions,
+            hw_sku: machine.hw_sku,
+            hw_sku_status: machine.hw_sku_status.map(|s| s.into()),
         }
     }
 }
@@ -930,6 +943,10 @@ pub enum ManagedHostState {
 
     PostAssignedMeasuring {
         measuring_state: MeasuringState,
+    },
+
+    BomValidating {
+        bom_validating_state: BomValidating,
     },
 }
 
@@ -1668,6 +1685,11 @@ impl Display for ManagedHostState {
                 write!(f, "PostAssignedMeasuring/{}", measuring_state)
             }
             ManagedHostState::Created => write!(f, "Created"),
+            ManagedHostState::BomValidating {
+                bom_validating_state,
+            } => {
+                write!(f, "BomValidating/{:?}", bom_validating_state)
+            }
         }
     }
 }
@@ -1732,6 +1754,9 @@ impl ManagedHostState {
                 format!("PostAssignedMeasuring/{}", measuring_state)
             }
             ManagedHostState::Created => "Created".to_string(),
+            ManagedHostState::BomValidating {
+                bom_validating_state,
+            } => format!("BomValidating/{:?}", bom_validating_state),
         }
     }
 }
@@ -2156,7 +2181,38 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             // is sitting there).
             MeasuringState::PendingBundle => StateSla::no_sla(),
         },
+        ManagedHostState::BomValidating {
+            bom_validating_state,
+        } => match bom_validating_state {
+            BomValidating::SkuVerificationFailed(_bom_validating_context) => StateSla::no_sla(),
+            BomValidating::WaitingForSkuAssignment(_bom_validating_context) => StateSla::no_sla(),
+            _ => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::BOM_VALIDATION),
+                time_in_state,
+            ),
+        },
     }
+}
+
+/// A context for passing information between states thoughout the BOM validation
+/// process.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BomValidatingContext {
+    // Machine validation works differently depending on how it is started.  In order
+    // to preserve that behavior BOM validation must carry that context through
+    // so that machine validation works properly.  Additionally, "None" may be
+    // used to skip machine validation.  Note that "None" is not a valid
+    // context for machine validation, but only services to skip it.
+    pub machine_validation_context: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum BomValidating {
+    MatchingSku,
+    UpdatingInventory(BomValidatingContext),
+    VerifyingSku(BomValidatingContext),
+    SkuVerificationFailed(BomValidatingContext),
+    WaitingForSkuAssignment(BomValidatingContext),
 }
 
 /// Represents the machine validation test filter

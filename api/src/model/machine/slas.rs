@@ -35,6 +35,8 @@ pub const HOST_REPROVISION: u64 = 40 * 60;
 
 pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: u64 = 30 * 60;
 
+pub const BOM_VALIDATION: u64 = 5 * 60;
+
 // ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
 // Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed
 pub const ASSIGNED: u64 = 30 * 60;

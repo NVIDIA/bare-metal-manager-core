@@ -17,6 +17,7 @@ use std::{
 
 use crate::model::{
     hardware_info::{HardwareInfo, NetworkInterface, TpmEkCertificate},
+    machine::ManagedHostState,
     site_explorer::{
         Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
         EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
@@ -42,6 +43,7 @@ pub struct ManagedHostConfig {
     pub tpm_ek_cert: TpmEkCertificate,
     pub dpus: Vec<DpuConfig>,
     pub non_dpu_macs: Vec<MacAddress>,
+    pub expected_state: ManagedHostState,
 }
 
 #[derive(Debug)]
@@ -60,6 +62,13 @@ impl ManagedHostConfig {
     pub fn with_dpus(dpus: Vec<DpuConfig>) -> Self {
         Self {
             dpus,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_expected_state(expected_state: ManagedHostState) -> Self {
+        Self {
+            expected_state,
             ..Default::default()
         }
     }
@@ -94,6 +103,7 @@ impl Default for ManagedHostConfig {
             tpm_ek_cert: TpmEkCertificate::from(random_cert),
             dpus: vec![DpuConfig::default()],
             non_dpu_macs: vec![mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL.allocate()],
+            expected_state: ManagedHostState::Ready,
         }
     }
 }

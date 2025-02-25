@@ -411,6 +411,7 @@ pub async fn start_api(
                 .upload_limiter(upload_limiter.clone())
                 .machine_validation_config(carbide_config.machine_validation_config)
                 .common_pools(common_pools.clone())
+                .bom_validation(carbide_config.bom_validation)
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

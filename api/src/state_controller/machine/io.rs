@@ -232,6 +232,21 @@ impl StateControllerIO for MachineStateControllerIO {
                 "postassignedmeasuring",
                 measuring_state_name(measuring_state),
             ),
+            ManagedHostState::BomValidating {
+                bom_validating_state,
+            } => match bom_validating_state {
+                machine::BomValidating::MatchingSku => ("bomvalidating", "matchingsku"),
+                machine::BomValidating::UpdatingInventory(_) => {
+                    ("bomvalidating", "updatinginventory")
+                }
+                machine::BomValidating::VerifyingSku(_) => ("bomvalidating", "verifyingsku"),
+                machine::BomValidating::SkuVerificationFailed(_) => {
+                    ("bomvalidating", "skuverificationfailed")
+                }
+                machine::BomValidating::WaitingForSkuAssignment(_) => {
+                    ("bomvalidating", "waitingforskuassignment")
+                }
+            },
         }
     }
 
