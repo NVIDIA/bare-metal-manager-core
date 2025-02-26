@@ -1,10 +1,7 @@
-use std::str::FromStr;
-
 use ::rpc::forge::SkuList;
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Row, Table};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use uuid::Uuid;
 
 use crate::cfg::cli_options::Sku;
 use crate::rpc;
@@ -243,9 +240,7 @@ pub async fn handle_sku_command(
     match sku_command {
         Sku::Show(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
-                let uuid = Uuid::from_str(&sku_id)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-                let skus = rpc::get_skus_by_ids(api_config, &[uuid.into()]).await?;
+                let skus = rpc::get_skus_by_ids(api_config, &[sku_id]).await?;
                 if let Some(sku) = skus.skus.into_iter().next() {
                     show_sku_details(output, output_format, sku)?;
                 }
