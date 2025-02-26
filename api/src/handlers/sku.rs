@@ -32,9 +32,7 @@ pub(crate) async fn create(
 
     for sku in sku_list.skus {
         let sku: Sku = sku.into();
-        crate::db::sku::create(&mut txn, &sku)
-            .await
-            .map_err(CarbideError::from)?;
+        crate::db::sku::create(&mut txn, &sku).await?;
         sku_ids.ids.push(sku.id);
     }
 
@@ -308,7 +306,7 @@ pub(crate) async fn get_all_ids(
         .map_err(CarbideError::from)?;
 
     Ok(Response::new(::rpc::forge::SkuIdList {
-        ids: sku_ids.into_iter().map(std::convert::Into::into).collect(),
+        ids: sku_ids.into_iter().collect(),
     }))
 }
 

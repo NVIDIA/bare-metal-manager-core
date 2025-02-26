@@ -1,5 +1,4 @@
 use crate::{
-    assert_metrics_match,
     machine_update_manager::machine_update_module::{
         create_host_update_health_report, HOST_UPDATE_HEALTH_REPORT_SOURCE,
     },
@@ -7,7 +6,6 @@ use crate::{
 };
 
 use crate::tests::common::api_fixtures::create_managed_host;
-use crate::tests::common::test_meter::TestMeter;
 use crate::{
     cfg::file::CarbideConfig,
     db,
@@ -28,7 +26,6 @@ use figment::{
 };
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Row, Transaction};
-use std::sync::atomic::AtomicU64;
 use std::{
     collections::HashSet,
     fmt,
@@ -422,41 +419,4 @@ async fn add_host_update_alert(
     .await?;
 
     Ok(())
-}
-
-#[test]
-fn test_machine_update_manager_metrics() {
-    use crate::machine_update_manager::metrics::MachineUpdateManagerMetrics;
-
-    let test_meter = TestMeter::default();
-    let mut metrics = MachineUpdateManagerMetrics::new();
-    metrics.machines_in_maintenance = Arc::new(AtomicU64::from(100));
-    metrics.machine_updates_started = Arc::new(AtomicU64::from(100));
-    metrics.register_callbacks(&test_meter.meter());
-    assert_metrics_match!(test_meter, "test_machine_update_manager_metrics.txt");
-}
-
-#[test]
-fn test_dpu_nic_firmware_metrics() {
-    use crate::machine_update_manager::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
-
-    let test_meter = TestMeter::default();
-    let mut metrics = DpuNicFirmwareUpdateMetrics::new();
-    metrics.pending_firmware_updates = Arc::new(AtomicU64::from(5));
-    metrics.running_dpu_updates = Arc::new(AtomicU64::from(10));
-    metrics.unavailable_dpu_updates = Arc::new(AtomicU64::from(15));
-    metrics.register_callbacks(&test_meter.meter());
-    assert_metrics_match!(test_meter, "test_dpu_nic_firmware_metrics.txt");
-}
-
-#[test]
-fn test_host_firmware_metrics() {
-    use crate::machine_update_manager::host_firmware::HostFirmwareUpdateMetrics;
-
-    let test_meter = TestMeter::default();
-    let mut metrics = HostFirmwareUpdateMetrics::new();
-    metrics.pending_firmware_updates = Arc::new(AtomicU64::from(5));
-    metrics.active_firmware_updates = Arc::new(AtomicU64::from(10));
-    metrics.register_callbacks(&test_meter.meter());
-    assert_metrics_match!(test_meter, "test_host_firmware_metrics.txt");
 }

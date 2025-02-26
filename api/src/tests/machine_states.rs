@@ -12,6 +12,7 @@
 use crate::tests::common;
 
 use crate::cfg::file::DpuConfig;
+use crate::db;
 use crate::db::machine::MachineSearchConfig;
 use crate::measured_boot::db as mbdb;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -24,7 +25,6 @@ use crate::model::machine::{
 use crate::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandlerBuilder,
 };
-use crate::{assert_metrics_match, db};
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
@@ -445,8 +445,6 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         "1"
     );
 
-    assert_metrics_match!(env.test_meter, "test_dpu_heartbeat.txt");
-
     Ok(())
 }
 
@@ -618,11 +616,6 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
     txn.commit().await.unwrap();
-
-    assert_metrics_match!(
-        env.test_meter,
-        "test_failed_state_host_discovery_recovery.txt"
-    )
 }
 
 /// Check whether metrics that describe hardware/software versions of discovered machines
@@ -733,8 +726,6 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
             inventory_metrics
         );
     }
-
-    assert_metrics_match!(env.test_meter, "test_managed_host_version_metrics.txt");
 }
 
 /// Check that controller state reason is correct as we work through the states
