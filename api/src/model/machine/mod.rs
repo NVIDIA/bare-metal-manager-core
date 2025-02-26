@@ -719,7 +719,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.clone().map(Into::into)
+        self.hardware_info.clone().map(|info| {
+            MachineCapabilitiesSet::from_hardware_info(
+                info,
+                self.infiniband_status_observation.as_ref(),
+            )
+        })
     }
 }
 

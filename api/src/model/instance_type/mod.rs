@@ -706,6 +706,7 @@ mod tests {
                 name: "connectx7".to_string(),
                 vendor: Some("nvidia".to_string()),
                 count: 1,
+                inactive_devices: Vec::new(),
             }],
             dpu: vec![capabilities::MachineCapabilityDpu {
                 name: "bluefield3".to_string(),
