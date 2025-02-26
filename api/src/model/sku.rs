@@ -90,8 +90,8 @@ impl From<SkuComponents> for rpc::forge::SkuComponents {
                 .into_iter()
                 .map(std::convert::Into::into)
                 .collect(),
-            ethernet_adapters: Vec::default(),
-            infiniband_adapters: Vec::default(),
+            ethernet_devices: Vec::default(),
+            infiniband_devices: Vec::default(),
             storage: Vec::default(),
             memory: value
                 .memory

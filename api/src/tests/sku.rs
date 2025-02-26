@@ -43,8 +43,8 @@ pub mod tests {
               "total_memory": "46068 MiB"
             }
           ],
-          "ethernet_adapters": [],
-          "infiniband_adapters": [],
+          "ethernet_devices": [],
+          "infiniband_devices": [],
           "storage": [],
           "memory": [
             {
@@ -85,8 +85,8 @@ pub mod tests {
         "count": 1
       }
     ],
-    "ethernet_adapters": [],
-    "infiniband_adapters": [],
+    "ethernet_devices": [],
+    "infiniband_devices": [],
     "storage": [],
     "memory": [
       {

@@ -473,11 +473,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
-            "SkuComponentInfinibandInterfaces",
+            "SkuComponentInfinibandDevices",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
-            "SkuComponentEthernetInterfaces",
+            "SkuComponentEthernetDevices",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
