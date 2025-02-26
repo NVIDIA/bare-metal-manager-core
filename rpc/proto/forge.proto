@@ -4235,8 +4235,17 @@ message SkuComponentEthernetInterfaces {
 message SkuComponentInfinibandInterfaces {
   string vendor = 1;
   string model = 2;
-  bool is_connected = 3;
-  uint32 count = 4;
+  // The total amount of InfiniBand devices of the given
+  // vendor and model combination
+  uint32 count = 3;
+  // The indexes of InfiniBand Devices which are not active and thereby can
+  // not be utilized by Instances.
+  // Inactive devices are devices where for example there is no connection
+  // between the port and the InfiniBand switch.
+  // Example: A `{count: 4, inactive_devices: [1,3]}` means that the devices
+  // with index `0` and `2` of the Host can be utilized, and devices with index
+  // `1` and `3` can not be used.
+  repeated uint32 inactive_devices = 4;
 }
 
 message SkuComponentStorage {
