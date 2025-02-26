@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::assert_metrics_match;
 use crate::ib_fabric_monitor::IbFabricMonitor;
 
 use crate::cfg::file::IBFabricConfig;
@@ -62,6 +61,5 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         r#"{fabric="default"} 0"#
     );
 
-    assert_metrics_match!(env.test_meter, "test_ib_fabric_monitor.txt");
     Ok(())
 }

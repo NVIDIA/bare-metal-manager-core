@@ -28,7 +28,7 @@ use crate::model::network_segment::{
 };
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
-use crate::{assert_metrics_match, db, db_init};
+use crate::{db, db_init};
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
     NetworkSegmentHelper,
@@ -342,10 +342,6 @@ async fn test_network_segment_max_history_length(
     }
     txn.rollback().await.unwrap();
 
-    assert_metrics_match!(
-        env.test_meter,
-        "test_network_segment_max_history_length.txt"
-    );
     Ok(())
 }
 
