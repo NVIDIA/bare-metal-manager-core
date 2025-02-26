@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{model::machine::HardwareInfo, CarbideError};
 
+use super::infiniband::MachineInfinibandStatusObservation;
+
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();
     static ref NVME_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(NO_MODEL|LOGICAL_VOLUME)").unwrap();
@@ -222,6 +224,14 @@ pub struct MachineCapabilityInfiniband {
     pub name: String,
     pub count: u32,
     pub vendor: Option<String>,
+    /// The indexes of InfiniBand Devices which are not active and thereby can
+    /// not be utilized by Instances.
+    /// Inactive devices are devices where for example there is no connection
+    /// between the port and the InfiniBand switch.
+    /// Example: A `{count: 4, inactive_devices: [1,3]}` means that the devices
+    /// with index `0` and `2` of the Host can be utilized, and devices with index
+    /// `1` and `3` can not be used.
+    pub inactive_devices: Vec<u32>,
 }
 
 impl From<MachineCapabilityInfiniband> for rpc::MachineCapabilityAttributesInfiniband {
@@ -230,6 +240,7 @@ impl From<MachineCapabilityInfiniband> for rpc::MachineCapabilityAttributesInfin
             name: cap.name,
             vendor: cap.vendor,
             count: cap.count,
+            inactive_devices: cap.inactive_devices,
         }
     }
 }
@@ -273,22 +284,6 @@ pub struct MachineCapabilitiesSet {
     pub dpu: Vec<MachineCapabilityDpu>,
 }
 
-impl MachineCapabilitiesSet {
-    /// The arrays in each property of a capability set are not guaranteed to
-    /// to have deterministic ordering, which is probably fine for most cases.
-    /// When deterministic ordering is required, this function can be used to
-    /// sorts the vectors found in each property of the capability set.
-    pub fn sort(&mut self) {
-        self.cpu.sort();
-        self.gpu.sort();
-        self.storage.sort();
-        self.memory.sort();
-        self.infiniband.sort();
-        self.network.sort();
-        self.dpu.sort();
-    }
-}
-
 impl From<MachineCapabilitiesSet> for rpc::MachineCapabilitiesSet {
     fn from(cap_set: MachineCapabilitiesSet) -> Self {
         rpc::MachineCapabilitiesSet {
@@ -307,8 +302,25 @@ impl From<MachineCapabilitiesSet> for rpc::MachineCapabilitiesSet {
     }
 }
 
-impl From<HardwareInfo> for MachineCapabilitiesSet {
-    fn from(hardware_info: HardwareInfo) -> Self {
+impl MachineCapabilitiesSet {
+    /// The arrays in each property of a capability set are not guaranteed to
+    /// to have deterministic ordering, which is probably fine for most cases.
+    /// When deterministic ordering is required, this function can be used to
+    /// sorts the vectors found in each property of the capability set.
+    pub fn sort(&mut self) {
+        self.cpu.sort();
+        self.gpu.sort();
+        self.storage.sort();
+        self.memory.sort();
+        self.infiniband.sort();
+        self.network.sort();
+        self.dpu.sort();
+    }
+
+    pub fn from_hardware_info(
+        hardware_info: HardwareInfo,
+        ib_status: Option<&MachineInfinibandStatusObservation>,
+    ) -> Self {
         //
         //  Process CPU data
         //
@@ -511,6 +523,13 @@ impl From<HardwareInfo> for MachineCapabilitiesSet {
         // Process infiniband data
         //
 
+        // IB interfaces get sorted by PCI Slot ID so that the inactive device
+        // indices can be derived correctly
+        let mut sorted_ib_interfaces = hardware_info.infiniband_interfaces.clone();
+        sorted_ib_interfaces.sort_by_key(|x| match &x.pci_properties {
+            Some(pci_properties) => pci_properties.slot.clone().unwrap_or_default(),
+            None => "".to_owned(),
+        });
         let mut infiniband_interface_map = HashMap::<String, MachineCapabilityInfiniband>::new();
 
         for infiniband_interface_info in hardware_info.infiniband_interfaces.into_iter() {
@@ -527,21 +546,30 @@ impl From<HardwareInfo> for MachineCapabilitiesSet {
                 Some(n) => n,
             };
 
-            match infiniband_interface_map.get_mut(&interface_name) {
-                None => {
-                    infiniband_interface_map.insert(
-                        interface_name.clone(),
-                        MachineCapabilityInfiniband {
-                            name: interface_name.clone(),
-                            count: 1,
-                            vendor: Some(pci_properties.vendor),
-                        },
-                    );
-                }
-                Some(network_interface_cap) => {
-                    network_interface_cap.count += 1;
-                }
-            };
+            // Check if the we have an observation for this device on UFM
+            let is_active = ib_status
+                .as_ref()
+                .and_then(|ib_status| {
+                    ib_status
+                        .ib_interfaces
+                        .iter()
+                        .find(|iface| iface.guid == infiniband_interface_info.guid)
+                })
+                .map(|port_status| port_status.lid != 0xffff_u16)
+                .unwrap_or_default();
+
+            let cap = infiniband_interface_map
+                .entry(interface_name.clone())
+                .or_insert_with(|| MachineCapabilityInfiniband {
+                    name: interface_name,
+                    count: 0,
+                    vendor: Some(pci_properties.vendor.clone()),
+                    inactive_devices: Vec::new(),
+                });
+            cap.count += 1;
+            if !is_active {
+                cap.inactive_devices.push(cap.count - 1);
+            }
         }
 
         //
@@ -588,7 +616,9 @@ impl From<HardwareInfo> for MachineCapabilitiesSet {
 mod tests {
     use ::rpc::forge as rpc;
 
-    use crate::model::hardware_info::*;
+    use crate::model::{
+        hardware_info::*, machine::infiniband::MachineIbInterfaceStatusObservation,
+    };
 
     use super::*;
 
@@ -718,15 +748,17 @@ mod tests {
     #[test]
     fn test_model_infiniband_capability_to_rpc_conversion() {
         let req_type = rpc::MachineCapabilityAttributesInfiniband {
-            name: "Spinning Disk".to_string(),
-            count: 1,
-            vendor: Some("western digital".to_string()),
+            name: "IB NIC".to_string(),
+            count: 4,
+            vendor: Some("IB NIC Vendor".to_string()),
+            inactive_devices: vec![0, 2],
         };
 
         let machine_cap = MachineCapabilityInfiniband {
-            name: "Spinning Disk".to_string(),
-            count: 1,
-            vendor: Some("western digital".to_string()),
+            name: "IB NIC".to_string(),
+            count: 4,
+            vendor: Some("IB NIC Vendor".to_string()),
+            inactive_devices: vec![0, 2],
         };
 
         assert_eq!(
@@ -804,6 +836,7 @@ mod tests {
                 name: "infiniband".to_string(),
                 count: 1,
                 vendor: Some("mellanox".to_string()),
+                inactive_devices: Vec::new(),
             }],
             dpu: vec![rpc::MachineCapabilityAttributesDpu {
                 name: "bf3".to_string(),
@@ -859,6 +892,7 @@ mod tests {
                 name: "infiniband".to_string(),
                 count: 1,
                 vendor: Some("mellanox".to_string()),
+                inactive_devices: Vec::new(),
             }],
             dpu: vec![MachineCapabilityDpu {
                 name: "bf3".to_string(),
@@ -945,11 +979,13 @@ mod tests {
                     name: "MT27800 Family [ConnectX-5]".to_string(),
                     count: 2,
                     vendor: Some("0x15b3".to_string()),
+                    inactive_devices: vec![0, 1],
                 },
                 MachineCapabilityInfiniband {
                     name: "MT2910 Family [ConnectX-7]".to_string(),
                     count: 4,
                     vendor: Some("0x15b3".to_string()),
+                    inactive_devices: vec![0, 1, 2, 3],
                 },
             ],
             dpu: vec![],
@@ -960,12 +996,125 @@ mod tests {
 
         machine_cap.sort();
 
-        let mut compare_cap = MachineCapabilitiesSet::from(
+        let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
+            None,
         );
 
         compare_cap.sort();
 
         assert_eq!(machine_cap, compare_cap);
+    }
+
+    #[test]
+    fn test_model_infinityband_capability_fully_connected() {
+        let mut expected_ib_caps = vec![
+            MachineCapabilityInfiniband {
+                name: "MT27800 Family [ConnectX-5]".to_string(),
+                count: 2,
+                vendor: Some("0x15b3".to_string()),
+                inactive_devices: vec![],
+            },
+            MachineCapabilityInfiniband {
+                name: "MT2910 Family [ConnectX-7]".to_string(),
+                count: 4,
+                vendor: Some("0x15b3".to_string()),
+                inactive_devices: vec![],
+            },
+        ];
+        expected_ib_caps.sort();
+
+        let ib_status = MachineInfinibandStatusObservation {
+            ib_interfaces: vec![
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac100".to_string(),
+                    lid: 1,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac101".to_string(),
+                    lid: 2,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac102".to_string(),
+                    lid: 3,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac103".to_string(),
+                    lid: 4,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac752".to_string(),
+                    lid: 5,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac753".to_string(),
+                    lid: 6,
+                },
+            ],
+            observed_at: chrono::Utc::now(),
+        };
+
+        let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
+            serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
+            Some(&ib_status),
+        );
+
+        compare_cap.sort();
+
+        assert_eq!(expected_ib_caps, compare_cap.infiniband);
+    }
+
+    #[test]
+    fn test_model_infinityband_capability_partially_connected() {
+        let mut expected_ib_caps = vec![
+            MachineCapabilityInfiniband {
+                name: "MT27800 Family [ConnectX-5]".to_string(),
+                count: 2,
+                vendor: Some("0x15b3".to_string()),
+                inactive_devices: vec![1],
+            },
+            MachineCapabilityInfiniband {
+                name: "MT2910 Family [ConnectX-7]".to_string(),
+                count: 4,
+                vendor: Some("0x15b3".to_string()),
+                inactive_devices: vec![0, 2],
+            },
+        ];
+        expected_ib_caps.sort();
+
+        let ib_status = MachineInfinibandStatusObservation {
+            ib_interfaces: vec![
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac100".to_string(),
+                    lid: 0xffff_u16,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac101".to_string(),
+                    lid: 1,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac103".to_string(),
+                    lid: 4,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac752".to_string(),
+                    lid: 5,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac753".to_string(),
+                    lid: 0xffff_u16,
+                },
+            ],
+            observed_at: chrono::Utc::now(),
+        };
+
+        let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
+            serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
+            Some(&ib_status),
+        );
+
+        compare_cap.sort();
+
+        assert_eq!(expected_ib_caps, compare_cap.infiniband);
     }
 }
