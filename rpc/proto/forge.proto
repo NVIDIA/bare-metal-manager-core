@@ -4225,14 +4225,14 @@ message SkuComponentGpu {
   string total_memory = 4;
 }
 
-message SkuComponentEthernetInterfaces {
+message SkuComponentEthernetDevices {
   string vendor = 1;
   string model = 2;
   bool is_connected = 3;
   uint32 count = 4;
 }
 
-message SkuComponentInfinibandInterfaces {
+message SkuComponentInfinibandDevices {
   string vendor = 1;
   string model = 2;
   // The total amount of InfiniBand devices of the given
@@ -4278,8 +4278,8 @@ message SkuComponents {
   SkuComponentChassis chassis = 1;
   repeated SkuComponentCpu cpus = 2;
   repeated SkuComponentGpu gpus = 3;
-  repeated SkuComponentEthernetInterfaces ethernet_adapters = 4;
-  repeated SkuComponentInfinibandInterfaces infiniband_adapters = 5;
+  repeated SkuComponentEthernetDevices ethernet_devices = 4;
+  repeated SkuComponentInfinibandDevices infiniband_devices = 5;
   repeated SkuComponentStorage storage = 6;
   repeated SkuComponentMemory memory = 7;
   repeated SkuComponentTpm tpm = 8;
