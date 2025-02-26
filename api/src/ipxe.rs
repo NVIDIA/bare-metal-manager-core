@@ -235,6 +235,14 @@ exit ||
                     },
                 ..
             }
+            | ManagedHostState::Failed {
+                details:
+                    FailureDetails {
+                        cause: FailureCause::MachineValidation { .. },
+                        ..
+                    },
+                ..
+            }
             | ManagedHostState::WaitingForCleanup { .. } => Self::get_pxe_instruction_for_arch(
                 arch,
                 interface_id,
