@@ -269,10 +269,14 @@ pub enum PreingestionState {
         task_id: String,
         final_version: String,
         upgrade_type: FirmwareComponentType,
+        power_drains_needed: Option<u32>,
     },
     ResetForNewFirmware {
         final_version: String,
         upgrade_type: FirmwareComponentType,
+        power_drains_needed: Option<u32>,
+        delay_until: Option<i64>,
+        last_power_drain_operation: Option<PowerDrainState>,
     },
     NewFirmwareReportedWait {
         final_version: String,
@@ -282,6 +286,14 @@ pub enum PreingestionState {
         reason: String,
     },
     Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerDrainState {
+    Off,
+    Powercycle,
+    On,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

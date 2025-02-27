@@ -32,15 +32,12 @@ use crate::{
     },
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
-    model::site_explorer::{ExploredEndpoint, PreingestionState},
+    model::site_explorer::{ExploredEndpoint, PowerDrainState, PreingestionState},
     redfish::{RedfishClientCreationError, RedfishClientPool},
-    CarbideError,
+    CarbideError, CarbideResult,
 };
 
 const NOT_FOUND: u16 = 404;
-
-/// DatabaseResult is a mirror of CarbideResult, but we should only be bubbling up an error if it was a database error and we need to reconnect.
-type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
@@ -128,7 +125,7 @@ impl PreingestionManager {
 
     /// run_single_iteration runs a single iteration of the state machine across all explored endpoints in the preingestion state.
     /// Returns true if we stopped early due to a timeout.
-    pub async fn run_single_iteration(&self) -> DatabaseResult<()> {
+    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
 
         let mut txn = self
@@ -241,7 +238,7 @@ struct EndpointResult {
 async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: ExploredEndpoint,
-) -> DatabaseResult<EndpointResult> {
+) -> CarbideResult<EndpointResult> {
     let mut txn = static_info.database_connection.begin().await.map_err(|e| {
         DatabaseError::new(
             file!(),
@@ -274,18 +271,23 @@ async fn one_endpoint(
             task_id,
             final_version,
             upgrade_type,
+            power_drains_needed,
         } => {
             static_info
-                .in_upgrade_firmware_wait(&mut txn, &endpoint, task_id, final_version, upgrade_type)
+                .in_upgrade_firmware_wait(
+                    &mut txn,
+                    &endpoint,
+                    task_id,
+                    final_version,
+                    upgrade_type,
+                    power_drains_needed,
+                )
                 .await?;
             false
         }
-        PreingestionState::ResetForNewFirmware {
-            final_version,
-            upgrade_type,
-        } => {
+        details @ PreingestionState::ResetForNewFirmware { .. } => {
             static_info
-                .in_reset_for_new_firmware(&mut txn, &endpoint, final_version, upgrade_type)
+                .in_reset_for_new_firmware(&mut txn, &endpoint, details)
                 .await?;
             false
         }
@@ -340,7 +342,7 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-    ) -> DatabaseResult<bool> {
+    ) -> CarbideResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
@@ -399,7 +401,7 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-    ) -> DatabaseResult<bool> {
+    ) -> CarbideResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
             tracing::debug!(
                 "start_firmware_uploads_or_continue {}: Waiting for explorer refresh",
@@ -521,7 +523,8 @@ impl PreingestionManagerStatic {
         task_id: &str,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
-    ) -> DatabaseResult<()> {
+        power_drains_needed: &Option<u32>,
+    ) -> CarbideResult<()> {
         let redfish_client = match self
             .redfish_client_pool
             .create_client_for_ingested_host(endpoint.address, None, txn)
@@ -563,12 +566,25 @@ impl PreingestionManagerStatic {
                             endpoint.address,
                             final_version,
                             upgrade_type,
+                            *power_drains_needed,
+                            None,
+                            None,
                             txn,
                         )
                         .await?;
                         // Can immediately process as that new state
                         return self
-                            .in_reset_for_new_firmware(txn, endpoint, final_version, upgrade_type)
+                            .in_reset_for_new_firmware(
+                                txn,
+                                endpoint,
+                                &PreingestionState::ResetForNewFirmware {
+                                    final_version: final_version.to_string(),
+                                    upgrade_type: *upgrade_type,
+                                    power_drains_needed: *power_drains_needed,
+                                    delay_until: None,
+                                    last_power_drain_operation: None,
+                                },
+                            )
                             .await;
                     }
                     Some(TaskState::Exception)
@@ -650,9 +666,35 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-        final_version: &str,
-        upgrade_type: &FirmwareComponentType,
-    ) -> DatabaseResult<()> {
+        state: &PreingestionState,
+    ) -> CarbideResult<()> {
+        let (
+            final_version,
+            upgrade_type,
+            power_drains_needed,
+            delay_until,
+            last_power_drain_operation,
+        ) = match state {
+            PreingestionState::ResetForNewFirmware {
+                final_version,
+                upgrade_type,
+                power_drains_needed,
+                delay_until,
+                last_power_drain_operation,
+            } => (
+                final_version,
+                upgrade_type,
+                power_drains_needed,
+                delay_until,
+                last_power_drain_operation,
+            ),
+            _ => {
+                return Err(CarbideError::InvalidArgument(
+                    "Wrong enum in_reset_for_new_firmware".to_string(),
+                ));
+            }
+        };
+
         let redfish_client = match self
             .redfish_client_pool
             .create_client_for_ingested_host(endpoint.address, None, txn)
@@ -672,7 +714,103 @@ impl PreingestionManagerStatic {
         // Still not reporting the new version.
         // If this is the UEFI, we need to request a reboot.  Otherwise, we just need to keep waiting.
         // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a long wait.
-        if upgrade_type.is_uefi() {
+
+        if let Some(power_drains_needed) = power_drains_needed {
+            if let Some(delay_until) = delay_until {
+                if *delay_until > chrono::Utc::now().timestamp() {
+                    tracing::info!(
+                        "Waiting after {last_power_drain_operation:?} of {}",
+                        &endpoint.address
+                    );
+                    return Ok(());
+                }
+            }
+
+            match last_power_drain_operation {
+                None | Some(PowerDrainState::On) => {
+                    // The 1000 is for unit tests; values above this will skip delays.
+                    if *power_drains_needed == 0 || *power_drains_needed == 1000 {
+                        tracing::info!("Power drains for {} done", &endpoint.address);
+                        // This path, and only this path of the match, exits the match and lets us proceed.  All others should return after updating state.
+                        need_wait = false; // We've reset multiple times already and should be reporting the new version
+                    } else {
+                        tracing::info!(
+                            "Upgrade task has completed for {} but needs {} power drain(s), initiating one",
+                            &endpoint.address,
+                            *power_drains_needed
+                        );
+                        if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                            tracing::error!("Failed to power off {}: {e}", &endpoint.address);
+                            return Ok(());
+                        }
+
+                        // Wait 60 seconds after powering off to do AC powercycle
+                        let delay = if *power_drains_needed < 1000 {
+                            time::Duration::seconds(60)
+                        } else {
+                            time::Duration::seconds(0)
+                        };
+                        DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                            endpoint.address,
+                            final_version,
+                            upgrade_type,
+                            Some(*power_drains_needed),
+                            Some(delay),
+                            Some(PowerDrainState::Off),
+                            txn,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                }
+                Some(PowerDrainState::Off) => {
+                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                    if let Err(e) = redfish_client.power(SystemPowerControl::ACPowercycle).await {
+                        tracing::error!("Failed to power cycle {}: {e}", &endpoint.address);
+                        return Ok(());
+                    }
+                    let delay = if *power_drains_needed < 1000 {
+                        time::Duration::seconds(90)
+                    } else {
+                        time::Duration::seconds(0)
+                    };
+                    DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                        endpoint.address,
+                        final_version,
+                        upgrade_type,
+                        Some(*power_drains_needed),
+                        Some(delay),
+                        Some(PowerDrainState::Powercycle),
+                        txn,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                Some(PowerDrainState::Powercycle) => {
+                    tracing::info!("Turning back on {}", &endpoint.address);
+                    if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                        tracing::error!("Failed to power on {}: {e}", &endpoint.address);
+                        return Ok(());
+                    }
+                    let delay = if *power_drains_needed < 1000 {
+                        time::Duration::seconds(5)
+                    } else {
+                        time::Duration::seconds(0)
+                    };
+                    DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
+                        endpoint.address,
+                        final_version,
+                        upgrade_type,
+                        Some(*power_drains_needed - 1),
+                        Some(delay),
+                        Some(PowerDrainState::On),
+                        txn,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+        } else if upgrade_type.is_uefi() {
             tracing::info!(
                 "Upgrade task has completed for {} but needs reboot, initiating one",
                 &endpoint.address
@@ -765,7 +903,7 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
-    ) -> DatabaseResult<()> {
+    ) -> CarbideResult<()> {
         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
             if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
@@ -979,6 +1117,7 @@ async fn initiate_update(
         task,
         &to_install.version,
         firmware_type,
+        to_install.power_drains_needed,
         txn,
     )
     .await?;

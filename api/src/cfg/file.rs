@@ -932,6 +932,7 @@ impl Default for DpuConfig {
                         url: None,
                         checksum: None,
                         install_only_specified: false,
+                        power_drains_needed: None,
                     }],
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
@@ -945,6 +946,7 @@ impl Default for DpuConfig {
                             url: None,
                             checksum: None,
                             install_only_specified: false,
+                            power_drains_needed: None,
                         }],
                     })]),
 
@@ -963,6 +965,7 @@ impl Default for DpuConfig {
                         url: None,
                         checksum: None,
                         install_only_specified: false,
+                        power_drains_needed: None,
                     }],
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
@@ -976,6 +979,7 @@ impl Default for DpuConfig {
                             url: None,
                             checksum: None,
                             install_only_specified: false,
+                            power_drains_needed: None,
                         }],
                     })]),
             })]),
@@ -1125,6 +1129,7 @@ pub struct FirmwareEntry {
     #[serde(default)]
     // If set, we will pass the firmware type to libredfish which for some platforms will install only one part of a multi-firmware package.
     pub install_only_specified: bool,
+    pub power_drains_needed: Option<u32>,
 }
 
 impl FirmwareEntry {

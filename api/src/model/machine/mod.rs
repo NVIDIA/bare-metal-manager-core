@@ -444,6 +444,7 @@ impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
             SystemPowerControl::ForceOff => Self::PowerOff,
             SystemPowerControl::GracefulRestart => Self::Reboot,
             SystemPowerControl::ForceRestart => Self::Reboot,
+            SystemPowerControl::ACPowercycle => Self::Reboot,
         }
     }
 }
@@ -1156,10 +1157,14 @@ pub enum HostReprovisionState {
         task_id: String,
         final_version: String,
         firmware_type: FirmwareComponentType,
+        power_drains_needed: Option<u32>,
     },
     ResetForNewFirmware {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        power_drains_needed: Option<u32>,
+        delay_until: Option<i64>,
+        last_power_drain_operation: Option<PowerDrainState>,
     },
     NewFirmwareReportedWait {
         final_version: String,
@@ -1169,6 +1174,14 @@ pub enum HostReprovisionState {
         firmware_type: FirmwareComponentType,
         report_time: Option<DateTime<Utc>>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerDrainState {
+    Off,
+    Powercycle,
+    On,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

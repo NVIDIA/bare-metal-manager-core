@@ -271,6 +271,9 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
         GracefulShutdown => {
             redfish.power(SystemPowerControl::GracefulShutdown).await?;
         }
+        ACPowerCycle => {
+            redfish.power(SystemPowerControl::ACPowercycle).await?;
+        }
         ThermalMetrics => {
             println!("{:?}", redfish.get_thermal_metrics().await?);
         }
