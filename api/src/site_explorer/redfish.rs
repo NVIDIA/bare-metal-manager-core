@@ -24,9 +24,9 @@ use serde_json::Value;
 
 use crate::model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
-    EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
-    ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter, NicMode, PCIeDevice,
-    PowerState, Service, SystemStatus, UefiDevicePath, DPU_BIOS_ATTRIBUTES_MISSING,
+    DPU_BIOS_ATTRIBUTES_MISSING, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+    EthernetInterface, ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter,
+    NicMode, PCIeDevice, PowerState, Service, SystemStatus, UefiDevicePath,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -343,7 +343,10 @@ async fn fetch_system(
         match client.get_base_mac_address().await {
             Ok(base_mac) => base_mac,
             Err(error) => {
-                tracing::info!("Could not use new method to retreive base mac address for DPU (serial number {:#?}): {error}", system.serial_number);
+                tracing::info!(
+                    "Could not use new method to retreive base mac address for DPU (serial number {:#?}): {error}",
+                    system.serial_number
+                );
                 None
             }
         }
@@ -384,7 +387,9 @@ async fn fetch_system(
                     } if status_code.is_server_error() => {
                         let code_str = status_code.as_str();
                         return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                            details: format!("Failed to retrieve bios attributes: HTTP {status_code} {code_str} at {url}"),
+                            details: format!(
+                                "Failed to retrieve bios attributes: HTTP {status_code} {code_str} at {url}"
+                            ),
                             response_body: Some(response_body),
                             response_code: Some(status_code.as_u16()),
                         });

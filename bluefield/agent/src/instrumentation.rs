@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::routing::get;
-use axum::Router;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
-use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tower::ServiceBuilder;
 use tracing::Span;
 

@@ -1,8 +1,8 @@
 use std::net::Ipv4Addr;
 
 use dhcproto::v4::relay::RelayInfo;
-use dhcproto::v4::{relay, Message};
-use dhcproto::{v4, Encodable, Encoder};
+use dhcproto::v4::{Message, relay};
+use dhcproto::{Encodable, Encoder, v4};
 
 pub const RELAY_IP: &str = "127.1.2.3";
 

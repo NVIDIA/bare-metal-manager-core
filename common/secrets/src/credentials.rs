@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mac_address::MacAddress;
-use rand::{seq::SliceRandom, Rng};
+use rand::{Rng, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::Mutex;

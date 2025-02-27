@@ -13,15 +13,15 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
 use crate::db::{
+    DatabaseError, ObjectColumnFilter,
     instance::Instance,
     network_security_group,
     vpc::{self, NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc},
-    DatabaseError, ObjectColumnFilter,
 };
 use crate::model::tenant::InvalidTenantOrg;
-use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{network_security_group::NetworkSecurityGroupId, vpc::VpcId};
 
@@ -122,7 +122,7 @@ pub(crate) async fn update(
 
         let vpc_id = match vpc_update_request.id {
             None => {
-                return Err(CarbideError::InvalidArgument("VPC ID is required".to_string()).into())
+                return Err(CarbideError::InvalidArgument("VPC ID is required".to_string()).into());
             }
             Some(ref i) => VpcId::try_from(i.clone()).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidVpcId(i.value.to_string()))

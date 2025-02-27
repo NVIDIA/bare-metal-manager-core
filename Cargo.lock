@@ -1978,6 +1978,7 @@ dependencies = [
  "clap",
  "dhcproto",
  "forge-tls",
+ "futures",
  "ipnetwork",
  "logfmt",
  "lru 0.13.0",

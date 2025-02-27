@@ -19,8 +19,8 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 pub use self::iface::{Filter, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions};
 pub use self::types::{IBMtu, IBRateLimit, IBServiceLevel};
 
-use crate::cfg;
 use crate::CarbideError;
+use crate::cfg;
 
 mod disable;
 mod iface;
@@ -85,12 +85,17 @@ pub fn create_ib_fabric_manager(
 ) -> Result<IBFabricManagerImpl, eyre::Report> {
     for (fabric_id, endpoints) in config.endpoints.iter() {
         if endpoints.len() != 1 {
-            return Err(eyre::eyre!("Exactly 1 endpoint can be specified for each IB fabric. Fabric \"{fabric_id}\" specifies endpoints: {}", endpoints.clone().join(",")));
+            return Err(eyre::eyre!(
+                "Exactly 1 endpoint can be specified for each IB fabric. Fabric \"{fabric_id}\" specifies endpoints: {}",
+                endpoints.clone().join(",")
+            ));
         }
 
         for ep in endpoints.iter() {
             if ep.parse::<http::Uri>().is_err() {
-                return Err(eyre::eyre!("Endpoint \"{ep}\" for fabric \"{fabric_id}\" is not a valid HTTP(S) URI. Expected format is https://1.2.3.4:443 ?"));
+                return Err(eyre::eyre!(
+                    "Endpoint \"{ep}\" for fabric \"{fabric_id}\" is not a valid HTTP(S) URI. Expected format is https://1.2.3.4:443 ?"
+                ));
             }
         }
     }

@@ -16,8 +16,8 @@ use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use super::instance::Instance;
 use super::ObjectFilter;
+use super::instance::Instance;
 use crate::db::DatabaseError;
 use crate::model::{
     metadata::Metadata,

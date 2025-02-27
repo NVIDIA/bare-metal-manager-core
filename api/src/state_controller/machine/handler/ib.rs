@@ -15,24 +15,24 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
+use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
-use crate::db::ObjectColumnFilter;
 use crate::{
     db,
-    db::ib_partition,
+    db::{ObjectColumnFilter, ib_partition},
     ib::{
-        self,
+        self, DEFAULT_IB_FABRIC_NAME,
         types::{IBNetwork, IBPortState},
-        DEFAULT_IB_FABRIC_NAME,
     },
-    model::instance::config::infiniband::InstanceIbInterfaceConfig,
-    model::machine::{
-        infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
-        ManagedHostStateSnapshot,
+    model::{
+        instance::config::infiniband::InstanceIbInterfaceConfig,
+        machine::{
+            ManagedHostStateSnapshot,
+            infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+        },
     },
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
 };
-use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
 pub(crate) async fn record_machine_infiniband_status_observation(
     services: &StateHandlerServices,

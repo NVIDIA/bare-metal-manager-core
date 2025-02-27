@@ -15,7 +15,7 @@ use std::{
     str::Utf8Error,
 };
 
-use dhcproto::v4::{relay::RelayCode, MessageType, OptionCode};
+use dhcproto::v4::{MessageType, OptionCode, relay::RelayCode};
 use thiserror::Error;
 
 #[derive(Error, Debug)]

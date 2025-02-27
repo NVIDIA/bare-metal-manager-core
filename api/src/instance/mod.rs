@@ -19,36 +19,35 @@ use itertools::Itertools;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::api::Api;
-use crate::db::vpc_prefix::VpcPrefix;
 use crate::db::ObjectColumnFilter;
+use crate::db::vpc_prefix::VpcPrefix;
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::HardwareHealthReportsConfig,
     db::{
-        self,
+        self, DatabaseError, ObjectFilter,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
         machine::MachineSearchConfig,
         managed_host::LoadSnapshotOptions,
         network_security_group,
         network_segment::NetworkSegment,
-        DatabaseError, ObjectFilter,
     },
     dhcp::allocation::DhcpError,
     model::{
+        ConfigValidationError,
         instance::config::{
+            InstanceConfig,
             infiniband::InstanceInfinibandConfig,
             network::{InstanceNetworkConfig, InterfaceFunctionId},
-            InstanceConfig,
         },
-        machine::{machine_id::try_parse_machine_id, ManagedHostStateSnapshot},
+        machine::{ManagedHostStateSnapshot, machine_id::try_parse_machine_id},
         metadata::Metadata,
         tenant::TenantOrganizationId,
-        ConfigValidationError,
     },
-    CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
@@ -354,18 +353,19 @@ pub async fn allocate_instance(
         tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
         return Err(match e {
             NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-            "Could not create instance on machine {} given machine state {:?}",
-            machine_id,
-            s
-        )),
-            NotAllocatableReason::PendingInstanceCreation => CarbideError::InvalidArgument(format!(
-            "Could not create instance on machine {}. Machine is already used by another Instance creation request.",
-            machine_id,
-        )),
-            NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
-                "Machine {machine_id} has no DPU. Cannot allocate."
+                "Could not create instance on machine {} given machine state {:?}",
+                machine_id, s
             )),
-            NotAllocatableReason::MaintenanceMode  => CarbideError::MaintenanceMode,
+            NotAllocatableReason::PendingInstanceCreation => {
+                CarbideError::InvalidArgument(format!(
+                    "Could not create instance on machine {}. Machine is already used by another Instance creation request.",
+                    machine_id,
+                ))
+            }
+            NotAllocatableReason::NoDpuSnapshots => {
+                CarbideError::internal(format!("Machine {machine_id} has no DPU. Cannot allocate."))
+            }
+            NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
             NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
         });
     }

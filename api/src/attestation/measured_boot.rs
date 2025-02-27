@@ -22,8 +22,8 @@ use temp_dir::TempDir;
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::machine::MeasuringState;
-use crate::state_controller::machine::handle_measuring_state;
 use crate::state_controller::machine::MeasuringOutcome;
+use crate::state_controller::machine::handle_measuring_state;
 use forge_uuid::machine::MachineId;
 
 use x509_parser::certificate::X509Certificate;
@@ -40,8 +40,8 @@ use tss_esapi::traits::UnMarshall;
 use num_bigint_dig::BigUint;
 
 use pkcs1::LineEnding;
-use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::RsaPublicKey;
+use rsa::pkcs1::EncodeRsaPublicKey;
 use sha2::Digest;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -177,8 +177,9 @@ pub fn cli_make_cred(
             "Could not join cred_out_path".to_string(),
         ))?;
 
-    let cmd_str =
-        format!("tpm2 makecredential -u {ek_file_path_str} -s {session_key_path_str} -n {ak_name_hex} -o {cred_out_path_str} -G rsa -V --tcti=none");
+    let cmd_str = format!(
+        "tpm2 makecredential -u {ek_file_path_str} -s {session_key_path_str} -n {ak_name_hex} -o {cred_out_path_str} -G rsa -V --tcti=none"
+    );
 
     tracing::debug!("make credential command is {}", cmd_str);
     // execute the makecredential command
@@ -224,7 +225,7 @@ pub fn verify_signature(
         _ => {
             return Err(CarbideError::AttestQuoteError(
                 "AK Pub is not an RSA key".to_string(),
-            ))
+            ));
         }
     };
 
@@ -241,7 +242,7 @@ pub fn verify_signature(
         _ => {
             return Err(CarbideError::AttestQuoteError(
                 "unknown signature type".to_string(),
-            ))
+            ));
         }
     };
 
@@ -261,7 +262,7 @@ pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult
         _other => {
             return Err(CarbideError::AttestQuoteError(
                 "Incorrect Attestation Type".into(),
-            ))
+            ));
         }
     };
 
@@ -363,7 +364,7 @@ pub fn do_compare_pub_key_against_cert(
         _rest => {
             return Err(CarbideError::AttestBindKeyError(
                 "TPM EK is not in RSA format".to_string(),
-            ))
+            ));
         }
     };
 

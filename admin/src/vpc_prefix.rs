@@ -19,6 +19,7 @@ use serde::Serialize;
 
 use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::with_forge_client;
+use CarbideCliError::GenericError;
 use forge_uuid::vpc::VpcPrefixId;
 use rpc::forge::{
     PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
@@ -27,7 +28,6 @@ use rpc::forge::{
 use rpc::forge_tls_client::{ApiConfig, ForgeClientT};
 use utils::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
-use CarbideCliError::GenericError;
 
 pub async fn handle_show(
     args: VpcPrefixShow,

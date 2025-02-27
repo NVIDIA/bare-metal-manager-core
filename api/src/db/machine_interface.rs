@@ -30,7 +30,7 @@ use crate::db::predicted_machine_interface::PredictedMachineInterface;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineInterfaceSnapshot;
-use crate::{db, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db};
 use forge_uuid::machine::MachineId;
 use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
@@ -337,11 +337,11 @@ pub async fn validate_existing_mac_and_create(
                 Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
                 Some(ifc) => Err(CarbideError::internal(format!(
                     "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
-                    mac.mac_address,
-                    mac.segment_id,
-                    ifc.id,
+                    mac.mac_address, mac.segment_id, ifc.id,
                 ))),
-                None => Err(CarbideError::internal(format!("No network segment defined for relay address: {relay}"))),
+                None => Err(CarbideError::internal(format!(
+                    "No network segment defined for relay address: {relay}"
+                ))),
             }
         }
         _ => {
@@ -408,11 +408,11 @@ pub async fn create(
     for (_, maybe_address) in addresses_allocator {
         let address = maybe_address?;
         if address.prefix() != prefix_length {
-            return Err(
-                CarbideError::internal(
-                    format!(
-                        "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
-                        prefix_length, address.prefix())));
+            return Err(CarbideError::internal(format!(
+                "received allocated address candidate with mismatched prefix length (expected: {}, got: {}",
+                prefix_length,
+                address.prefix()
+            )));
         }
         allocated_addresses.push(address.ip());
         if hostname.is_empty() && address.is_ipv4() {

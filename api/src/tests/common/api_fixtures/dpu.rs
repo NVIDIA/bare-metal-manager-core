@@ -19,7 +19,7 @@ use std::{
 
 use super::site_explorer;
 use crate::tests::common::{
-    api_fixtures::{managed_host::ManagedHostConfig, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS},
+    api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, managed_host::ManagedHostConfig},
     mac_address_pool,
 };
 use crate::{
@@ -39,8 +39,8 @@ use forge_uuid::machine::MachineId;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use rpc::{
-    forge::{forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
+    forge::{DhcpDiscovery, forge_server::Forge},
 };
 use tonic::Request;
 
@@ -142,26 +142,28 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     http_dev1_interface: None,
                     is_infinite_boot_enabled: None,
                 },
-                pcie_devices: vec![PCIeDevice {
-                    odata: OData {
-                        odata_id: "odata_id".to_string(),
-                        odata_type: "odata_type".to_string(),
-                        odata_etag: None,
-                        odata_context: None,
-                    },
-                    description: None,
-                    firmware_version: None,
-                    id: None,
-                    manufacturer: None,
-                    gpu_vendor: None,
-                    name: None,
-                    part_number: Some("900-9D3B6-00CV-AA0".to_string()),
-                    serial_number: Some(value.serial.clone()),
-                    status: None,
-                    slot: None,
-                    pcie_functions: None,
-                }
-                .into()],
+                pcie_devices: vec![
+                    PCIeDevice {
+                        odata: OData {
+                            odata_id: "odata_id".to_string(),
+                            odata_type: "odata_type".to_string(),
+                            odata_etag: None,
+                            odata_context: None,
+                        },
+                        description: None,
+                        firmware_version: None,
+                        id: None,
+                        manufacturer: None,
+                        gpu_vendor: None,
+                        name: None,
+                        part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                        serial_number: Some(value.serial.clone()),
+                        status: None,
+                        slot: None,
+                        pcie_functions: None,
+                    }
+                    .into(),
+                ],
                 base_mac: Some(value.host_mac_address.to_string().replace(':', "")),
                 power_state: PowerState::On,
                 sku: None,

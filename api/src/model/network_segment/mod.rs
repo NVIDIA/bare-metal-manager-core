@@ -127,7 +127,10 @@ mod tests {
             },
         };
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"deleting\",\"deletion_state\":{\"state\":\"drainallocatedips\",\"delete_at\":\"2022-12-13T04:41:38Z\"}}");
+        assert_eq!(
+            serialized,
+            "{\"state\":\"deleting\",\"deletion_state\":{\"state\":\"drainallocatedips\",\"delete_at\":\"2022-12-13T04:41:38Z\"}}"
+        );
         assert_eq!(
             serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
             state

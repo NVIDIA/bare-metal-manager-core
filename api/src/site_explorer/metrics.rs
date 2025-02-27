@@ -19,8 +19,8 @@ use crate::metrics_utils::SharedMetricsHolder;
 use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use forge_uuid::machine::MachineType;
 use opentelemetry::{
-    metrics::{Histogram, Meter},
     KeyValue,
+    metrics::{Histogram, Meter},
 };
 
 /// Metrics that are gathered in one site exploration run
@@ -242,7 +242,7 @@ impl SiteExplorerInstruments {
                 .with_description("The total number of machines in a preingestion state by expectation and machine type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for ((ref expected, machine_type), &count) in metrics
+                        for ((expected, machine_type), &count) in metrics
                             .endpoint_explorations_preingestions_incomplete_overall_count
                             .iter()
                         {
@@ -294,7 +294,7 @@ impl SiteExplorerInstruments {
                 .with_description("The total number of machines explored by machine type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for ((ref expected, machine_type), &count) in metrics
+                        for ((expected, machine_type), &count) in metrics
                             .endpoint_explorations_machines_explored_overall_count
                             .iter()
                         {
@@ -327,7 +327,7 @@ impl SiteExplorerInstruments {
                 .with_description("The total number of managed hosts identified by expectation")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for (ref expected, &count) in metrics
+                        for (expected, &count) in metrics
                             .endpoint_explorations_identified_managed_hosts_overall_count
                             .iter()
                         {

@@ -15,11 +15,11 @@ use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::{
-    db::{
-        address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
-        DatabaseError,
-    },
     CarbideError, CarbideResult,
+    db::{
+        DatabaseError, address_selection_strategy::AddressSelectionStrategy,
+        network_segment::NetworkSegment,
+    },
 };
 use forge_uuid::instance::InstanceId;
 
@@ -56,7 +56,9 @@ pub enum DhcpError {
     #[error("Invalid circuit id received for instance id: {0}, circuit_id: {1}")]
     InvalidCircuitId(InstanceId, String),
 
-    #[error("DHCP request received for invalid or non-configured interface for instance id: {0}, circuit_id: {1}")]
+    #[error(
+        "DHCP request received for invalid or non-configured interface for instance id: {0}, circuit_id: {1}"
+    )]
     InvalidInterface(InstanceId, String),
 
     #[error("Prefix: {0} has exhausted all address space")]

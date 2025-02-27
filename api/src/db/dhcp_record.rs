@@ -17,14 +17,14 @@ use forge_uuid::{
 };
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 use std::net::IpAddr;
 
 use crate::{
+    CarbideError, CarbideResult,
     db::DatabaseError,
     dhcp::allocation::DhcpError,
     model::instance::{config::network::InterfaceFunctionId, snapshot::InstanceSnapshot},
-    CarbideError, CarbideResult,
 };
 
 ///

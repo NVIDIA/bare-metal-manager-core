@@ -15,7 +15,7 @@ use std::{
 use tokio::{
     net::UdpSocket,
     select,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 use uuid::Uuid;
 

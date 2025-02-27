@@ -11,7 +11,7 @@
  */
 
 use std::{
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
 
@@ -20,9 +20,9 @@ use config_version::ConfigVersion;
 use eyre::Context;
 use tracing::{error, trace};
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::Instance;
 use ::rpc::Uuid as uuid;
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use rpc::MachineId;
 
 use crate::util::{create_forge_client, get_instance};

@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::model::{metadata::Metadata, tenant::Tenant, ConfigValidationError};
-use crate::CarbideError;
+use crate::model::{ConfigValidationError, metadata::Metadata, tenant::Tenant};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
 fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<Metadata, Status> {

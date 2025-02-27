@@ -43,9 +43,11 @@ fn test_test_meter() {
         test_meter.formatted_metrics("c_seconds_count"),
         vec!["1".to_string()]
     );
-    assert!(test_meter
-        .formatted_metrics("c_seconds_bucket")
-        .contains(&"{le=\"100\"} 1".to_string()));
+    assert!(
+        test_meter
+            .formatted_metrics("c_seconds_bucket")
+            .contains(&"{le=\"100\"} 1".to_string())
+    );
 
     assert_eq!(
         test_meter.parsed_metrics("a_total"),

@@ -1,11 +1,11 @@
 use dhcp::mock_api_server;
-use dhcproto::{v4, Decodable, Decoder};
+use dhcproto::{Decodable, Decoder, v4};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 

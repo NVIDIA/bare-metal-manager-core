@@ -9,13 +9,13 @@ use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 
 use crate::{
+    CarbideError, CarbideResult,
     api::Api,
     db::{
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         network_segment::NewNetworkSegment,
     },
     handlers::network_segment::{allocate_vlan_id, allocate_vni},
-    CarbideError, CarbideResult,
 };
 
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.

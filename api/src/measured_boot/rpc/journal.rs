@@ -22,13 +22,13 @@ use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementJournalId;
 use rpc::protos::measured_boot::{
-    list_measurement_journal_request, show_measurement_journal_request, MeasurementJournalRecordPb,
-};
-use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, ShowMeasurementJournalRequest,
     ShowMeasurementJournalResponse, ShowMeasurementJournalsRequest,
     ShowMeasurementJournalsResponse,
+};
+use rpc::protos::measured_boot::{
+    MeasurementJournalRecordPb, list_measurement_journal_request, show_measurement_journal_request,
 };
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;

@@ -15,8 +15,8 @@ use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
 use tracing::info;
-use tss_esapi::handles::KeyHandle;
 use tss_esapi::Context;
+use tss_esapi::handles::KeyHandle;
 
 use crate::CarbideClientError;
 

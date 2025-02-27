@@ -10,22 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 use crate::{
-    api::{log_machine_id, log_request_data, Api},
+    CarbideError,
+    api::{Api, log_machine_id, log_request_data},
     db,
     db::{
+        DatabaseError,
         machine::MachineSearchConfig,
         machine_validation::{
             MachineValidation, MachineValidationResult, MachineValidationState,
             MachineValidationStatus,
         },
         machine_validation_config::MachineValidationExternalConfig,
-        machine_validation_suites, DatabaseError,
+        machine_validation_suites,
     },
     model::machine::{
-        machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
-        MachineState, MachineValidationFilter, ManagedHostState,
+        FailureCause, FailureDetails, FailureSource, MachineState, MachineValidationFilter,
+        ManagedHostState, machine_id::try_parse_machine_id,
     },
-    CarbideError,
 };
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
@@ -516,7 +517,11 @@ pub(crate) async fn on_demand_machine_validation(
                     ))
                 }
                 _ => {
-                    let msg = format!("On demand machine validation requires the machine to be in the {} state.  It is currently in state: {}", ManagedHostState::Ready, machine.current_state());
+                    let msg = format!(
+                        "On demand machine validation requires the machine to be in the {} state.  It is currently in state: {}",
+                        ManagedHostState::Ready,
+                        machine.current_state()
+                    );
                     tracing::warn!(msg);
                     Err(Status::invalid_argument(msg))
                 }

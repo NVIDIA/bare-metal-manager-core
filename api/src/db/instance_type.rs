@@ -13,15 +13,15 @@ use std::{collections::HashMap, ops::DerefMut};
 
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
-use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
 
 use crate::{
+    CarbideError,
     db::DatabaseError,
     model::{
         instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter},
         metadata::Metadata,
     },
-    CarbideError,
 };
 
 impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {

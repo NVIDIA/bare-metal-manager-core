@@ -13,8 +13,8 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use tracing::{field, span, Event, Id, Subscriber};
-use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
+use tracing::{Event, Id, Subscriber, field, span};
+use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 // Returns `Filter` that prevents logs with a level below `WARN` for sqlx
 // We use this solely for stdout and OpenTelemetry logging.

@@ -11,8 +11,8 @@
  */
 
 use crate::tests::common::api_fixtures::{
-    create_test_env_with_overrides, network_segment::create_network_segment, vpc::create_vpc,
-    TestEnvOverrides,
+    TestEnvOverrides, create_test_env_with_overrides, network_segment::create_network_segment,
+    vpc::create_vpc,
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;

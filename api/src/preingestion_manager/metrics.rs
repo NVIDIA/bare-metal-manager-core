@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::metrics_utils::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
+
+use crate::metrics_utils::SharedMetricsHolder;
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {
@@ -96,12 +97,13 @@ impl MetricHolder {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, time::Duration};
+
     use super::*;
-    use crate::preingestion_manager::metrics::PreingestionMetrics;
-    use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
-    use crate::tests::common::test_meter::TestMeter;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use crate::{
+        preingestion_manager::metrics::PreingestionMetrics,
+        tests::common::{prometheus_text_parser::ParsedPrometheusMetrics, test_meter::TestMeter},
+    };
 
     #[test]
     fn test_metrics_collector() {

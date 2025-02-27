@@ -6,7 +6,7 @@ use std::{
 };
 
 use ipnetwork::Ipv4Network;
-use rpc::{forge::ManagedHostNetworkConfigResponse, InterfaceFunctionType};
+use rpc::{InterfaceFunctionType, forge::ManagedHostNetworkConfigResponse};
 use serde::{Deserialize, Serialize};
 
 /// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to

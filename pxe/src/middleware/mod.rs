@@ -12,7 +12,7 @@
 use std::str::FromStr;
 
 use axum::{
-    http::{uri::PathAndQuery, Request, Uri},
+    http::{Request, Uri, uri::PathAndQuery},
     response::Response,
 };
 
@@ -44,7 +44,7 @@ pub async fn fix_content_length_header<B>(mut response: Response<B>) -> Response
 
 #[cfg(test)]
 mod test {
-    use axum::{body::Body, http::StatusCode, Router};
+    use axum::{Router, body::Body, http::StatusCode};
     use std::fs::File;
     use std::io::Write;
     use tempfile::TempDir;

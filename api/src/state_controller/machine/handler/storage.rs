@@ -11,18 +11,20 @@
  */
 
 use chrono::Utc;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 
-use crate::storage::{attach_volume_to_client, detach_volume_from_client};
 use crate::{
     db::instance::Instance,
-    model::instance::{
-        config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
-        status::storage::InstanceStorageStatusObservation,
+    model::{
+        instance::{
+            config::storage::InstanceStorageConfig, snapshot::InstanceSnapshot,
+            status::storage::InstanceStorageStatusObservation,
+        },
+        storage::StorageCluster,
     },
-    model::storage::StorageCluster,
     state_controller::state_handler::{StateHandlerError, StateHandlerServices},
+    storage::{attach_volume_to_client, detach_volume_from_client},
 };
-use forge_uuid::{instance::InstanceId, machine::MachineId};
 
 pub(crate) async fn attach_storage_volumes(
     services: &StateHandlerServices,

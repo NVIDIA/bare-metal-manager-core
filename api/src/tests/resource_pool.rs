@@ -14,9 +14,9 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use crate::resource_pool::common::VPC_VNI;
 use crate::resource_pool::ResourcePoolStats as St;
-use crate::resource_pool::{all, DbResourcePool, OwnerType, ResourcePoolError, ValueType};
+use crate::resource_pool::common::VPC_VNI;
+use crate::resource_pool::{DbResourcePool, OwnerType, ResourcePoolError, ValueType, all};
 use crate::tests;
 use crate::tests::common;
 use common::api_fixtures::create_test_env;

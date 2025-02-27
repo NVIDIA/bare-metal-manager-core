@@ -16,10 +16,10 @@ use std::str::FromStr;
 use ::rpc::forge as rpc;
 use tonic::Status;
 
-use crate::api::{log_request_data, Api};
-use crate::db::route_servers::RouteServer;
-use crate::db::DatabaseError;
 use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::db::DatabaseError;
+use crate::db::route_servers::RouteServer;
 
 pub(crate) async fn get(
     api: &Api,

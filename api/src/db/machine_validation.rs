@@ -12,14 +12,14 @@
 use std::{fmt::Display, ops::DerefMut, str::FromStr};
 
 use chrono::{DateTime, Utc};
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::{
-    db, db::DatabaseError, model::machine::MachineValidationFilter, CarbideError, CarbideResult,
+    CarbideError, CarbideResult, db, db::DatabaseError, model::machine::MachineValidationFilter,
 };
 
-use super::{machine::MachineSearchConfig, machine_validation_suites, ObjectFilter};
+use super::{ObjectFilter, machine::MachineSearchConfig, machine_validation_suites};
 
 use forge_uuid::machine::MachineId;
 
@@ -181,8 +181,7 @@ impl MachineValidation {
         total: i32,
         duration_to_complete: i64,
     ) -> CarbideResult<()> {
-        let query =
-            "UPDATE machine_validation SET duration_to_complete=$2,total=$3  WHERE id=$1 RETURNING *";
+        let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3  WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(duration_to_complete)

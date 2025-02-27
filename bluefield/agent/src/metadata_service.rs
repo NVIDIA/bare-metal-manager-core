@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use crate::instance_metadata_endpoint::{get_fmds_router, InstanceMetadataRouterStateImpl};
+use crate::instance_metadata_endpoint::{InstanceMetadataRouterStateImpl, get_fmds_router};
 use crate::instrumentation::{
-    get_metrics_router, get_prometheus_registry, AgentMetricsState, WithTracingLayer,
+    AgentMetricsState, WithTracingLayer, get_metrics_router, get_prometheus_registry,
 };
 
 pub fn spawn_metadata_service(

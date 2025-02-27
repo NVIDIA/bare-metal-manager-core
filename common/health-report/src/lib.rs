@@ -577,9 +577,10 @@ mod tests {
             "ProbeA2"
         );
         assert!(!r1.has_classification(&HealthAlertClassification("NotFound".to_string())));
-        assert!(r1
-            .find_alert_by_classification(&HealthAlertClassification("NotFound".to_string()))
-            .is_none());
+        assert!(
+            r1.find_alert_by_classification(&HealthAlertClassification("NotFound".to_string()))
+                .is_none()
+        );
     }
 
     #[test]

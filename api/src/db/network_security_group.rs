@@ -15,9 +15,10 @@ use config_version::ConfigVersion;
 use forge_uuid::{
     instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
-use sqlx::{postgres::PgRow, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
 
 use crate::{
+    CarbideError,
     db::DatabaseError,
     model::{
         metadata::Metadata,
@@ -27,7 +28,6 @@ use crate::{
         },
         tenant::TenantOrganizationId,
     },
-    CarbideError,
 };
 
 impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroupAttachments {

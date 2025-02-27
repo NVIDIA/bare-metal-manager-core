@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Cell, Row, Table};
+use prettytable::{Cell, Row, Table, row};
 
 use crate::{cfg::cli_options::Version, rpc};
 use utils::admin_cli::{CarbideCliError, OutputFormat};
@@ -46,9 +46,9 @@ pub async fn handle_show_version(
 
     // Same as running `carbide-api --version`
     println!(
-                "carbide-api:\n\tbuild_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
-                v.build_version, v.build_date, v.git_sha, v.rust_version, v.build_user, v.build_hostname,
-            );
+        "carbide-api:\n\tbuild_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
+        v.build_version, v.build_date, v.git_sha, v.rust_version, v.build_user, v.build_hostname,
+    );
     // Same as running `forge-admin-cli --version`
     println!();
     println!("forge-admin-cli:\n\t {}", forge_version::version!());

@@ -15,17 +15,17 @@ use std::collections::HashMap;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{
-    api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
+    api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     cfg::file::IBFabricConfig,
     db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
-        types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel},
         IBFabricManagerConfig, IBFabricManagerType,
+        types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel},
     },
 };
 use forge_uuid::infiniband::IBPartitionId;
-use rpc::forge::{forge_server::Forge, TenantState};
+use rpc::forge::{TenantState, forge_server::Forge};
 use tonic::Request;
 
 const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";

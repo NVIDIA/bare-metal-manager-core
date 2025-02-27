@@ -21,7 +21,7 @@ pub struct KeaLogger;
 const KEA_DEBUGLEVEL_DEBUG: c_int = 10;
 const KEA_DEBUGLEVEL_TRACE: c_int = 99;
 
-extern "C" {
+unsafe extern "C" {
     fn kea_log_is_debug_enabled(debuglevel: c_int) -> bool;
     fn kea_log_is_info_enabled() -> bool;
     fn kea_log_is_warn_enabled() -> bool;

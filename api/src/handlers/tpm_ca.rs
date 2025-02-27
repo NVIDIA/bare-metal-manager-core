@@ -17,7 +17,7 @@ use tonic::{Request, Response};
 
 use crate::attestation as attest;
 use crate::db::attestation as db_attest;
-use crate::{api::log_request_data, db::DatabaseError, CarbideError};
+use crate::{CarbideError, api::log_request_data, db::DatabaseError};
 use ::rpc::common as rpc_common;
 use ::rpc::forge as rpc;
 
@@ -56,7 +56,7 @@ pub(crate) async fn tpm_add_ca_cert(
             return Err(CarbideError::internal(
                 "CA Cert not returned on successful insertion".to_string(),
             )
-            .into())
+            .into());
         }
     };
 

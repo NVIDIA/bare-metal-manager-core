@@ -16,17 +16,19 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 
 use crate::{
-    db::{instance_address::InstanceAddress, DatabaseError},
+    CarbideError, CarbideResult,
+    db::{DatabaseError, instance_address::InstanceAddress},
     model::{
         instance::{
             config::{
-                infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-                storage::InstanceStorageConfig, tenant_config::TenantConfig, InstanceConfig,
+                InstanceConfig, infiniband::InstanceInfinibandConfig,
+                network::InstanceNetworkConfig, storage::InstanceStorageConfig,
+                tenant_config::TenantConfig,
             },
             snapshot::InstanceSnapshot,
             status::{
-                network::InstanceNetworkStatusObservation,
-                storage::InstanceStorageStatusObservation, InstanceStatusObservations,
+                InstanceStatusObservations, network::InstanceNetworkStatusObservation,
+                storage::InstanceStorageStatusObservation,
             },
         },
         metadata::Metadata,
@@ -34,7 +36,6 @@ use crate::{
         storage::StorageVolume,
         tenant::TenantOrganizationId,
     },
-    CarbideError, CarbideResult,
 };
 
 use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
@@ -46,7 +47,7 @@ use forge_uuid::{
     network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -383,8 +384,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         boot_with_custom_ipxe: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2 RETURNING machine_id";
+        let query = "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2 RETURNING machine_id";
         // Fetch one to make sure atleast one row is updated.
         let _: (MachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
@@ -630,7 +630,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
                         line!(),
                         "instance update_storage_config",
                         sqlx::Error::ColumnNotFound("volume must exist".to_string()),
-                    ))
+                    ));
                 }
             };
             // update the volume in the db, associate this instance and dpu to it
@@ -679,8 +679,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             )
         })?;
 
-        let query =
-            "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
+        let query = "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
         let (_,): (InstanceId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
@@ -710,8 +709,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             )
         })?;
 
-        let query =
-            "UPDATE instances SET storage_status_observation=$1::json where id = $2::uuid returning id";
+        let query = "UPDATE instances SET storage_status_observation=$1::json where id = $2::uuid returning id";
         let (_,): (uuid::Uuid,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)

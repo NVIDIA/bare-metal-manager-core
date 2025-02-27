@@ -15,22 +15,22 @@ use std::ops::DerefMut;
 
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction, query_as};
 
+use super::{DatabaseError, ObjectColumnFilter, network_segment};
 use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
 };
-use super::{network_segment, DatabaseError, ObjectColumnFilter};
 
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
+use crate::model::ConfigValidationError;
 use crate::model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
 };
 use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::model::ConfigValidationError;
 use crate::{CarbideError, CarbideResult};
 use forge_network::virtualization::get_host_ip;
 use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
@@ -451,7 +451,9 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
             .collect::<Vec<_>>();
 
         if host_interfaces_in_instance_segment.len() > 1 {
-            tracing::error!("Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config.");
+            tracing::error!(
+                "Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config."
+            );
             return Err(CarbideError::FindOneReturnedManyResultsError(
                 self.network_segment_id.map(|a| a.0).unwrap_or_default(),
             ));

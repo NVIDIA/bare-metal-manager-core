@@ -21,12 +21,12 @@ use forge_uuid::network_security_group::{
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
+    ConfigValidationError,
     instance::config::{
         infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         storage::InstanceStorageConfig, tenant_config::TenantConfig,
     },
     os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
-    ConfigValidationError,
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -79,7 +79,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                     None => {
                         return Err(RpcDataConversionError::MissingArgument(
                             "InstanceConfig::os or InstanceConfig::tenant",
-                        ))
+                        ));
                     }
                 }
             }

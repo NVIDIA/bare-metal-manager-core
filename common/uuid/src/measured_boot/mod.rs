@@ -24,8 +24,8 @@
  *  mad because it cant bind it as a UUID.
 */
 
-use crate::machine::MachineId;
 use crate::DbPrimaryUuid;
+use crate::machine::MachineId;
 use ::rpc::errors::RpcDataConversionError;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};

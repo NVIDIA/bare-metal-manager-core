@@ -14,10 +14,10 @@
  * gRPC handlers for measured boot mock-machine related API calls.
  */
 
+use crate::CarbideError;
 use crate::measured_boot::db;
 use crate::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;

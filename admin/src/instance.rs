@@ -13,7 +13,7 @@ use std::fmt::Write;
 
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowInstance;
 use super::{default_uuid, invalid_machine_id, rpc};

@@ -37,7 +37,7 @@ use forge_uuid::measured_boot::{
 };
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::journal::MeasurementJournal;
-use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue, PcrSet};
+use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 use measured_boot::records::{
     MeasurementApprovedType, MeasurementBundleState, MeasurementMachineState,
     MeasurementReportRecord, MeasurementReportValueRecord,

@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use opentelemetry::metrics::Meter;
 use opentelemetry::KeyValue;
+use opentelemetry::metrics::Meter;
 
 use crate::resource_pool::ResourcePoolStats;
 

@@ -55,7 +55,7 @@ use crate::model::metadata::Metadata;
 use crate::model::sku::SkuStatus;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
-use crate::{resource_pool, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, resource_pool};
 
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug, Copy, Clone)]
@@ -370,9 +370,9 @@ pub async fn get_or_create(
         let machine_id = interface.machine_id.as_ref().unwrap();
         if machine_id != stable_machine_id {
             return Err(CarbideError::internal(format!(
-                    "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
-                    machine_id, interface.id,
-                    stable_machine_id)));
+                "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
+                machine_id, interface.id, stable_machine_id
+            )));
         }
 
         if existing_machine.is_none() {
@@ -2035,7 +2035,7 @@ pub async fn update_sku_status(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=$1 WHERE id=$2 RETURNING id";
 
-    sqlx::query_as(query)
+    let _: () = sqlx::query_as(query)
         .bind(sqlx::types::Json(sku_status))
         .bind(machine_id)
         .fetch_one(&mut **txn)

@@ -11,14 +11,14 @@
  */
 
 use std::ops::Deref;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-use crate::{tls, CarbideDhcpContext, CarbideDhcpMetrics, CONFIG};
+use crate::{CONFIG, CarbideDhcpContext, CarbideDhcpMetrics, tls};
 
-use ::metrics_endpoint::{new_metrics_setup, run_metrics_endpoint, MetricsEndpointConfig};
+use ::metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use metrics_endpoint::MetricsSetup;
 use opentelemetry::KeyValue;
 

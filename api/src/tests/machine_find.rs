@@ -15,10 +15,10 @@ use std::net::IpAddr;
 use crate::model::hardware_info::HardwareInfo;
 use crate::{
     db,
-    db::{machine::MachineSearchConfig, ObjectFilter},
+    db::{ObjectFilter, machine::MachineSearchConfig},
     model::machine::machine_id::{host_id_from_dpu_hardware_info, try_parse_machine_id},
 };
-use forge_uuid::machine::{MachineId, MACHINE_ID_PREFIX_LENGTH};
+use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sha2::{Digest, Sha256};
@@ -33,7 +33,7 @@ use common::{
     },
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
-use rpc::forge::{forge_server::Forge, MachinesByIdsRequest};
+use rpc::forge::{MachinesByIdsRequest, forge_server::Forge};
 
 #[crate::sqlx_test]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
@@ -58,10 +58,12 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
         None => panic!("Not expected"),
     }
     let id2: MachineId = new_id.parse().unwrap();
-    assert!(db::machine::find_by_query(&mut txn, &id2.to_string())
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        db::machine::find_by_query(&mut txn, &id2.to_string())
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[crate::sqlx_test]
@@ -88,10 +90,12 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 
     // We shouldn't find a machine that doesn't exist
     let ip2: IpAddr = "254.254.254.254".parse().unwrap();
-    assert!(db::machine::find_by_query(&mut txn, &ip2.to_string())
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        db::machine::find_by_query(&mut txn, &ip2.to_string())
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[crate::sqlx_test]
@@ -127,10 +131,12 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let mut mac2 = mac.bytes();
     mac2[5] = 0xFF;
     let mac2 = MacAddress::from(mac2);
-    assert!(db::machine::find_by_query(&mut txn, &mac2.to_string())
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        db::machine::find_by_query(&mut txn, &mac2.to_string())
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[crate::sqlx_test]
@@ -163,10 +169,12 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 
     // We shouldn't find a machine that doesn't exist
     let hostname2 = format!("a{}", hostname);
-    assert!(db::machine::find_by_query(&mut txn, &hostname2)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        db::machine::find_by_query(&mut txn, &hostname2)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[crate::sqlx_test]

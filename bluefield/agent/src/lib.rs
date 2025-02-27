@@ -14,9 +14,9 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
+use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
-use ::rpc::DiscoveryInfo;
 pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;

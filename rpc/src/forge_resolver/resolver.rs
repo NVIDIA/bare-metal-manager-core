@@ -1,7 +1,7 @@
 use crate::forge_resolver::read_resolv_conf;
 use eyre::Report;
-use hickory_resolver::config::{NameServerConfigGroup, ResolverOpts};
 use hickory_resolver::Name;
+use hickory_resolver::config::{NameServerConfigGroup, ResolverOpts};
 use std::io;
 use std::net::IpAddr;
 use std::path::Path;

@@ -5,7 +5,7 @@ use ::rpc::{
     forge_tls_client::ApiConfig,
     site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport},
 };
-use prettytable::{format, row, Cell, Row, Table};
+use prettytable::{Cell, Row, Table, format, row};
 
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 

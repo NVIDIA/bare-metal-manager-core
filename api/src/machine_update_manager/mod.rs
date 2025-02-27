@@ -16,7 +16,7 @@ pub mod machine_update_module;
 pub mod metrics;
 
 use host_firmware::HostFirmwareUpdate;
-use machine_update_module::{machine_updates_in_progress, HOST_UPDATE_HEALTH_REPORT_SOURCE};
+use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, machine_updates_in_progress};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::atomic::Ordering;
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -28,14 +28,14 @@ use self::{
     metrics::MachineUpdateManagerMetrics,
 };
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::CarbideConfig,
     db,
     db::{
+        DatabaseError, ObjectFilter,
         dpu_machine_update::DpuMachineUpdate,
         machine::{MachineSearchConfig, MaintenanceMode},
-        DatabaseError, ObjectFilter,
     },
-    CarbideError, CarbideResult,
 };
 use forge_uuid::machine::MachineId;
 

@@ -64,16 +64,15 @@ use crate::handlers::machine_validation::{
     remove_machine_validation_external_config, update_machine_validation_run,
     update_machine_validation_test,
 };
-use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
+use crate::ib::{DEFAULT_IB_FABRIC_NAME, IBFabricManager};
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
 use crate::model::machine::machine_id::{
     from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
 };
 use crate::model::machine::{
-    get_action_for_dpu_state, BomValidating, DpuInitState, DpuInitStates, FailureCause,
-    FailureDetails, FailureSource, Machine, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState,
+    BomValidating, DpuInitState, DpuInitStates, FailureCause, FailureDetails, FailureSource,
+    Machine, ManagedHostState, ManagedHostStateSnapshot, MeasuringState, get_action_for_dpu_state,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::tenant::Tenant;
@@ -83,23 +82,21 @@ use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::storage::NvmeshClientPool;
 use crate::{
-    auth,
+    CarbideError, CarbideResult, auth,
     db::{
-        self,
+        self, DatabaseError, ObjectFilter,
         explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
         machine_topology::MachineTopology,
-        DatabaseError, ObjectFilter,
     },
     ethernet_virtualization,
     model::{hardware_info::HardwareInfo, machine::MachineState},
     redfish::RedfishClientPool,
-    CarbideError, CarbideResult,
 };
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
-use utils::{HostPortPair, BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};
+use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME, HostPortPair};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -846,7 +843,9 @@ impl Forge for Api {
 
         if self.runtime_config.attestation_enabled && !hardware_info.is_dpu() {
             if let Some(attest_key_info) = attest_key_info_opt {
-                tracing::info!("It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ...");
+                tracing::info!(
+                    "It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ..."
+                );
 
                 attest_key_bind_challenge_opt = Some(
                     crate::handlers::measured_boot::create_attest_key_bind_challenge(
@@ -857,7 +856,9 @@ impl Forge for Api {
                     .await?,
                 );
             } else {
-                return Err(Status::invalid_argument("Internal Error: This should have been handled above! AttestKeyInfo is not populated."));
+                return Err(Status::invalid_argument(
+                    "Internal Error: This should have been handled above! AttestKeyInfo is not populated.",
+                ));
             }
         } else {
             tracing::info!(
@@ -1354,9 +1355,11 @@ impl Forge for Api {
         let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
             (Some(id), _) if id.value.chars().count() > 0 => match MachineInterfaceId::try_from(id)
             {
-                Ok(uuid) => vec![db::machine_interface::find_one(&mut txn, uuid)
-                    .await?
-                    .into()],
+                Ok(uuid) => vec![
+                    db::machine_interface::find_one(&mut txn, uuid)
+                        .await?
+                        .into(),
+                ],
                 Err(_) => {
                     return Err(CarbideError::internal(
                         "Could not marshall an ID from the request".to_string(),
@@ -1461,7 +1464,7 @@ impl Forge for Api {
                 return Err(CarbideError::internal(
                     "Could not marshall an ID from the request".to_string(),
                 )
-                .into())
+                .into());
             }
         };
 
@@ -1480,9 +1483,9 @@ impl Forge for Api {
                     .map_err(CarbideError::from)?;
 
             if let Some(machine_id) = machine_id {
-                return Err(Status::invalid_argument(
-                    format!("This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."),
-                ));
+                return Err(Status::invalid_argument(format!(
+                    "This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."
+                )));
             }
         }
 
@@ -2344,9 +2347,10 @@ impl Forge for Api {
         let metadata = match request.metadata {
             Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
             _ => {
-                return Err(
-                    CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
-                )
+                return Err(CarbideError::from(RpcDataConversionError::MissingArgument(
+                    "metadata",
+                ))
+                .into());
             }
         };
         metadata.validate(true).map_err(CarbideError::from)?;

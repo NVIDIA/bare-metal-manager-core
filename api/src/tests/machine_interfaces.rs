@@ -13,6 +13,7 @@
 use std::{borrow::Borrow, collections::HashSet, str::FromStr};
 
 use crate::{
+    CarbideError,
     db::{
         self,
         address_selection_strategy::AddressSelectionStrategy,
@@ -21,20 +22,19 @@ use crate::{
         network_segment::NetworkSegment,
     },
     model::machine::{
-        machine_id::{from_hardware_info, try_parse_machine_id},
         MachineInterfaceSnapshot,
+        machine_id::{from_hardware_info, try_parse_machine_id},
     },
-    CarbideError,
 };
 
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};
+use rpc::forge::{InterfaceSearchQuery, forge_server::Forge};
 
 use crate::db::ObjectColumnFilter;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
-use common::api_fixtures::{create_test_env, FIXTURE_DHCP_RELAY_ADDRESS};
+use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use tokio::sync::broadcast;
 use tonic::Code;
 

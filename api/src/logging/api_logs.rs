@@ -18,8 +18,8 @@ use std::{
 };
 
 use opentelemetry::{
-    metrics::{Histogram, Meter},
     KeyValue,
+    metrics::{Histogram, Meter},
 };
 use tracing::Instrument;
 

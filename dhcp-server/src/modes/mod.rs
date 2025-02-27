@@ -17,10 +17,10 @@ use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use crate::{
+    Config,
     cache::CacheEntry,
     errors::DhcpError,
     packet_handler::{DecodedPacket, Packet},
-    Config,
 };
 
 pub mod controller;

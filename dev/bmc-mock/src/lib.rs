@@ -17,22 +17,22 @@ use std::future::Future;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener};
 
-use axum::body::Body;
-use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use axum::ServiceExt;
+use axum::body::Body;
+use axum::http::{Request, Response, StatusCode};
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
 use libredfish::PowerState;
-use rustls::pki_types::PrivateKeyDer;
 use rustls::ServerConfig;
+use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::Item;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use tower::{Layer, Service};
 use tower_http::normalize_path::NormalizePathLayer;
@@ -46,10 +46,10 @@ mod tar_router;
 
 pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{
-    wrap_router_with_mock_machine, BmcCommand, SetSystemPowerError, SetSystemPowerResult,
+    BmcCommand, SetSystemPowerError, SetSystemPowerResult, wrap_router_with_mock_machine,
 };
 pub use redfish_expander::wrap_router_with_redfish_expander;
-pub use tar_router::{tar_router, EntryMap, TarGzOption};
+pub use tar_router::{EntryMap, TarGzOption, tar_router};
 
 static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
 
@@ -370,7 +370,9 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                     debug!("Rebooted qemu managed host...");
                 }
                 Some(exit_code) => {
-                    error!("Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}.");
+                    error!(
+                        "Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}."
+                    );
                     info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
                     info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
                 }

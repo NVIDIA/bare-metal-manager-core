@@ -23,14 +23,14 @@
 */
 
 use chrono::{DateTime, Utc};
+use forge_uuid::DbTable;
+use forge_uuid::UuidEmptyStringError;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
-use forge_uuid::DbTable;
-use forge_uuid::UuidEmptyStringError;
 use rpc::protos::measured_boot::{
     CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
@@ -46,7 +46,7 @@ use std::str::FromStr;
 use tonic::Status;
 
 #[cfg(feature = "cli")]
-use utils::admin_cli::{serde_just_print_summary, ToTable};
+use utils::admin_cli::{ToTable, serde_just_print_summary};
 
 use crate::pcr::PcrRegisterValue;
 

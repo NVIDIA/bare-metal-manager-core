@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::db::machine_boot_override::MachineBootOverride;
 use crate::CarbideError;
+use crate::db::machine_boot_override::MachineBootOverride;
 use forge_uuid::machine::MachineInterfaceId;
 
 use crate::tests::common;

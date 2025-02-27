@@ -11,7 +11,7 @@
  */
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 
 use crate::rpc;
 use utils::admin_cli::CarbideCliResult;

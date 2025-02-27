@@ -232,9 +232,11 @@ mod tests {
         rt.spawn(async move {
             let socket = Dsocket::new_ipv4_tcp().unwrap();
             let tokio_socket: TcpSocket = socket.try_into().unwrap();
-            assert!(tokio_socket
-                .bind(tokio_socket.local_addr().unwrap())
-                .is_ok());
+            assert!(
+                tokio_socket
+                    .bind(tokio_socket.local_addr().unwrap())
+                    .is_ok()
+            );
         });
     }
 

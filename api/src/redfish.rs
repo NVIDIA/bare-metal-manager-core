@@ -16,17 +16,17 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use libredfish::{
-    model::BootProgress, EnabledDisabled, Endpoint, Redfish, RedfishError, SystemPowerControl,
+    EnabledDisabled, Endpoint, Redfish, RedfishError, SystemPowerControl, model::BootProgress,
 };
 use std::net::IpAddr;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use utils::HostPortPair;
 
 use crate::{
+    CarbideError, CarbideResult,
     db::{self},
     ipmitool::IPMITool,
     model::machine::Machine,
-    CarbideError, CarbideResult,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -85,7 +85,10 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 // test_integration relies on this because it doesn't use site_explorer and thus
                 // can't inform carbide of what the BMC address is for a host. It only runs one
                 // instance of bmc_mock so it can accept requests for any host.
-                tracing::info!("BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP", target.id);
+                tracing::info!(
+                    "BMC Endpoint Information (bmc_info.ip) is missing for {}, but allow_proxy_to_unknown_host is set. Will send requests to proxy without knowing the host IP",
+                    target.id
+                );
                 self.create_client("", None, RedfishAuth::Anonymous, true)
                     .await
             } else {
@@ -183,20 +186,28 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             //
             match bios_attrs.get("Attributes") {
                 None => {
-                    tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                    tracing::warn!(
+                        "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
+                    );
                     return Ok(None);
                 }
                 Some(attrs) => match attrs.as_object() {
                     None => {
-                        tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                        tracing::warn!(
+                            "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
+                        );
                         return Ok(None);
                     }
                     Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                        tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
+                        tracing::warn!(
+                            "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
+                        );
                         return Ok(None);
                     }
                     _ => {
-                        tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
+                        tracing::info!(
+                            "BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting"
+                        );
                     }
                 },
             }
@@ -652,17 +663,17 @@ pub async fn redfish_browse(
 pub mod test_support {
     use super::*;
     use libredfish::{
+        Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
+        RedfishError, Resource, SystemPowerControl,
         model::{
+            ODataId, ODataLinks,
             secure_boot::SecureBootMode,
             sensor::GPUSensors,
             service_root::ServiceRoot,
             storage::Drives,
             task::Task,
             update_service::{ComponentType, TransferProtocolType, UpdateService},
-            ODataId, ODataLinks,
         },
-        Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
-        RedfishError, Resource, SystemPowerControl,
     };
     use mac_address::MacAddress;
     use std::path::Path;

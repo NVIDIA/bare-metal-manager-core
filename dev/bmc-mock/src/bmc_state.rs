@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rand::distr::StandardUniform;
 use rand::Rng;
+use rand::distr::StandardUniform;
 
 /// Dell Specific -- iDRAC job implementation
 /// TODO (spyda): move most of this logic to libredfish

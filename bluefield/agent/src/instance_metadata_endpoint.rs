@@ -14,14 +14,14 @@ use std::sync::Arc;
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use axum::{extract::Path, extract::State, routing::get, routing::post, Router};
+use axum::{Router, extract::Path, extract::State, routing::get, routing::post};
 use eyre::eyre;
+use governor::Quota;
+use governor::RateLimiter;
 use governor::clock;
 use governor::middleware::NoOpMiddleware;
 use governor::state::InMemoryState;
 use governor::state::NotKeyed;
-use governor::Quota;
-use governor::RateLimiter;
 use mockall::automock;
 use nonzero_ext::nonzero;
 

@@ -1815,9 +1815,7 @@ pub enum SiteExplorer {
         about = "Asks carbide-api to explore a single host in the next exploration cycle. The results will be stored."
     )]
     ReExplore(ReExploreOptions),
-    #[clap(
-        about = "Clear the last known error for the BMC in the latest site exploration report."
-    )]
+    #[clap(about = "Clear the last known error for the BMC in the latest site exploration report.")]
     ClearError(ExploreOptions),
     IsBmcInManagedHost(ExploreOptions),
     HaveCredentials(ExploreOptions),

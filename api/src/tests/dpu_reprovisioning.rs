@@ -25,9 +25,9 @@ use crate::{
 use chrono::Utc;
 use common::api_fixtures::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
+use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::MachineArchitecture;
 use sqlx::{Postgres, Transaction};
 
 use crate::tests::common;
@@ -37,8 +37,8 @@ use crate::tests::common::api_fixtures::instance::{
     create_instance, single_interface_network_config,
 };
 use crate::tests::common::api_fixtures::{
-    create_managed_host, discovery_completed, forge_agent_control, network_configured,
-    update_time_params, TestEnv,
+    TestEnv, create_managed_host, discovery_completed, forge_agent_control, network_configured,
+    update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -368,9 +368,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -404,9 +405,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig")
+    );
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -492,21 +494,22 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    assert!(env
-        .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: dpu_machine_id.to_string(),
-                }),
-                mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: true
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: Some(rpc::MachineId {
+                        id: dpu_machine_id.to_string(),
+                    }),
+                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware: true
+                },
+            ))
+            .await
+            .is_err()
+    );
 }
 
 #[crate::sqlx_test]
@@ -514,21 +517,22 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
     let env = create_test_env(pool).await;
     let (_, dpu_machine_id) = create_managed_host(&env).await;
 
-    assert!(env
-        .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: dpu_machine_id.to_string(),
-                }),
-                mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: true
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: Some(rpc::MachineId {
+                        id: dpu_machine_id.to_string(),
+                    }),
+                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware: true
+                },
+            ))
+            .await
+            .is_err()
+    );
 }
 
 #[crate::sqlx_test]
@@ -1006,9 +1010,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -1172,12 +1177,14 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(current_instance.instances[0]
-        .status
-        .as_ref()
-        .unwrap()
-        .update
-        .is_some());
+    assert!(
+        current_instance.instances[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .update
+            .is_some()
+    );
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1227,16 +1234,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
     // should be prevented from cloud itself.
 
-    assert!(env
-        .api
-        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
-            apply_updates_on_reboot: true,
-            boot_with_custom_ipxe: false,
-            operation: 0,
-        }))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+                machine_id: Some(host_machine_id.into()),
+                apply_updates_on_reboot: true,
+                boot_with_custom_ipxe: false,
+                operation: 0,
+            }))
+            .await
+            .is_err()
+    );
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
@@ -1275,9 +1283,10 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(!pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        !pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -1317,9 +1326,10 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -1355,9 +1365,11 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
+    assert!(
+        pxe.pxe_script.contains(
+            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+        )
+    );
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -1479,21 +1491,22 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    assert!(env
-        .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: dpu_machine_id.to_string(),
-                }),
-                mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: true
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: Some(rpc::MachineId {
+                        id: dpu_machine_id.to_string(),
+                    }),
+                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware: true
+                },
+            ))
+            .await
+            .is_err()
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1954,17 +1967,18 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
-    assert!(env
-        .api
-        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-            host_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            operation: 1,
-            reference: Some("no reference".to_string()),
-        }))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+                host_id: Some(rpc::MachineId {
+                    id: host_machine_id.to_string(),
+                }),
+                operation: 1,
+                reference: Some("no reference".to_string()),
+            }))
+            .await
+            .is_err()
+    );
 }
 
 #[crate::sqlx_test]
@@ -2012,21 +2026,22 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     mark_machine_for_updates(&env, &host_machine_id).await;
 
-    assert!(env
-        .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_string(),
-                }),
-                mode: Mode::Restart as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: false,
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: Some(rpc::MachineId {
+                        id: host_machine_id.to_string(),
+                    }),
+                    mode: Mode::Restart as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware: false,
+                },
+            ))
+            .await
+            .is_err()
+    );
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
@@ -2335,9 +2350,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -2685,9 +2701,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -2721,9 +2738,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig")
+    );
 
     let response = forge_agent_control(&env, dpu_rpc_id_1.clone()).await;
     assert_eq!(
@@ -2866,12 +2884,14 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(current_instance.instances[0]
-        .status
-        .as_ref()
-        .unwrap()
-        .update
-        .is_some());
+    assert!(
+        current_instance.instances[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .update
+            .is_some()
+    );
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -2921,16 +2941,17 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
     // should be prevented from cloud itself.
 
-    assert!(env
-        .api
-        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
-            apply_updates_on_reboot: true,
-            boot_with_custom_ipxe: false,
-            operation: 0,
-        }))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+                machine_id: Some(host_machine_id.into()),
+                apply_updates_on_reboot: true,
+                boot_with_custom_ipxe: false,
+                operation: 0,
+            }))
+            .await
+            .is_err()
+    );
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
@@ -3009,9 +3030,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -3047,9 +3069,11 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
+    assert!(
+        pxe.pxe_script.contains(
+            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+        )
+    );
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -3102,21 +3126,22 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     txn.rollback().await.unwrap();
 
-    assert!(env
-        .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_string(),
-                }),
-                mode: Mode::Restart as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: false,
-            },
-        ))
-        .await
-        .is_ok());
+    assert!(
+        env.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: Some(rpc::MachineId {
+                        id: host_machine_id.to_string(),
+                    }),
+                    mode: Mode::Restart as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware: false,
+                },
+            ))
+            .await
+            .is_ok()
+    );
 
     env.run_machine_state_controller_iteration().await;
 
@@ -3154,9 +3179,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(!pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        !pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -3196,9 +3222,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime"));
+    assert!(
+        pxe.pxe_script
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -3234,9 +3261,11 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(pxe
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"));
+    assert!(
+        pxe.pxe_script.contains(
+            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+        )
+    );
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(

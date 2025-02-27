@@ -17,7 +17,7 @@ use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 
-use super::credentials::{get_bmc_root_credential_key, CredentialClient};
+use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
 use crate::db::expected_machine::ExpectedMachine;
@@ -182,7 +182,7 @@ impl BmcEndpointExplorer {
                             "The expected machine credentials do not exist for {} machine {}/{} ",
                             vendor, bmc_ip_address, bmc_mac_address
                         ),
-                    })
+                    });
                 }
             }
         }

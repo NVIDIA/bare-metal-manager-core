@@ -11,8 +11,8 @@
  */
 
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
-use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkDeviceIdList;
+use rpc::forge::forge_server::Forge;
 
 #[crate::sqlx_test]
 async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {

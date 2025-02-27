@@ -16,7 +16,7 @@ use crate::db::network_segment::NetworkSegment;
 
 use crate::tests::common;
 use common::{
-    api_fixtures::{create_test_env, create_test_env_with_overrides, TestEnvOverrides},
+    api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides},
     network_segment::{create_network_segment_with_api, get_segment_state, text_history},
 };
 use forge_uuid::network::NetworkSegmentId;

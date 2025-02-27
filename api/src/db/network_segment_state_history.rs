@@ -14,7 +14,7 @@ use std::ops::DerefMut;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
 use super::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;

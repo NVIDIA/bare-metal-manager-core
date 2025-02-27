@@ -6,15 +6,15 @@ use futures_util::stream::StreamExt;
 use sqlx::{Acquire, Postgres, Transaction};
 
 use crate::{
-    db::{self, machine::MachineSearchConfig, DatabaseError},
+    CarbideError,
+    db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
         machine::capabilities::MachineCapabilityInfiniband,
         sku::{
-            diff_skus, Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
-            SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponents,
+            Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
+            SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponents, diff_skus,
         },
     },
-    CarbideError,
 };
 
 /// Find a SKU that matches the specified SKU using the same comparison that
@@ -68,7 +68,7 @@ pub async fn create(txn: &mut Transaction<'_, Postgres>, sku: &Sku) -> Result<()
     let query =
         "INSERT INTO machine_skus (id, description, components) values ($1, $2, $3) RETURNING id";
 
-    sqlx::query_as(query)
+    let _: () = sqlx::query_as(query)
         .bind(&sku.id)
         .bind(&sku.description)
         .bind(sqlx::types::Json(&sku.components))

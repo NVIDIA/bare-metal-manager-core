@@ -19,9 +19,9 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
-use crate::model::metadata::Metadata;
 use crate::CarbideError;
 use crate::CarbideResult;
+use crate::model::metadata::Metadata;
 use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
 
@@ -189,7 +189,7 @@ FROM expected_machines em
     ) -> CarbideResult<&Self> {
         let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2 WHERE bmc_mac_address=$3 RETURNING bmc_mac_address";
 
-        sqlx::query_as(query)
+        let _: () = sqlx::query_as(query)
             .bind(&bmc_username)
             .bind(&bmc_password)
             .bind(self.bmc_mac_address)
@@ -285,7 +285,7 @@ FROM expected_machines em
     ) -> CarbideResult<&Self> {
         let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7 WHERE bmc_mac_address=$8 RETURNING bmc_mac_address";
 
-        sqlx::query_as(query)
+        let _: () = sqlx::query_as(query)
             .bind(&bmc_username)
             .bind(&bmc_password)
             .bind(&serial_number)

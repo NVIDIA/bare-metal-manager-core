@@ -1,5 +1,5 @@
 use crate::logging::service_health_metrics::{
-    start_export_service_health_metrics, ServiceHealthContext,
+    ServiceHealthContext, start_export_service_health_metrics,
 };
 use crate::resource_pool::ResourcePoolStats;
 use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;

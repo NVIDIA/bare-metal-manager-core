@@ -20,7 +20,7 @@ use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use forge_secrets::forge_vault;
 use metrics_endpoint::MetricsSetup;
-use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
+use sqlx::{Pool, Postgres, migrate::MigrateDatabase};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -87,7 +87,10 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
         match sqlx::Postgres::drop_database(db_url).await {
             Ok(()) => break,
             Err(e) => {
-                eprintln!("Could not drop test database at {db_url} (will terminate all connections and retry {} more times): {e}", 10 - attempt)
+                eprintln!(
+                    "Could not drop test database at {db_url} (will terminate all connections and retry {} more times): {e}",
+                    10 - attempt
+                )
             }
         }
         let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(db_url).await?;
@@ -114,13 +117,6 @@ pub async fn start_api_server(
     bmc_proxy: Option<HostPortPair>,
     test_config: ApiServerTestConfig,
 ) -> eyre::Result<ApiServerHandle> {
-    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
-    env::set_var("IGNORE_MGMT_VRF", "true");
-    // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
-    env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
-    env::set_var("NO_DPU_CONTAINERS", "true");
-    env::set_var("NO_DPU_ARMOS_NETWORK", "true");
-
     // Destructure into vars to save typing
     let IntegrationTestEnvironment {
         carbide_api_addr,
@@ -130,6 +126,24 @@ pub async fn start_api_server(
         carbide_metrics_addr: _,
         metrics,
     } = test_env;
+
+    unsafe {
+        env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+        env::set_var("IGNORE_MGMT_VRF", "true");
+        // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
+        env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
+        env::set_var("NO_DPU_CONTAINERS", "true");
+        env::set_var("NO_DPU_ARMOS_NETWORK", "true");
+
+        // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
+        let dev_bin = root_dir.join("dev/bin");
+        if let Some(path) = env::var_os("PATH") {
+            let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+            paths.insert(0, dev_bin);
+            let new_path = env::join_paths(paths)?;
+            env::set_var("PATH", new_path);
+        }
+    }
 
     // We should setup logging here but:
     // - try_init sets a global logger and can only be called once.
@@ -141,15 +155,6 @@ pub async fn start_api_server(
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
     let bins = find_prerequisites()?;
-
-    // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
-    let dev_bin = root_dir.join("dev/bin");
-    if let Some(path) = env::var_os("PATH") {
-        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
-        paths.insert(0, dev_bin);
-        let new_path = env::join_paths(paths)?;
-        env::set_var("PATH", new_path);
-    }
 
     let m = sqlx::migrate!("../api/migrations");
 

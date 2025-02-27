@@ -716,7 +716,7 @@ impl TryFrom<rpc::forge::StorageVolume> for StorageVolume {
                 return Err(RpcDataConversionError::InvalidValue(
                     "nvmesh_uuid".to_string(),
                     "none".to_string(),
-                ))
+                ));
             }
         };
         let mut instance_id: Vec<Uuid> = Vec::new();

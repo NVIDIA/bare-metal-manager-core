@@ -12,9 +12,9 @@
 use rpc::forge::DhcpRecord;
 
 use crate::{
+    Config,
     errors::DhcpError,
     vendor_class::{MachineArchitecture, VendorClass},
-    Config,
 };
 
 pub fn u8_to_mac(data: &[u8]) -> String {

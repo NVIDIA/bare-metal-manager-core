@@ -44,7 +44,7 @@ async fn main() -> Result<(), eyre::Report> {
         Some(s) => s,
     };
     match sub_cmd {
-        Command::Run(ref config) => dns::DnsServer::run(config).await?,
+        Command::Run(config) => dns::DnsServer::run(config).await?,
     }
 
     Ok(())

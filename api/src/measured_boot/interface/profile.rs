@@ -337,8 +337,7 @@ pub async fn get_bundles_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
-    let query =
-        "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
+    let query = "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
     sqlx::query_as(query)
         .bind(profile_id)
         .fetch_all(txn.deref_mut())
@@ -387,8 +386,7 @@ pub async fn get_machines_for_profile_name(
     txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let query =
-        "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
+    let query = "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(profile_name)
         .fetch_all(txn.deref_mut())

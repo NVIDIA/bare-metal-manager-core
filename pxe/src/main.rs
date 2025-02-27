@@ -12,8 +12,8 @@
 use std::{fmt::Debug, net::SocketAddr, str::FromStr};
 
 use axum::{
-    middleware::{map_request, map_response},
     Router, ServiceExt,
+    middleware::{map_request, map_response},
 };
 use axum_template::engine::Engine;
 use clap::Parser;

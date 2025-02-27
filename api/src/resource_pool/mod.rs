@@ -13,10 +13,10 @@
 pub(crate) mod common;
 pub(crate) mod define;
 pub(crate) use crate::db::resource_pool::{
-    all, find_value, stats, DbResourcePool, OwnerType, ResourcePoolError, ResourcePoolStats,
-    ValueType,
+    DbResourcePool, OwnerType, ResourcePoolError, ResourcePoolStats, ValueType, all, find_value,
+    stats,
 };
-pub(crate) use define::{define_all_from, DefineResourcePoolError};
+pub(crate) use define::{DefineResourcePoolError, define_all_from};
 
 pub use define::ResourcePoolDef;
 

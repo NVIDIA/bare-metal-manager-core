@@ -13,7 +13,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Postgres, Transaction};
 
-use crate::{db::DatabaseError, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db::DatabaseError};
 use forge_uuid::machine::MachineId;
 
 #[derive(FromRow, Debug, sqlx::Encode)]
@@ -199,8 +199,7 @@ impl EkCertVerificationStatus {
         issuer_access_info: &str,
         machine_id: MachineId,
     ) -> CarbideResult<Option<Self>> {
-        let query =
-            "INSERT INTO ek_cert_verification_status VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
+        let query = "INSERT INTO ek_cert_verification_status VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
 
         let res = sqlx::query_as(query)
             .bind(ek_sha256)

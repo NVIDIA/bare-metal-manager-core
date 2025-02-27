@@ -18,8 +18,8 @@
 use crate::journal::MeasurementJournal;
 use crate::records::MeasurementMachineState;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use forge_uuid::UuidEmptyStringError;
+use forge_uuid::machine::MachineId;
 use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
 use serde::Serialize;
 use std::collections::HashMap;

@@ -149,10 +149,10 @@ pub async fn enrich_mac_address(
         } else {
             // This should never happen. Should we return an error here?
             tracing::info!(
-                    "{} failed to enrich the BMC Info for machine {} with a MAC: cannot cannot find a machine interface with IP address {bmc_ip_address}",
-                    caller,
-                    machine_id
-                );
+                "{} failed to enrich the BMC Info for machine {} with a MAC: cannot cannot find a machine interface with IP address {bmc_ip_address}",
+                caller,
+                machine_id
+            );
         }
     }
     Ok(())

@@ -11,13 +11,15 @@
  */
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::{create_test_env, TestEnvOverrides};
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 use crate::{
+    CarbideResult,
     cfg::file::FirmwareComponentType,
     db,
     db::{
-        explored_endpoints::DbExploredEndpoint, host_machine_update::HostMachineUpdate,
-        machine::MachineSearchConfig, machine_topology::MachineTopology, DatabaseError,
+        DatabaseError, explored_endpoints::DbExploredEndpoint,
+        host_machine_update::HostMachineUpdate, machine::MachineSearchConfig,
+        machine_topology::MachineTopology,
     },
     machine_update_manager::MachineUpdateManager,
     model::{
@@ -28,12 +30,11 @@ use crate::{
         },
     },
     preingestion_manager::PreingestionManager,
-    CarbideResult,
 };
-use common::api_fixtures::{self, create_test_env_with_overrides, get_config, TestEnv};
+use common::api_fixtures::{self, TestEnv, create_test_env_with_overrides, get_config};
 use forge_uuid::machine::MachineId;
-use rpc::forge::forge_server::Forge;
 use rpc::forge::DhcpDiscovery;
+use rpc::forge::forge_server::Forge;
 use sqlx::{Postgres, Transaction};
 use std::{
     collections::HashMap,

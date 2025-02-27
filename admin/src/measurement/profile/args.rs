@@ -23,7 +23,7 @@
  *  - `profile list machines`: List all machines for a given profile.
 */
 
-use crate::cfg::measurement::{parse_colon_pairs, KvPair};
+use crate::cfg::measurement::{KvPair, parse_colon_pairs};
 use crate::measurement::global::cmds::IdNameIdentifier;
 use clap::Parser;
 

@@ -19,8 +19,8 @@ use tonic::{Response, Status};
 
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
-    api::{log_request_data, Api},
     CarbideError,
+    api::{Api, log_request_data},
 };
 
 // Ad-hoc BMC exploration

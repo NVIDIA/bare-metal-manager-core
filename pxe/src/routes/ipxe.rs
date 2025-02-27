@@ -12,7 +12,7 @@
 
 use std::{collections::HashMap, fmt::Display};
 
-use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::ForgeClientConfig;
 

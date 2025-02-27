@@ -240,7 +240,7 @@ impl FromStr for ConfigVersion {
                 return Err(ConfigVersionParseError::DateTime(
                     secs as i64,
                     (usecs * 1000) as u32,
-                ))
+                ));
             }
         };
 

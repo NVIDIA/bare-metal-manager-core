@@ -23,7 +23,7 @@ use crate::model::machine::{
     ManagedHostState, MeasuringState,
 };
 use crate::state_controller::machine::handler::{
-    handler_host_power_control, MachineStateHandlerBuilder,
+    MachineStateHandlerBuilder, handler_host_power_control,
 };
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
@@ -36,9 +36,9 @@ use measured_boot::pcr::PcrRegisterValue;
 use crate::model::machine::{FailureCause, FailureSource};
 use crate::tests::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
 use crate::tests::common::api_fixtures::{
-    create_managed_host_with_ek, discovery_completed,
+    TestEnvOverrides, create_managed_host_with_ek, discovery_completed,
     dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
-    forge_agent_control, network_configured, update_time_params, TestEnvOverrides,
+    forge_agent_control, network_configured, update_time_params,
 };
 use chrono::Duration;
 use common::api_fixtures::{create_test_env_with_overrides, get_config};
@@ -332,13 +332,15 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .await
         .unwrap()
         .expect("expect DPU to be found");
-    assert!(dpu_machine
-        .dpu_agent_health_report
-        .as_ref()
-        .as_ref()
-        .unwrap()
-        .alerts
-        .is_empty());
+    assert!(
+        dpu_machine
+            .dpu_agent_health_report
+            .as_ref()
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
 
     // Tell state handler to mark DPU as unhealthy after 1 second
     let handler = MachineStateHandlerBuilder::builder()
@@ -440,7 +442,9 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_health_status_count{fresh=\"true\",healthy=\"false\",in_use=\"false\"}")
+            .formatted_metric(
+                "forge_hosts_health_status_count{fresh=\"true\",healthy=\"false\",in_use=\"false\"}"
+            )
             .unwrap(),
         "1"
     );

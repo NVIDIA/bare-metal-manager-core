@@ -18,7 +18,7 @@ use std::{
 use sqlx::{Postgres, Transaction};
 
 use crate::{
-    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
     model::site_explorer::{
         Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
         Inventory, PowerState, Service,

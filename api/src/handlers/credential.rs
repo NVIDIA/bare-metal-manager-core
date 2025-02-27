@@ -21,7 +21,7 @@ use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::db::DatabaseError;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
-use crate::{db, CarbideError};
+use crate::{CarbideError, db};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -46,7 +46,9 @@ pub(crate) async fn create_credential(
 
     match credential_type {
         rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-            return Err(tonic::Status::invalid_argument("Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified."));
+            return Err(tonic::Status::invalid_argument(
+                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.",
+            ));
         }
         rpc::CredentialType::SiteWideBmcRoot => {
             set_sitewide_bmc_root_credentials(api, password)

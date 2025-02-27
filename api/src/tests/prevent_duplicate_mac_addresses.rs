@@ -9,13 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::CarbideError;
 use crate::db::{
-    self, address_selection_strategy::AddressSelectionStrategy, network_segment,
-    network_segment::NetworkSegment, ObjectColumnFilter,
+    self, ObjectColumnFilter, address_selection_strategy::AddressSelectionStrategy,
+    network_segment, network_segment::NetworkSegment,
 };
 use crate::model::machine::machine_id::from_hardware_info;
 use crate::tests::common::api_fixtures::create_test_env;
-use crate::CarbideError;
 
 #[crate::sqlx_test]
 async fn prevent_duplicate_mac_addresses(

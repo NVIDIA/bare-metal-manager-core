@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::{forge::MachineType, forge_tls_client::ApiConfig, MachineId};
-use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
+use ::rpc::{InstanceList, MachineList, site_explorer::ExploredManagedHost};
+use ::rpc::{MachineId, forge::MachineType, forge_tls_client::ApiConfig};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{hash_map::RandomState, HashMap},
+    collections::{HashMap, hash_map::RandomState},
     fs,
 };
 

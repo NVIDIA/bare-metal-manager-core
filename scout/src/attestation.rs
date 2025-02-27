@@ -13,6 +13,8 @@
 use std::str::FromStr;
 
 use ::rpc::machine_discovery::TpmDescription;
+use tss_esapi::Context;
+use tss_esapi::TctiNameConf;
 use tss_esapi::abstraction::{ak, ek};
 use tss_esapi::attributes::session::SessionAttributesBuilder;
 use tss_esapi::constants::{CapabilityType, PropertyTag, SessionType};
@@ -29,8 +31,6 @@ use tss_esapi::structures::{
 };
 use tss_esapi::structures::{IdObject, SignatureScheme};
 use tss_esapi::traits::Marshall;
-use tss_esapi::Context;
-use tss_esapi::TctiNameConf;
 
 use std::process::Command;
 use std::vec::Vec;

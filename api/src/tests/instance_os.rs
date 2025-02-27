@@ -153,9 +153,15 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .await
         .expect_err("RPC call should fail with PreconditionFailed error");
     assert_eq!(status.code(), tonic::Code::FailedPrecondition);
-    assert_eq!(status.message(),
-         format!("An object of type instance was intended to be modified did not have the expected version {}", initial_config_version.version_string()),
-         "Message is {}", status.message());
+    assert_eq!(
+        status.message(),
+        format!(
+            "An object of type instance was intended to be modified did not have the expected version {}",
+            initial_config_version.version_string()
+        ),
+        "Message is {}",
+        status.message()
+    );
 
     // Using the correct current version should allow the update
     let instance = env

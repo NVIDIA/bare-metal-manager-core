@@ -21,7 +21,7 @@ use ipnetwork;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{model::metadata::Metadata, CarbideError};
+use crate::{CarbideError, model::metadata::Metadata};
 
 use super::tenant::TenantOrganizationId;
 
@@ -508,13 +508,13 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
                     (Some(_), None) | (None, Some(_)) => {
                         return Err(RpcDataConversionError::MissingArgument(
                             "src_port_start and src_port_end are mutually required",
-                        ))
+                        ));
                     }
                     (Some(s), Some(e)) if e < s => {
                         return Err(RpcDataConversionError::InvalidValue(
                             "src_port_end".to_string(),
                             "src_port_end is less than src_port_start".to_string(),
-                        ))
+                        ));
                     }
                     _ => {} // Do nothing.  All is well.
                 }
@@ -523,13 +523,13 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
                     (Some(_), None) | (None, Some(_)) => {
                         return Err(RpcDataConversionError::MissingArgument(
                             "dst_port_start and dst_port_end are mutually required",
-                        ))
+                        ));
                     }
                     (Some(s), Some(e)) if e < s => {
                         return Err(RpcDataConversionError::InvalidValue(
                             "dst_port_end".to_string(),
                             "dst_port_end is less than dst_port_start".to_string(),
-                        ))
+                        ));
                     }
                     _ => {} // Do nothing.  All is well.
                 }
@@ -589,10 +589,7 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
         // If prefix is used for src or dst, IP version must match rule ipv6 value.
         // This also implicitly ensures that src and dst are the same IP version.
         match (&converted_rule.src_net, &converted_rule.dst_net) {
-            (
-                NetworkSecurityGroupRuleNet::Prefix(ref s),
-                NetworkSecurityGroupRuleNet::Prefix(ref d),
-            ) => {
+            (NetworkSecurityGroupRuleNet::Prefix(s), NetworkSecurityGroupRuleNet::Prefix(d)) => {
                 if s.is_ipv6() != converted_rule.ipv6 {
                     return Err(RpcDataConversionError::InvalidValue(
                         "src_prefix".to_string(),
@@ -913,9 +910,9 @@ mod tests {
                 "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
                 "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
             ],
-            unpropagated_instance_ids: vec!["fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d"
-                .parse()
-                .unwrap()],
+            unpropagated_instance_ids: vec![
+                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+            ],
         };
 
         assert_eq!(

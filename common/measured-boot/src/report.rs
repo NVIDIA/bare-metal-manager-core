@@ -17,9 +17,9 @@
 
 use crate::records::MeasurementReportValueRecord;
 use chrono::Utc;
+use forge_uuid::UuidEmptyStringError;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementReportId;
-use forge_uuid::UuidEmptyStringError;
 use rpc::protos::measured_boot::MeasurementReportPb;
 use serde::Serialize;
 use std::str::FromStr;

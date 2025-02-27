@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::ShowExpectedMachineQuery;

@@ -12,10 +12,10 @@
 
 use super::machine_update_module::MachineUpdateModule;
 use crate::{
+    CarbideResult,
     cfg::file::{CarbideConfig, FirmwareConfig},
     db,
     db::{desired_firmware, host_machine_update::HostMachineUpdate},
-    CarbideResult,
 };
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;

@@ -14,23 +14,23 @@
 //! `measurement bundle` subcommand dispatcher + backing functions.
 //!
 
+use crate::measurement::MachineIdList;
 use crate::measurement::bundle::args::{
     CmdBundle, Create, Delete, List, ListMachines, Rename, SetState, Show,
 };
 use crate::measurement::global;
-use crate::measurement::global::cmds::{get_identifier, IdentifierType};
-use crate::measurement::MachineIdList;
+use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use ::rpc::forge_tls_client::ForgeClientT;
-use ::rpc::protos::measured_boot::{
-    delete_measurement_bundle_request, list_measurement_bundle_machines_request,
-    rename_measurement_bundle_request, show_measurement_bundle_request,
-    update_measurement_bundle_request,
-};
 use ::rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest,
     ListMeasurementBundleMachinesRequest, ListMeasurementBundlesRequest, MeasurementBundleStatePb,
     RenameMeasurementBundleRequest, ShowMeasurementBundleRequest, ShowMeasurementBundlesRequest,
     UpdateMeasurementBundleRequest,
+};
+use ::rpc::protos::measured_boot::{
+    delete_measurement_bundle_request, list_measurement_bundle_machines_request,
+    rename_measurement_bundle_request, show_measurement_bundle_request,
+    update_measurement_bundle_request,
 };
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementBundleId;

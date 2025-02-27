@@ -22,9 +22,9 @@ use std::{
 };
 
 use crate::tests::common::api_fixtures::network_segment::{
-    create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+    create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
 };
 use crate::tests::common::{
     api_fixtures::{
@@ -37,12 +37,11 @@ use crate::tests::common::{
 use crate::{
     api::Api,
     cfg::file::{
-        default_max_find_by_ids, CarbideConfig, DpuConfig as InitialDpuConfig, Firmware,
-        FirmwareComponent, FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig,
-        IBFabricConfig, IbFabricDefinition, IbFabricMonitorConfig,
-        IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-        StateControllerConfig,
+        CarbideConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
+        FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
+        IbFabricDefinition, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+        MachineStateControllerConfig, MeasuredBootMetricsCollectorConfig, MultiDpuConfig,
+        NetworkSegmentStateControllerConfig, StateControllerConfig, default_max_find_by_ids,
     },
     db::{
         instance_type::create as create_instance_type,
@@ -55,8 +54,8 @@ use crate::{
     model::{
         instance_type::InstanceTypeMachineCapabilityFilter,
         machine::{
-            capabilities::MachineCapabilityType, FailureDetails, MachineLastRebootRequested,
-            ManagedHostState,
+            FailureDetails, MachineLastRebootRequested, ManagedHostState,
+            capabilities::MachineCapabilityType,
         },
         metadata::Metadata,
         network_security_group,
@@ -92,7 +91,7 @@ use crate::{
     state_controller::state_handler::{
         StateHandlerContext, StateHandlerError, StateHandlerOutcome,
     },
-    storage::{test_support::NvmeshSimClient, NvmeshClientPool},
+    storage::{NvmeshClientPool, test_support::NvmeshSimClient},
 };
 use arc_swap::{ArcSwap, ArcSwapAny};
 use chrono::{DateTime, Duration, Utc};
@@ -107,14 +106,14 @@ use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use measured_boot::pcr::PcrRegisterValue;
-use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::{
-    forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
-    RemoveHealthReportOverrideRequest,
+    HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    forge_server::Forge,
 };
 use site_explorer::new_host_with_machine_validation;
-use sqlx::{postgres::PgConnectOptions, PgPool};
+use sqlx::{PgPool, postgres::PgConnectOptions};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
@@ -1482,7 +1481,7 @@ pub async fn simulate_hardware_health_report(
     host_machine_id: &MachineId,
     health_report: health_report::HealthReport,
 ) {
-    use rpc::forge::{forge_server::Forge, HardwareHealthReport};
+    use rpc::forge::{HardwareHealthReport, forge_server::Forge};
     use tonic::Request;
     let _ = env
         .api

@@ -6,6 +6,7 @@ use super::{
 use crate::db::machine_interface::find_by_mac_address;
 use crate::model::machine::{BomValidating, BomValidatingContext, MeasuringState};
 use crate::tests::common::api_fixtures::{
+    TestEnv,
     dpu::DpuConfig,
     forge_agent_control, get_machine_validation_runs,
     host::host_uefi_setup,
@@ -15,7 +16,7 @@ use crate::tests::common::api_fixtures::{
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
     },
-    persist_machine_validation_result, update_machine_validation_run, TestEnv,
+    persist_machine_validation_result, update_machine_validation_run,
 };
 use crate::{
     db,
@@ -23,9 +24,9 @@ use crate::{
     model::{
         hardware_info::HardwareInfo,
         machine::{
-            machine_id::try_parse_machine_id, DpuInitState, FailureCause, FailureDetails,
-            FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState,
-            ManagedHostState, ManagedHostStateSnapshot,
+            DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
+            LockdownState, MachineState, ManagedHostState, ManagedHostStateSnapshot,
+            machine_id::try_parse_machine_id,
         },
         site_explorer::EndpointExplorationReport,
     },
@@ -35,9 +36,9 @@ use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{
-    forge::{self, forge_server::Forge, HardwareHealthReport},
-    forge_agent_control_response::Action,
     DiscoveryData, DiscoveryInfo,
+    forge::{self, HardwareHealthReport, forge_server::Forge},
+    forge_agent_control_response::Action,
 };
 use std::str::FromStr;
 use std::{collections::HashMap, future::Future, iter, net::IpAddr};

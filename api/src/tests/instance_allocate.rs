@@ -23,18 +23,18 @@ use crate::{
         common::{
             api_fixtures,
             api_fixtures::{
+                TestEnv, TestEnvOverrides,
                 managed_host::ManagedHostConfig,
                 network_segment::{
-                    create_admin_network_segment, create_host_inband_network_segment,
-                    create_network_segment, create_tenant_network_segment,
-                    create_underlay_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
                     FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
                     FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2,
                     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
                     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
+                    create_host_inband_network_segment, create_network_segment,
+                    create_tenant_network_segment, create_underlay_network_segment,
                 },
-                TestEnv, TestEnvOverrides,
             },
             mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL,
         },
@@ -470,21 +470,25 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
         "Instance interface in segment 2 should have IP addresses assigned"
     );
 
-    assert!(interface_in_segment_1
-        .ip_addrs
-        .iter()
-        .all(
-            |(prefix_id, addr)| host_inband_segment_1.prefixes[0].prefix.contains(*addr)
-                && prefix_id.0.eq(&host_inband_segment_1.prefixes[0].id)
-        ));
+    assert!(
+        interface_in_segment_1
+            .ip_addrs
+            .iter()
+            .all(
+                |(prefix_id, addr)| host_inband_segment_1.prefixes[0].prefix.contains(*addr)
+                    && prefix_id.0.eq(&host_inband_segment_1.prefixes[0].id)
+            )
+    );
 
-    assert!(interface_in_segment_2
-        .ip_addrs
-        .iter()
-        .all(
-            |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
-                && prefix_id.0.eq(&host_inband_segment_2.prefixes[0].id)
-        ));
+    assert!(
+        interface_in_segment_2
+            .ip_addrs
+            .iter()
+            .all(
+                |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
+                    && prefix_id.0.eq(&host_inband_segment_2.prefixes[0].id)
+            )
+    );
 
     Ok(())
 }
@@ -528,7 +532,10 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
 
     match result {
         Err(e) if e.code() == tonic::Code::InvalidArgument => {}
-        _ => panic!("Creating an instance on a dpu host without specifying a network segment should throw an error, got {:?}", result),
+        _ => panic!(
+            "Creating an instance on a dpu host without specifying a network segment should throw an error, got {:?}",
+            result
+        ),
     };
 
     Ok(())
@@ -586,7 +593,10 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
 
     match result {
         Err(e) if e.code() == tonic::Code::InvalidArgument => {}
-        _ => panic!("Creating an instance on a dpu host while specifying a host_inband network segment should throw an error, got {:?}", result),
+        _ => panic!(
+            "Creating an instance on a dpu host while specifying a host_inband network segment should throw an error, got {:?}",
+            result
+        ),
     };
 
     Ok(())
@@ -670,12 +680,20 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         "Instance network segment restrictions should show both network segment ID's"
     );
     assert!(
-        instance_network_restrictions.network_segment_ids.iter().contains(&rpc::Uuid::from(host_inband_segment.id)),
-        "Machine that was just ingested should have instance network restrictions showing host_inband_segment {}", host_inband_segment.id.0,
+        instance_network_restrictions
+            .network_segment_ids
+            .iter()
+            .contains(&rpc::Uuid::from(host_inband_segment.id)),
+        "Machine that was just ingested should have instance network restrictions showing host_inband_segment {}",
+        host_inband_segment.id.0,
     );
     assert!(
-        instance_network_restrictions.network_segment_ids.iter().contains(&rpc::Uuid::from(host_inband_2_segment.id)),
-        "Machine that was just ingested should have instance network restrictions showing host_inband_2_segment {}", host_inband_2_segment.id.0,
+        instance_network_restrictions
+            .network_segment_ids
+            .iter()
+            .contains(&rpc::Uuid::from(host_inband_2_segment.id)),
+        "Machine that was just ingested should have instance network restrictions showing host_inband_2_segment {}",
+        host_inband_2_segment.id.0,
     );
 
     // Allocate an instance without specifying a network config
@@ -707,8 +725,11 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     .await;
 
     match result {
-        Err(e) if e.code() == tonic::Code::InvalidArgument => {},
-        _ => panic!("Creating an instance on a zero-dpu host that is a member of multiple VPC's should fail, got {:?}", result),
+        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        _ => panic!(
+            "Creating an instance on a zero-dpu host that is a member of multiple VPC's should fail, got {:?}",
+            result
+        ),
     }
 
     Ok(())

@@ -17,14 +17,13 @@ use config_version::{ConfigVersion, Versioned};
 use crate::db::ObjectColumnFilter;
 use crate::{
     db::{
-        self,
+        self, DatabaseError,
         ib_partition::{IBPartition, IBPartitionSearchConfig},
-        DatabaseError,
     },
     model::{
+        StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
         ib_partition::{self, IBPartitionControllerState},
-        StateSla,
     },
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,

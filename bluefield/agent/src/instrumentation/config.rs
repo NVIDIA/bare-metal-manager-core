@@ -2,8 +2,8 @@ use std::ops::Deref;
 use std::sync::LazyLock;
 
 use eyre::WrapErr;
-use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_prometheus::ExporterBuilder;
 use opentelemetry_sdk::metrics::{
     Aggregation, Instrument, InstrumentKind, MetricError, SdkMeterProvider, Stream, View,

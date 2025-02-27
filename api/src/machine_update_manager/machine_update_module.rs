@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use lazy_static::lazy_static;
 use sqlx::{Postgres, Transaction};
 
-use crate::{model::machine::Machine, CarbideResult};
+use crate::{CarbideResult, model::machine::Machine};
 use forge_uuid::machine::MachineId;
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate

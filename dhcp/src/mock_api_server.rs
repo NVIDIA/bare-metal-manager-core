@@ -16,7 +16,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
-use hyper::{body, Request, Response};
+use hyper::{Request, Response, body};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use mac_address::MacAddress;
 use prost::Message;

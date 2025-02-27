@@ -1674,8 +1674,8 @@ pub struct BomValidationConfig {
 #[cfg(test)]
 mod tests {
     use figment::{
-        providers::{Env, Format, Toml},
         Figment,
+        providers::{Env, Format, Toml},
     };
 
     use super::*;

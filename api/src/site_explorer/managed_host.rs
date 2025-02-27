@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
-use crate::db::explored_managed_host::DbExploredManagedHost;
 use crate::db::DatabaseError;
+use crate::db::explored_managed_host::DbExploredManagedHost;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary

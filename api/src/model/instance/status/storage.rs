@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::StatusValidationError;
 use crate::model::instance::config::storage::InstanceStorageConfig;
 use crate::model::instance::status::SyncState;
 use crate::model::storage::{StorageVolume, StorageVolumeHealth, StorageVolumeStatus};
-use crate::model::StatusValidationError;
 use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};

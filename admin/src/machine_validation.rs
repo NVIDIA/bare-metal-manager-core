@@ -16,7 +16,7 @@ use crate::cfg::cli_options::{
 };
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use std::fmt::Write;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 

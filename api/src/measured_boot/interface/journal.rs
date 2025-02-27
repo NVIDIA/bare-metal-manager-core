@@ -38,8 +38,7 @@ pub async fn insert_measurement_journal_record(
     bundle_id: Option<MeasurementBundleId>,
     state: MeasurementMachineState,
 ) -> Result<MeasurementJournalRecord, DatabaseError> {
-    let query =
-                "insert into measurement_journal(machine_id, report_id, profile_id, bundle_id, state) values($1, $2, $3, $4, $5) returning *";
+    let query = "insert into measurement_journal(machine_id, report_id, profile_id, bundle_id, state) values($1, $2, $3, $4, $5) returning *";
     sqlx::query_as(query)
         .bind(machine_id)
         .bind(report_id)

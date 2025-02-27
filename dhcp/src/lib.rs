@@ -105,11 +105,12 @@ impl CarbideDhcpContext {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
-    let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
-
-    CONFIG.write().unwrap().api_endpoint = config_api;
+    unsafe {
+        let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
+        CONFIG.write().unwrap().api_endpoint = config_api;
+    }
 }
 
 /// Take the next-server IP which will be configured as the endpoint for the iPXE client (and DNS
@@ -119,7 +120,7 @@ pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
 ///
 /// None, todo!()
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
     CONFIG.write().unwrap().provisioning_server_ipv4 =
         Some(Ipv4Addr::from(next_server.to_be_bytes()));
@@ -131,11 +132,12 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
-    let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
-
-    CONFIG.write().unwrap().nameservers = nameserver_str;
+    unsafe {
+        let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
+        CONFIG.write().unwrap().nameservers = nameserver_str;
+    }
 }
 
 /// Take the NTP servers for configuring NTP in the dhcp responses
@@ -144,11 +146,12 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
-    let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
-
-    CONFIG.write().unwrap().ntpservers = ntp_str;
+    unsafe {
+        let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
+        CONFIG.write().unwrap().ntpservers = ntp_str;
+    }
 }
 
 /// Take the config parameter from Kea and configure it as our metrics endpoint
@@ -157,19 +160,20 @@ pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) {
-    let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
-
-    match config_metrics_endpoint.parse::<SocketAddr>() {
-        Ok(metrics_endpoint) => {
-            log::info!("metrics endpoint: {}", config_metrics_endpoint);
-            CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
-            // this will initiate metrics server
-            CarbideDhcpContext::get_tokio_runtime();
-        }
-        Err(err) => {
-            log::error!("failed to parse metrics endpoint {config_metrics_endpoint} : {err}");
+    unsafe {
+        let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
+        match config_metrics_endpoint.parse::<SocketAddr>() {
+            Ok(metrics_endpoint) => {
+                log::info!("metrics endpoint: {}", config_metrics_endpoint);
+                CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
+                // this will initiate metrics server
+                CarbideDhcpContext::get_tokio_runtime();
+            }
+            Err(err) => {
+                log::error!("failed to parse metrics endpoint {config_metrics_endpoint} : {err}");
+            }
         }
     }
 }
@@ -179,7 +183,7 @@ pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_
 /// # Safety
 ///
 /// None
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_increment_total_requests() {
     metrics::increment_total_requests();
 }
@@ -189,8 +193,10 @@ pub unsafe extern "C" fn carbide_increment_total_requests() {
 /// # Safety
 ///
 /// None
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_char) {
-    let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
-    metrics::increment_dropped_requests(reason_value);
+    unsafe {
+        let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
+        metrics::increment_dropped_requests(reason_value);
+    }
 }

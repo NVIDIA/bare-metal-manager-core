@@ -26,10 +26,9 @@ use forge_tls::client_config::ClientCert;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::{
-    body,
+    Method, Request, Response, body,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
     service::service_fn,
-    Method, Request, Response,
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
@@ -44,13 +43,13 @@ use rpc::Machine;
 use tokio::net::TcpListener;
 use tracing::error;
 use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 mod cfg;
 mod metrics;
-use crate::metrics::{scrape_machine_health, HealthHashData};
+use crate::metrics::{HealthHashData, scrape_machine_health};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {

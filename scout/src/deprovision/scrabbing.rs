@@ -17,11 +17,11 @@ use std::fs;
 use std::str::FromStr;
 use uname::uname;
 
+use crate::CarbideClientResult;
+use crate::IN_QEMU_VM;
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
-use crate::CarbideClientResult;
-use crate::IN_QEMU_VM;
 use forge_host_support::hardware_enumeration::discovery_ibs;
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
@@ -33,7 +33,7 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
             return Err(CarbideClientError::GenericError(format!(
                 "Can not build EFI variable name: {}",
                 e
-            )))
+            )));
         }
     };
     let s = efivar::system();
@@ -94,7 +94,7 @@ fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> 
             return Err(CarbideClientError::GenericError(format!(
                 "nvme id-ctrl parse error: {}",
                 e
-            )))
+            )));
         }
     };
     Ok(nvme_drive_params)
@@ -196,7 +196,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
                     return Err(CarbideClientError::GenericError(format!(
                         "nvme cant get nsid after create-ns {}",
                         line_created_ns_id
-                    )))
+                    )));
                 }
             };
             // attaching namespace to controller

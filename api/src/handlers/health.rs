@@ -16,11 +16,11 @@ use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 
 use crate::{
-    api::{log_machine_id, Api},
-    db,
-    db::{machine::MachineSearchConfig, DatabaseError},
-    model::machine::machine_id::try_parse_machine_id,
     CarbideError,
+    api::{Api, log_machine_id},
+    db,
+    db::{DatabaseError, machine::MachineSearchConfig},
+    model::machine::machine_id::try_parse_machine_id,
 };
 use forge_uuid::machine::MachineId;
 

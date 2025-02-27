@@ -142,7 +142,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     return Err(eyre::eyre!(
                         "supplied network security group rule count exceeds limit of {}",
                         NETWORK_SECURITY_GROUP_RULE_COUNT_MAX
-                    ))
+                    ));
                 }
                 (v, false) => v,
             };

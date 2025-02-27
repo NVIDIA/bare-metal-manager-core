@@ -9,8 +9,8 @@ use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::MachineStateMachine;
 use crate::tui::HostDetails;
 use crate::{
-    config::MachineATronContext, dhcp_relay::DhcpRelayClient, saturating_add_duration_to_instant,
-    MachineConfig,
+    MachineConfig, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
+    saturating_add_duration_to_instant,
 };
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 

@@ -1,12 +1,12 @@
 use ::rpc::forge::{
+    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
     machine_credentials_update_request::CredentialPurpose,
-    machine_credentials_update_request::Credentials, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse,
+    machine_credentials_update_request::Credentials,
 };
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use mac_address::MacAddress;
 
-use crate::{model::machine::machine_id::try_parse_machine_id, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, model::machine::machine_id::try_parse_machine_id};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
 

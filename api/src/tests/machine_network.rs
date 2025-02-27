@@ -79,9 +79,11 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
 
     // Assert: They should not have the same config version, since the managed_host_config_version
     // represents the health of that particular DPU.
-    assert!(dpu_1_network_config
-        .managed_host_config_version
-        .ne(&dpu_2_network_config.managed_host_config_version));
+    assert!(
+        dpu_1_network_config
+            .managed_host_config_version
+            .ne(&dpu_2_network_config.managed_host_config_version)
+    );
 }
 
 #[crate::sqlx_test]

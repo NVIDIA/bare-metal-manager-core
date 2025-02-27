@@ -18,9 +18,9 @@ use tonic::{Request, Response, Status};
 
 use crate::db::explored_managed_host::DbExploredManagedHost;
 use crate::{
-    api::{log_request_data, Api},
-    db::{self, explored_endpoints::DbExploredEndpoint, DatabaseError},
     CarbideError,
+    api::{Api, log_request_data},
+    db::{self, DatabaseError, explored_endpoints::DbExploredEndpoint},
 };
 
 pub(crate) async fn find_explored_endpoint_ids(

@@ -14,17 +14,17 @@ use std::{collections::HashMap, path::Path, str::FromStr, time::Duration};
 
 use color_eyre::eyre::eyre;
 use libredfish::{
+    Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
+    RedfishError, RoleId, SystemPowerControl,
     model::{
+        LinkStatus, ResourceStatus,
         software_inventory::SoftwareInventory,
         task::{Task, TaskState},
         update_service::ComponentType,
-        LinkStatus, ResourceStatus,
     },
-    Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
-    RedfishError, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use rpc::forge_tls_client::ApiConfig;
 use serde::Serialize;
 use tracing::warn;

@@ -20,18 +20,17 @@ use crate::db::machine_interface::UsedAdminNetworkIpResolver;
 use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::network_segment::{state_sla, NetworkDefinition, NetworkDefinitionSegmentType};
+use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType, state_sla};
+use crate::{CarbideError, CarbideResult};
 use crate::{
     db::{
-        self,
+        self, DatabaseError,
         instance_address::InstanceAddress,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         network_segment_state_history::NetworkSegmentStateHistory,
-        DatabaseError,
     },
     model::network_segment::NetworkSegmentControllerState,
 };
-use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
@@ -184,7 +183,7 @@ impl FromStr for NetworkSegmentType {
                 return Err(CarbideError::DatabaseTypeConversionError(format!(
                     "Invalid segment type {} reveived from Database.",
                     s
-                )))
+                )));
             }
         })
     }

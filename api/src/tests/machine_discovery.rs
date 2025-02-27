@@ -18,8 +18,8 @@ use mac_address::MacAddress;
 use crate::model::hardware_info::HardwareInfo;
 use crate::tests::common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu::create_dpu_machine, host::host_discover_dhcp,
-    FIXTURE_DHCP_RELAY_ADDRESS,
+    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env, dpu::create_dpu_machine,
+    host::host_discover_dhcp,
 };
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
@@ -87,10 +87,12 @@ async fn test_machine_discovery_with_domain(
         wanted_ips.into_iter().sorted().collect::<Vec<IpAddr>>()
     );
 
-    assert!(machine_interface
-        .addresses
-        .iter()
-        .any(|item| *item == "192.0.2.3".parse::<IpAddr>().unwrap()));
+    assert!(
+        machine_interface
+            .addresses
+            .iter()
+            .any(|item| *item == "192.0.2.3".parse::<IpAddr>().unwrap())
+    );
 
     Ok(())
 }
@@ -121,9 +123,10 @@ async fn test_reject_host_machine_with_disabled_tpm(
         }))
         .await;
     let err = response.expect_err("Expected DiscoverMachine request to fail");
-    assert!(err
-        .to_string()
-        .contains("Ignoring DiscoverMachine request for non-tpm enabled host"));
+    assert!(
+        err.to_string()
+            .contains("Ignoring DiscoverMachine request for non-tpm enabled host")
+    );
 
     // We shouldn't have created any machine
     let machines = env.find_machines(None, None, false).await;

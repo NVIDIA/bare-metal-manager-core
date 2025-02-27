@@ -1,7 +1,7 @@
 use ::rpc::forge as rpc;
 
 use crate::{CarbideError, CarbideResult};
-use eyre::{eyre, Report};
+use eyre::{Report, eyre};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;

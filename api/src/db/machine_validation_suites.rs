@@ -15,7 +15,7 @@ use std::{ops::DerefMut, str::FromStr};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use regex::Regex;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
 use crate::{CarbideError, CarbideResult};
 use serde::{Deserialize, Serialize};
@@ -161,7 +161,7 @@ impl MachineValidationTest {
             _ => {
                 return Err(CarbideError::InvalidArgument(
                     "Invalid argument".to_string(),
-                ))
+                ));
             }
         };
         let mut updates = vec![];
@@ -224,7 +224,7 @@ impl MachineValidationTest {
             _ => {
                 return Err(CarbideError::InvalidArgument(
                     "Invalid argument".to_string(),
-                ))
+                ));
             }
         };
 
@@ -293,7 +293,7 @@ impl MachineValidationTest {
             _ => {
                 return Err(CarbideError::InvalidArgument(
                     "Invalid argument".to_string(),
-                ))
+                ));
             }
         };
         let mut wheres = vec![];
@@ -365,7 +365,7 @@ impl MachineValidationTest {
             &test_id,
             "User",
         )?;
-        sqlx::query_as(&query)
+        let _: () = sqlx::query_as(&query)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
@@ -395,7 +395,7 @@ impl MachineValidationTest {
             "User",
         )?;
 
-        sqlx::query_as(&query)
+        let _: () = sqlx::query_as(&query)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;

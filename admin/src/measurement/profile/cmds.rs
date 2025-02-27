@@ -14,12 +14,12 @@
 //! `measurement profile` subcommand dispatcher + backing functions.
 //!
 
+use crate::measurement::MachineIdList;
 use crate::measurement::global;
-use crate::measurement::global::cmds::{get_identifier, IdentifierType};
+use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::measurement::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
-use crate::measurement::MachineIdList;
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
@@ -38,7 +38,7 @@ use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
 use std::str::FromStr;
-use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 
 /// dispatch matches + dispatches the correct command for
 /// the `profile` subcommand (e.g. create, delete, etc).

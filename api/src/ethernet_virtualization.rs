@@ -16,12 +16,13 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
+use crate::db::ObjectColumnFilter;
 use crate::db::vpc::VpcDpuLoopback;
 use crate::db::vpc_prefix::VpcPrefix;
-use crate::db::ObjectColumnFilter;
 use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
 use crate::resource_pool::common::CommonPools;
 use crate::{
+    CarbideError,
     db::{
         self,
         domain::Domain,
@@ -34,9 +35,8 @@ use crate::{
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
         network_security_group::NetworkSecurityGroup,
     },
-    CarbideError,
 };
-use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
+use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]

@@ -4,14 +4,14 @@ use std::ops::DerefMut;
 use sqlx::{Acquire, FromRow, Postgres, Transaction};
 
 use crate::{
+    CarbideError,
     cfg::file::CarbideConfig,
-    db::{self, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions, DatabaseError},
+    db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
     machine_update_manager::machine_update_module::{
-        create_host_update_health_report, machine_updates_in_progress,
         AutomaticFirmwareUpdateReference, DpuReprovisionInitiator,
+        create_host_update_health_report, machine_updates_in_progress,
     },
     model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
-    CarbideError,
 };
 use forge_uuid::machine::MachineId;
 

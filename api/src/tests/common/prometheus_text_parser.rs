@@ -101,7 +101,9 @@ pub enum MetricsParsingError {
     UnexpectedDefLine(String),
     #[error("Metric definition wrong name from TYPE line: {0}")]
     DefLineMismatch(String),
-    #[error("Metric name mismatch: HELP line is for metric {help_name} but TYPE line is for {type_name}")]
+    #[error(
+        "Metric name mismatch: HELP line is for metric {help_name} but TYPE line is for {type_name}"
+    )]
     NameMismatch {
         help_name: String,
         type_name: String,

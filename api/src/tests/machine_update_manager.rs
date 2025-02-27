@@ -1,28 +1,28 @@
 use crate::{
     machine_update_manager::machine_update_module::{
-        create_host_update_health_report, HOST_UPDATE_HEALTH_REPORT_SOURCE,
+        HOST_UPDATE_HEALTH_REPORT_SOURCE, create_host_update_health_report,
     },
     tests::common,
 };
 
 use crate::tests::common::api_fixtures::create_managed_host;
 use crate::{
+    CarbideResult,
     cfg::file::CarbideConfig,
     db,
     db::{dpu_machine_update::DpuMachineUpdate, machine::MaintenanceMode},
     machine_update_manager::{
+        MachineUpdateManager,
         machine_update_module::{
             AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
         },
-        MachineUpdateManager,
     },
-    CarbideResult,
 };
 use async_trait::async_trait;
 use common::api_fixtures::create_test_env;
 use figment::{
-    providers::{Format, Toml},
     Figment,
+    providers::{Format, Toml},
 };
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Row, Transaction};
@@ -285,11 +285,13 @@ async fn test_remove_machine_update_markers(
             .await
             .unwrap()
             .unwrap();
-    assert!(!managed_host
-        .host_snapshot
-        .health_report_overrides
-        .merges
-        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    assert!(
+        !managed_host
+            .host_snapshot
+            .health_report_overrides
+            .merges
+            .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+    );
     assert!(managed_host.aggregate_health.alerts.is_empty());
     txn.commit().await.unwrap();
 

@@ -19,7 +19,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    grpcurl::{grpcurl, Id, Value},
+    grpcurl::{Id, Value, grpcurl},
     machine::{get_firmware_version, wait_for_state},
 };
 

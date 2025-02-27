@@ -30,7 +30,7 @@ use measured_boot::records::MeasurementJournalRecord;
 use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
 use utils::admin_cli::{
-    cli_output, just_print_summary, CarbideCliError, CarbideCliResult, ToTable,
+    CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
 };
 
 /// dispatch matches + dispatches the correct command for

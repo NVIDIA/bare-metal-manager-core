@@ -194,7 +194,9 @@ pub enum StateHandlerError {
     #[error("State will not be advanced due to health probe alert")]
     HealthProbeAlert,
 
-    #[error("The object is in the state for longer than defined by the SLA. Handler outcome: {handler_outcome}")]
+    #[error(
+        "The object is in the state for longer than defined by the SLA. Handler outcome: {handler_outcome}"
+    )]
     TimeInStateAboveSla { handler_outcome: String },
 
     #[error("Problem with measured boot: {0}")]
@@ -259,11 +261,11 @@ impl<I, S, CS, CO> Default for NoopStateHandler<I, S, CS, CO> {
 
 #[async_trait::async_trait]
 impl<
-        I: Clone + std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
-        S: Send + Sync + 'static,
-        CS: Send + Sync + 'static,
-        CO: StateHandlerContextObjects,
-    > StateHandler for NoopStateHandler<I, S, CS, CO>
+    I: Clone + std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
+    S: Send + Sync + 'static,
+    CS: Send + Sync + 'static,
+    CO: StateHandlerContextObjects,
+> StateHandler for NoopStateHandler<I, S, CS, CO>
 {
     type State = S;
     type ControllerState = CS;

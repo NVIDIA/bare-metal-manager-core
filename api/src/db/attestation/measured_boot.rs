@@ -13,7 +13,7 @@ use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use crate::{db::DatabaseError, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db::DatabaseError};
 
 #[derive(FromRow, Debug, sqlx::Encode)]
 pub struct SecretAkPub {

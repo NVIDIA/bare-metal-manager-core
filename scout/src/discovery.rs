@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 
-use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
+use crate::{CarbideClientError, cfg::Options, client::create_forge_client};
 
 pub(crate) async fn completed(
     config: &Options,

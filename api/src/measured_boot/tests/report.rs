@@ -26,7 +26,7 @@ mod tests {
         get_all_measurement_report_records, test_support::get_all_measurement_report_value_records,
     };
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue};
+    use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
     use std::collections::HashMap;
 

@@ -13,7 +13,7 @@ use chrono::Utc;
 use clap::ValueEnum;
 use eyre::{Context, Result};
 use futures::future::join_all;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::json;

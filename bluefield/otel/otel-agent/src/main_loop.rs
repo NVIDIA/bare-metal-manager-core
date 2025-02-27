@@ -20,7 +20,7 @@ use forge_host_support::agent_config::AgentConfig;
 use forge_systemd::systemd;
 use forge_tls::client_config::ClientCert;
 use humantime::format_duration as dt;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::time::sleep;
 use typed_builder::TypedBuilder;
 

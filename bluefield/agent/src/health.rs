@@ -20,7 +20,7 @@ use std::{
 };
 use tokio::{process::Command as TokioCommand, time::timeout};
 
-use crate::{hbn, HBNDeviceNames};
+use crate::{HBNDeviceNames, hbn};
 mod bgp;
 pub mod probe_ids;
 
@@ -394,7 +394,9 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
         );
     }
     if dhcp_relay_size > MIN_SIZE && dhcp_server_size > MIN_SIZE {
-        tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid.");
+        tracing::warn!(
+            "check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid."
+        );
         failed(
             hr,
             probe_ids::FileIsValid.clone(),

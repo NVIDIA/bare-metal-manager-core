@@ -15,8 +15,8 @@
  *  for making boilerplate copy-pasta code handled in a common way.
 */
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::DerefMut;
 use std::vec::Vec;

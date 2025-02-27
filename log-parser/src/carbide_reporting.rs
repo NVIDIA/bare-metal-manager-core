@@ -168,7 +168,9 @@ pub(crate) async fn send_health_alerts(
                     event.description.clone().unwrap_or("".to_string())
                 ),
                 tenant_message: None,
-                classifications: vec![HealthAlertClassification::from_str("SerialConsole").unwrap()],
+                classifications: vec![
+                    HealthAlertClassification::from_str("SerialConsole").unwrap(),
+                ],
                 target: event.target.clone(),
             };
             report.alerts.push(alert);

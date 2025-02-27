@@ -16,7 +16,7 @@ use std::{
     path::Path,
 };
 
-use crate::{rpc, CarbideCliError};
+use crate::{CarbideCliError, rpc};
 use ::rpc::forge_tls_client::ApiConfig;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
@@ -85,7 +85,7 @@ async fn add_ca_cert_individual(
             _ => {
                 return Err(CarbideCliError::GenericError(
                     "Could not parse PEM certificate".to_string(),
-                ))
+                ));
             }
         }
     } else {

@@ -16,8 +16,8 @@ use crate::{
     state_controller::{io::StateControllerIO, state_handler::StateHandlerError},
 };
 use opentelemetry::{
-    metrics::{Counter, Histogram, Meter},
     KeyValue,
+    metrics::{Counter, Histogram, Meter},
 };
 use std::{collections::HashMap, marker::PhantomData, time::Duration};
 

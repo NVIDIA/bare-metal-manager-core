@@ -20,12 +20,12 @@ use crate::{
     ib::{self, DEFAULT_IB_FABRIC_NAME},
     model::{
         hardware_info::TpmEkCertificate,
-        machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
+        machine::{InstanceState, ManagedHostState, machine_id::try_parse_machine_id},
     },
 };
 use ::rpc::forge::{
-    forge_server::Forge, AdminForceDeleteMachineRequest, IbPartitionSearchConfig,
-    IbPartitionStatus, InstancesByIdsRequest, TenantState,
+    AdminForceDeleteMachineRequest, IbPartitionSearchConfig, IbPartitionStatus,
+    InstancesByIdsRequest, TenantState, forge_server::Forge,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::{MachineId, MachineType};
@@ -36,13 +36,12 @@ use tonic::Request;
 use crate::attestation as attest;
 use crate::tests::common;
 use common::api_fixtures::{
-    create_managed_host, create_managed_host_multi_dpu, create_test_env,
+    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
     dpu::create_dpu_machine,
     host::host_discover_dhcp,
-    ib_partition::{create_ib_partition, DEFAULT_TENANT},
+    ib_partition::{DEFAULT_TENANT, create_ib_partition},
     instance::{create_instance, create_instance_with_ib_config, single_interface_network_config},
     tpm_attestation::EK_CERT_SERIALIZED,
-    TestEnv, TestEnvOverrides,
 };
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
@@ -186,10 +185,12 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
             .unwrap();
     }
 
-    assert!(!DbExploredEndpoint::find_all_by_ip(bmc_addrs[0], &mut txn)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        !DbExploredEndpoint::find_all_by_ip(bmc_addrs[0], &mut txn)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     txn.commit().await.unwrap();
 
@@ -202,16 +203,18 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
     let response = force_delete(&env, &host_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
 
-    assert!(env
-        .find_machines(Some(host_machine_id.to_string().into()), None, true)
-        .await
-        .machines
-        .is_empty());
-    assert!(env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
-        .await
-        .machines
-        .is_empty());
+    assert!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+            .await
+            .machines
+            .is_empty()
+    );
+    assert!(
+        env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+            .await
+            .machines
+            .is_empty()
+    );
 
     assert!(response.all_done, "Host and DPU must be deleted");
     assert!(
@@ -382,10 +385,12 @@ async fn validate_machine_deletion(
 
     if let Some(bmc_addrs) = bmc_addrs {
         for bmc_addr in bmc_addrs {
-            assert!(DbExploredEndpoint::find_all_by_ip(*bmc_addr, &mut txn)
-                .await
-                .unwrap()
-                .is_empty());
+            assert!(
+                DbExploredEndpoint::find_all_by_ip(*bmc_addr, &mut txn)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
     txn.rollback().await.unwrap();
@@ -588,16 +593,18 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 
-    assert!(env
-        .find_machines(Some(host_machine_id.to_string().into()), None, true)
-        .await
-        .machines
-        .is_empty());
-    assert!(env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
-        .await
-        .machines
-        .is_empty());
+    assert!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+            .await
+            .machines
+            .is_empty()
+    );
+    assert!(
+        env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+            .await
+            .machines
+            .is_empty()
+    );
 
     assert_eq!(response.ufm_unregistrations, 1);
     assert!(response.all_done, "Host and DPU must be deleted");
@@ -777,8 +784,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
         .state();
     let expected_tenant_state = rpc::forge::TenantState::Terminating;
     assert_eq!(
-        current_tenant_state,
-        expected_tenant_state,
+        current_tenant_state, expected_tenant_state,
         "The instance has a tenant state of {current_tenant_state:#?} instead of {expected_tenant_state:#?}"
     );
 }

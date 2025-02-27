@@ -11,7 +11,7 @@
  */
 use crate::db::{self};
 use crate::model::machine::MachineStateHistory;
-use crate::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
+use crate::model::machine::{ManagedHostState, machine_id::try_parse_machine_id};
 use common::api_fixtures::create_managed_host;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -200,8 +200,7 @@ async fn test_old_machine_state_history(
 
     let mut txn = env.pool.begin().await?;
 
-    let query =
-        "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
+    let query = "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
     sqlx::query(query)
         .bind(dpu_machine_id.to_string())
         .bind(r#"{"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}}"#)

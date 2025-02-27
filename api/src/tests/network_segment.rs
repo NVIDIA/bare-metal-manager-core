@@ -30,22 +30,22 @@ use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use crate::{db, db_init};
 use common::network_segment::{
-    create_network_segment_with_api, get_segment_state, get_segments, text_history,
-    NetworkSegmentHelper,
+    NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
+    text_history,
 };
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::network::NetworkSegmentId;
 use forge_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
-use crate::db::{network_segment, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
-    create_test_env, create_test_env_with_overrides, get_vpc_fixture_id, TestEnvOverrides,
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
 };
 use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
-use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
+use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 #[crate::sqlx_test]
@@ -110,9 +110,11 @@ async fn test_advance_network_prefix_state(
 
     assert_eq!(ns.id, id);
 
-    assert!(NetworkPrefix::find(&mut txn, segment.prefixes[0].id)
-        .await
-        .is_ok());
+    assert!(
+        NetworkPrefix::find(&mut txn, segment.prefixes[0].id)
+            .await
+            .is_ok()
+    );
     txn.commit().await?;
 
     Ok(())
@@ -309,16 +311,18 @@ async fn test_network_segment_max_history_length(
 
     for _ in 0..HISTORY_LIMIT + 50 {
         let mut txn = env.pool.begin().await.unwrap();
-        assert!(NetworkSegment::try_update_controller_state(
-            &mut txn,
-            segment_id,
-            version,
-            &NetworkSegmentControllerState::Deleting {
-                deletion_state: NetworkSegmentDeletionState::DBDelete
-            }
-        )
-        .await
-        .unwrap());
+        assert!(
+            NetworkSegment::try_update_controller_state(
+                &mut txn,
+                segment_id,
+                version,
+                &NetworkSegmentControllerState::Deleting {
+                    deletion_state: NetworkSegmentDeletionState::DBDelete
+                }
+            )
+            .await
+            .unwrap()
+        );
         version = NetworkSegment::find_by(
             &mut txn,
             ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
@@ -671,10 +675,11 @@ async fn test_network_segment_metrics(
     // We don't return stats for tenant network segments
     // We do return stats for underlay and tor type network segments
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_available_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_available_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter
@@ -690,10 +695,11 @@ async fn test_network_segment_metrics(
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_total_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_total_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter
@@ -709,10 +715,11 @@ async fn test_network_segment_metrics(
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_reserved_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_reserved_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter
@@ -747,10 +754,11 @@ async fn test_network_segment_metrics(
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_available_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_available_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter
@@ -766,10 +774,11 @@ async fn test_network_segment_metrics(
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_total_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_total_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter
@@ -785,10 +794,11 @@ async fn test_network_segment_metrics(
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
-        assert!(env
-            .test_meter
-            .formatted_metric("forge_reserved_ips_count")
-            .is_none());
+        assert!(
+            env.test_meter
+                .formatted_metric("forge_reserved_ips_count")
+                .is_none()
+        );
     } else {
         assert_eq!(
             env.test_meter

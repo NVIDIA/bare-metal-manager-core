@@ -14,9 +14,9 @@ use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::ib::types::{IBNetwork, IBPort, IBPortState};
-use crate::ib::IBFabricManagerConfig;
 use crate::CarbideError;
+use crate::ib::IBFabricManagerConfig;
+use crate::ib::types::{IBNetwork, IBPort, IBPortState};
 
 #[derive(Default)]
 pub struct Filter {

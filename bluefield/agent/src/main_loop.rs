@@ -20,36 +20,35 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::Uuid;
+use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::{forge as rpc, forge_tls_client};
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_host_support::agent_config::AgentConfig;
-use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
+use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use forge_systemd::systemd;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
+use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
-use crate::dpu::DpuNetworkInterfaces;
 use crate::ethernet_virtualization::ServiceAddresses;
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
-use crate::util::{get_host_boot_timestamp, UrlResolver};
+use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
-    command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
-    instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
-    nvue, sysfs, upgrade, HBNDeviceNames, RunOptions, FMDS_MINIMUM_HBN_VERSION,
-    NVUE_MINIMUM_HBN_VERSION,
+    FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
+    ethernet_virtualization, hbn, health, instance_metadata_endpoint, instance_metadata_fetcher,
+    machine_inventory_updater, mtu, netlink, network_config_fetcher, nvue, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode
@@ -246,7 +245,9 @@ pub async fn setup_and_run(
             Some(network_monitor_handle)
         }
         None => {
-            tracing::debug!("No network pinger type provided from ManagedHostNetworkConfigResponse. Network monitor not started.");
+            tracing::debug!(
+                "No network pinger type provided from ManagedHostNetworkConfigResponse. Network monitor not started."
+            );
             None
         }
     };
@@ -576,7 +577,9 @@ impl MainLoop {
                                                 }
                                                 None => {
                                                     // TODO: Maybe we want to wait until both receive path provide the same data?
-                                                    tracing::warn!("Received instance_network_config_version via GetManagedHostNetworkConfig, but not via FindInstanceByMachineId. Acknowledging received version");
+                                                    tracing::warn!(
+                                                        "Received instance_network_config_version via GetManagedHostNetworkConfig, but not via FindInstanceByMachineId. Acknowledging received version"
+                                                    );
                                                     conf.instance_network_config_version.clone()
                                                 }
                                             }
@@ -867,7 +870,9 @@ fn effective_virtualization_type(
     if hbn_version < nvue_minimum_hbn_version {
         match virtualization_type {
             VpcVirtualizationType::Fnn => {
-                return Err(eyre::eyre!("{virtualization_type} virtualization requested, but site does not support NVUE. Cannot configure."));
+                return Err(eyre::eyre!(
+                    "{virtualization_type} virtualization requested, but site does not support NVUE. Cannot configure."
+                ));
             }
             VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 tracing::warn!(
@@ -878,7 +883,9 @@ fn effective_virtualization_type(
             // If it's already set to ETV, things are good. Log a debug
             // message just incase.
             VpcVirtualizationType::EthernetVirtualizer => {
-                tracing::debug!("HBN version is below the NVUE minimum HBN version, but already set to non-NVUE virtualization. No changes needed.");
+                tracing::debug!(
+                    "HBN version is below the NVUE minimum HBN version, but already set to non-NVUE virtualization. No changes needed."
+                );
             }
         }
     }
@@ -956,8 +963,8 @@ pub async fn record_network_status(
 // 2. The network device type is Ethernet.
 // 3. The Ethernet MAC address is in the unicast+universal range (last two bits
 //    of the first OUI byte are both set to 0).
-async fn get_fabric_interfaces_data(
-) -> Result<Vec<rpc::FabricInterfaceData>, Box<dyn std::error::Error>> {
+async fn get_fabric_interfaces_data()
+-> Result<Vec<rpc::FabricInterfaceData>, Box<dyn std::error::Error>> {
     let pci_network_devices: HashSet<_> = {
         let net_devices = sysfs::get_net_devices()?;
         // let net_devices = net_devices.into_iter();

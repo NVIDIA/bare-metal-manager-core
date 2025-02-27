@@ -8,8 +8,8 @@ use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::{
     auth::{
-        forge_spiffe::ForgeSpiffeContext, internal_rbac_rules::InternalRBACRules, AuthContext,
-        CasbinAuthorizer, Predicate, Principal,
+        AuthContext, CasbinAuthorizer, Predicate, Principal, forge_spiffe::ForgeSpiffeContext,
+        internal_rbac_rules::InternalRBACRules,
     },
     cfg::file::AllowedCertCriteria,
 };

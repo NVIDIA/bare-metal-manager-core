@@ -15,14 +15,14 @@ use std::{
 };
 
 use tracing::{
+    Event, Subscriber,
     field::{self, Field, Visit},
     span::{self, Attributes},
-    Event, Subscriber,
 };
 use tracing_subscriber::{
+    Layer,
     layer::Context,
     registry::{LookupSpan, SpanRef},
-    Layer,
 };
 
 /// Construct a new `LogFmtLayer`
@@ -489,8 +489,8 @@ fn clear_format_buffer(buf: &mut Vec<u8>) {
 mod tests {
     use std::sync::Mutex;
 
-    use tracing::{level_filters::LevelFilter, Level};
-    use tracing_subscriber::{prelude::*, EnvFilter};
+    use tracing::{Level, level_filters::LevelFilter};
+    use tracing_subscriber::{EnvFilter, prelude::*};
 
     use super::*;
 

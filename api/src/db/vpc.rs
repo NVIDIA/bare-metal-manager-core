@@ -24,11 +24,11 @@ use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::network_segment::NetworkSegment;
 use super::{
-    network_segment, vpc, ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter,
+    ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc,
 };
 use crate::model::metadata::Metadata;
-use crate::{db, CarbideError, CarbideResult};
-use forge_network::virtualization::{VpcVirtualizationType, DEFAULT_NETWORK_VIRTUALIZATION_TYPE};
+use crate::{CarbideError, CarbideResult, db};
+use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
