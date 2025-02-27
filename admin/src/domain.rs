@@ -9,14 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use std::fmt::Write;
 use tracing::warn;
 
 use super::cfg::cli_options::ShowDomain;
 use super::rpc;
 use ::rpc::forge_tls_client::ApiConfig;
-use ::rpc::{forge as forgerpc, Timestamp};
+use ::rpc::{Timestamp, forge as forgerpc};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 // timestamp_or_default returns a String representation of

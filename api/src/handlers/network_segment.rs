@@ -15,15 +15,15 @@ use forge_network::virtualization::VpcVirtualizationType;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
 use crate::db::network_segment::NetworkSegment;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::network_segment::NetworkSegmentType;
 use crate::db::network_segment::NewNetworkSegment;
 use crate::db::vpc::Vpc;
-use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
+use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::model::network_segment::NetworkSegmentControllerState;
-use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::network::NetworkSegmentId;
 

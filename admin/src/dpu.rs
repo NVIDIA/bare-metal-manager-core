@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
 use ::rpc::forge_tls_client::ApiConfig;
-use ::rpc::{forge::MachineType, Machine, MachineId};
-use prettytable::{format, row, Row, Table};
+use ::rpc::{Machine, MachineId, forge::MachineType};
+use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
 use super::rpc;

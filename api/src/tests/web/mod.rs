@@ -1,7 +1,7 @@
 use crate::web::routes;
 use axum::Router;
 use common::api_fixtures::TestEnv;
-use hyper::http::{request::Builder, Request};
+use hyper::http::{Request, request::Builder};
 
 use crate::tests::common;
 mod managed_host;

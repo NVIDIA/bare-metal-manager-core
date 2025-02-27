@@ -15,8 +15,8 @@
  *  database to match candidate machines to profiles and bundles.
 */
 
-use crate::db::machine_topology::TopologyData;
 use crate::db::DatabaseError;
+use crate::db::machine_topology::TopologyData;
 use crate::measured_boot::db::journal::get_latest_journal_for_id;
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
@@ -25,8 +25,8 @@ use crate::measured_boot::interface::machine::{
 };
 use crate::{CarbideError, CarbideResult};
 use chrono::Utc;
-use forge_uuid::machine::{MachineId, MachineType};
 use forge_uuid::DbTable;
+use forge_uuid::machine::{MachineId, MachineType};
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::machine::CandidateMachine;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};

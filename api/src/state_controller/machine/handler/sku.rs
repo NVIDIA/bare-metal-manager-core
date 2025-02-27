@@ -1,5 +1,6 @@
 use health_report::HealthReport;
 
+use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::{
     db::{self, machine_topology::MachineTopology, machine_validation::MachineValidation},
     model::{
@@ -11,8 +12,6 @@ use crate::{
     },
     state_controller::state_handler::{StateHandlerError, StateHandlerOutcome},
 };
-
-use super::{discovered_after_state_transition, HostHandlerParams};
 
 fn get_machine_validation_context(state: &ManagedHostState) -> Option<String> {
     if let ManagedHostState::BomValidating {

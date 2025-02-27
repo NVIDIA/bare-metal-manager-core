@@ -16,14 +16,14 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     cfg::file::HardwareHealthReportsConfig,
-    db::{self, machine::MachineSearchConfig, DatabaseError},
+    db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
+        StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
         machine::{
             self, DpuDiscoveringState, DpuInitState, ManagedHostState, ManagedHostStateSnapshot,
             MeasuringState,
         },
-        StateSla,
     },
     state_controller::{
         io::StateControllerIO,

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{tests::common, CarbideError};
+use crate::{CarbideError, tests::common};
 
 use common::api_fixtures::{create_managed_host, create_test_env};
 use rpc::forge::forge_server::Forge;

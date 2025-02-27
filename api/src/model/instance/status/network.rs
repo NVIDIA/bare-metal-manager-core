@@ -21,15 +21,15 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
+    SerializableMacAddress, StatusValidationError,
     instance::{
         config::network::{
-            validate_interface_function_ids, InstanceInterfaceConfig, InstanceNetworkConfig,
-            InterfaceFunctionId,
+            InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
+            validate_interface_function_ids,
         },
         status::SyncState,
     },
     network_security_group::NetworkSecurityGroupStatusObservation,
-    SerializableMacAddress, StatusValidationError,
 };
 
 /// Status of the networking subsystem of an instance
@@ -105,7 +105,7 @@ impl InstanceNetworkStatus {
                     Self::synchronized_from_host_interfaces(config.value.interfaces.clone())
                 } else {
                     Self::unsynchronized_for_config(&config)
-                }
+                };
             }
         };
 

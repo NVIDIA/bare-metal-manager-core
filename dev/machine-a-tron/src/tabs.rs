@@ -1,10 +1,10 @@
 use std::{path::PathBuf, process::Stdio, str::FromStr};
 
 use crossterm::{
-    event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
     ExecutableCommand,
+    event::{EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
 };
-use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend, widgets::ListState};
 
 use crate::tui::TuiData;
 
@@ -433,11 +433,7 @@ fn wrap_line(list_state: &mut ListState, len: usize, increment: bool) {
                 .selected()
                 .map(|v| {
                     if increment {
-                        if v > 0 {
-                            v - 1
-                        } else {
-                            len - 1
-                        }
+                        if v > 0 { v - 1 } else { len - 1 }
                     } else if v < len - 1 {
                         v + 1
                     } else {

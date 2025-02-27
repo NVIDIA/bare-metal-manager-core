@@ -15,7 +15,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use base64::Engine as _;
 use forge_host_support::agent_config;
 use rpc::forge;

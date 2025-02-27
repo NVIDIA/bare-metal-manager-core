@@ -20,6 +20,7 @@ use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::CarbideError;
 use crate::api::Api;
 use crate::db::DatabaseError;
 use crate::model::storage::{
@@ -28,7 +29,6 @@ use crate::model::storage::{
     StorageVolumeFilter,
 };
 use crate::model::tenant::TenantOrganizationId;
-use crate::CarbideError;
 use forge_uuid::machine::MachineId;
 
 #[derive(thiserror::Error, Debug)]

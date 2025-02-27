@@ -515,34 +515,47 @@ mod tests {
 
     #[test]
     fn test_invalid_machine_ids() {
-        match MachineId::from_str("fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc") { // one character short
-            Err(MachineIdParseError::Length(_)) => {}, // Expect an error
+        match MachineId::from_str("fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc") {
+            // one character short
+            Err(MachineIdParseError::Length(_)) => {} // Expect an error
             Ok(_) => panic!("Converting from a too-short machine ID should have failed"),
-            Err(e) => panic!("Converting from a too-short string should have failed with a length error, got {e}"),
+            Err(e) => panic!(
+                "Converting from a too-short string should have failed with a length error, got {e}"
+            ),
         }
 
         match MachineId::from_str("FM100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {}, // Expect an error
-            Ok(_) => panic!("Converting from a machine ID with an invalid prefix should have failed"),
-            Err(e) => panic!("Converting from a machine ID with an invalid prefix should have failed with a Prefix error, got {e}"),
+            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
+            Ok(_) => {
+                panic!("Converting from a machine ID with an invalid prefix should have failed")
+            }
+            Err(e) => panic!(
+                "Converting from a machine ID with an invalid prefix should have failed with a Prefix error, got {e}"
+            ),
         }
 
         match MachineId::from_str("fm100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {}, // Expect an error
+            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
             Ok(_) => panic!("Converting from a machine ID with type `x` should have failed"),
-            Err(e) => panic!("Converting from a machine ID with type `x` should have failed with a Prefix error, got {e}"),
+            Err(e) => panic!(
+                "Converting from a machine ID with type `x` should have failed with a Prefix error, got {e}"
+            ),
         }
 
         match MachineId::from_str("fm100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {}, // Expect an error
+            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
             Ok(_) => panic!("Converting from a machine ID with source `x` should have failed"),
-            Err(e) => panic!("Converting from a machine ID with source `x` should have failed with a Prefix error, got {e}"),
+            Err(e) => panic!(
+                "Converting from a machine ID with source `x` should have failed with a Prefix error, got {e}"
+            ),
         }
 
         match MachineId::from_str("fm100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Encoding(_)) => {}, // Expect an error
+            Err(MachineIdParseError::Encoding(_)) => {} // Expect an error
             Ok(_) => panic!("Converting from a machine ID with a `!` should have failed"),
-            Err(e) => panic!("Converting from a machine ID with a `!` should have failed with an Encoding error, got {e}"),
+            Err(e) => panic!(
+                "Converting from a machine ID with a `!` should have failed with an Encoding error, got {e}"
+            ),
         }
     }
 }

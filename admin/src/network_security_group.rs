@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 
 use super::CarbideCliError;
 

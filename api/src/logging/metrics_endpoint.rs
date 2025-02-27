@@ -15,9 +15,9 @@ use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::{
+    Method, Request, Response,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
     service::service_fn,
-    Method, Request, Response,
 };
 use hyper_util::rt::TokioIo;
 use prometheus::{Encoder, TextEncoder};

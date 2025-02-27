@@ -14,7 +14,7 @@ use core::fmt;
 use std::{fmt::Display, net::IpAddr};
 
 use itertools::Itertools;
-use sqlx::{postgres::PgRow, FromRow, Row};
+use sqlx::{FromRow, Row, postgres::PgRow};
 
 use crate::db::DatabaseError;
 

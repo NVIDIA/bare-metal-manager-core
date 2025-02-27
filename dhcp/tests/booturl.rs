@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use dhcp::mock_api_server;
-use dhcproto::{v4, Decodable, Decoder};
+use dhcproto::{Decodable, Decoder, v4};
 
 mod common;
 

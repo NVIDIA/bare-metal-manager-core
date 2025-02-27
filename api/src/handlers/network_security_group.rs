@@ -18,14 +18,14 @@ use forge_uuid::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::api::{log_request_data, Api};
-use crate::db::{network_security_group, DatabaseError};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::db::{DatabaseError, network_security_group};
 use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
 use crate::model::tenant::TenantOrganizationId;
 use crate::model::{
     metadata::Metadata, network_security_group::NetworkSecurityGroupRule, tenant::InvalidTenantOrg,
 };
-use crate::CarbideError;
 
 pub(crate) async fn create(
     api: &Api,
@@ -51,7 +51,7 @@ pub(crate) async fn create(
         _ => {
             return Err(
                 CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
-            )
+            );
         }
     };
 
@@ -290,7 +290,7 @@ pub(crate) async fn update(
         _ => {
             return Err(
                 CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
-            )
+            );
         }
     };
 
@@ -377,7 +377,7 @@ pub(crate) async fn update(
                     req.tenant_organization_id.clone(),
                 ),
             }
-            .into())
+            .into());
         }
     };
 

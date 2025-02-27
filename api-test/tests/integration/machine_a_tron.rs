@@ -12,8 +12,8 @@
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::{
-    api_client::ApiClient, api_throttler, BmcMockRegistry, BmcRegistrationMode, DhcpRelayService,
-    HostMachineActor, MachineATron, MachineATronConfig, MachineATronContext,
+    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor, MachineATron,
+    MachineATronConfig, MachineATronContext, api_client::ApiClient, api_throttler,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use std::path::PathBuf;

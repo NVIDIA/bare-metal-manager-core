@@ -17,8 +17,8 @@ use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::{
-    forge_server::Forge, HealthReportOverride, InsertHealthReportOverrideRequest,
-    MachinesByIdsRequest, OverrideMode, RemoveHealthReportOverrideRequest,
+    HealthReportOverride, InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
+    RemoveHealthReportOverrideRequest, forge_server::Forge,
 };
 use std::{str::FromStr, sync::Arc};
 
@@ -249,7 +249,7 @@ impl TryFrom<AddOverride> for HealthReportOverride {
             m => {
                 return Err(format!(
                     "Override mode must be \"Replace\" or \"Merge\", but was \"{m}\""
-                ))
+                ));
             }
         };
         let hr = value.health_report;

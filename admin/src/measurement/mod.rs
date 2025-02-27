@@ -28,7 +28,7 @@ use crate::measurement::global::cmds::get_forge_client;
 use ::rpc::forge_tls_client::ApiConfig;
 use forge_uuid::machine::MachineId;
 use serde::Serialize;
-use utils::admin_cli::{set_summary, ToTable};
+use utils::admin_cli::{ToTable, set_summary};
 
 pub async fn dispatch(
     command: &Cmd,

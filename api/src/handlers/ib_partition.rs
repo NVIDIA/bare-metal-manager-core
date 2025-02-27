@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
 use crate::db::ib_partition::{self, IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::infiniband::IBPartitionId;
 
@@ -239,7 +239,7 @@ pub(crate) async fn delete(
                 kind: "ib_partition",
                 id: uuid.to_string(),
             }
-            .into())
+            .into());
         }
     };
 

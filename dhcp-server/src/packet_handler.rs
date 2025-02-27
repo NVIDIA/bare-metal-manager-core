@@ -16,11 +16,11 @@ use std::{
 };
 
 use dhcproto::{
-    v4::{
-        relay::{RelayAgentInformation, RelayCode, RelayInfo},
-        Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode,
-    },
     Encodable, Encoder,
+    v4::{
+        Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode,
+        relay::{RelayAgentInformation, RelayCode, RelayInfo},
+    },
 };
 use ipnetwork::IpNetwork;
 use lru::LruCache;
@@ -28,7 +28,7 @@ use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::{net::UdpSocket, sync::Mutex};
 
 use crate::{
-    cache::CacheEntry, errors::DhcpError, util, vendor_class::VendorClass, Config, DhcpMode,
+    Config, DhcpMode, cache::CacheEntry, errors::DhcpError, util, vendor_class::VendorClass,
 };
 
 const PKT_TYPE_OP_REQUEST: u8 = 1;

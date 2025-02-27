@@ -18,17 +18,16 @@ use tonic::{Request, Response};
 
 use crate::db::{machine_interface, predicted_machine_interface::PredictedMachineInterface};
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::HostHealthConfig,
     db::{
-        self,
+        self, DatabaseError,
         dhcp_entry::DhcpEntry,
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
         managed_host::LoadSnapshotOptions,
-        DatabaseError,
     },
     dhcp::allocation::DhcpError,
-    CarbideError, CarbideResult,
 };
 use forge_uuid::machine::MachineId;
 

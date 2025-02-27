@@ -1,11 +1,11 @@
 use crate::bmc_state::BmcState;
-use crate::{call_router_with_new_request, rf, DpuMachineInfo, MachineInfo, SetSystemPowerReq};
+use crate::{DpuMachineInfo, MachineInfo, SetSystemPowerReq, call_router_with_new_request, rf};
+use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{Method, Request, Response, StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
-use axum::Router;
 use http_body_util::BodyExt;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
@@ -180,7 +180,11 @@ impl MockWrapperState {
         };
 
         let Some(dpu) = host.dpus.get(dpu_index - 1) else {
-            tracing::error!("Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request", identifier, host.dpus.len());
+            tracing::error!(
+                "Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request",
+                identifier,
+                host.dpus.len()
+            );
             return None;
         };
 
@@ -369,7 +373,10 @@ async fn get_chassis_network_adapter(
     }
     if host.dpus.is_empty() {
         let Some(mac) = host.non_dpu_mac_address else {
-            tracing::error!("Request for NIC ID {}, but machine has no NICs (zero DPUs and no non_dpu_mac_address set.) This is a bug.", network_adapter_id);
+            tracing::error!(
+                "Request for NIC ID {}, but machine has no NICs (zero DPUs and no non_dpu_mac_address set.) This is a bug.",
+                network_adapter_id
+            );
             return state.call_inner_router(request).await;
         };
         let serial = mac.to_string().replace(':', "");
@@ -509,7 +516,11 @@ async fn get_pcie_device(
     };
 
     let Some(dpu) = host.dpus.get(dpu_index - 1) else {
-        tracing::error!("Request for Pcie Device ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request", pcie_device_id, host.dpus.len());
+        tracing::error!(
+            "Request for Pcie Device ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request",
+            pcie_device_id,
+            host.dpus.len()
+        );
         return state.call_inner_router(request).await;
     };
 
@@ -691,7 +702,7 @@ async fn get_dpu_bios(
             return Ok(inner_response);
         };
 
-        let Some(serde_json::Value::Object(ref mut attributes)) = bios.get_mut("Attributes") else {
+        let Some(serde_json::Value::Object(attributes)) = bios.get_mut("Attributes") else {
             tracing::error!(
                 "Invalid Attributes, expected object, got {:?}",
                 inner_response

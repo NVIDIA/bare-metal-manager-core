@@ -15,7 +15,8 @@ use std::net::IpAddr;
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::CarbideError;
+use crate::api::{Api, log_request_data};
 use crate::db;
 use crate::db::domain::{self, Domain};
 use crate::db::instance::Instance;
@@ -25,7 +26,6 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::ReprovisionState;
-use crate::CarbideError;
 use forge_uuid::machine::MachineInterfaceId;
 
 // The carbide pxe server makes this RPC call

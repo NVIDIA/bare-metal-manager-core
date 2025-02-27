@@ -163,7 +163,7 @@ pub const ARP_SUPPRESSION_RULE: &str = r"
 mod tests {
     use super::BTreeMap;
     use super::Ipv4Network;
-    use super::{build, AclConfig, InterfaceRules};
+    use super::{AclConfig, InterfaceRules, build};
 
     #[test]
     fn test_write_acl() -> Result<(), Box<dyn std::error::Error>> {

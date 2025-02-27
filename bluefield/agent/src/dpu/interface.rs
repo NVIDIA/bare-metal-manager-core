@@ -223,20 +223,16 @@ impl Interface {
             .copied()
             .collect::<Vec<_>>();
 
-        if res.is_empty() {
-            None
-        } else {
-            Some(res)
-        }
+        if res.is_empty() { None } else { Some(res) }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dpu::interface::IpInterface;
-    use crate::dpu::DpuNetworkInterfaces;
     use crate::HBNDeviceNames;
+    use crate::dpu::DpuNetworkInterfaces;
+    use crate::dpu::interface::IpInterface;
 
     struct TestInterfaceData {
         pub current: Vec<IpInterface>,

@@ -16,7 +16,7 @@ use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
 use serde::{Deserialize, Serialize};
 
-use crate::{model::metadata::Metadata, CarbideError};
+use crate::{CarbideError, model::metadata::Metadata};
 
 use super::machine::capabilities::{
     self as machine_caps, MachineCapabilitiesSet, MachineCapabilityType,
@@ -50,7 +50,7 @@ impl InstanceTypeMachineCapabilityFilter {
     fn matches_machine_cpu_capability(&self, mac_cap: &machine_caps::MachineCapabilityCpu) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (self.cores, mac_cap.cores) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -73,7 +73,7 @@ impl InstanceTypeMachineCapabilityFilter {
     fn matches_machine_gpu_capability(&self, mac_cap: &machine_caps::MachineCapabilityGpu) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (self.cores, mac_cap.cores) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -103,7 +103,7 @@ impl InstanceTypeMachineCapabilityFilter {
     ) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -121,7 +121,7 @@ impl InstanceTypeMachineCapabilityFilter {
     ) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -139,7 +139,7 @@ impl InstanceTypeMachineCapabilityFilter {
     ) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -153,7 +153,7 @@ impl InstanceTypeMachineCapabilityFilter {
     ) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
             (Some(c), mc) => c == mc,
@@ -163,7 +163,7 @@ impl InstanceTypeMachineCapabilityFilter {
     fn matches_machine_dpu_capability(&self, mac_cap: &machine_caps::MachineCapabilityDpu) -> bool {
         (match (&self.name, &mac_cap.name) {
             (None, _) => true,
-            (Some(ref c), mc) => c == mc,
+            (Some(c), mc) => c == mc,
         }) && (match (&self.hardware_revision, &mac_cap.hardware_revision) {
             (None, _) => true,
             (Some(_), None) => false,

@@ -26,17 +26,17 @@ use utils::cmd::TokioCmd;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::MachineValidation;
-use crate::MachineValidationError;
-use crate::MachineValidationFilter;
-use crate::MachineValidationManager;
-use crate::MachineValidationOptions;
 use crate::IMAGE_LIST_FILE;
 use crate::MACHINE_VALIDATION_IMAGE_FILE;
 use crate::MACHINE_VALIDATION_IMAGE_PATH;
 use crate::MACHINE_VALIDATION_RUNNER_BASE_PATH;
 use crate::MACHINE_VALIDATION_RUNNER_TAG;
 use crate::MACHINE_VALIDATION_SERVER;
+use crate::MachineValidation;
+use crate::MachineValidationError;
+use crate::MachineValidationFilter;
+use crate::MachineValidationManager;
+use crate::MachineValidationOptions;
 use crate::SCHME;
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
@@ -80,7 +80,7 @@ impl MachineValidation {
                 return Err(MachineValidationError::ApiClient(
                     "get_external_config".to_owned(),
                     e.to_string(),
-                ))
+                ));
             }
         };
         let config = response.into_inner().config.unwrap().config;

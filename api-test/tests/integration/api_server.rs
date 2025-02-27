@@ -55,6 +55,14 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         ready_channel,
     } = start_args;
 
+    unsafe {
+        std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
+        std::env::set_var("VAULT_KV_MOUNT_LOCATION", "secret");
+        std::env::set_var("VAULT_PKI_MOUNT_LOCATION", "forgeca");
+        std::env::set_var("VAULT_PKI_ROLE_NAME", "forge-cluster");
+        std::env::set_var("VAULT_TOKEN", vault_token);
+    }
+
     let carbide_config_str = {
         let site_explorer_create_machines = if use_site_explorer { "true" } else { "false" };
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
@@ -252,12 +260,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
     "#
         )
     };
-
-    std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
-    std::env::set_var("VAULT_KV_MOUNT_LOCATION", "secret");
-    std::env::set_var("VAULT_PKI_MOUNT_LOCATION", "forgeca");
-    std::env::set_var("VAULT_PKI_ROLE_NAME", "forge-cluster");
-    std::env::set_var("VAULT_TOKEN", vault_token);
 
     carbide::run(
         0,

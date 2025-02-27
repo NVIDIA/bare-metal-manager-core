@@ -62,10 +62,6 @@ pub fn setup_agent_run_env(
     td: &TempDir,
     acf: &NamedTempFile,
 ) -> eyre::Result<Option<Options>> {
-    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
-    env::set_var("IGNORE_MGMT_VRF", "true");
-    env::set_var("NO_DPU_CONTAINERS", "true");
-
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
         tracing::warn!(
             "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
@@ -73,6 +69,21 @@ pub fn setup_agent_run_env(
         return Ok(None);
     };
     let root_dir = PathBuf::from(repo_root);
+
+    unsafe {
+        env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+        env::set_var("IGNORE_MGMT_VRF", "true");
+        env::set_var("NO_DPU_CONTAINERS", "true");
+
+        // Put our fake `crictl` on front of path so that HBN health checks succeed
+        let dev_bin = root_dir.join("dev/bin");
+        if let Some(path) = env::var_os("PATH") {
+            let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+            paths.insert(0, dev_bin);
+            let new_path = env::join_paths(paths)?;
+            env::set_var("PATH", new_path);
+        }
+    }
 
     let hbn_root = td.path();
     tracing::info!("Using hbn_root: {:?}", hbn_root);
@@ -98,15 +109,6 @@ pub fn setup_agent_run_env(
             skip_upgrade_check: false,
         })),
     };
-
-    // Put our fake `crictl` on front of path so that HBN health checks succeed
-    let dev_bin = root_dir.join("dev/bin");
-    if let Some(path) = env::var_os("PATH") {
-        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
-        paths.insert(0, dev_bin);
-        let new_path = env::join_paths(paths)?;
-        env::set_var("PATH", new_path);
-    }
 
     Ok(Some(opts))
 }

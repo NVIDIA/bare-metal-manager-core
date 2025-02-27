@@ -24,12 +24,12 @@ use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::model::hardware_info::HardwareInfoError;
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::{DpuModel, Firmware, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::from_hardware_info_with_type,
     },
-    CarbideError, CarbideResult,
 };
 
 /// Data that we gathered about a particular endpoint during site exploration
@@ -532,7 +532,7 @@ mod serialize_option_display {
     use std::fmt::Display;
     use std::str::FromStr;
 
-    use serde::{de, Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer, de};
 
     pub fn serialize<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -842,7 +842,9 @@ pub enum EndpointExplorationError {
     MissingRedfish { uri: Option<String> },
     #[error("BMC vendor field is not populated. Unsupported BMC.")]
     MissingVendor,
-    #[error("Site explorer will not explore this endpoint to avoid lockout: it could not login previously")]
+    #[error(
+        "Site explorer will not explore this endpoint to avoid lockout: it could not login previously"
+    )]
     AvoidLockout,
     /// An error which is not further detailed
     #[error("Error: {details}")]

@@ -13,8 +13,8 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -23,7 +23,7 @@ use crate::model::hardware_info::HardwareInfo;
 use crate::tests::common::api_fixtures::{create_test_env, dpu::dpu_discover_dhcp};
 use crate::{
     model::machine::{
-        machine_id::host_id_from_dpu_hardware_info, ManagedHostState, ManagedHostStateSnapshot,
+        ManagedHostState, ManagedHostStateSnapshot, machine_id::host_id_from_dpu_hardware_info,
     },
     state_controller::{
         config::IterationConfig,
@@ -35,7 +35,7 @@ use crate::{
     },
 };
 use forge_uuid::machine::MachineId;
-use rpc::{forge::forge_server::Forge, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge::forge_server::Forge};
 use tonic::Request;
 
 #[derive(Debug, Default, Clone)]

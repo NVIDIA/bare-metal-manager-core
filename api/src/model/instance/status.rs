@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     instance::config::{
-        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-        storage::InstanceStorageConfig, InstanceConfig,
+        InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
+        storage::InstanceStorageConfig,
     },
     machine::infiniband::MachineInfinibandStatusObservation,
     machine::{InstanceState, ManagedHostState, ReprovisionRequest},

@@ -11,8 +11,8 @@
  */
 
 use mac_address::{MacAddress, MacParseError};
-use serde::de::Deserializer;
 use serde::Deserialize;
+use serde::de::Deserializer;
 use std::str::FromStr;
 
 pub mod ip;
@@ -157,7 +157,7 @@ pub fn deserialize_input_mac_to_address(input_value: &String) -> Result<MacAddre
 }
 #[cfg(test)]
 mod tests {
-    use super::{deserialize_input_mac_to_address, sanitized_mac, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
+    use super::{MELLANOX_SF_VF_MAC_ADDRESS_OUT, deserialize_input_mac_to_address, sanitized_mac};
 
     #[test]
     fn test_gross_redfish_mac() {

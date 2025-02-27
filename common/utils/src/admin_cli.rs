@@ -149,7 +149,7 @@ pub fn cli_output<T: Serialize + ToTable>(
         OutputFormat::Csv => {
             return Err(CarbideCliError::GenericError(String::from(
                 "CSV not supported for measurement commands (yet)",
-            )))
+            )));
         }
     };
 
@@ -166,7 +166,7 @@ pub fn cli_output<T: Serialize + ToTable>(
 
 pub mod output {
     use std::fs::File;
-    use std::io::{stdout, Write};
+    use std::io::{Write, stdout};
 
     use clap::ValueEnum;
     use serde::Serialize;

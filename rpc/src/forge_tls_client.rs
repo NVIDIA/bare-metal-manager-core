@@ -14,8 +14,8 @@ use tonic::transport::Uri;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::{
-    pki_types::CertificateDer, pki_types::PrivateKeyDer, pki_types::ServerName,
-    pki_types::UnixTime, ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
+    ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme, pki_types::CertificateDer,
+    pki_types::PrivateKeyDer, pki_types::ServerName, pki_types::UnixTime,
 };
 use tonic::body::BoxBody;
 
@@ -23,8 +23,8 @@ use crate::forge_resolver;
 use crate::protos::forge::forge_client::ForgeClient;
 use hyper_util::client::legacy;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
-use tower::util::BoxService;
 use tower::ServiceExt;
+use tower::util::BoxService;
 use tryhard::backoff_strategies::FixedBackoff;
 use tryhard::{NoOnRetry, RetryFutureConfig};
 use x509_parser::prelude::{FromDer, X509Certificate};

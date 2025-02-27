@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
-use super::{stats, DbResourcePool, ResourcePoolStats, ValueType};
+use super::{DbResourcePool, ResourcePoolStats, ValueType, stats};
 
 /// DPU VPC loopback IP pool
 /// Must match a pool defined in dev/resource_pools.toml

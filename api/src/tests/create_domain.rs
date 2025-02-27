@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::domain::{self, Domain, NewDomain, Soa};
 use crate::db::ObjectColumnFilter;
+use crate::db::domain::{self, Domain, NewDomain, Soa};
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::domain::DomainId;
 

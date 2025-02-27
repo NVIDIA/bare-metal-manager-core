@@ -12,12 +12,12 @@
 
 use crate::logging::setup::Logging;
 use crate::logging::{
-    metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
+    metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint},
     setup::create_metrics,
     setup::setup_logging,
 };
 use crate::redfish::RedfishClientPoolImpl;
-use crate::{dynamic_settings, setup, CarbideError};
+use crate::{CarbideError, dynamic_settings, setup};
 use eyre::WrapErr;
 use forge_secrets::forge_vault;
 use std::sync::Arc;
@@ -104,10 +104,14 @@ pub async fn run(
             carbide_config.site_explorer.bmc_proxy.load().as_ref(),
         ) {
             (Some(_), _, Some(_)) => {
-                tracing::warn!("Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config.");
+                tracing::warn!(
+                    "Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config."
+                );
             }
             (Some(ip), maybe_target_port, None) => {
-                tracing::warn!("Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                tracing::warn!(
+                    "Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+                );
                 if let Some(port) = maybe_target_port {
                     carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
                         HostPortPair::HostAndPort(ip.to_string(), port),
@@ -120,14 +124,18 @@ pub async fn run(
                 }
             }
             (None, Some(port), None) => {
-                tracing::warn!("Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration.");
+                tracing::warn!(
+                    "Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+                );
                 carbide_config
                     .site_explorer
                     .bmc_proxy
                     .store(Arc::new(Some(HostPortPair::PortOnly(port))));
             }
             (None, Some(_), Some(_)) => {
-                tracing::warn!("Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config.");
+                tracing::warn!(
+                    "Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config."
+                );
             }
             (None, None, _) => {} // leave bmc_proxy untouched
         }

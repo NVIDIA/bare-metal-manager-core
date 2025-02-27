@@ -1,6 +1,6 @@
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::instrumentation::NetworkMonitorMetricsState;
@@ -12,14 +12,14 @@ use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{async_trait, Router};
+use axum::{Router, async_trait};
 use eyre::{Context, Result};
 use forge_host_support::agent_config::AgentConfig;
 use forge_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -211,10 +211,13 @@ impl TestMeter {
     pub fn formatted_metric(&self, metric_name: &str) -> Option<String> {
         let mut metrics = self.formatted_metrics(metric_name);
         match metrics.len() {
-             0 => None,
-             1 => metrics.pop(),
-             n => panic!("Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}", metrics),
-         }
+            0 => None,
+            1 => metrics.pop(),
+            n => panic!(
+                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}",
+                metrics
+            ),
+        }
     }
 
     /// Returns the value of multiple metrics with the given name

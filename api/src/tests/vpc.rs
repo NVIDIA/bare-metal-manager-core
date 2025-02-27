@@ -10,10 +10,10 @@ use crate::db::network_segment::NetworkSegment;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::db::ObjectColumnFilter;
+use crate::db::vpc::{self, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use crate::model::metadata::Metadata;
-use crate::{db_init, CarbideError};
+use crate::{CarbideError, db_init};
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use forge_network::virtualization::VpcVirtualizationType;

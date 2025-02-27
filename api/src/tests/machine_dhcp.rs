@@ -12,17 +12,17 @@
 
 use std::str::FromStr;
 
-use crate::db::{self, dhcp_entry, dhcp_entry::DhcpEntry, ObjectColumnFilter};
 use crate::CarbideError;
+use crate::db::{self, ObjectColumnFilter, dhcp_entry, dhcp_entry::DhcpEntry};
 use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, DhcpDiscovery};
+use rpc::forge::{DhcpDiscovery, forge_server::Forge};
 
 use crate::db::network_segment::NetworkSegment;
 use crate::tests::common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu, instance::create_instance, TestEnv,
-    FIXTURE_DHCP_RELAY_ADDRESS,
+    FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
+    instance::create_instance,
 };
 
 #[crate::sqlx_test]

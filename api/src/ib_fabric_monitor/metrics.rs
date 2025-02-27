@@ -11,7 +11,7 @@
  */
 
 use crate::metrics_utils::SharedMetricsHolder;
-use opentelemetry::{metrics::Meter, KeyValue};
+use opentelemetry::{KeyValue, metrics::Meter};
 use serde::Serialize;
 use std::{collections::HashMap, time::Duration};
 

@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
-use crate::ib::types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel};
 use crate::ib::IBFabricManagerConfig;
+use crate::ib::types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel};
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::ib_partition::state_sla;
@@ -31,8 +31,8 @@ use crate::model::instance::config::{
 };
 use crate::model::machine::Machine;
 use crate::{
-    db::DatabaseError, model::ib_partition::IBPartitionControllerState,
-    model::tenant::TenantOrganizationId, CarbideError, CarbideResult,
+    CarbideError, CarbideResult, db::DatabaseError,
+    model::ib_partition::IBPartitionControllerState, model::tenant::TenantOrganizationId,
 };
 
 use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
@@ -75,7 +75,7 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
             None => {
                 return Err(CarbideError::InvalidArgument(
                     "IBPartition configuration is empty".to_string(),
-                ))
+                ));
             }
         };
 

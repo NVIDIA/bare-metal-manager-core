@@ -45,8 +45,8 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse,
 };
 
-use crate::measured_boot::db;
 use crate::CarbideError;
+use crate::measured_boot::db;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
 use measured_boot::site::SiteModel;

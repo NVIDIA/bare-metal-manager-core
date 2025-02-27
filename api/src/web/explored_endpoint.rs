@@ -19,7 +19,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, admin_power_control_request, BmcEndpointRequest};
+use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{ExploredEndpoint, ForgeSetupStatus, SiteExplorationReport};
 use serde::Deserialize;
 

@@ -72,8 +72,12 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
                     ca_id = Some(ca_cert_db_entry.id);
                 }
                 Err(e) => tracing::error!(
-                    "Could not verify signature for EK cert serial - {}, issuer - {}, supposedly signed by CA subject - {}, error: {}", 
-                    ek_cert.raw_serial_as_string(), ek_cert.issuer.to_string(), ca_cert.subject.to_string(), e),
+                    "Could not verify signature for EK cert serial - {}, issuer - {}, supposedly signed by CA subject - {}, error: {}",
+                    ek_cert.raw_serial_as_string(),
+                    ek_cert.issuer.to_string(),
+                    ca_cert.subject.to_string(),
+                    e
+                ),
             }
         }
         None => tracing::info!(
@@ -181,8 +185,12 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
     // verify signature
     if let Err(e) = ek_cert.verify_signature(Some(ca_cert.public_key())) {
         tracing::error!(
-            "Could not verify signature for EK cert serial - {}, issuer - {}, supposedly signed by CA subject - {}, error: {}", 
-            ek_cert.raw_serial_as_string(), ek_cert.issuer.to_string(), ca_cert.subject.to_string(), e);
+            "Could not verify signature for EK cert serial - {}, issuer - {}, supposedly signed by CA subject - {}, error: {}",
+            ek_cert.raw_serial_as_string(),
+            ek_cert.issuer.to_string(),
+            ca_cert.subject.to_string(),
+            e
+        );
         return Ok(false); // nothing more to do here
     }
 

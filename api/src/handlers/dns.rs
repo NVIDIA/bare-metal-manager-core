@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_request_data, Api};
+use crate::api::{Api, log_request_data};
 
-use crate::db::{self, DatabaseError};
 use crate::CarbideError;
+use crate::db::{self, DatabaseError};
 
 pub(crate) async fn lookup_record(
     api: &Api,

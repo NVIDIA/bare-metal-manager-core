@@ -13,7 +13,7 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 
 use config_version::ConfigVersion;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
 use crate::{
     cfg::file::FirmwareComponentType,
@@ -265,8 +265,7 @@ WHERE address = $3 AND version=$4";
         version: ConfigVersion,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<bool, DatabaseError> {
-        let query =
-            "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address";
+        let query = "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address";
         let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
             .bind(address)
             .bind(version)

@@ -7,14 +7,14 @@ use crate::{
 use common::api_fixtures::create_test_env;
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, CloudInitInstructionsRequest, DhcpDiscovery};
+use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery, forge_server::Forge};
 
 use crate::tests::common;
 
 use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use common::api_fixtures::{
-    instance::{create_instance, single_interface_network_config},
     TestEnv,
+    instance::{create_instance, single_interface_network_config},
 };
 
 async fn move_machine_to_needed_state(
@@ -75,9 +75,11 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
-    assert!(instructions
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - Ready"));
+    assert!(
+        instructions
+            .pxe_script
+            .contains("exit into the OS in 5 seconds - Ready")
+    );
 }
 
 #[crate::sqlx_test]
@@ -118,9 +120,11 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     )
     .await;
 
-    assert!(instructions
-        .pxe_script
-        .contains("exit into the OS in 5 seconds - DPUInitializing/WaitingForNetworkConfig"));
+    assert!(
+        instructions
+            .pxe_script
+            .contains("exit into the OS in 5 seconds - DPUInitializing/WaitingForNetworkConfig")
+    );
     assert!(!instructions.pxe_script.contains("aarch64/carbide.root"));
 }
 
@@ -295,9 +299,11 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
         .expect("get_cloud_init_instructions returned an error")
         .into_inner();
 
-    assert!(cloud_init_cfg
-        .discovery_instructions
-        .is_some_and(|di| di.update_firmware));
+    assert!(
+        cloud_init_cfg
+            .discovery_instructions
+            .is_some_and(|di| di.update_firmware)
+    );
 }
 
 #[crate::sqlx_test]
@@ -333,7 +339,9 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
         .expect("get_cloud_init_instructions returned an error")
         .into_inner();
 
-    assert!(cloud_init_cfg
-        .discovery_instructions
-        .is_some_and(|di| !di.update_firmware));
+    assert!(
+        cloud_init_cfg
+            .discovery_instructions
+            .is_some_and(|di| !di.update_firmware)
+    );
 }

@@ -76,7 +76,7 @@ use std::{
     future::Future,
     num::Saturating,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
     time::Instant,
 };
 
@@ -86,7 +86,7 @@ use axum::{
 };
 use bytes::Buf;
 use http_body::{Body, Frame, SizeHint};
-use metrics::{counter, gauge, histogram, Gauge, Label};
+use metrics::{Gauge, Label, counter, gauge, histogram};
 use pin_project_lite::pin_project;
 use tower_layer::Layer;
 use tower_service::Service;

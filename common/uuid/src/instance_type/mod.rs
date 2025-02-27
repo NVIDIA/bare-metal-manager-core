@@ -3,10 +3,10 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
+    Database, Decode, Encode, Error, Postgres, Row,
     encode::IsNull,
     error,
     postgres::{PgHasArrayType, PgRow, PgTypeInfo},
-    Database, Decode, Encode, Error, Postgres, Row,
 };
 use uuid::Uuid;
 

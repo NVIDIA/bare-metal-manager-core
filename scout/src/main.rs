@@ -14,11 +14,11 @@ use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
 use forge_host_support::registration;
 use once_cell::sync::Lazy;
-use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge::ForgeAgentControlResponse;
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
-use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
+use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -283,7 +283,9 @@ async fn handle_action(
             Err(e) => tracing::info!("Forge Scout logerror_to_carbide error: {}", e),
         },
         Action::Retry => {
-            panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
+            panic!(
+                "Retrieved Retry action, which should be handled internally by query_api_with_retries"
+            );
         }
         Action::Measure => {
             initial_setup(config).await.map_err(|e| {
@@ -528,7 +530,7 @@ async fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<boo
             _ => {
                 return Err(CarbideClientError::GenericError(
                     "Could not parse PEM certificate".to_string(),
-                ))
+                ));
             }
         }
     };

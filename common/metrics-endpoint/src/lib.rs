@@ -14,18 +14,17 @@ use std::{net::SocketAddr, sync::Arc};
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{
-    body,
+    Method, Request, Response, body,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
     service::service_fn,
-    Method, Request, Response,
 };
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
 use opentelemetry::{
-    metrics::{Meter, MeterProvider},
     KeyValue,
+    metrics::{Meter, MeterProvider},
 };
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;

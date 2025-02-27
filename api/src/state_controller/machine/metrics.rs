@@ -20,8 +20,8 @@ use crate::{
     state_controller::metrics::MetricsEmitter,
 };
 use opentelemetry::{
-    metrics::{Histogram, Meter},
     KeyValue,
+    metrics::{Histogram, Meter},
 };
 
 #[derive(Debug, Default)]

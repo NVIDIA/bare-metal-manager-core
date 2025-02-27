@@ -15,12 +15,12 @@ use std::ptr;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use ipnetwork::IpNetwork;
 use MachineArchitecture::*;
+use ipnetwork::IpNetwork;
 
+use crate::CONFIG;
 use crate::discovery::Discovery;
 use crate::vendor_class::{MachineArchitecture, VendorClass};
-use crate::CONFIG;
 
 /// Machine: a machine that's currently trying to boot something
 ///
@@ -79,7 +79,7 @@ impl Machine {
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -127,7 +127,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -160,7 +160,7 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
 /// # Safety
 /// This function checks for null pointer and unboxes into a machine object
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -175,7 +175,7 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 /// # Safety
 /// This function checks for null pointer and unboxes into a machine object
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -215,7 +215,10 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
                 base_url
             ),
             BiosX86 => {
-                log::error!("Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}", &machine);
+                log::error!(
+                    "Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}",
+                    &machine
+                );
                 return ptr::null();
             }
             Unknown => {
@@ -232,7 +235,7 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
 }
 
 // IPv4 address of next-server (siaddr) as big endian int 32.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let ip_addr = if let Some(next_server) = CONFIG
@@ -252,7 +255,7 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
     u32::from_be_bytes(ip_addr)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
 
@@ -262,7 +265,7 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
     nameservers.into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
 
@@ -272,7 +275,7 @@ pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char
     ntpservers.into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -283,7 +286,7 @@ pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_cha
     vendor_class.into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -301,7 +304,7 @@ pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
     uuid.into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -329,7 +332,7 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     0
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
     unsafe {
         if filename.is_null() {
@@ -340,7 +343,7 @@ pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
     };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
     unsafe {
         if client_type.is_null() {
@@ -351,7 +354,7 @@ pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
     };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_uuid(uuid: *mut libc::c_char) {
     unsafe {
         if uuid.is_null() {
@@ -362,7 +365,7 @@ pub extern "C" fn machine_free_uuid(uuid: *mut libc::c_char) {
     };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
     unsafe {
         if fqdn.is_null() {
@@ -373,7 +376,7 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
     };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
     unsafe {
         if nameservers.is_null() {
@@ -384,7 +387,7 @@ pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
     };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free_ntpservers(ntpservers: *mut libc::c_char) {
     unsafe {
         if ntpservers.is_null() {
@@ -402,7 +405,7 @@ pub extern "C" fn machine_free_ntpservers(ntpservers: *mut libc::c_char) {
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };
@@ -432,7 +435,7 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
 
 /// Extract MTU from Machine object. We got it in the grpc response in discovery_fetch_machine.
 /// https://jirasw.nvidia.com/browse/FORGE-2443
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
     unsafe { (*ctx).inner.mtu as u16 }
 }
@@ -447,7 +450,7 @@ pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_free(ctx: *mut Machine) {
     if ctx.is_null() {
         return;
@@ -467,8 +470,8 @@ mod test {
     use rpc::forge as rpc;
 
     use crate::discovery::Discovery;
-    use crate::machine::machine_get_filename;
     use crate::machine::Machine;
+    use crate::machine::machine_get_filename;
     use crate::vendor_class::VendorClass;
 
     #[test]

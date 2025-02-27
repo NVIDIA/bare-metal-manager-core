@@ -1,11 +1,11 @@
 use crate::{
-    api::{log_machine_id, log_request_data, Api},
-    db::{self, machine::MachineSearchConfig, DatabaseError},
+    CarbideError, CarbideResult,
+    api::{Api, log_machine_id, log_request_data},
+    db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
-        machine::{machine_id::try_parse_machine_id, BomValidating, ManagedHostState},
+        machine::{BomValidating, ManagedHostState, machine_id::try_parse_machine_id},
         sku::{Sku, SkuStatus},
     },
-    CarbideError, CarbideResult,
 };
 
 use chrono::Utc;
@@ -154,7 +154,7 @@ pub(crate) async fn assign_to_machine(
         _ => {
             return Err(CarbideError::FailedPrecondition(
                 "Specified machine is not in a valid state for assigning a SKU".to_string(),
-            ))
+            ));
         }
     }
 
@@ -220,7 +220,7 @@ pub(crate) async fn verify_for_machine(
             return Err(CarbideError::FailedPrecondition(
                 "Specified machine is not in a valid state for machine SKU verification"
                     .to_string(),
-            ))
+            ));
         }
     }
 
@@ -279,7 +279,7 @@ pub(crate) async fn remove_sku_association(
             return Err(CarbideError::FailedPrecondition(
                 "Specified machine is not in a valid state for removing SKU association"
                     .to_string(),
-            ))
+            ));
         }
     }
 

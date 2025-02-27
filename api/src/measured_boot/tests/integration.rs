@@ -19,7 +19,7 @@ mod tests {
     use crate::measured_boot::db;
     use crate::measured_boot::db::journal;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue};
+    use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
     use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 
     // test_measured_boot_integration tests all sorts of

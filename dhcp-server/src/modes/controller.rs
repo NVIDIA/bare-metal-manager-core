@@ -19,11 +19,11 @@ use tonic::async_trait;
 
 use super::DhcpMode;
 use crate::{
+    Config,
     cache::{self, CacheEntry},
     errors::DhcpError,
     rpc::client::discover_dhcp,
     vendor_class::VendorClass,
-    Config,
 };
 
 #[derive(Debug)]
@@ -69,13 +69,13 @@ impl DhcpMode for Controller {
                 &mut machine_cache,
             ) {
                 tracing::info!(
-                "returning cached response for (mac: {}, link(or relay)_address: {}, circuit_id: {:?}, remote: {:?}, vendor: {})",
-                discovery_request.mac_address,
-                link_address,
-                &discovery_request.circuit_id,
-                &discovery_request.remote_id,
-                &vendor_id,
-            );
+                    "returning cached response for (mac: {}, link(or relay)_address: {}, circuit_id: {:?}, remote: {:?}, vendor: {})",
+                    discovery_request.mac_address,
+                    link_address,
+                    &discovery_request.circuit_id,
+                    &discovery_request.remote_id,
+                    &vendor_id,
+                );
 
                 return Ok(cache_entry.dhcp_record);
             }

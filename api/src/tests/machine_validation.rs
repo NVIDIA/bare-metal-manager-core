@@ -11,8 +11,8 @@
  */
 
 use crate::model::machine::{
-    machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource, MachineState,
-    MachineValidationFilter, ManagedHostState,
+    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidationFilter,
+    ManagedHostState, machine_id::try_parse_machine_id,
 };
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -23,11 +23,12 @@ use std::time::SystemTime;
 use crate::db;
 use crate::tests::common;
 use common::api_fixtures::{
-    create_host_with_machine_validation, create_test_env, create_test_env_with_overrides,
-    forge_agent_control, get_config, get_machine_validation_results, get_machine_validation_runs,
+    TestEnvOverrides, create_host_with_machine_validation, create_test_env,
+    create_test_env_with_overrides, forge_agent_control, get_config,
+    get_machine_validation_results, get_machine_validation_runs,
     instance::{create_instance, delete_instance, single_interface_network_config},
     machine_validation_completed, on_demand_machine_validation, reboot_completed,
-    update_machine_validation_run, TestEnvOverrides,
+    update_machine_validation_run,
 };
 use rpc::Timestamp;
 
@@ -576,10 +577,12 @@ async fn test_machine_validation_test_on_demand_filter(
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
                 serde_json::from_str(&item.value)?;
-            assert!(allowed_tests
-                .clone()
-                .iter()
-                .all(|item| machine_validation_filter.allowed_tests.contains(item)));
+            assert!(
+                allowed_tests
+                    .clone()
+                    .iter()
+                    .all(|item| machine_validation_filter.allowed_tests.contains(item))
+            );
         }
     }
 
@@ -1140,9 +1143,11 @@ async fn test_on_demant_un_verified_machine_validation(
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
                 serde_json::from_str(&item.value)?;
-            assert!(machine_validation_filter
-                .run_unverfied_tests
-                .unwrap_or_default());
+            assert!(
+                machine_validation_filter
+                    .run_unverfied_tests
+                    .unwrap_or_default()
+            );
         }
     }
 

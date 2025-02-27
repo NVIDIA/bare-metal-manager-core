@@ -32,16 +32,16 @@ use serde::ser::Error;
 
 pub use crate::protos::common::{self, MachineId, Uuid};
 pub use crate::protos::forge::{
-    self, forge_agent_control_response, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, CredentialType, Domain, DomainList,
-    ForgeScoutErrorReport, ForgeScoutErrorReportResult, Instance, InstanceAllocationRequest,
-    InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
-    InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
-    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus,
-    InstanceTenantStatus, InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo,
-    MachineEvent, MachineInterface, MachineList, Metadata, NetworkPrefixEvent, NetworkSegment,
+    self, CredentialType, Domain, DomainList, ForgeScoutErrorReport, ForgeScoutErrorReportResult,
+    Instance, InstanceAllocationRequest, InstanceConfig, InstanceInterfaceConfig,
+    InstanceInterfaceStatus, InstanceInterfaceStatusObservation, InstanceList,
+    InstanceNetworkConfig, InstanceNetworkStatus, InstanceNetworkStatusObservation,
+    InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus, InstanceTenantStatus,
+    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
+    MachineInterface, MachineList, Metadata, NetworkPrefixEvent, NetworkSegment,
     NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
-    TenantConfig, TenantState,
+    TenantConfig, TenantState, forge_agent_control_response,
+    machine_credentials_update_request::CredentialPurpose, machine_discovery_info::DiscoveryData,
 };
 pub use crate::protos::forge::{
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
@@ -654,7 +654,7 @@ impl forge::NetworkSecurityGroupRuleAction {
 mod tests {
     use std::time::Duration;
 
-    use self::forge::{operating_system::Variant, IpxeOperatingSystem, OperatingSystem};
+    use self::forge::{IpxeOperatingSystem, OperatingSystem, operating_system::Variant};
     use super::*;
 
     #[test]

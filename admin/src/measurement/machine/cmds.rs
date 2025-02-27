@@ -15,13 +15,13 @@
 //!
 
 use ::rpc::forge_tls_client::ForgeClientT;
-use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidateMachinesRequest};
 use ::rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
 };
+use ::rpc::protos::measured_boot::{ListCandidateMachinesRequest, show_candidate_machine_request};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
-use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};

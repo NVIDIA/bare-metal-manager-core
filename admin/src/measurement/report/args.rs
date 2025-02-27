@@ -30,7 +30,7 @@ use crate::cfg::measurement::parse_pcr_register_values;
 use clap::Parser;
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementReportId;
-use measured_boot::pcr::{parse_pcr_index_input, PcrRegisterValue, PcrSet};
+use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 
 // CmdReport provides a container for the `report`
 // subcommand, which itself contains other subcommands

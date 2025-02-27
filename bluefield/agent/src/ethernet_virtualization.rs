@@ -20,18 +20,18 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, fs, io, net::Ipv4Addr};
 
+use ::rpc::InterfaceFunctionType;
 use ::rpc::forge::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
-use ::rpc::InterfaceFunctionType;
 use eyre::WrapErr;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
-use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue, HBNDeviceNames};
+use crate::{HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 use forge_network::virtualization::VpcVirtualizationType;
 
 /// None of the files we deal with should be bigger than this
@@ -1514,10 +1514,10 @@ mod tests {
 
     use super::FPath;
     use crate::ethernet_virtualization::{
-        needed_interface_state, InterfaceState, ServiceAddresses,
+        InterfaceState, ServiceAddresses, needed_interface_state,
     };
-    use crate::{nvue, HBNDeviceNames};
-    use forge_network::virtualization::{get_svi_ip, VpcVirtualizationType};
+    use crate::{HBNDeviceNames, nvue};
+    use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use ipnetwork::IpNetwork;
 
     #[ctor::ctor]

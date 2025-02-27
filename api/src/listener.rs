@@ -15,7 +15,7 @@ use ::rpc::forge as rpc;
 use hyper::server::conn::http2;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
-use opentelemetry::{metrics::Meter, KeyValue};
+use opentelemetry::{KeyValue, metrics::Meter};
 use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::CertificateDer;
 use std::{net::SocketAddr, sync::Arc, time::Instant};
@@ -23,8 +23,8 @@ use tokio::net::TcpListener;
 use tokio::select;
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio_rustls::{
-    rustls::{RootCertStore, ServerConfig},
     TlsAcceptor,
+    rustls::{RootCertStore, ServerConfig},
 };
 use tonic_reflection::server::Builder;
 use tower_http::{add_extension::AddExtensionLayer, auth::AsyncRequireAuthorizationLayer};

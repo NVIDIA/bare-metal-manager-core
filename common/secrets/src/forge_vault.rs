@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use eyre::WrapErr;
-use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use rand::Rng;
 use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
@@ -118,10 +118,12 @@ where
         let vault_client_settings_builder =
             if Path::new(&forge_vault_client.vault_client_config.vault_root_ca_path).exists() {
                 vault_client_settings_builder
-                    .ca_certs(vec![forge_vault_client
-                        .vault_client_config
-                        .vault_root_ca_path
-                        .clone()])
+                    .ca_certs(vec![
+                        forge_vault_client
+                            .vault_client_config
+                            .vault_root_ca_path
+                            .clone(),
+                    ])
                     .verify(true)
             } else {
                 vault_client_settings_builder.verify(false)
@@ -248,8 +250,7 @@ where
         self.vault_client_setup(vault_client).await?;
         let vault_metrics = &vault_client.vault_metrics;
         let auth_status = vault_client.vault_auth_status.read().await;
-        if let ForgeVaultAuthenticationStatus::Authenticated(_, ref vault_client) =
-            auth_status.deref()
+        if let ForgeVaultAuthenticationStatus::Authenticated(_, vault_client) = auth_status.deref()
         {
             self.task.execute(vault_client, vault_metrics).await
         } else {

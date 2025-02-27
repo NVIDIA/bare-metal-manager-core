@@ -20,14 +20,13 @@ use crate::{
     model::machine::{InstanceState, ManagedHostState},
 };
 use common::api_fixtures::{
-    create_managed_host,
-    ib_partition::{create_ib_partition, DEFAULT_TENANT},
+    TestEnv, create_managed_host,
+    ib_partition::{DEFAULT_TENANT, create_ib_partition},
     instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
-    TestEnv,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
-use rpc::forge::{forge_server::Forge, IbPartitionSearchConfig, IbPartitionStatus, TenantState};
+use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState, forge_server::Forge};
 use std::collections::HashMap;
 use tonic::Request;
 

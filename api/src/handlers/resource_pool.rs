@@ -15,9 +15,9 @@ use std::collections::HashMap;
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::Api;
 use crate::db::DatabaseError;
-use crate::CarbideError;
 
 pub(crate) async fn grow(
     api: &Api,

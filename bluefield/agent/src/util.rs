@@ -10,15 +10,15 @@ use std::{
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
-use hickory_resolver::{config::ResolverConfig, Name};
+use hickory_resolver::{Name, config::ResolverConfig};
 use hyper::service::Service;
 use resolv_conf::Config;
 use rpc::{
+    Instance, Timestamp,
     forge::InstancePhoneHomeLastContactRequest,
     forge::ManagedHostNetworkConfigRequest,
     forge_resolver,
     forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
-    Instance, Timestamp,
 };
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {

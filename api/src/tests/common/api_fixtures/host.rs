@@ -15,17 +15,17 @@
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use crate::db;
 use crate::db::network_prefix::NetworkPrefix;
-use crate::db::{network_prefix, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, network_prefix};
 use crate::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use crate::model::{hardware_info::HardwareInfo, machine::ManagedHostState};
 use crate::tests::common::api_fixtures::{
-    forge_agent_control, managed_host::ManagedHostConfig, TestEnv,
+    TestEnv, forge_agent_control, managed_host::ManagedHostConfig,
 };
 use forge_uuid::machine::MachineId;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{
-    forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
+    forge::{DhcpDiscovery, forge_agent_control_response::Action, forge_server::Forge},
 };
 use strum::IntoEnumIterator;
 use tonic::Request;

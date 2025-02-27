@@ -1,6 +1,6 @@
+use crate::BmcRegistrationMode;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
-use crate::BmcRegistrationMode;
 use axum::Router;
 use clap::Parser;
 use duration_str::deserialize_duration;

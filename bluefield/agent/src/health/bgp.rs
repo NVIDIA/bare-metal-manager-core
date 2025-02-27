@@ -14,7 +14,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use super::{failed, make_alert, passed, probe_ids};
-use crate::{hbn, HBNDeviceNames};
+use crate::{HBNDeviceNames, hbn};
 
 /// Check HBN BGP stats
 pub async fn check_bgp_stats(

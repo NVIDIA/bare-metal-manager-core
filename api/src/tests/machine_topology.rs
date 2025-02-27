@@ -20,7 +20,7 @@ use crate::{
 };
 use forge_uuid::machine::MachineId;
 
-use crate::db::{network_segment, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;
 use common::api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine};
 use rpc::forge::forge_server::Forge;

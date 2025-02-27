@@ -3,15 +3,15 @@ pub mod tests {
     use forge_uuid::machine::MachineId;
 
     use crate::{
-        db::{self, machine::MachineSearchConfig, DatabaseError, ObjectFilter},
+        db::{self, DatabaseError, ObjectFilter, machine::MachineSearchConfig},
         model::{
             machine::{BomValidating, BomValidatingContext, MachineState, ManagedHostState},
             sku::Sku,
         },
         tests::common::api_fixtures::{
-            create_managed_host, create_managed_host_with_config, create_test_env,
-            create_test_env_with_overrides, get_config, managed_host::ManagedHostConfig, TestEnv,
-            TestEnvOverrides,
+            TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_with_config,
+            create_test_env, create_test_env_with_overrides, get_config,
+            managed_host::ManagedHostConfig,
         },
     };
 

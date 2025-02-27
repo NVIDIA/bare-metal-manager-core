@@ -15,8 +15,8 @@ use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PxeError,
-    PxeResponse,
+    PxeError, PxeResponse, forge_agent_control, get_fac_action, get_validation_id,
+    send_pxe_boot_request,
 };
 use bmc_mock::{
     BmcCommand, BmcMockError, BmcMockHandle, MachineInfo, SetSystemPowerError, SetSystemPowerReq,
@@ -643,7 +643,9 @@ impl MachineStateMachine {
                 return Err(SetSystemPowerError::BadRequest(msg));
             }
             (request, PowerState::PowerCycling { .. }) => {
-                let msg = format!("Machine-a-tron mock: Got power request while in the middle of power cycling {request:?}");
+                let msg = format!(
+                    "Machine-a-tron mock: Got power request while in the middle of power cycling {request:?}"
+                );
                 tracing::warn!("{msg}");
                 return Err(SetSystemPowerError::BadRequest(msg));
             }
@@ -709,7 +711,7 @@ impl MachineStateMachine {
     fn bmc_state(&self) -> Option<&BmcInitializedState> {
         let bmc_state = match &self.state {
             MachineState::BmcInit => return None,
-            MachineState::BmcOnly(ref s) => s,
+            MachineState::BmcOnly(s) => s,
             MachineState::MachineDown(s) => &s.bmc_state,
             MachineState::Init(s) => &s.bmc_state,
             MachineState::DhcpComplete(s) => &s.bmc_state,

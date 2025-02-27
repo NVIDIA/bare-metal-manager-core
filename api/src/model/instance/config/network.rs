@@ -26,7 +26,7 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
@@ -675,7 +675,10 @@ mod tests {
             network_details: None,
         };
         let serialized = serde_json::to_string(&interface).unwrap();
-        assert_eq!(serialized, "{\"function_id\":{\"type\":\"physical\"},\"network_details\":null,\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"},\"network_segment_gateways\":{},\"host_inband_mac_address\":null}");
+        assert_eq!(
+            serialized,
+            "{\"function_id\":{\"type\":\"physical\"},\"network_details\":null,\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"},\"network_segment_gateways\":{},\"host_inband_mac_address\":null}"
+        );
 
         assert_eq!(
             serde_json::from_str::<InstanceInterfaceConfig>(&serialized).unwrap(),

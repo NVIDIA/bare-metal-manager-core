@@ -48,11 +48,11 @@ pub struct StateController<IO: StateControllerIO> {
     lock_query: String,
     state_handler: Arc<
         dyn StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ContextObjects = IO::ContextObjects,
-            ObjectId = IO::ObjectId,
-        >,
+                State = IO::State,
+                ControllerState = IO::ControllerState,
+                ContextObjects = IO::ContextObjects,
+                ObjectId = IO::ObjectId,
+            >,
     >,
     metric_holder: Arc<MetricHolder<IO>>,
     stop_receiver: oneshot::Receiver<()>,

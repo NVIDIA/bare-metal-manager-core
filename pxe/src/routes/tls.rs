@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use axum::{
+    Router,
     body::Body,
     extract::{Request, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use tower_http::services::ServeFile;
 

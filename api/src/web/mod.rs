@@ -16,11 +16,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
 use axum::{
+    Extension,
     extract::{Host, Path as AxumPath, State as AxumState},
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post, Router},
-    Extension,
+    routing::{Router, get, post},
 };
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use base64::prelude::*;
@@ -40,9 +40,9 @@ use rpc::forge::{self as forgerpc};
 use tonic::service::AxumBody;
 use tower_http::normalize_path::NormalizePath;
 
+use crate::CarbideError;
 use crate::api::Api;
 use crate::cfg::file::CarbideConfig;
-use crate::CarbideError;
 
 mod auth;
 mod domain;
@@ -93,8 +93,7 @@ const ALLOWED_ACCESS_GROUPS_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROUPS"
 const DEFAULT_ALLOWED_ACCESS_GROUPS_LIST: &str = "swngc-forge-admins,ngc-forge-sre,swngc-forge-dev";
 
 const ALLOWED_ACCESS_GROUPS_ID_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST";
-const DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST: &str =
-    "1f13d1bb-6d7e-4fa5-9abf-93e24e7b5a4e,80f709a0-77a7-4a15-899d-7abba0ffdc1f,d03b7e2a-673b-4088-9af0-545a2d2f4c5d";
+const DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST: &str = "1f13d1bb-6d7e-4fa5-9abf-93e24e7b5a4e,80f709a0-77a7-4a15-899d-7abba0ffdc1f,d03b7e2a-673b-4088-9af0-545a2d2f4c5d";
 
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");

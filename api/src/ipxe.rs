@@ -7,9 +7,9 @@ use crate::model::machine::{
 };
 use crate::model::storage::OsImage;
 use crate::{
+    CarbideError,
     db::{self, instance::Instance, machine::MachineSearchConfig},
     model::machine::{InstanceState, ManagedHostState},
-    CarbideError,
 };
 use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;

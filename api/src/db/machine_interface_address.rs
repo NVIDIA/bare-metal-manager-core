@@ -14,7 +14,7 @@ use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::{network_segment::NetworkSegmentType, DatabaseError};
+use super::{DatabaseError, network_segment::NetworkSegmentType};
 use forge_uuid::machine::MachineId;
 use forge_uuid::machine::MachineInterfaceId;
 

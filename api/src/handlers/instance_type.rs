@@ -16,12 +16,12 @@ use forge_uuid::{instance_type::InstanceTypeId, machine::MachineId};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::api::{log_request_data, Api};
+use crate::api::{Api, log_request_data};
 use crate::db::{
-    instance, instance_type, machine::MachineSearchConfig, DatabaseError, ObjectFilter,
+    DatabaseError, ObjectFilter, instance, instance_type, machine::MachineSearchConfig,
 };
 use crate::model::{instance_type::InstanceTypeMachineCapabilityFilter, metadata::Metadata};
-use crate::{db, CarbideError};
+use crate::{CarbideError, db};
 
 pub(crate) async fn create(
     api: &Api,
@@ -45,7 +45,7 @@ pub(crate) async fn create(
         _ => {
             return Err(
                 CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
-            )
+            );
         }
     };
 
@@ -223,7 +223,7 @@ pub(crate) async fn update(
         _ => {
             return Err(
                 CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
-            )
+            );
         }
     };
 
@@ -278,7 +278,7 @@ pub(crate) async fn update(
                 kind: "InstanceType",
                 id: metadata.name.clone(),
             }
-            .into())
+            .into());
         }
     };
 
@@ -492,7 +492,7 @@ pub(crate) async fn associate_machines(
                     true => {
                         return Err(
                             CarbideError::InvalidArgument(format!("{} is a DPU", m_id)).into()
-                        )
+                        );
                     }
                 },
             },

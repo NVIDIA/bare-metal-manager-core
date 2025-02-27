@@ -17,6 +17,7 @@
  * This also provides code for importing/exporting (and working with) SiteModels.
 */
 
+use crate::CarbideResult;
 use crate::measured_boot::interface::bundle::{
     get_measurement_bundle_records, get_measurement_bundles_values,
 };
@@ -29,7 +30,6 @@ use crate::measured_boot::interface::profile::{
 use crate::measured_boot::interface::profile::{
     import_measurement_system_profiles, import_measurement_system_profiles_attrs,
 };
-use crate::CarbideResult;
 use measured_boot::site::SiteModel;
 use sqlx::{Postgres, Transaction};
 

@@ -14,7 +14,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::DatabaseError,
-    model::{controller_outcome::PersistentStateHandlerOutcome, StateSla},
+    model::{StateSla, controller_outcome::PersistentStateHandlerOutcome},
     state_controller::{metrics::MetricsEmitter, state_handler::StateHandlerContextObjects},
 };
 

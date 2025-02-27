@@ -14,15 +14,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
+use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::Json;
 use hyper::http::StatusCode;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use utils::managed_host_display::ManagedHostAttachedDpu;
 use utils::ManagedHostMetadata;
+use utils::managed_host_display::ManagedHostAttachedDpu;
 
 use super::filters;
 use crate::api::Api;

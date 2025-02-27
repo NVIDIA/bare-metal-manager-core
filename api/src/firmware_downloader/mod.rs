@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use eyre::{eyre, Report, WrapErr};
+use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
 use reqwest::Client;
 use tokio::fs::File;

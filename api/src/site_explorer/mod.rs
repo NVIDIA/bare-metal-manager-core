@@ -27,23 +27,23 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
     db::{
-        self,
+        self, DatabaseError, ObjectFilter,
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
         machine::MachineSearchConfig,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
-        DatabaseError, ObjectFilter,
     },
     model::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
         machine::{
-            machine_id::host_id_from_dpu_hardware_info, DpuDiscoveringState, DpuDiscoveringStates,
-            MachineInterfaceSnapshot, ManagedHostState,
+            DpuDiscoveringState, DpuDiscoveringStates, MachineInterfaceSnapshot, ManagedHostState,
+            machine_id::host_id_from_dpu_hardware_info,
         },
         metadata::Metadata,
         site_explorer::{
@@ -53,7 +53,6 @@ use crate::{
         },
     },
     resource_pool::common::CommonPools,
-    CarbideError, CarbideResult,
 };
 use forge_network::sanitized_mac;
 use forge_uuid::machine::{MachineId, MachineType};
@@ -72,7 +71,7 @@ use self::metrics::exploration_error_to_metric_label;
 use crate::db::predicted_machine_interface::{
     NewPredictedMachineInterface, PredictedMachineInterface,
 };
-use crate::db::{predicted_machine_interface, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, predicted_machine_interface};
 use crate::model::machine::Machine;
 pub use managed_host::is_endpoint_in_managed_host;
 
@@ -870,7 +869,10 @@ impl SiteExplorer {
                         .collect_vec()
                         .join(",");
 
-                    tracing::error!("Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.", ep.address);
+                    tracing::error!(
+                        "Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.",
+                        ep.address
+                    );
                     continue;
                 }
             }
@@ -1830,11 +1832,15 @@ impl SiteExplorer {
             || time_since_redfish_bmc_reset.num_minutes() < min_time_since_last_action_mins
             || time_since_ipmitool_bmc_reset.num_minutes() < min_time_since_last_action_mins
         {
-            tracing::info!("waiting to remediate error {error} for {endpoint}; time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
+            tracing::info!(
+                "waiting to remediate error {error} for {endpoint}; time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}"
+            );
             return;
         }
 
-        tracing::info!("Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}");
+        tracing::info!(
+            "Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}"
+        );
 
         let is_managed_host_created_for_endpoint = match self
             .is_managed_host_created_for_endpoint(endpoint.address)
@@ -2182,8 +2188,7 @@ impl SiteExplorer {
             tracing::warn!(
                 "Site Explorer found an uningested Lenovo (bmc_ip_address: {}) without infinite boot enabled; System Report: {:#?}",
                 host_endpoint.address,
-                system
-                .attributes
+                system.attributes
             );
 
             let interface = self

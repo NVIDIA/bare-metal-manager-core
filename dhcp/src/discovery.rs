@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 use std::net::{IpAddr, Ipv4Addr};
 
 use derive_builder::Builder;
@@ -17,8 +17,8 @@ use mac_address::MacAddress;
 
 use crate::machine::Machine;
 use crate::vendor_class::VendorClass;
-use crate::{cache, CarbideDhcpContext};
-use crate::{tls, CONFIG};
+use crate::{CONFIG, tls};
+use crate::{CarbideDhcpContext, cache};
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -35,7 +35,7 @@ pub enum DiscoveryBuilderResult {
     TooManyFailuresError = 8,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult) -> *const c_char {
     // If you add a variant here, please don't forget adding \0 at the end of the
     // string to make it null terminated and compatible to what C expects
@@ -91,7 +91,7 @@ pub struct DiscoveryBuilderFFI(());
 ///
 /// The returned object must either be consumed by calling
 /// `discovery_fetch_machine`, or freed by calling `discovery_builder_free`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::box_default)] // the Builder does not and cannot implement default, but clippy wants it to because they named the generated function "default".
 pub extern "C" fn discovery_builder_allocate() -> *mut DiscoveryBuilderFFI {
     Box::into_raw(Box::new(DiscoveryBuilder::default())) as _
@@ -104,12 +104,15 @@ unsafe fn marshal_discovery_ffi<F>(
 where
     F: FnOnce(&mut DiscoveryBuilder) -> DiscoveryBuilderResult,
 {
-    if builder.is_null() {
-        return DiscoveryBuilderResult::InvalidDiscoveryBuilderPointer;
-    }
+    unsafe {
+        if builder.is_null() {
+            return DiscoveryBuilderResult::InvalidDiscoveryBuilderPointer;
+        }
 
-    let builder = &mut *(builder as *mut DiscoveryBuilder);
-    f(builder)
+        let builder = &mut *(builder as *mut DiscoveryBuilder);
+
+        f(builder)
+    }
 }
 
 /// Fill the `client_system` portion of the discovery object
@@ -119,15 +122,17 @@ where
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_client_system(
     ctx: *mut DiscoveryBuilderFFI,
     client_system: u16,
 ) -> DiscoveryBuilderResult {
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.client_system(client_system);
-        DiscoveryBuilderResult::Success
-    })
+    unsafe {
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.client_system(client_system);
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `vendor_class` portion of the discovery object
@@ -137,23 +142,25 @@ pub unsafe extern "C" fn discovery_set_client_system(
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_vendor_class(
     ctx: *mut DiscoveryBuilderFFI,
     vendor_class: *const libc::c_char,
 ) -> DiscoveryBuilderResult {
-    let vendor_class = match CStr::from_ptr(vendor_class).to_str() {
-        Ok(string) => string.to_owned(),
-        Err(error) => {
-            log::error!("Invalid UTF-8 byte string for vendor_class: {}", error);
-            return DiscoveryBuilderResult::InvalidVendorClass;
-        }
-    };
+    unsafe {
+        let vendor_class = match CStr::from_ptr(vendor_class).to_str() {
+            Ok(string) => string.to_owned(),
+            Err(error) => {
+                log::error!("Invalid UTF-8 byte string for vendor_class: {}", error);
+                return DiscoveryBuilderResult::InvalidVendorClass;
+            }
+        };
 
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.vendor_class(vendor_class);
-        DiscoveryBuilderResult::Success
-    })
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.vendor_class(vendor_class);
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `link select` portion of the Discovery object with an IP(v4) address
@@ -163,15 +170,17 @@ pub unsafe extern "C" fn discovery_set_vendor_class(
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_link_select(
     ctx: *mut DiscoveryBuilderFFI,
     link_select: u32,
 ) -> DiscoveryBuilderResult {
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.link_select_address(Ipv4Addr::from(link_select.to_be_bytes()));
-        DiscoveryBuilderResult::Success
-    })
+    unsafe {
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.link_select_address(Ipv4Addr::from(link_select.to_be_bytes()));
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `circuit id (vlanid)` portion of the Discovery object with an String
@@ -181,23 +190,25 @@ pub unsafe extern "C" fn discovery_set_link_select(
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_circuit_id(
     ctx: *mut DiscoveryBuilderFFI,
     circuit_id: *const libc::c_char,
 ) -> DiscoveryBuilderResult {
-    let circuit_id = match CStr::from_ptr(circuit_id).to_str() {
-        Ok(string) => string.to_owned(),
-        Err(error) => {
-            log::error!("Invalid UTF-8 byte string for circuit_id: {}", error);
-            return DiscoveryBuilderResult::InvalidCircuitId;
-        }
-    };
+    unsafe {
+        let circuit_id = match CStr::from_ptr(circuit_id).to_str() {
+            Ok(string) => string.to_owned(),
+            Err(error) => {
+                log::error!("Invalid UTF-8 byte string for circuit_id: {}", error);
+                return DiscoveryBuilderResult::InvalidCircuitId;
+            }
+        };
 
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.circuit_id(circuit_id);
-        DiscoveryBuilderResult::Success
-    })
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.circuit_id(circuit_id);
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `remote_id` portion of the Discovery object with an String
@@ -207,23 +218,25 @@ pub unsafe extern "C" fn discovery_set_circuit_id(
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_remote_id(
     ctx: *mut DiscoveryBuilderFFI,
     remote_id: *const libc::c_char,
 ) -> DiscoveryBuilderResult {
-    let remote_id = match CStr::from_ptr(remote_id).to_str() {
-        Ok(string) => string.to_owned(),
-        Err(error) => {
-            log::error!("Invalid UTF-8 byte string for remote_id: {}", error);
-            return DiscoveryBuilderResult::InvalidCircuitId;
-        }
-    };
+    unsafe {
+        let remote_id = match CStr::from_ptr(remote_id).to_str() {
+            Ok(string) => string.to_owned(),
+            Err(error) => {
+                log::error!("Invalid UTF-8 byte string for remote_id: {}", error);
+                return DiscoveryBuilderResult::InvalidCircuitId;
+            }
+        };
 
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.remote_id(remote_id);
-        DiscoveryBuilderResult::Success
-    })
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.remote_id(remote_id);
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `relay` portion of the Discovery object with an IP(v4) address
@@ -233,15 +246,17 @@ pub unsafe extern "C" fn discovery_set_remote_id(
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_relay(
     ctx: *mut DiscoveryBuilderFFI,
     relay: u32,
 ) -> DiscoveryBuilderResult {
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.relay_address(Ipv4Addr::from(relay.to_be_bytes()));
-        DiscoveryBuilderResult::Success
-    })
+    unsafe {
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.relay_address(Ipv4Addr::from(relay.to_be_bytes()));
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Fill the `mac_address` portion of the Discovery object with an IP(v4) address
@@ -254,28 +269,30 @@ pub unsafe extern "C" fn discovery_set_relay(
 /// `raw_parts` and `size` must describe a valid memory holding 6 bytes which make
 /// up a MAC address.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_mac_address(
     ctx: *mut DiscoveryBuilderFFI,
     mac_address_ptr: *const u8,
     mac_address_len: usize,
 ) -> DiscoveryBuilderResult {
-    // The contract of this function is that the pointer/length pairs fors a valid
-    // byte array, so we can use `slice_from_raw_parts` to convert.
-    // `.try_into()` will check the address is exactly 6 bytes long
-    let mac_address_bytes: [u8; 6] =
-        match std::slice::from_raw_parts(mac_address_ptr, mac_address_len).try_into() {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                return DiscoveryBuilderResult::InvalidMacAddress;
-            }
-        };
+    unsafe {
+        // The contract of this function is that the pointer/length pairs fors a valid
+        // byte array, so we can use `slice_from_raw_parts` to convert.
+        // `.try_into()` will check the address is exactly 6 bytes long
+        let mac_address_bytes: [u8; 6] =
+            match std::slice::from_raw_parts(mac_address_ptr, mac_address_len).try_into() {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return DiscoveryBuilderResult::InvalidMacAddress;
+                }
+            };
 
-    let mac = MacAddress::new(mac_address_bytes);
-    marshal_discovery_ffi(ctx, |builder| {
-        builder.mac_address(mac);
-        DiscoveryBuilderResult::Success
-    })
+        let mac = MacAddress::new(mac_address_bytes);
+        marshal_discovery_ffi(ctx, |builder| {
+            builder.mac_address(mac);
+            DiscoveryBuilderResult::Success
+        })
+    }
 }
 
 /// Utilizes the DiscoveryBuilder to fetch a machine
@@ -286,7 +303,7 @@ pub unsafe extern "C" fn discovery_set_mac_address(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_fetch_machine(
     ctx: *mut DiscoveryBuilderFFI,
     machine_ptr_out: *mut *mut Machine,
@@ -296,7 +313,7 @@ pub unsafe extern "C" fn discovery_fetch_machine(
         .unwrap() // TODO(ajf): don't unwrap
         .api_endpoint;
 
-    discovery_fetch_machine_at(ctx, machine_ptr_out, url)
+    unsafe { discovery_fetch_machine_at(ctx, machine_ptr_out, url) }
 }
 
 unsafe fn discovery_fetch_machine_at(
@@ -304,147 +321,149 @@ unsafe fn discovery_fetch_machine_at(
     machine_ptr_out: *mut *mut Machine,
     url: &str,
 ) -> DiscoveryBuilderResult {
-    if machine_ptr_out.is_null() {
-        return DiscoveryBuilderResult::InvalidMachinePointer;
-    }
-    *machine_ptr_out = std::ptr::null_mut();
-
-    marshal_discovery_ffi(ctx, |builder| {
-        let discovery = match builder.build() {
-            Ok(discovery) => discovery,
-            Err(err) => {
-                log::info!("Error compiling the discovery builder object: {}", err);
-                return DiscoveryBuilderResult::BuilderError;
-            }
-        };
-
-        let mac_address = discovery.mac_address;
-        let circuit_id = discovery.circuit_id.clone();
-        let remote_id = discovery.remote_id.clone();
-        let addr_for_dhcp = IpAddr::V4(
-            discovery
-                .link_select_address
-                .unwrap_or(discovery.relay_address),
-        );
-
-        // try to parse request vendor class identifier
-        let vendor_class = match discovery.vendor_class {
-            Some(ref vendor_class) => match vendor_class.parse::<VendorClass>() {
-                Ok(vc) => Some(vc),
-                Err(err) => {
-                    log::warn!("error parsing vendor class: {} {:?}", vendor_class, err);
-                    return DiscoveryBuilderResult::InvalidVendorClass;
-                }
-            },
-            None => None,
-        };
-        let vendor_id = match &vendor_class {
-            Some(vc) => vc.id.as_str(),
-            None => "",
-        };
-
-        let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
-        if let Some(cache_entry) = cache::get(
-            mac_address,
-            addr_for_dhcp,
-            &circuit_id,
-            &remote_id,
-            vendor_id,
-        ) {
-            // We return the cached response if it's a positive cache entry, or an error if it's a negative one.
-            match cache_entry.status {
-                cache::CacheEntryStatus::ValidEntry(machine) => {
-                    log::info!(
-                    "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
-                    );
-                    *machine_ptr_out = Box::into_raw(machine);
-                    return DiscoveryBuilderResult::Success;
-                }
-                cache::CacheEntryStatus::DiscoveryFailing(count) => {
-                    log::info!(
-                    "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id}). failure count: {count}."
-                    );
-                    cache_entry_status = cache_entry.status;
-                }
-                cache::CacheEntryStatus::DiscoveryFailed => {
-                    log::info!(
-                    "too many failures for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
-                    );
-                    return DiscoveryBuilderResult::TooManyFailuresError;
-                }
-            }
+    unsafe {
+        if machine_ptr_out.is_null() {
+            return DiscoveryBuilderResult::InvalidMachinePointer;
         }
+        *machine_ptr_out = std::ptr::null_mut();
 
-        // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
-        // thread. This is required because tonic is async but this code generally is not.
-        //
-        // TODO(ajf): how to reason about FFI code with async.
-        //
-        let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        marshal_discovery_ffi(ctx, |builder| {
+            let discovery = match builder.build() {
+                Ok(discovery) => discovery,
+                Err(err) => {
+                    log::info!("Error compiling the discovery builder object: {}", err);
+                    return DiscoveryBuilderResult::BuilderError;
+                }
+            };
 
-        let forge_client_config = tls::build_forge_client_config();
+            let mac_address = discovery.mac_address;
+            let circuit_id = discovery.circuit_id.clone();
+            let remote_id = discovery.remote_id.clone();
+            let addr_for_dhcp = IpAddr::V4(
+                discovery
+                    .link_select_address
+                    .unwrap_or(discovery.relay_address),
+            );
 
-        match runtime.block_on(Machine::try_fetch(
-            discovery,
-            url,
-            vendor_class.clone(),
-            &forge_client_config,
-        )) {
-            Ok(machine) => {
-                // If any DHCP record had been invalidated after the KEA process started,
-                // KEAs internal cache (not the Rust cache) might be in inconsistent state.
-                // Since we don't have any API to invalidate the KEA cache we restart
-                // the process. This will happen very rarely, since Interface deletions
-                // in Forge are not common.
-                // See https://nvbugspro.nvidia.com/bug/4792034 for details
-                if let Some(last_invalidation) = machine.inner.last_invalidation_time.as_ref() {
-                    let startup_time = CONFIG.read().unwrap().startup_time;
+            // try to parse request vendor class identifier
+            let vendor_class = match discovery.vendor_class {
+                Some(ref vendor_class) => match vendor_class.parse::<VendorClass>() {
+                    Ok(vc) => Some(vc),
+                    Err(err) => {
+                        log::warn!("error parsing vendor class: {} {:?}", vendor_class, err);
+                        return DiscoveryBuilderResult::InvalidVendorClass;
+                    }
+                },
+                None => None,
+            };
+            let vendor_id = match &vendor_class {
+                Some(vc) => vc.id.as_str(),
+                None => "",
+            };
 
-                    if let Ok(last_invalidation) =
-                        chrono::DateTime::<chrono::Utc>::try_from(*last_invalidation)
-                    {
-                        if last_invalidation >= startup_time {
-                            log::error!(
-                                "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
-                                startup_time.to_rfc3339(),
-                                last_invalidation.to_rfc3339()
-                            );
-                            std::process::exit(99);
-                        }
+            let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
+            if let Some(cache_entry) = cache::get(
+                mac_address,
+                addr_for_dhcp,
+                &circuit_id,
+                &remote_id,
+                vendor_id,
+            ) {
+                // We return the cached response if it's a positive cache entry, or an error if it's a negative one.
+                match cache_entry.status {
+                    cache::CacheEntryStatus::ValidEntry(machine) => {
+                        log::info!(
+                            "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                        );
+                        *machine_ptr_out = Box::into_raw(machine);
+                        return DiscoveryBuilderResult::Success;
+                    }
+                    cache::CacheEntryStatus::DiscoveryFailing(count) => {
+                        log::info!(
+                            "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id}). failure count: {count}."
+                        );
+                        cache_entry_status = cache_entry.status;
+                    }
+                    cache::CacheEntryStatus::DiscoveryFailed => {
+                        log::info!(
+                            "too many failures for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                        );
+                        return DiscoveryBuilderResult::TooManyFailuresError;
                     }
                 }
+            }
 
-                cache::put(
-                    mac_address,
-                    addr_for_dhcp,
-                    circuit_id,
-                    remote_id,
-                    vendor_id,
-                    cache::CacheEntryStatus::ValidEntry(Box::new(machine.clone())),
-                );
-                *machine_ptr_out = Box::into_raw(Box::new(machine));
-                DiscoveryBuilderResult::Success
+            // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
+            // thread. This is required because tonic is async but this code generally is not.
+            //
+            // TODO(ajf): how to reason about FFI code with async.
+            //
+            let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+
+            let forge_client_config = tls::build_forge_client_config();
+
+            match runtime.block_on(Machine::try_fetch(
+                discovery,
+                url,
+                vendor_class.clone(),
+                &forge_client_config,
+            )) {
+                Ok(machine) => {
+                    // If any DHCP record had been invalidated after the KEA process started,
+                    // KEAs internal cache (not the Rust cache) might be in inconsistent state.
+                    // Since we don't have any API to invalidate the KEA cache we restart
+                    // the process. This will happen very rarely, since Interface deletions
+                    // in Forge are not common.
+                    // See https://nvbugspro.nvidia.com/bug/4792034 for details
+                    if let Some(last_invalidation) = machine.inner.last_invalidation_time.as_ref() {
+                        let startup_time = CONFIG.read().unwrap().startup_time;
+
+                        if let Ok(last_invalidation) =
+                            chrono::DateTime::<chrono::Utc>::try_from(*last_invalidation)
+                        {
+                            if last_invalidation >= startup_time {
+                                log::error!(
+                                    "Restarting KEA since invalidation was reported by Carbide. Startup: {}. Last_Invalidation: {}",
+                                    startup_time.to_rfc3339(),
+                                    last_invalidation.to_rfc3339()
+                                );
+                                std::process::exit(99);
+                            }
+                        }
+                    }
+
+                    cache::put(
+                        mac_address,
+                        addr_for_dhcp,
+                        circuit_id,
+                        remote_id,
+                        vendor_id,
+                        cache::CacheEntryStatus::ValidEntry(Box::new(machine.clone())),
+                    );
+                    *machine_ptr_out = Box::into_raw(Box::new(machine));
+                    DiscoveryBuilderResult::Success
+                }
+                Err(e_str) => {
+                    log::error!(
+                        "Error getting info back from the machine discovery: mac={} addr={} err={} api_url={}",
+                        mac_address,
+                        addr_for_dhcp,
+                        e_str,
+                        url
+                    );
+                    cache::put(
+                        mac_address,
+                        addr_for_dhcp,
+                        circuit_id,
+                        remote_id,
+                        vendor_id,
+                        cache_entry_status.increment_fails(),
+                    );
+                    DiscoveryBuilderResult::FetchMachineError
+                }
             }
-            Err(e_str) => {
-                log::error!(
-                    "Error getting info back from the machine discovery: mac={} addr={} err={} api_url={}",
-                    mac_address,
-                    addr_for_dhcp,
-                    e_str,
-                    url
-                );
-                cache::put(
-                    mac_address,
-                    addr_for_dhcp,
-                    circuit_id,
-                    remote_id,
-                    vendor_id,
-                    cache_entry_status.increment_fails(),
-                );
-                DiscoveryBuilderResult::FetchMachineError
-            }
-        }
-    })
+        })
+    }
 }
 
 /// Free the Discovery Builder object.
@@ -457,9 +476,11 @@ unsafe fn discovery_fetch_machine_at(
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
 ///
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
-    drop(Box::from_raw(ctx as *mut DiscoveryBuilder));
+    unsafe {
+        drop(Box::from_raw(ctx as *mut DiscoveryBuilder));
+    }
 }
 
 #[cfg(test)]

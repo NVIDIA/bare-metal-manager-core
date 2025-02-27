@@ -8,18 +8,18 @@ pub mod tests {
     use crate::db::attestation::EkCertVerificationStatus;
     use crate::db::machine_topology::MachineTopology;
     use crate::db::network_segment::NetworkSegment;
-    use crate::db::{network_segment, ObjectColumnFilter};
+    use crate::db::{ObjectColumnFilter, network_segment};
     use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use crate::model::machine::machine_id::from_hardware_info;
     use crate::model::machine::machine_id::try_parse_machine_id;
     use crate::tests::common;
 
+    use common::api_fixtures::TestEnv;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::dpu::create_dpu_machine;
     use common::api_fixtures::host::host_discover_dhcp;
-    use common::api_fixtures::tpm_attestation::{CA2_CERT_SERIALIZED, CA_CERT_SERIALIZED};
-    use common::api_fixtures::tpm_attestation::{EK2_CERT_SERIALIZED, EK_CERT_SERIALIZED};
-    use common::api_fixtures::TestEnv;
+    use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, CA2_CERT_SERIALIZED};
+    use common::api_fixtures::tpm_attestation::{EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED};
     use rpc::forge::TpmCaCertDetail;
     use rpc::forge::TpmCaCertId;
     use rpc::forge::TpmEkCertStatus;
@@ -28,8 +28,8 @@ pub mod tests {
     use crate::db;
     use forge_uuid::machine::MachineId;
 
-    use rpc::forge::forge_server::Forge;
     use rpc::forge::TpmCaCert;
+    use rpc::forge::forge_server::Forge;
 
     #[crate::sqlx_test]
     async fn test_get_ek_cert_by_machine_id_machine_not_found_returns_error(pool: sqlx::PgPool) {
@@ -41,9 +41,12 @@ pub mod tests {
         let mut txn = env.pool.begin().await.unwrap();
 
         match get_ek_cert_by_machine_id(&mut txn, &host_id).await {
-         Err(e) => assert_eq!(e.to_string(), "Internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."),
-         _ => panic!("Failed: should have returned an error")
-     }
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "Internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."
+            ),
+            _ => panic!("Failed: should have returned an error"),
+        }
     }
 
     #[crate::sqlx_test]
@@ -404,7 +407,10 @@ pub mod tests {
         .await
         {
             Ok(_) => panic!("Failed: should have returned an error!"),
-            Err(e) => assert_eq!(e.to_string(), "Internal error: Could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"),
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "Internal error: Could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"
+            ),
         }
 
         Ok(())

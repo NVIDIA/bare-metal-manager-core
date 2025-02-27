@@ -21,6 +21,7 @@ pub mod tests {
     use crate::tests::common;
     use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
     use crate::tests::common::api_fixtures::host::host_discover_dhcp;
+    use common::api_fixtures::TestEnvOverrides;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::create_test_env_with_overrides;
     use common::api_fixtures::get_config;
@@ -30,14 +31,13 @@ pub mod tests {
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
-    use common::api_fixtures::TestEnvOverrides;
     use forge_uuid::machine::MachineId;
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::AttestQuoteRequest;
-    use rpc::machine_discovery::AttestKeyInfo;
     use rpc::DiscoveryData;
     use rpc::DiscoveryInfo;
     use rpc::MachineDiscoveryInfo;
+    use rpc::forge::AttestQuoteRequest;
+    use rpc::forge::forge_server::Forge;
+    use rpc::machine_discovery::AttestKeyInfo;
     use tonic::Code;
 
     #[crate::sqlx_test]
@@ -292,7 +292,10 @@ pub mod tests {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attest Quote Error: Could not unmarshall Signature struct: response code not recognized");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: Could not unmarshall Signature struct: response code not recognized"
+                );
             }
         }
     }
@@ -431,16 +434,19 @@ pub mod tests {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attest Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)");
+                assert_eq!(
+                    e.message(),
+                    "Attest Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)"
+                );
             }
         }
     }
 
     // carbide/api/attestation.rs tests
 
+    use crate::CarbideError::AttestBindKeyError;
     use crate::attestation::verify_pcr_hash;
     use crate::attestation::verify_signature;
-    use crate::CarbideError::AttestBindKeyError;
     use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
     use tonic::Request;

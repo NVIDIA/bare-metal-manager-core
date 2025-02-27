@@ -32,7 +32,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementReportRecord;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
-use utils::admin_cli::{cli_output, CarbideCliError, CarbideCliResult, ToTable};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).

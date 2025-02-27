@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
@@ -25,13 +25,13 @@ use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
 use libredfish::model::storage::Drives;
 use libredfish::model::thermal::{Fan, Temperature};
-use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::model::{ResourceHealth, ResourceState};
+use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
-use opentelemetry::logs::{AnyValue, LogRecord, Logger};
-use opentelemetry::metrics::Meter;
 use opentelemetry::Key;
 use opentelemetry::KeyValue;
+use opentelemetry::logs::{AnyValue, LogRecord, Logger};
+use opentelemetry::metrics::Meter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
 use rpc::forge_tls_client::ForgeClientT;
@@ -855,7 +855,7 @@ async fn export_health_report(
                             message: format!("{}: {}", state, health_check.get_message()),
                             tenant_message: None,
                             classifications: vec![
-                                HealthAlertClassification::from_str("Hardware").unwrap()
+                                HealthAlertClassification::from_str("Hardware").unwrap(),
                             ],
                         }),
                     }

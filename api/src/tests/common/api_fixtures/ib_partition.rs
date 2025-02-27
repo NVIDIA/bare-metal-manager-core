@@ -12,7 +12,7 @@
 
 use super::TestEnv;
 use crate::api::rpc::{
-    forge_server::Forge, IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig,
+    IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig, forge_server::Forge,
 };
 use forge_uuid::infiniband::IBPartitionId;
 use tonic::Request;

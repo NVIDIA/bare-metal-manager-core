@@ -122,13 +122,15 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .into_inner();
 
     // Verify that there is a valid value before test.
-    assert!(!topology
-        .network_devices
-        .iter()
-        .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
-        .collect_vec()[0]
-        .devices
-        .is_empty());
+    assert!(
+        !topology
+            .network_devices
+            .iter()
+            .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
+            .collect_vec()[0]
+            .devices
+            .is_empty()
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -143,11 +145,9 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let query =
         "UPDATE port_to_network_device_map SET network_device_id=NULL WHERE local_port='oob_net0'";
     sqlx::query(query).execute(&mut *txn).await.unwrap();
-    let query =
-        "UPDATE network_devices SET id='mac=a1:b1:c1:00:00:11', name='Test' WHERE id='mac=a1:b1:c1:00:00:01'";
+    let query = "UPDATE network_devices SET id='mac=a1:b1:c1:00:00:11', name='Test' WHERE id='mac=a1:b1:c1:00:00:01'";
     sqlx::query(query).execute(&mut *txn).await.unwrap();
-    let query =
-        "UPDATE port_to_network_device_map SET network_device_id='mac=a1:b1:c1:00:00:11' WHERE local_port='oob_net0'";
+    let query = "UPDATE port_to_network_device_map SET network_device_id='mac=a1:b1:c1:00:00:11' WHERE local_port='oob_net0'";
     sqlx::query(query).execute(&mut *txn).await.unwrap();
     txn.commit().await.unwrap();
 
@@ -160,20 +160,24 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .into_inner();
 
     // Verify that db entries are updated with some new values.
-    assert!(topology
-        .network_devices
-        .iter()
-        .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
-        .collect_vec()
-        .is_empty());
+    assert!(
+        topology
+            .network_devices
+            .iter()
+            .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
+            .collect_vec()
+            .is_empty()
+    );
 
-    assert!(!topology
-        .network_devices
-        .iter()
-        .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
-        .collect_vec()[0]
-        .devices
-        .is_empty());
+    assert!(
+        !topology
+            .network_devices
+            .iter()
+            .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
+            .collect_vec()[0]
+            .devices
+            .is_empty()
+    );
 
     let _dpu_rpc_machine_id = dpu_discover_machine(
         &env,
@@ -191,21 +195,25 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .into_inner();
 
     // Verify that after topology update, everything is proper as it should be.
-    assert!(!topology
-        .network_devices
-        .iter()
-        .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
-        .collect_vec()[0]
-        .devices
-        .is_empty());
+    assert!(
+        !topology
+            .network_devices
+            .iter()
+            .filter(|x| x.id == "mac=a1:b1:c1:00:00:01")
+            .collect_vec()[0]
+            .devices
+            .is_empty()
+    );
 
-    assert!(topology
-        .network_devices
-        .iter()
-        .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
-        .collect_vec()[0]
-        .devices
-        .is_empty());
+    assert!(
+        topology
+            .network_devices
+            .iter()
+            .filter(|x| x.id == "mac=a1:b1:c1:00:00:11")
+            .collect_vec()[0]
+            .devices
+            .is_empty()
+    );
 
     Ok(())
 }

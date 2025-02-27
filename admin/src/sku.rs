@@ -187,7 +187,7 @@ fn show_sku_details(
         OutputFormat::Csv => {
             return Err(CarbideCliError::GenericError(
                 "CSV output not supported".to_string(),
-            ))
+            ));
         }
         OutputFormat::AsciiTable => {
             writeln!(output, "ID:              {}", sku.id)?;
@@ -250,7 +250,7 @@ fn show_sku_details(
         OutputFormat::Yaml => {
             return Err(CarbideCliError::GenericError(
                 "YAML output not supported".to_string(),
-            ))
+            ));
         }
     }
 

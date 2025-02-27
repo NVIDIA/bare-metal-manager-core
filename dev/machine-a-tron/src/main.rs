@@ -1,15 +1,15 @@
 use bmc_mock::{BmcMockHandle, ListenerOrAddress, TarGzOption};
 use clap::Parser;
-use figment::providers::{Format, Toml};
 use figment::Figment;
+use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
-use machine_a_tron::{
-    api_client::ApiClient, api_throttler, DhcpRelayService, MachineATronArgs, MachineATronConfig,
-    MachineATronContext, Tui, TuiHostLogs, UiEvent,
-};
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
+use machine_a_tron::{
+    DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
+    UiEvent, api_client::ApiClient, api_throttler,
+};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use std::collections::HashMap;
 use std::error::Error;

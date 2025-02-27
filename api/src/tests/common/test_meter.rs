@@ -42,7 +42,10 @@ impl TestMeter {
         match metrics.len() {
             0 => None,
             1 => metrics.pop(),
-            n => panic!("Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}", metrics),
+            n => panic!(
+                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}",
+                metrics
+            ),
         }
     }
 

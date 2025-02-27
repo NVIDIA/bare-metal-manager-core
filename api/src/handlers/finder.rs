@@ -21,16 +21,16 @@ use crate::db::expected_machine::ExpectedMachine;
 use crate::db::instance::Instance;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::Vpc;
-use crate::db::{instance, network_segment, vpc, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, instance, network_segment, vpc};
 use crate::{
+    CarbideError,
     api::Api,
     db::{
-        explored_endpoints::DbExploredEndpoint, instance_address::InstanceAddress,
+        DatabaseError, explored_endpoints::DbExploredEndpoint, instance_address::InstanceAddress,
         machine_interface_address::MachineInterfaceAddress, machine_topology::MachineTopology,
-        network_prefix::NetworkPrefix, DatabaseError,
+        network_prefix::NetworkPrefix,
     },
     model::resource_pool::ResourcePoolEntryState,
-    CarbideError,
 };
 use forge_uuid::{
     domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,

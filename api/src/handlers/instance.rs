@@ -9,23 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::api::{log_machine_id, log_request_data, Api};
+use crate::CarbideError;
+use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db::{
-    self,
+    self, DatabaseError,
     instance::{DeleteInstance, Instance},
     managed_host::LoadSnapshotOptions,
-    network_security_group, DatabaseError,
+    network_security_group,
 };
-use crate::instance::{allocate_instance, InstanceAllocationRequest};
-use crate::model::instance::config::tenant_config::TenantConfig;
+use crate::instance::{InstanceAllocationRequest, allocate_instance};
 use crate::model::instance::config::InstanceConfig;
+use crate::model::instance::config::tenant_config::TenantConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
-use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::ManagedHostStateSnapshot;
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
 use crate::redfish::RedfishAuth;
-use crate::CarbideError;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
@@ -160,8 +160,10 @@ pub(crate) async fn find(
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
     let instance_ids = match (id, label) {
         (Some(id), None) => {
-            vec![InstanceId::try_from(id)
-                .map_err(|_| CarbideError::InvalidArgument("id".to_string()))?]
+            vec![
+                InstanceId::try_from(id)
+                    .map_err(|_| CarbideError::InvalidArgument("id".to_string()))?,
+            ]
         }
         (None, None) => Instance::find_ids(&mut txn, Default::default()).await?,
 

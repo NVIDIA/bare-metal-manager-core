@@ -91,9 +91,18 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
     let vpc_id = get_vpc_fixture_id(&env).await;
 
     for (prefix, description) in [
-        ("198.51.100.0/24", "This VPC prefix is not within the site prefixes"),
-        ("2001:db8::/64", "This IPv6 VPC prefix is also not within the site prefixes"),
-        ("192.0.2.255/25", "This VPC prefix is not specified in canonical form (bits after the prefix are set to 1)"),
+        (
+            "198.51.100.0/24",
+            "This VPC prefix is not within the site prefixes",
+        ),
+        (
+            "2001:db8::/64",
+            "This IPv6 VPC prefix is also not within the site prefixes",
+        ),
+        (
+            "192.0.2.255/25",
+            "This VPC prefix is not specified in canonical form (bits after the prefix are set to 1)",
+        ),
     ] {
         let bad_vpc_prefix = VpcPrefixCreationRequest {
             id: None,
@@ -104,7 +113,10 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
         let request = Request::new(bad_vpc_prefix);
         let response = env.api.create_vpc_prefix(request).await;
 
-        assert!(response.is_err(), "A prefix ({prefix}) with description \"{description}\" was accepted when it should have been rejected");
+        assert!(
+            response.is_err(),
+            "A prefix ({prefix}) with description \"{description}\" was accepted when it should have been rejected"
+        );
     }
 
     Ok(())
@@ -229,7 +241,10 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
             .map(|uuid| uuid.value.clone())
             .unwrap();
         let expected_prefix = expected_vpc_prefix.prefix.as_str();
-        assert!(returned_vpc_prefix_ids.contains(&expected_id), "We expected to find the VPC prefix id {expected_id} for prefix {expected_prefix} in the search results ({returned_vpc_prefix_ids:?}), but it was absent");
+        assert!(
+            returned_vpc_prefix_ids.contains(&expected_id),
+            "We expected to find the VPC prefix id {expected_id} for prefix {expected_prefix} in the search results ({returned_vpc_prefix_ids:?}), but it was absent"
+        );
     }
 
     Ok(())

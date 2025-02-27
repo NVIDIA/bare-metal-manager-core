@@ -28,6 +28,7 @@ thiserror = "2.0.3"
 lru = "0.13.0"
 socket2 = "0.5.5"
 chrono = "0.4.38"
+futures = "*"
 
 # [local-dependencies]
 forge-tls = { path = "../common/tls" }

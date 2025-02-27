@@ -13,8 +13,8 @@ use std::{fmt, io};
 
 use futures_util::future::Either;
 use hickory_resolver::Name;
-use hyper::http::uri::Scheme;
 use hyper::http::Uri;
+use hyper::http::uri::Scheme;
 use hyper::service::Service;
 use hyper_util::rt::TokioIo;
 use tokio::net::{TcpSocket, TcpStream};

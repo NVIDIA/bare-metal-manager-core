@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use tracing::warn;
 
 use super::cfg::cli_options::ShowMachine;
@@ -240,10 +240,11 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
                     .map(|i| i.to_string())
                     .collect::<Vec<_>>()
             } else {
-                vec![mi
-                    .attached_dpu_machine_id
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| "NA".to_string())]
+                vec![
+                    mi.attached_dpu_machine_id
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| "NA".to_string()),
+                ]
             };
 
             (

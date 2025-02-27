@@ -19,6 +19,7 @@ use std::{
 use crate::{
     db,
     db::{
+        ObjectColumnFilter,
         dhcp_record::InstanceDhcpRecord,
         instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
@@ -26,25 +27,24 @@ use crate::{
         network_prefix::NetworkPrefix,
         network_segment::{IdColumn, NetworkSegment, NetworkSegmentSearchConfig},
         vpc::{UpdateVpcVirtualization, Vpc},
-        ObjectColumnFilter,
     },
     dhcp::allocation::UsedIpResolver,
-    instance::{allocate_instance, allocate_network, InstanceAllocationRequest},
+    instance::{InstanceAllocationRequest, allocate_instance, allocate_network},
     model::{
         instance::{
             config::{
+                InstanceConfig,
                 infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails},
                 storage::InstanceStorageConfig,
-                InstanceConfig,
             },
             status::network::{
                 InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
             },
         },
         machine::{
-            machine_id::try_parse_machine_id, CleanupState, FailureDetails, InstanceState,
-            MachineState, ManagedHostState, MeasuringState,
+            CleanupState, FailureDetails, InstanceState, MachineState, ManagedHostState,
+            MeasuringState, machine_id::try_parse_machine_id,
         },
         metadata::Metadata,
         network_security_group::NetworkSecurityGroupStatusObservation,
@@ -54,8 +54,8 @@ use crate::{
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, create_test_env_with_overrides, dpu, forge_agent_control,
-    get_config, inject_machine_measurements,
+    TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
+    forge_agent_control, get_config, inject_machine_measurements,
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
@@ -65,7 +65,6 @@ use common::api_fixtures::{
     network_configured, network_configured_with_health, persist_machine_validation_result,
     populate_network_security_groups, site_explorer,
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
-    TestEnvOverrides,
 };
 use forge_uuid::instance::InstanceId;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -73,18 +72,18 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 
 use rpc::{
-    forge::{OperatingSystem, TpmCaCert, TpmCaCertId},
     InstanceReleaseRequest, Timestamp,
+    forge::{OperatingSystem, TpmCaCert, TpmCaCertId},
 };
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::create_instance_with_config;
 use crate::tests::common::api_fixtures::{
-    create_managed_host_with_ek, update_time_params, TestEnv,
+    TestEnv, create_managed_host_with_ek, update_time_params,
 };
 use forge_uuid::vpc::VpcPrefixId;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::ops::DerefMut;
 
 #[crate::sqlx_test]
@@ -100,10 +99,12 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -328,10 +329,12 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -760,11 +763,12 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
-    assert!(env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .is_empty());
+    assert!(
+        env.find_instances(Some(instance_id.into()))
+            .await
+            .instances
+            .is_empty()
+    );
 
     // end of delete_instance()
 
@@ -1885,10 +1889,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // object is OK (to emulate older agents not sending gateways and prefixes in the status
     // observations).
     let mut txn = env.pool.begin().await.unwrap();
-    let gateways_query =
-        "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,gateways}', 'null', false)) where id = $1::uuid returning id";
-    let prefixes_query =
-        "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,prefixes}', 'null', false)) where id = $1::uuid returning id";
+    let gateways_query = "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,gateways}', 'null', false)) where id = $1::uuid returning id";
+    let prefixes_query = "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,prefixes}', 'null', false)) where id = $1::uuid returning id";
 
     let (_,): (InstanceId,) = sqlx::query_as(gateways_query)
         .bind(instance_id)
@@ -2653,10 +2655,12 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await

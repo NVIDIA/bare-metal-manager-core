@@ -17,20 +17,20 @@ use itertools::Itertools;
 use sqlx::{Pool, Postgres};
 
 use crate::db::vpc::{self, NewVpc, Vpc};
-use crate::db::{network_segment, ObjectColumnFilter};
+use crate::db::{ObjectColumnFilter, network_segment};
 use crate::model::metadata::Metadata;
 use crate::{
+    CarbideError,
     api::Api,
     cfg::file::{AgentUpgradePolicyChoice, CarbideConfig},
     db::{
+        DatabaseError,
         domain::{self, Domain, NewDomain},
         dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
         network_segment::{NetworkSegment, NewNetworkSegment},
         route_servers::RouteServer,
-        DatabaseError,
     },
     model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
-    CarbideError,
 };
 
 /// Create a Domain if we don't already have one.
@@ -255,7 +255,10 @@ pub(crate) async fn create_admin_vpc(
     if let Some(existing_vpc) = existing_vpc.first() {
         if let Some(vpc_id) = admin_segment.vpc_id {
             if vpc_id != existing_vpc.id {
-                return Err(CarbideError::internal(format!("Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.", existing_vpc.id)));
+                return Err(CarbideError::internal(format!(
+                    "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
+                    existing_vpc.id
+                )));
             }
 
             // All good here. We have valid admin vpc and it is attached to valid segment.

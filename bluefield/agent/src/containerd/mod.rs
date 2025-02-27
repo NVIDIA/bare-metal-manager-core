@@ -1,5 +1,5 @@
-pub use command::bash_command::BashCommand;
 pub use command::Command;
+pub use command::bash_command::BashCommand;
 
 pub mod container;
 

@@ -16,17 +16,17 @@ use std::fs;
 use std::io::Write;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::tests::common;
 use crate::util::compare_lines;
+use axum::Router;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::Router;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
 use forge_network::virtualization::VpcVirtualizationType;
@@ -67,12 +67,16 @@ pub async fn test_etv() -> eyre::Result<()> {
     let hbn_root = td.path();
     assert!(hbn_root.join("etc/frr/frr.conf").exists());
     assert!(hbn_root.join("etc/network/interfaces").exists());
-    assert!(hbn_root
-        .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
-        .exists());
-    assert!(hbn_root
-        .join("etc/cumulus/acl/policy.d/60-forge.rules")
-        .exists());
+    assert!(
+        hbn_root
+            .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
+            .exists()
+    );
+    assert!(
+        hbn_root
+            .join("etc/cumulus/acl/policy.d/60-forge.rules")
+            .exists()
+    );
 
     Ok(())
 }

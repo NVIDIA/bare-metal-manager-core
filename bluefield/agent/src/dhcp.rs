@@ -125,7 +125,7 @@ struct TmplDHCServerConfigParameters {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_relay_config, DhcpRelayConfig};
+    use super::{DhcpRelayConfig, build_relay_config};
     use crate::HBNDeviceNames;
 
     #[test]

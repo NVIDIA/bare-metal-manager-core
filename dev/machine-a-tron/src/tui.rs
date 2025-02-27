@@ -2,9 +2,9 @@ use std::{collections::HashMap, error::Error, time::Duration};
 
 use bmc_mock::EntryMap;
 use crossterm::{
-    event::{self, Event, EventStream, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, EventStream, KeyCode, KeyModifiers},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
 use futures::StreamExt;
@@ -18,11 +18,11 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
+    TuiHostLogs,
     machine_a_tron::AppEvent,
     subnet::Subnet,
     tabs::{MachinesTab, Tab},
     vpc::Vpc,
-    TuiHostLogs,
 };
 
 pub struct VpcDetails {

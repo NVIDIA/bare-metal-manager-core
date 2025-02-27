@@ -22,7 +22,7 @@ use hyper::http::StatusCode;
 use hyper::{Method, Uri};
 use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
-use hyper_util::client::legacy::{connect::HttpConnector, Client as HyperClient};
+use hyper_util::client::legacy::{Client as HyperClient, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
 use rpc::forge_tls_client::DummyTlsVerifier;
 use rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
@@ -198,7 +198,10 @@ impl RestClient {
                             )));
                         }
                         Item::Crl(_) => {
-                            return Err(RestError::Internal(format!("Expected Client Private Key but certificate revocation list is found '{}'", auto_cert.tls_key)));
+                            return Err(RestError::Internal(format!(
+                                "Expected Client Private Key but certificate revocation list is found '{}'",
+                                auto_cert.tls_key
+                            )));
                         }
                         _ => {
                             return Err(RestError::Internal(format!(

@@ -18,11 +18,11 @@
 use crate::records::MeasurementMachineState;
 use chrono::Utc;
 use forge_uuid::{
+    UuidEmptyStringError,
     machine::MachineId,
     measured_boot::{
         MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
     },
-    UuidEmptyStringError,
 };
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;

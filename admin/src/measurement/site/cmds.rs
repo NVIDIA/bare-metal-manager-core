@@ -38,7 +38,7 @@ use ::rpc::protos::measured_boot::{
 use serde::Serialize;
 use std::fs::File;
 use std::io::BufReader;
-use utils::admin_cli::{set_summary, CarbideCliError, CarbideCliResult, ToTable};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, set_summary};
 
 /// dispatch matches + dispatches the correct command
 /// for this subcommand.

@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::{errors::DhcpError, Config};
+use crate::{Config, errors::DhcpError};
 use forge_tls::client_config::ClientCert;
 use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use rpc::{

@@ -16,8 +16,8 @@ use std::{
 
 use crate::dhcp::allocation::DhcpError;
 use crate::model::{
-    hardware_info::HardwareInfoError, network_devices::LldpError, tenant::TenantError,
-    ConfigValidationError,
+    ConfigValidationError, hardware_info::HardwareInfoError, network_devices::LldpError,
+    tenant::TenantError,
 };
 use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
@@ -95,7 +95,8 @@ pub enum CarbideError {
     #[error("Network has attached VPC or Subdomain : {0}")]
     NetworkSegmentDelete(String),
 
-    #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
+    #[error(
+        "A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
     )]
     IdentifierSpecifiedForNewObject(String),
 

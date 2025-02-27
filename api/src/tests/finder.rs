@@ -16,10 +16,10 @@ use common::api_fixtures::dpu;
 use common::api_fixtures::instance::{create_instance, single_interface_network_config};
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+    FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env,
 };
-use rpc::forge::forge_server::Forge;
 use rpc::forge::IpType;
+use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 

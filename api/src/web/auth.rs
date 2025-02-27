@@ -17,18 +17,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::api::Api;
 use crate::web::Oauth2Layer;
 use axum::{
-    extract::{Host, Query, State as AxumState},
-    http::{header, HeaderValue, Method, StatusCode},
-    response::{IntoResponse, Redirect, Response},
     Extension,
+    extract::{Host, Query, State as AxumState},
+    http::{HeaderValue, Method, StatusCode, header},
+    response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use http::HeaderMap;
 use oauth2::{
-    http::HeaderValue as Oauth2HeaderValue, AsyncHttpClient, AuthorizationCode, ClientSecret,
-    HttpRequest, PkceCodeVerifier, Scope, TokenResponse,
+    AsyncHttpClient, AuthorizationCode, ClientSecret, HttpRequest, PkceCodeVerifier, Scope,
+    TokenResponse, http::HeaderValue as Oauth2HeaderValue,
 };
 use serde::Deserialize;
 use time::Duration;
@@ -98,7 +98,7 @@ pub async fn callback(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("bad token response from external auth service: {}", e),
                 )
-                    .into_response()
+                    .into_response();
             }
         };
 
@@ -192,7 +192,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("bad token response from external auth service: {}", e),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -203,7 +203,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "failed to find expiration in auth token",
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -214,7 +214,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "failed to convert auth expiration seconds between integer types",
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -237,7 +237,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "response token is missing payload claims section",
             )
-                .into_response()
+                .into_response();
         }
         Some(s) => {
             let data = match BASE64_URL_SAFE_NO_PAD.decode(s) {
@@ -250,7 +250,7 @@ pub async fn callback(
                             e
                         ),
                     )
-                        .into_response()
+                        .into_response();
                 }
             };
 
@@ -264,7 +264,7 @@ pub async fn callback(
                             e
                         ),
                     )
-                        .into_response()
+                        .into_response();
                 }
             }
         }
@@ -281,7 +281,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("failed to parse group query uri: {}", e),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -300,7 +300,7 @@ pub async fn callback(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "unable to create authorization header",
                     )
-                        .into_response()
+                        .into_response();
                 }
             },
         )
@@ -317,7 +317,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("unable to create request to grab group details: {}", e),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -341,7 +341,7 @@ pub async fn callback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("failed to get oauth2 user groups: {}", e),
             )
-                .into_response()
+                .into_response();
         }
     };
 

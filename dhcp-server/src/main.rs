@@ -22,8 +22,8 @@ mod vendor_class;
 use std::{error::Error, net::SocketAddr, sync::Arc, time::Duration};
 
 use ::rpc::{
-    forge::{DhcpDiscovery, DhcpRecord},
     MachineId, Uuid,
+    forge::{DhcpDiscovery, DhcpRecord},
 };
 use cache::CacheEntry;
 use chrono::Utc;
@@ -31,14 +31,14 @@ use command_line::{Args, ServerMode};
 use errors::DhcpError;
 use lru::LruCache;
 use modes::{
-    controller::Controller,
-    dpu::{get_host_config, Dpu},
     DhcpMode,
+    controller::Controller,
+    dpu::{Dpu, get_host_config},
 };
 use tokio::{net::UdpSocket, sync::Mutex};
 use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 
 pub struct Server {
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut join_handle = vec![];
+    let mut join_handles = vec![];
     let dhcp_timestamps = Arc::new(Mutex::new(DhcpTimestamps::new(
         if let ServerMode::Dpu = args.mode {
             DhcpTimestampsFilePath::Hbn
@@ -191,12 +191,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         });
 
-        join_handle.push(handle);
+        join_handles.push(handle);
     }
 
-    for handle in join_handle {
-        handle.await?;
-    }
+    let _ = futures::future::select_all(join_handles).await;
 
     Ok(())
 }
@@ -338,10 +336,10 @@ mod test {
     };
 
     use chrono::{DateTime, Utc};
-    use dhcproto::{v4::Message, Decodable};
+    use dhcproto::{Decodable, v4::Message};
     use lru::LruCache;
 
-    use crate::{cache, command_line::Args, init, packet_handler, process, DhcpMode, Test};
+    use crate::{DhcpMode, Test, cache, command_line::Args, init, packet_handler, process};
 
     use tokio::{net::UdpSocket, sync::Mutex};
     use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
@@ -400,15 +398,17 @@ mod test {
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
             std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
         )));
-        assert!(packet_handler::process_packet(
-            &byte_stream,
-            &config,
-            "vlan200",
-            &*handler,
-            &mut machine_cache
-        )
-        .await
-        .is_err());
+        assert!(
+            packet_handler::process_packet(
+                &byte_stream,
+                &config,
+                "vlan200",
+                &*handler,
+                &mut machine_cache
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]

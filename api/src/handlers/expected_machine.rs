@@ -15,11 +15,11 @@ use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
-use crate::api::{log_request_data, Api};
-use crate::db::expected_machine::ExpectedMachine;
-use crate::db::DatabaseError;
-use crate::model::metadata::Metadata;
 use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::db::DatabaseError;
+use crate::db::expected_machine::ExpectedMachine;
+use crate::model::metadata::Metadata;
 
 pub(crate) async fn get(
     api: &Api,
@@ -50,7 +50,8 @@ pub(crate) async fn get(
         Some(expected_machine) => {
             if expected_machine.bmc_mac_address != parsed_mac {
                 return Err(Status::invalid_argument(format!(
-                    "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}")));
+                    "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}"
+                )));
             }
 
             Ok(tonic::Response::new(expected_machine.into()))

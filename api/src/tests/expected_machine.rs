@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use crate::{
+    CarbideError,
     db::{expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint},
     model::{metadata::Metadata, site_explorer::EndpointExplorationReport},
-    CarbideError,
 };
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
-use rpc::forge::{forge_server::Forge, ExpectedMachineList, ExpectedMachineRequest};
+use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest, forge_server::Forge};
 use sqlx::Postgres;
 use std::default::Default;
 
@@ -743,11 +743,12 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         metadata: None,
     };
 
-    assert!(env
-        .api
-        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+            .await
+            .is_err()
+    );
 }
 
 #[crate::sqlx_test(fixtures("create_expected_machine"))]
@@ -801,9 +802,10 @@ async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPoo
         "dpu_serial1".to_string(),
     ];
 
-    assert!(env
-        .api
-        .update_expected_machine(tonic::Request::new(ee1.clone()))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .update_expected_machine(tonic::Request::new(ee1.clone()))
+            .await
+            .is_err()
+    );
 }

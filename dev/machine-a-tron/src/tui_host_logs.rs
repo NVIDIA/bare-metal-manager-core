@@ -5,7 +5,7 @@ use std::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use tracing::field::Field;
 use tracing::span::Attributes;
-use tracing::{field, Event, Id, Subscriber};
+use tracing::{Event, Id, Subscriber, field};
 use tracing_subscriber::layer::Context;
 use uuid::Uuid;
 

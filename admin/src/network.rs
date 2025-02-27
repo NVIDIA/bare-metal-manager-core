@@ -13,7 +13,7 @@ use std::fmt::Write;
 use std::str::FromStr as _;
 
 use ::rpc::forge as forgerpc;
-use prettytable::{row, Table};
+use prettytable::{Table, row};
 use serde::Deserialize;
 
 use super::cfg::cli_options::ShowNetwork;

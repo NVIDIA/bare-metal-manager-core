@@ -14,8 +14,8 @@ use sqlx::{Postgres, Transaction};
 
 use crate::{
     db::{
-        explored_endpoints::DbExploredEndpoint, explored_managed_host::DbExploredManagedHost,
-        DatabaseError,
+        DatabaseError, explored_endpoints::DbExploredEndpoint,
+        explored_managed_host::DbExploredManagedHost,
     },
     model::site_explorer::SiteExplorationReport,
 };

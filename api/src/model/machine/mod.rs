@@ -13,15 +13,14 @@ use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::sku::SkuStatus;
 use super::{
-    bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
+    StateSla, bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
-    StateSla,
 };
 use crate::{
+    CarbideError,
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
     model::{hardware_info::HardwareInfo, machine::capabilities::MachineCapabilitiesSet},
     state_controller::state_handler::StateHandlerError,
-    CarbideError,
 };
 use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
@@ -128,7 +127,8 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
 pub enum NotAllocatableReason {
     #[error("The Machine is in a state other than `Ready`: {0:?}")]
     InvalidState(Box<ManagedHostState>),
-    #[error("The Machine has a pending instance creation request, that has not yet been processed by the state handler"
+    #[error(
+        "The Machine has a pending instance creation request, that has not yet been processed by the state handler"
     )]
     PendingInstanceCreation,
     #[error("There are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]

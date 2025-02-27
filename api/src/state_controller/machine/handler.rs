@@ -12,20 +12,8 @@
 
 //! State Handler implementation for Machines
 
-use std::{net::IpAddr, sync::Arc};
+use std::{mem::discriminant as enum_discr, net::IpAddr, sync::Arc};
 
-use crate::cfg::file::BomValidationConfig;
-use crate::db::machine_validation::{MachineValidationState, MachineValidationStatus};
-use crate::db::network_segment::NetworkSegment;
-use crate::db::vpc::VpcDpuLoopback;
-use crate::model::instance::config::network::NetworkDetails;
-use crate::model::machine::{BomValidating, BomValidatingContext, DisableSecureBootState};
-use crate::resource_pool::common::CommonPools;
-use crate::state_controller::machine::{
-    get_measuring_prerequisites, handle_measuring_state, MeasuringOutcome,
-};
-use crate::state_controller::state_handler::DoNothingDetails;
-use crate::{db, redfish};
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
@@ -34,52 +22,63 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use health_report::HealthProbeId;
 use itertools::Itertools;
-use libredfish::model::oem::nvidia_dpu::BackgroundCopyStatus;
 use libredfish::{
+    Boot, Redfish, RedfishError, SystemPowerControl,
     model::{
+        oem::nvidia_dpu::BackgroundCopyStatus,
         task::{Task, TaskState},
         update_service::TransferProtocolType,
-    },
-    Boot, Redfish, RedfishError, SystemPowerControl,
-};
-use std::mem::discriminant as enum_discr;
-use tokio::{fs::File, sync::Semaphore};
-
-use crate::{
-    cfg::file::{
-        DpuModel, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
-        MachineValidationConfig,
-    },
-    db::{
-        explored_endpoints::DbExploredEndpoint, instance::DeleteInstance,
-        machine_topology::MachineTopology, machine_validation::MachineValidation,
-    },
-    firmware_downloader::FirmwareDownloader,
-    ib::IBFabricManagerType,
-    model::{
-        machine::{
-            all_equal, get_display_ids, BmcFirmwareUpgradeSubstate, CleanupState,
-            DpuDiscoveringState, DpuInitState, FailureCause, FailureDetails, FailureSource,
-            HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
-            LockdownMode::{self, Enable},
-            LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-            NextReprovisionState, PerformPowerOperation, PowerDrainState, ReprovisionState,
-            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState,
-        },
-        site_explorer::ExploredEndpoint,
-    },
-    redfish::{host_power_control, poll_redfish_job, set_host_uefi_password},
-    state_controller::{
-        machine::context::MachineStateHandlerContextObjects,
-        state_handler::{
-            MeasuringProblem, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, StateHandlerServices,
-        },
     },
 };
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
+use tokio::{fs::File, sync::Semaphore};
+
+use crate::{
+    cfg::file::{
+        BomValidationConfig, DpuModel, Firmware, FirmwareComponentType, FirmwareConfig,
+        FirmwareEntry, MachineValidationConfig,
+    },
+    db,
+    db::{
+        explored_endpoints::DbExploredEndpoint,
+        instance::DeleteInstance,
+        machine_topology::MachineTopology,
+        machine_validation::{MachineValidation, MachineValidationState, MachineValidationStatus},
+        network_segment::NetworkSegment,
+        vpc::VpcDpuLoopback,
+    },
+    firmware_downloader::FirmwareDownloader,
+    ib::IBFabricManagerType,
+    model::{
+        instance::config::network::NetworkDetails,
+        machine::{
+            BmcFirmwareUpgradeSubstate, BomValidating, BomValidatingContext, CleanupState,
+            DisableSecureBootState, DpuDiscoveringState, DpuInitState, FailureCause,
+            FailureDetails, FailureSource, HostReprovisionState, InstanceNextStateResolver,
+            InstanceState, LockdownInfo,
+            LockdownMode::{self, Enable},
+            LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
+            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+            NextReprovisionState, PerformPowerOperation, PowerDrainState, ReprovisionState,
+            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState, all_equal, get_display_ids,
+        },
+        site_explorer::ExploredEndpoint,
+    },
+    redfish,
+    redfish::{host_power_control, poll_redfish_job, set_host_uefi_password},
+    resource_pool::common::CommonPools,
+    state_controller::{
+        machine::{
+            MeasuringOutcome, context::MachineStateHandlerContextObjects,
+            get_measuring_prerequisites, handle_measuring_state,
+        },
+        state_handler::{
+            DoNothingDetails, MeasuringProblem, StateHandler, StateHandlerContext,
+            StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+        },
+    },
+};
 
 mod ib;
 mod sku;
@@ -723,7 +722,11 @@ impl MachineStateHandler {
                         || mh_snapshot.host_snapshot.bmc_vendor().is_lenovo())
                         && mh_snapshot.host_snapshot.bios_password_set_time.is_none()
                     {
-                        tracing::info!("transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",mh_snapshot.host_snapshot.bmc_vendor(), mh_snapshot.host_snapshot.id);
+                        tracing::info!(
+                            "transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
+                            mh_snapshot.host_snapshot.bmc_vendor(),
+                            mh_snapshot.host_snapshot.id
+                        );
                         return Ok(StateHandlerOutcome::Transition(
                             ManagedHostState::HostInit {
                                 machine_state: MachineState::UefiSetup {
@@ -1253,7 +1256,7 @@ impl MachineStateHandler {
                 return Err(StateHandlerError::InvalidState(format!(
                     "Invalid state for calling handle_host_reprovision {:?}",
                     state.managed_state
-                )))
+                )));
             }
         };
         match managed_host_state {
@@ -1644,9 +1647,9 @@ impl MachineStateHandler {
                             {
                                 if current_version == *final_version {
                                     tracing::info!(
-                                    "Marking completion of Redfish task of firmware upgrade for {} with missing task",
-                                    &endpoint.address
-                                );
+                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
+                                        &endpoint.address
+                                    );
                                     return Ok(Some(ManagedHostState::HostReprovision {
                                         reprovision_state: HostReprovisionState::CheckingFirmware,
                                     }));
@@ -1882,7 +1885,9 @@ impl MachineStateHandler {
                 reprovision_state: HostReprovisionState::CheckingFirmware,
             }))
         } else {
-            tracing::debug!("Waiting for {machine_id} to reach version {final_version} currently {current_version}");
+            tracing::debug!(
+                "Waiting for {machine_id} to reach version {final_version} currently {current_version}"
+            );
             DbExploredEndpoint::re_explore_if_version_matches(
                 endpoint.address,
                 endpoint.report_version,
@@ -2382,8 +2387,8 @@ async fn component_update(
         }
         Err(e) => {
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(
-                    "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
-                )));
+                "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
+            )));
         }
     };
     if component_value.get_filename().ends_with("bfb") {
@@ -2472,7 +2477,7 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                     return Ok(StateHandlerOutcome::Wait(format!(
                         "Waiting for RedFish to become available: {:?}",
                         e
-                    )))
+                    )));
                 }
             };
 
@@ -2584,7 +2589,9 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                                 .next_bmc_upgrade_step(state, dpu_snapshot)?,
                             )),
                             Err(e) if e.to_string().contains("is not supported") => {
-                                tracing::warn!("Chassis reset is not supported by current CEC FW, triggering host power cycle");
+                                tracing::warn!(
+                                    "Chassis reset is not supported by current CEC FW, triggering host power cycle"
+                                );
                                 Ok(StateHandlerOutcome::Transition(
                                     ReprovisionState::BmcFirmwareUpgrade {
                                         substate: BmcFirmwareUpgradeSubstate::HostPowerCycle,
@@ -2676,8 +2683,13 @@ async fn handle_dpu_reprovision_bmc_firmware_upgrade(
                 })
                 .collect_vec();
             if !dpus_not_in_sync_state.is_empty() {
-                let msg = format!("Waiting for DPUs to come in HostPowerCycle or FwUpdateCompleted state. DPUs not in sync state: {:#?}",
-                dpus_not_in_sync_state.iter().map(|(i, s)| {(dpu_ids_for_reprovisioning[*i], s)}).collect_vec());
+                let msg = format!(
+                    "Waiting for DPUs to come in HostPowerCycle or FwUpdateCompleted state. DPUs not in sync state: {:#?}",
+                    dpus_not_in_sync_state
+                        .iter()
+                        .map(|(i, s)| { (dpu_ids_for_reprovisioning[*i], s) })
+                        .collect_vec()
+                );
 
                 return Ok(StateHandlerOutcome::Wait(msg));
             }
@@ -3073,7 +3085,10 @@ async fn handle_dpu_reprovision(
                             &state.host_snapshot.id
                         );
 
-                        return Err(StateHandlerError::GenericError(eyre!("Failed to reset BMC for {}; redfish error: {redfish_error}; ipmitool error: {ipmitool_error}", &state.host_snapshot.id)));
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "Failed to reset BMC for {}; redfish error: {redfish_error}; ipmitool error: {ipmitool_error}",
+                            &state.host_snapshot.id
+                        )));
                     };
                 }
             }
@@ -3276,7 +3291,7 @@ impl DpuMachineStateHandler {
                         return Ok(StateHandlerOutcome::Wait(format!(
                             "Waiting for RedFish to become available: {:?}",
                             e
-                        )))
+                        )));
                     }
                 };
 
@@ -3317,7 +3332,7 @@ impl DpuMachineStateHandler {
                         return Ok(StateHandlerOutcome::Wait(format!(
                             "Waiting for RedFish to become available: {:?}",
                             e
-                        )))
+                        )));
                     }
                 };
 
@@ -3333,7 +3348,10 @@ impl DpuMachineStateHandler {
                             })?;
 
                     if *count > 0 && !has_dpu_finished_booting {
-                        tracing::info!("Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; DisableSecureBoot cycle: {count}", dpu_snapshot.id)
+                        tracing::info!(
+                            "Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; DisableSecureBoot cycle: {count}",
+                            dpu_snapshot.id
+                        )
                     }
 
                     !has_dpu_finished_booting
@@ -3374,9 +3392,11 @@ impl DpuMachineStateHandler {
                                     }
                                 }
                                 Err(StateHandlerError::MissingData { object_id, missing }) => {
-                                    tracing::info!("Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
-                                        object_id, missing
-                                   );
+                                    tracing::info!(
+                                        "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
+                                        object_id,
+                                        missing
+                                    );
 
                                     /***
                                      * If the DPU's BMC comes up after UEFI client was run on an ARM
@@ -3520,7 +3540,7 @@ impl DpuMachineStateHandler {
                         return Ok(StateHandlerOutcome::Wait(format!(
                             "Waiting for RedFish to become available: {:?}",
                             e
-                        )))
+                        )));
                     }
                 };
 
@@ -3684,7 +3704,10 @@ impl DpuMachineStateHandler {
                 {
                     Ok(client) => client,
                     Err(e) => {
-                        let msg = format!("failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}", dpu_snapshot.id, e);
+                        let msg = format!(
+                            "failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}",
+                            dpu_snapshot.id, e
+                        );
                         tracing::warn!(msg);
                         // If we cannot create a redfish client for the DPU, this function call will never result in an actual DPU reboot.
                         // The only side effect is turning the DPU's host back on if we turned it off earlier.
@@ -3712,7 +3735,10 @@ impl DpuMachineStateHandler {
                 )
                 .await
                 {
-                    let msg = format!("redfish forge_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", dpu_snapshot.id, e);
+                    let msg = format!(
+                        "redfish forge_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
+                        dpu_snapshot.id, e
+                    );
                     tracing::warn!(msg);
                     let reboot_status = reboot_if_needed(
                         state,
@@ -3789,10 +3815,10 @@ impl DpuMachineStateHandler {
                         }
 
                         // TODO: Make is_network_ready give us more details as a string
-                        return Ok(StateHandlerOutcome::Wait(
-                            format!("Waiting for DPU agent to apply network config and report healthy network for DPU {}\nreboot status: {reboot_status:#?}",
-                        dsnapshot.id),
-                        ));
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for DPU agent to apply network config and report healthy network for DPU {}\nreboot status: {reboot_status:#?}",
+                            dsnapshot.id
+                        )));
                     }
                 }
 
@@ -3860,15 +3886,12 @@ fn get_reboot_cycle(
     wait_period: Duration,
 ) -> Result<i64, StateHandlerError> {
     if next_potential_reboot_time <= entered_state_at {
-        return Err(
-            StateHandlerError::GenericError(
-                eyre::eyre!("Poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}",
-                    next_potential_reboot_time,
-                    entered_state_at,
-                    wait_period.num_minutes()
-                )
-            )
-        );
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "Poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}",
+            next_potential_reboot_time,
+            entered_state_at,
+            wait_period.num_minutes()
+        )));
     }
 
     let cycle = next_potential_reboot_time - entered_state_at;
@@ -4485,7 +4508,10 @@ impl StateHandler for HostMachineStateHandler {
                             Ok(StateHandlerOutcome::Transition(next_state))
                         }
                         Err(e) => {
-                            tracing::warn!("redfish forge_setup failed for {host_machine_id}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}", e);
+                            tracing::warn!(
+                                "redfish forge_setup failed for {host_machine_id}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
+                                e
+                            );
 
                             // if forge_setup failed, rebooted to potentially work around
                             // a known race between the DPU UEFI and the BMC, where if
@@ -4521,9 +4547,9 @@ impl StateHandler for HostMachineStateHandler {
                                     .await?
                                 };
 
-                            Ok(StateHandlerOutcome::Wait(
-                                        format!("redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"),
-                                    ))
+                            Ok(StateHandlerOutcome::Wait(format!(
+                                "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
+                            )))
                         }
                     }
                 }
@@ -4539,14 +4565,14 @@ impl StateHandler for HostMachineStateHandler {
                             return map_host_init_measuring_outcome_to_state_handler_outcome(
                                 &measuring_outcome,
                                 measuring_state,
-                            )
+                            );
                         }
                         Err(StateHandlerError::MeasuringError(measuring_problem)) => {
                             match measuring_problem {
                                 MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
                                     return Ok(StateHandlerOutcome::Wait(format!(
                                         "Waiting for Scout to start and send registration info (in discover_machine): {info}"
-                                    )))
+                                    )));
                                 }
                             }
                         }
@@ -5568,7 +5594,9 @@ async fn call_forge_setup_and_handle_no_dpu_error(
     let setup_result = redfish_client.machine_setup(boot_interface_mac).await;
     match (setup_result, expected_dpu_count, allow_zero_dpus) {
         (Err(RedfishError::NoDpu), 0, true) => {
-            tracing::info!("redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this.");
+            tracing::info!(
+                "redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
+            );
             Ok(())
         }
         (Ok(()), _, _) => Ok(()),

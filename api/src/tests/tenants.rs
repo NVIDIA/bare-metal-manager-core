@@ -15,8 +15,8 @@ use crate::tests::common::api_fixtures::{
     create_managed_host,
     instance::{create_instance, single_interface_network_config},
 };
-use common::api_fixtures::{create_test_env, TestEnv};
-use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
+use common::api_fixtures::{TestEnv, create_test_env};
+use rpc::forge::{CreateTenantKeysetResponse, forge_server::Forge};
 use tonic::Code;
 
 #[crate::sqlx_test]
@@ -417,12 +417,14 @@ async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
         "keyset2"
     );
 
-    assert!(find_result.keyset[0]
-        .keyset_content
-        .as_ref()
-        .unwrap()
-        .public_keys
-        .is_empty());
+    assert!(
+        find_result.keyset[0]
+            .keyset_content
+            .as_ref()
+            .unwrap()
+            .public_keys
+            .is_empty()
+    );
 
     let find_result = env
         .api
@@ -540,12 +542,14 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(find_result.keyset[0]
-        .keyset_content
-        .as_ref()
-        .unwrap()
-        .public_keys
-        .is_empty());
+    assert!(
+        find_result.keyset[0]
+            .keyset_content
+            .as_ref()
+            .unwrap()
+            .public_keys
+            .is_empty()
+    );
 
     // Update to invalid version fails
     let err = env
@@ -768,73 +772,79 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     .await;
 
     // Test that key set validation NOT ok with ssh keys passed with instance.
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "mykey1".to_string()
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "mykey1".to_string()
+                },
+            ))
+            .await
+            .is_err()
+    );
 
     // Only key associated with Tenant1 and keyset1, keyset2 are accepted.
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "some_long_key_base64_encoded".to_string()
-            },
-        ))
-        .await
-        .is_ok());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "some_long_key_base64_encoded".to_string()
+                },
+            ))
+            .await
+            .is_ok()
+    );
 
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "my_another_key".to_string()
-            },
-        ))
-        .await
-        .is_ok());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "my_another_key".to_string()
+                },
+            ))
+            .await
+            .is_ok()
+    );
 
     // Any other keyset except mentioned in keyset_ids is not accepted.
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "my_another_keyset3".to_string()
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "my_another_keyset3".to_string()
+                },
+            ))
+            .await
+            .is_err()
+    );
 
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "some_long_key_base64_encoded_1".to_string()
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "some_long_key_base64_encoded_1".to_string()
+                },
+            ))
+            .await
+            .is_err()
+    );
 
-    assert!(env
-        .api
-        .validate_tenant_public_key(tonic::Request::new(
-            rpc::forge::ValidateTenantPublicKeyRequest {
-                instance_id: instance_id.to_string(),
-                tenant_public_key: "unknown_key1".to_string()
-            },
-        ))
-        .await
-        .is_err());
+    assert!(
+        env.api
+            .validate_tenant_public_key(tonic::Request::new(
+                rpc::forge::ValidateTenantPublicKeyRequest {
+                    instance_id: instance_id.to_string(),
+                    tenant_public_key: "unknown_key1".to_string()
+                },
+            ))
+            .await
+            .is_err()
+    );
 }
 
 #[crate::sqlx_test]

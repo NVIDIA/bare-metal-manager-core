@@ -6,7 +6,7 @@ use crate::api_client::ClientApiError;
 use crate::host_machine::HostMachineActor;
 use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
-use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
 use std::collections::HashSet;
@@ -133,16 +133,16 @@ pub async fn send_pxe_boot_request(
             PxeResponse::Scout
         } else {
             tracing::error!(
-                    "Could not determine what to do with kernel URL returned by PXE script, will treat as 'exit': {}",
-                    pxe_script
-                );
+                "Could not determine what to do with kernel URL returned by PXE script, will treat as 'exit': {}",
+                pxe_script
+            );
             PxeResponse::Exit
         }
     } else {
         tracing::error!(
-                "Could not determine what to do with PXE script (no kernel line, no exit line), will treat as 'exit': {}",
-                pxe_script
-            );
+            "Could not determine what to do with PXE script (no kernel line, no exit line), will treat as 'exit': {}",
+            pxe_script
+        );
         PxeResponse::Exit
     };
 

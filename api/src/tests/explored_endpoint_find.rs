@@ -210,7 +210,9 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let mut txn = db_pool.begin().await?;
     let mtxn = &mut txn;
 
-    let query = format!("UPDATE machine_topologies SET topology = jsonb_set(topology, '{{bmc_info}}',  '{{\"ip\": \"{bmc_ip}\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}}', false) WHERE machine_id = $1");
+    let query = format!(
+        "UPDATE machine_topologies SET topology = jsonb_set(topology, '{{bmc_info}}',  '{{\"ip\": \"{bmc_ip}\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}}', false) WHERE machine_id = $1"
+    );
     let _ = sqlx::query(&query)
         .bind(host_machine_id.to_string())
         .execute(mtxn.deref_mut())

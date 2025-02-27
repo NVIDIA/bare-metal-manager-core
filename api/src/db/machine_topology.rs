@@ -90,8 +90,7 @@ impl MachineTopology {
             %machine_id,
             "Discovery data for machine already exists. Updating now.",
         );
-        let query =
-                "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false WHERE machine_id=$1 RETURNING *";
+        let query = "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false WHERE machine_id=$1 RETURNING *";
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&discovery_data))
@@ -274,8 +273,7 @@ impl MachineTopology {
         machine_id: &MachineId,
         value: bool,
     ) -> Result<(), DatabaseError> {
-        let query =
-                "UPDATE machine_topologies SET topology_update_needed=$2 WHERE machine_id=$1 RETURNING machine_id";
+        let query = "UPDATE machine_topologies SET topology_update_needed=$2 WHERE machine_id=$1 RETURNING machine_id";
         let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(value)

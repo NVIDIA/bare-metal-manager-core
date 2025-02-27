@@ -492,7 +492,9 @@ fn help() {
         "Usage: -c [carbide api url] -e <event definition file1,file2,..> -m <monitor|oneshot> -t [poll interval in seconds]"
     );
     println!("Examples:");
-    println!("log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor -t 10");
+    println!(
+        "log-parser -c https://carbide-api.forge-system.svc.cluster.local:1079 -e /opt/forge/event_definitions -m monitor -t 10"
+    );
     println!("log-parser -e event_definition.json -m oneshot");
     println!("log-parser -v for application version");
 }

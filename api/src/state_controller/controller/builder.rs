@@ -61,11 +61,11 @@ pub struct Builder<IO: StateControllerIO> {
     io: Option<Arc<IO>>,
     state_handler: Arc<
         dyn StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ContextObjects = IO::ContextObjects,
-            ObjectId = IO::ObjectId,
-        >,
+                State = IO::State,
+                ControllerState = IO::ControllerState,
+                ContextObjects = IO::ContextObjects,
+                ObjectId = IO::ObjectId,
+            >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     ib_pools: Option<IbPools>,
@@ -276,11 +276,11 @@ impl<IO: StateControllerIO> Builder<IO> {
         mut self,
         handler: Arc<
             dyn StateHandler<
-                State = IO::State,
-                ControllerState = IO::ControllerState,
-                ContextObjects = IO::ContextObjects,
-                ObjectId = IO::ObjectId,
-            >,
+                    State = IO::State,
+                    ControllerState = IO::ControllerState,
+                    ContextObjects = IO::ContextObjects,
+                    ObjectId = IO::ObjectId,
+                >,
         >,
     ) -> Self {
         self.state_handler = handler;

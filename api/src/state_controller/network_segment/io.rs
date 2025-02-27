@@ -16,11 +16,11 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::db::ObjectColumnFilter;
 use crate::{
-    db::{self, network_segment::NetworkSegment, DatabaseError},
+    db::{self, DatabaseError, network_segment::NetworkSegment},
     model::{
+        StateSla,
         controller_outcome::PersistentStateHandlerOutcome,
         network_segment::{self, NetworkSegmentControllerState},
-        StateSla,
     },
     state_controller::{
         io::StateControllerIO,

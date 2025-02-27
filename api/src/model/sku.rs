@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgRow, FromRow, Row};
+use sqlx::{FromRow, Row, postgres::PgRow};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Sku {

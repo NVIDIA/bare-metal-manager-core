@@ -112,7 +112,7 @@ struct TmplFrrConfigParameters {
 
 #[cfg(test)]
 mod tests {
-    use super::{build, FrrConfig};
+    use super::{FrrConfig, build};
     use crate::HBNDeviceNames;
 
     #[test]

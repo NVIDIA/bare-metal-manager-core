@@ -14,7 +14,7 @@ use crate::metrics_utils::SharedMetricsHolder;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use opentelemetry::{metrics::Meter, KeyValue};
+use opentelemetry::{KeyValue, metrics::Meter};
 use std::{collections::HashMap, time::Instant};
 
 /// MeasuredBootMetricsCollectorMetrics stores metrics that are gathered in

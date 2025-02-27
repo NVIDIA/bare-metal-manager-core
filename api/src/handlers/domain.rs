@@ -13,10 +13,10 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::Api;
 use crate::db::domain::{self, Domain, NewDomain};
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use crate::CarbideError;
 use forge_uuid::domain::DomainId;
 
 pub(crate) async fn create(
@@ -91,7 +91,7 @@ pub(crate) async fn update(
                 kind: "domain",
                 id: uuid.to_string(),
             }
-            .into())
+            .into());
         }
         1 => domains.remove(0),
         _ => {
@@ -161,7 +161,7 @@ pub(crate) async fn delete(
                 kind: "domain",
                 id: uuid.to_string(),
             }
-            .into())
+            .into());
         }
         1 => domains.remove(0),
         _ => {

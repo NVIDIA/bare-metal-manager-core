@@ -89,7 +89,7 @@ struct LinkList {
 
 #[cfg(test)]
 mod tests {
-    use super::{LinkList, CORRECT_MTU};
+    use super::{CORRECT_MTU, LinkList};
 
     const LINK_LIST_OUT: &str = r#"[{"ifindex":4,"ifname":"p0","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","master":"ovs-system","operstate":"UP","linkmode":"DEFAULT","group":"default","txqlen":1000,"link_type":"ether","address":"b8:3f:d2:90:97:fa","broadcast":"ff:ff:ff:ff:ff:ff","vfinfo_list":[],"altnames":["enp3s0f0np0"]}]"#;
 

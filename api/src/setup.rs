@@ -14,11 +14,11 @@ use std::{collections::HashSet, sync::Arc};
 
 use eyre::WrapErr;
 use figment::{
-    providers::{Env, Format, Toml},
     Figment,
+    providers::{Env, Format, Toml},
 };
-use forge_secrets::{credentials::CredentialProvider, ForgeVaultClient};
-use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
+use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
+use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
 
 use crate::db::expected_machine::ExpectedMachine;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
@@ -36,7 +36,7 @@ use crate::{
     ib_fabric_monitor::IbFabricMonitor,
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
     listener,
-    logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
+    logging::service_health_metrics::{ServiceHealthContext, start_export_service_health_metrics},
     machine_update_manager::MachineUpdateManager,
     measured_boot::metrics_collector::MeasuredBootMetricsCollector,
     preingestion_manager::PreingestionManager,
@@ -53,8 +53,8 @@ use crate::{
     },
 };
 use tokio::sync::{
-    oneshot::{Receiver, Sender},
     Semaphore,
+    oneshot::{Receiver, Sender},
 };
 
 pub fn parse_carbide_config(
@@ -90,8 +90,8 @@ pub fn parse_carbide_config(
             || config.site_explorer.override_target_ip.is_some())
     {
         tracing::debug!(
-                "Carbide config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
-            );
+            "Carbide config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
+        );
         config.site_explorer.allow_changing_bmc_proxy = Some(true);
     }
     Ok(Arc::new(config))
@@ -237,7 +237,9 @@ pub async fn start_api(
         if !carbide_config.ib_fabrics.is_empty() {
             let fabric_id = carbide_config.ib_fabrics.iter().next().unwrap().0;
             if fabric_id != DEFAULT_IB_FABRIC_NAME {
-                return Err(eyre::eyre!("ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"));
+                return Err(eyre::eyre!(
+                    "ib_fabrics contains an entry \"{fabric_id}\", but only \"{DEFAULT_IB_FABRIC_NAME}\" is supported at the moment"
+                ));
             }
         }
 

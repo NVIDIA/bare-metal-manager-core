@@ -318,8 +318,7 @@ pub async fn get_machines_for_bundle_name(
     txn: &mut Transaction<'_, Postgres>,
     bundle_name: String,
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let query =
-        "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
+    let query = "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(bundle_name)
         .fetch_all(txn.deref_mut())

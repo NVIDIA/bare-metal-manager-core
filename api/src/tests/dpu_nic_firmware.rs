@@ -155,11 +155,13 @@ fn check_for_update_host_health_override(managed_host: &ManagedHostStateSnapshot
         "Overrides: {:?}",
         serde_json::to_string(&managed_host.host_snapshot.health_report_overrides).unwrap()
     );
-    assert!(managed_host
-        .host_snapshot
-        .health_report_overrides
-        .merges
-        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    assert!(
+        managed_host
+            .host_snapshot
+            .health_report_overrides
+            .merges
+            .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+    );
     let health = &managed_host.aggregate_health;
     println!("Health: {:?}", serde_json::to_string(health).unwrap());
     let update_alert = health
@@ -167,13 +169,17 @@ fn check_for_update_host_health_override(managed_host: &ManagedHostStateSnapshot
         .iter()
         .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID)
         .expect("Expect Update Alert to be placed");
-    assert!(update_alert
-        .message
-        .contains(AutomaticFirmwareUpdateReference::REF_NAME));
-    assert!(update_alert
-        .classifications
-        .iter()
-        .any(|c| c == &health_report::HealthAlertClassification::prevent_allocations()));
+    assert!(
+        update_alert
+            .message
+            .contains(AutomaticFirmwareUpdateReference::REF_NAME)
+    );
+    assert!(
+        update_alert
+            .classifications
+            .iter()
+            .any(|c| c == &health_report::HealthAlertClassification::prevent_allocations())
+    );
 }
 
 #[crate::sqlx_test]
@@ -374,11 +380,13 @@ async fn test_clear_completed_updates(
             .await
             .unwrap()
             .unwrap();
-    assert!(!managed_host
-        .host_snapshot
-        .health_report_overrides
-        .merges
-        .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE));
+    assert!(
+        !managed_host
+            .host_snapshot
+            .health_report_overrides
+            .merges
+            .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+    );
     assert!(managed_host.aggregate_health.alerts.is_empty());
 
     Ok(())

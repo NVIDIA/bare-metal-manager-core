@@ -13,14 +13,14 @@
 use std::time::SystemTime;
 
 use super::{
-    forge_agent_control, inject_machine_measurements, persist_machine_validation_result, TestEnv,
+    TestEnv, forge_agent_control, inject_machine_measurements, persist_machine_validation_result,
 };
 use crate::db;
 use crate::model::machine::{CleanupState, MachineState, ManagedHostState};
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
-    forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
     InstanceReleaseRequest, Timestamp,
+    forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
 };
 
 pub async fn create_instance(
@@ -314,11 +314,12 @@ pub async fn delete_instance(
     txn.commit().await.unwrap();
     handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_id, host_machine_id).await;
 
-    assert!(env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .is_empty());
+    assert!(
+        env.find_instances(Some(instance_id.into()))
+            .await
+            .instances
+            .is_empty()
+    );
 
     // Run network state machine handler here.
     env.run_network_segment_controller_iteration().await;

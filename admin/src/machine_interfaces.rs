@@ -41,7 +41,9 @@ pub async fn handle_show(
         // noticeable, and a little more annoying/naggy. If people
         // complain, it means its working.
         if args.all && output_format == OutputFormat::AsciiTable {
-            warn!("redundant `--all` with basic `show` is deprecated. just do `machine-interfaces show`")
+            warn!(
+                "redundant `--all` with basic `show` is deprecated. just do `machine-interfaces show`"
+            )
         }
         return Ok(());
     }

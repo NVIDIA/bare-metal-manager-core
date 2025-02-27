@@ -12,8 +12,8 @@
 
 use carbide::{Command, Options};
 use clap::CommandFactory;
-use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -33,7 +33,7 @@ async fn main() -> eyre::Result<()> {
         Some(s) => s,
     };
     match sub_cmd {
-        Command::Migrate(ref m) => {
+        Command::Migrate(m) => {
             tracing::info!("Running migrations");
             let mut pg_connection_options = PgConnectOptions::from_str(&m.datastore[..])?;
             let root_cafile_path = Path::new("/var/run/secrets/spiffe.io/ca.crt");
@@ -47,7 +47,7 @@ async fn main() -> eyre::Result<()> {
             let pool = PgPool::connect_with(pg_connection_options).await?;
             carbide::migrate(&pool).await?;
         }
-        Command::Run(ref config) => {
+        Command::Run(config) => {
             // THIS SECTION HAS BEEN INTENTIONALLY KEPT SMALL.
             // Nothing should go before the call to carbide::run that isn't already here.
             // Everything that you think might belong here, belongs in carbide::run.

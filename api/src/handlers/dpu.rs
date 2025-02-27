@@ -19,7 +19,7 @@ use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
-use crate::api::{log_machine_id, log_request_data, Api};
+use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db;
 use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -29,7 +29,7 @@ use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_security_group;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
-use crate::db::{network_segment, DatabaseError, ObjectColumnFilter};
+use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::model::hardware_info::MachineInventory;
 use crate::model::instance::status::network::{
@@ -39,7 +39,7 @@ use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
-use crate::{ethernet_virtualization, CarbideError};
+use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
@@ -94,7 +94,7 @@ pub(crate) async fn get_managed_host_network_config(
             return Err(Status::failed_precondition(format!(
                 "DPU {} needs discovery.  DPU snapshot not found for managed host",
                 dpu_machine_id
-            )))
+            )));
         }
     };
 
@@ -654,7 +654,7 @@ pub(crate) async fn record_dpu_network_status(
                 return Err(CarbideError::InvalidArgument(
                     "applied_config.instance_config_version".to_string(),
                 )
-                .into())
+                .into());
             }
         },
         _ => None,

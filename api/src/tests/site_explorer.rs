@@ -18,23 +18,24 @@ use crate::tests::common;
 use crate::tests::common::{
     api_fixtures,
     api_fixtures::{
+        TestEnvOverrides,
         dpu::DpuConfig,
         managed_host::ManagedHostConfig,
         network_segment::{
-            create_host_inband_network_segment, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
-            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+            create_host_inband_network_segment,
         },
         site_explorer::MockExploredHost,
-        TestEnvOverrides,
     },
     test_meter::TestMeter,
 };
 use crate::{
+    CarbideError,
     cfg::file::SiteExplorerConfig,
     db::{
-        self, expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint,
-        explored_managed_host::DbExploredManagedHost, machine::MachineSearchConfig,
-        machine_topology::MachineTopology, DatabaseError, ObjectColumnFilter, ObjectFilter,
+        self, DatabaseError, ObjectColumnFilter, ObjectFilter, expected_machine::ExpectedMachine,
+        explored_endpoints::DbExploredEndpoint, explored_managed_host::DbExploredManagedHost,
+        machine::MachineSearchConfig, machine_topology::MachineTopology,
     },
     model::{
         hardware_info::HardwareInfo,
@@ -48,17 +49,16 @@ use crate::{
     resource_pool::ResourcePoolStats,
     site_explorer::SiteExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
-    CarbideError,
 };
-use common::api_fixtures::{endpoint_explorer::MockEndpointExplorer, TestEnv};
+use common::api_fixtures::{TestEnv, endpoint_explorer::MockEndpointExplorer};
 use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{
-    forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
-    site_explorer::{ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost},
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
+    forge::{DhcpDiscovery, GetSiteExplorationRequest, forge_server::Forge},
+    site_explorer::{ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost},
 };
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
@@ -260,9 +260,11 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .unwrap(),
         "2"
     );
-    assert!(test_meter
-        .formatted_metric("forge_endpoint_exploration_success_count")
-        .is_some());
+    assert!(
+        test_meter
+            .formatted_metric("forge_endpoint_exploration_success_count")
+            .is_some()
+    );
     // The failure metric is not emitted if no failure happened
     assert_eq!(
         test_meter
@@ -325,9 +327,11 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .unwrap(),
         "2"
     );
-    assert!(test_meter
-        .formatted_metric("forge_endpoint_exploration_success_count")
-        .is_some());
+    assert!(
+        test_meter
+            .formatted_metric("forge_endpoint_exploration_success_count")
+            .is_some()
+    );
     assert_eq!(
         test_meter
             .formatted_metric("forge_endpoint_exploration_duration_milliseconds_count")
@@ -1057,8 +1061,11 @@ async fn test_site_explorer_reexplore(
     assert_eq!(e.code(), tonic::Code::FailedPrecondition);
     assert_eq!(
         e.message(),
-        format!("An object of type explored_endpoint was intended to be modified did not have the expected version {}",
-        unexpected_version.version_string()));
+        format!(
+            "An object of type explored_endpoint was intended to be modified did not have the expected version {}",
+            unexpected_version.version_string()
+        )
+    );
 
     let mut txn = env.pool.begin().await?;
     let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
@@ -1464,10 +1471,12 @@ async fn test_site_explorer_creates_managed_host(
     assert!(dpu_machine.network_config.loopback_ip.is_some());
 
     let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
-    assert!(machine_interfaces[0]
-        .machine_id
-        .as_ref()
-        .is_some_and(|id| id == &dpu_machine.id));
+    assert!(
+        machine_interfaces[0]
+            .machine_id
+            .as_ref()
+            .is_some_and(|id| id == &dpu_machine.id)
+    );
 
     let host_machine =
         db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
@@ -2014,9 +2023,11 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     }
     assert_eq!(bmc_ip_addresses.len(), 2);
     for bmc_ip in bmc_ip_addresses {
-        assert!(<Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
-            .iter()
-            .any(|x| { x.bmc_info.ip.clone().unwrap_or_default() == bmc_ip }));
+        assert!(
+            <Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
+                .iter()
+                .any(|x| { x.bmc_info.ip.clone().unwrap_or_default() == bmc_ip })
+        );
     }
     Ok(())
 }

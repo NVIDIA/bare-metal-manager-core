@@ -23,13 +23,13 @@ use sqlx::Pool;
 pub use tpm_ca_cert::extract_ca_fields;
 pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
 
-use crate::db::machine::MachineSearchConfig;
-use crate::db::machine_topology::MachineTopology;
+use crate::CarbideResult;
 use crate::db::DatabaseError;
 use crate::db::ObjectFilter;
+use crate::db::machine::MachineSearchConfig;
+use crate::db::machine_topology::MachineTopology;
 use crate::model::hardware_info::TpmEkCertificate;
-use crate::CarbideResult;
-use crate::{db, CarbideError};
+use crate::{CarbideError, db};
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Transaction};
 

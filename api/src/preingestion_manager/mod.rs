@@ -10,32 +10,34 @@
  * its affiliates is strictly prohibited.
  */
 
-mod metrics;
-
 use std::{default::Default, sync::Arc, time::Duration};
 
-use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
+use libredfish::{
+    RedfishError, SystemPowerControl,
+    model::{task::TaskState, update_service::TransferProtocolType},
+};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::{
     fs::File,
-    sync::{oneshot, Semaphore},
+    sync::{Semaphore, oneshot},
     task::JoinSet,
 };
 
-use self::metrics::PreingestionMetrics;
 use crate::{
+    CarbideError, CarbideResult,
     cfg::file::{
         CarbideConfig, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
         FirmwareGlobal,
     },
-    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
     firmware_downloader::FirmwareDownloader,
     model::site_explorer::{ExploredEndpoint, PowerDrainState, PreingestionState},
+    preingestion_manager::metrics::PreingestionMetrics,
     redfish::{RedfishClientCreationError, RedfishClientPool},
-    CarbideError, CarbideResult,
 };
+
+mod metrics;
 
 const NOT_FOUND: u16 = 404;
 
@@ -56,8 +58,7 @@ struct PreingestionManagerStatic {
 }
 
 impl PreingestionManager {
-    const DB_LOCK_QUERY: &'static str =
-         "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer)";
+    const DB_LOCK_QUERY: &'static str = "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer)";
 
     pub fn new(
         database_connection: sqlx::PgPool,
@@ -360,15 +361,18 @@ impl PreingestionManagerStatic {
         for (fwtype, desc) in &fw_info.components {
             if let Some(min_preingestion) = &desc.preingest_upgrade_when_below {
                 if let Some(current) = endpoint.find_version(&fw_info, *fwtype) {
-                    tracing::info!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
+                    tracing::info!(
+                        "check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}",
+                        endpoint.address
+                    );
 
                     if version_compare::compare(current, min_preingestion)
                         .is_ok_and(|c| c == version_compare::Cmp::Lt)
                     {
                         tracing::info!(
-                             "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
-                             endpoint.address
-                         );
+                            "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
+                            endpoint.address
+                        );
                         // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
                         let delayed_upgrade = self
                             .start_firmware_uploads_or_continue(txn, endpoint)
@@ -877,7 +881,10 @@ impl PreingestionManagerStatic {
             {
                 Ok(()) => {}
                 Err(e) if e.to_string().contains("is not supported") => {
-                    tracing::error!("Chassis reset is not supported by current CEC FW. Need to do host power cycle! BMC IP: {}", endpoint.address);
+                    tracing::error!(
+                        "Chassis reset is not supported by current CEC FW. Need to do host power cycle! BMC IP: {}",
+                        endpoint.address
+                    );
                 }
                 Err(e) => {
                     tracing::error!("Failed to call chassis_reset: {e}");
@@ -910,7 +917,11 @@ impl PreingestionManagerStatic {
                     // Still not reporting the new version.
                     DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
                         .await?;
-                    tracing::info!("Upgrade {} task has completed for {} but still reports version {current_version} (expected version: {final_version})", upgrade_type, &endpoint.address);
+                    tracing::info!(
+                        "Upgrade {} task has completed for {} but still reports version {current_version} (expected version: {final_version})",
+                        upgrade_type,
+                        &endpoint.address
+                    );
                     return Ok(());
                 }
                 tracing::info!(

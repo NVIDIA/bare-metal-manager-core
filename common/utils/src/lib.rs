@@ -9,7 +9,7 @@ pub mod models;
 pub mod sku;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
-pub use managed_host_display::{get_managed_host_output, ManagedHostMetadata, ManagedHostOutput};
+pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};
 pub const DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER: &str = "Unspecified Base Board Serial Number";
 pub const DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER: &str = "Unspecified Chassis Board Serial Number";
 pub const DEFAULT_DMI_SYSTEM_MANUFACTURER: &str = "Unspecified System Manufacturer";

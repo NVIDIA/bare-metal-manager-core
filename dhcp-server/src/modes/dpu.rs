@@ -11,15 +11,15 @@
  */
 use lru::LruCache;
 use rpc::{
-    forge::{DhcpDiscovery, DhcpRecord},
     Uuid,
+    forge::{DhcpDiscovery, DhcpRecord},
 };
 use tonic::async_trait;
 use utils::models::dhcp::InterfaceInfo;
 
 use super::DhcpMode;
 use crate::{
-    cache::CacheEntry, errors::DhcpError, packet_handler::DecodedPacket, Config, HostConfig,
+    Config, HostConfig, cache::CacheEntry, errors::DhcpError, packet_handler::DecodedPacket,
 };
 
 #[derive(Debug)]

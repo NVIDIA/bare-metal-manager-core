@@ -1,6 +1,6 @@
 use crate::{
-    cfg::file::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
-    machine_update_manager::MachineUpdateManager, CarbideError, CarbideResult,
+    CarbideError, CarbideResult, cfg::file::CarbideConfig,
+    db::dpu_machine_update::DpuMachineUpdate, machine_update_manager::MachineUpdateManager,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
@@ -94,9 +94,11 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             {
                 match reprovisioning_err {
                     CarbideError::NotFoundError { id, .. } => {
-                        tracing::warn!("failed to trigger reprovisioning for managed host : {} - no update match for id: {}",
-                        host_machine_id,
-                        id);
+                        tracing::warn!(
+                            "failed to trigger reprovisioning for managed host : {} - no update match for id: {}",
+                            host_machine_id,
+                            id
+                        );
                         continue;
                     }
                     _ => {

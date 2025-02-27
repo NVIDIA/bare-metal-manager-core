@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 use std::net::IpAddr;
 use std::ops::DerefMut;
 

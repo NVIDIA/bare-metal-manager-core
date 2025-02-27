@@ -18,7 +18,7 @@ use config_version::ConfigVersion;
 use sqlx::{Postgres, Row, Transaction};
 
 use super::BIND_LIMIT;
-use crate::{db::DatabaseError, model::resource_pool::ResourcePoolEntryState, CarbideError};
+use crate::{CarbideError, db::DatabaseError, model::resource_pool::ResourcePoolEntryState};
 
 #[derive(Debug)]
 pub struct DbResourcePool<T>

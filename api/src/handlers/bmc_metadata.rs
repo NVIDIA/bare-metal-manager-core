@@ -13,9 +13,9 @@ use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use mac_address::MacAddress;
 
-use crate::api::{log_request_data, Api};
-use crate::db::DatabaseError;
 use crate::CarbideError;
+use crate::api::{Api, log_request_data};
+use crate::db::DatabaseError;
 
 async fn get_bmc_credentials(
     api: &Api,

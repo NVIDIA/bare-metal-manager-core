@@ -12,9 +12,9 @@
 use std::{ops::DerefMut, str::FromStr};
 
 use config_version::ConfigVersion;
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
-use crate::{db::DatabaseError, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db::DatabaseError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
@@ -84,10 +84,9 @@ impl MachineValidationExternalConfig {
         description: &str,
         config: &Vec<u8>,
     ) -> CarbideResult<()> {
-        let query =
-            "INSERT INTO machine_validation_external_config (name, description, config, version) VALUES ($1, $2, $3, $4) RETURNING name";
+        let query = "INSERT INTO machine_validation_external_config (name, description, config, version) VALUES ($1, $2, $3, $4) RETURNING name";
 
-        sqlx::query_as(query)
+        let _: () = sqlx::query_as(query)
             .bind(name)
             .bind(description)
             .bind(config.as_slice())
@@ -104,10 +103,9 @@ impl MachineValidationExternalConfig {
         config: &Vec<u8>,
         next_version: ConfigVersion,
     ) -> CarbideResult<()> {
-        let query =
-            "UPDATE machine_validation_external_config SET config=$2, version=$3 WHERE name=$1 RETURNING name";
+        let query = "UPDATE machine_validation_external_config SET config=$2, version=$3 WHERE name=$1 RETURNING name";
 
-        sqlx::query_as(query)
+        let _: () = sqlx::query_as(query)
             .bind(name)
             .bind(config.as_slice())
             .bind(next_version)

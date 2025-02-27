@@ -4,7 +4,7 @@ use std::ops::DerefMut;
 use sqlx::{FromRow, Postgres, Transaction};
 
 use super::DatabaseError;
-use crate::{db::BIND_LIMIT, CarbideError, CarbideResult};
+use crate::{CarbideError, CarbideResult, db::BIND_LIMIT};
 
 #[derive(FromRow)]
 pub struct RouteServer {
