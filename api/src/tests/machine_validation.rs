@@ -1200,13 +1200,14 @@ async fn test_machine_validation_get_unverified_tests(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(test_list.len(), 5);
+    assert_eq!(test_list.len(), 6);
     assert_eq!(add_update_response.clone().test_id, test_list[0].test_id);
     assert!(!test_list[0].verified);
     assert!(!test_list[1].verified);
     assert!(!test_list[2].verified);
     assert!(!test_list[3].verified);
     assert!(!test_list[4].verified);
+    assert!(!test_list[5].verified);
 
     Ok(())
 }
