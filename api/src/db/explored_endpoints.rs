@@ -18,7 +18,9 @@ use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use crate::{
     cfg::file::FirmwareComponentType,
     db::DatabaseError,
-    model::site_explorer::{EndpointExplorationReport, ExploredEndpoint, PreingestionState},
+    model::site_explorer::{
+        EndpointExplorationReport, ExploredEndpoint, PowerDrainState, PreingestionState,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -332,12 +334,14 @@ WHERE address = $3 AND version=$4";
         task_id: String,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
+        power_drains_needed: Option<u32>,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::UpgradeFirmwareWait {
             task_id,
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
+            power_drains_needed,
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
@@ -346,11 +350,17 @@ WHERE address = $3 AND version=$4";
         address: IpAddr,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
+        power_drains_needed: Option<u32>,
+        delay_until: Option<time::Duration>,
+        last_power_drain_operation: Option<PowerDrainState>,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::ResetForNewFirmware {
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
+            power_drains_needed,
+            delay_until: delay_until.map(|x| chrono::Utc::now().timestamp() + x.whole_seconds()),
+            last_power_drain_operation,
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }

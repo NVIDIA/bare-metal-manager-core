@@ -800,6 +800,8 @@ pub enum RedfishCommand {
     /// Graceful host shutdown
     #[clap(alias = "shutdown", verbatim_doc_comment)]
     GracefulShutdown,
+    /// AC power cycle
+    ACPowerCycle,
     /// Power on a machine
     On,
     /// List PCIe devices

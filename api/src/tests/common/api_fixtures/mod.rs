@@ -548,6 +548,7 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                             checksum: None,
                             mandatory_upgrade_from_priority: None,
                             install_only_specified: false,
+                            power_drains_needed: None,
                         }],
                     },
                 ),
@@ -564,6 +565,7 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                             checksum: None,
                             mandatory_upgrade_from_priority: None,
                             install_only_specified: false,
+                            power_drains_needed: None,
                         }],
                     },
                 ),
@@ -572,68 +574,106 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
     )])
 }
 
-fn host_firmware_example() -> Firmware {
-    Firmware {
-        vendor: bmc_vendor::BMCVendor::Dell,
-        model: "PowerEdge R750".to_string(),
-        components: HashMap::from([
-            (
-                FirmwareComponentType::Bmc,
-                FirmwareComponent {
-                    current_version_reported_as: Some(Regex::new("^Installed-.*__iDRAC.").unwrap()),
-                    preingest_upgrade_when_below: Some("5".to_string()),
-                    known_firmware: vec![
-                        FirmwareEntry {
-                            version: "6.1".to_string(),
-                            default: false,
-                            filename: Some("/dev/null".to_string()),
-                            url: Some("file://dev/null".to_string()),
-                            checksum: None,
-                            mandatory_upgrade_from_priority: None,
-                            install_only_specified: false,
+fn host_firmware_example() -> HashMap<String, Firmware> {
+    HashMap::from([
+        (
+            "1".to_string(),
+            Firmware {
+                vendor: bmc_vendor::BMCVendor::Dell,
+                model: "PowerEdge R750".to_string(),
+                components: HashMap::from([
+                    (
+                        FirmwareComponentType::Bmc,
+                        FirmwareComponent {
+                            current_version_reported_as: Some(
+                                Regex::new("^Installed-.*__iDRAC.").unwrap(),
+                            ),
+                            preingest_upgrade_when_below: Some("5".to_string()),
+                            known_firmware: vec![
+                                FirmwareEntry {
+                                    version: "6.1".to_string(),
+                                    default: false,
+                                    filename: Some("/dev/null".to_string()),
+                                    url: Some("file://dev/null".to_string()),
+                                    checksum: None,
+                                    mandatory_upgrade_from_priority: None,
+                                    install_only_specified: false,
+                                    power_drains_needed: None,
+                                },
+                                FirmwareEntry {
+                                    version: "6.00.30.00".to_string(),
+                                    default: true,
+                                    filename: Some("/dev/null".to_string()),
+                                    url: Some("file://dev/null".to_string()),
+                                    checksum: None,
+                                    mandatory_upgrade_from_priority: None,
+                                    install_only_specified: false,
+                                    power_drains_needed: None,
+                                },
+                                FirmwareEntry {
+                                    version: "5".to_string(),
+                                    default: false,
+                                    filename: Some("/dev/null".to_string()),
+                                    url: Some("file://dev/null".to_string()),
+                                    checksum: None,
+                                    mandatory_upgrade_from_priority: None,
+                                    install_only_specified: false,
+                                    power_drains_needed: None,
+                                },
+                            ],
                         },
-                        FirmwareEntry {
-                            version: "6.00.30.00".to_string(),
+                    ),
+                    (
+                        FirmwareComponentType::Uefi,
+                        FirmwareComponent {
+                            current_version_reported_as: Some(
+                                Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
+                            ),
+                            preingest_upgrade_when_below: Some("1.13.2".to_string()),
+                            known_firmware: vec![FirmwareEntry {
+                                version: "1.13.2".to_string(),
+                                default: true,
+                                filename: Some("/dev/null".to_string()),
+                                url: Some("file://dev/null".to_string()),
+                                checksum: None,
+                                mandatory_upgrade_from_priority: None,
+                                install_only_specified: false,
+                                power_drains_needed: None,
+                            }],
+                        },
+                    ),
+                ]),
+                ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
+            },
+        ),
+        (
+            "2".to_string(),
+            Firmware {
+                vendor: bmc_vendor::BMCVendor::Dell,
+                model: "Powercycle Test".to_string(),
+                components: HashMap::from([(
+                    FirmwareComponentType::Uefi,
+                    FirmwareComponent {
+                        current_version_reported_as: Some(
+                            Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
+                        ),
+                        preingest_upgrade_when_below: Some("1.13.2".to_string()),
+                        known_firmware: vec![FirmwareEntry {
+                            version: "1.13.2".to_string(),
                             default: true,
                             filename: Some("/dev/null".to_string()),
                             url: Some("file://dev/null".to_string()),
                             checksum: None,
                             mandatory_upgrade_from_priority: None,
                             install_only_specified: false,
-                        },
-                        FirmwareEntry {
-                            version: "5".to_string(),
-                            default: false,
-                            filename: Some("/dev/null".to_string()),
-                            url: Some("file://dev/null".to_string()),
-                            checksum: None,
-                            mandatory_upgrade_from_priority: None,
-                            install_only_specified: false,
-                        },
-                    ],
-                },
-            ),
-            (
-                FirmwareComponentType::Uefi,
-                FirmwareComponent {
-                    current_version_reported_as: Some(
-                        Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
-                    ),
-                    preingest_upgrade_when_below: Some("1.13.2".to_string()),
-                    known_firmware: vec![FirmwareEntry {
-                        version: "1.13.2".to_string(),
-                        default: true,
-                        filename: Some("/dev/null".to_string()),
-                        url: Some("file://dev/null".to_string()),
-                        checksum: None,
-                        mandatory_upgrade_from_priority: None,
-                        install_only_specified: false,
-                    }],
-                },
-            ),
-        ]),
-        ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
-    }
+                            power_drains_needed: Some(1002), // Special case for testing
+                        }],
+                    },
+                )]),
+                ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
+            },
+        ),
+    ])
 }
 
 pub fn get_config() -> CarbideConfig {
@@ -716,7 +756,7 @@ pub fn get_config() -> CarbideConfig {
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: dpu_fw_example(),
         },
-        host_models: HashMap::from([("1".to_string(), host_firmware_example())]),
+        host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
         max_find_by_ids: default_max_find_by_ids(),
         network_security_group: NetworkSecurityGroupConfig::default(),
