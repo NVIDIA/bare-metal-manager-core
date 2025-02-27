@@ -156,8 +156,7 @@ impl InstanceTypeMachineCapabilityFilter {
             (Some(ref c), mc) => c == mc,
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
-            (Some(_), None) => false,
-            (Some(c), Some(mc)) => c == mc,
+            (Some(c), mc) => c == mc,
         })
     }
 
@@ -704,7 +703,7 @@ mod tests {
             ],
             infiniband: vec![capabilities::MachineCapabilityInfiniband {
                 name: "connectx7".to_string(),
-                vendor: Some("nvidia".to_string()),
+                vendor: "nvidia".to_string(),
                 count: 1,
                 inactive_devices: Vec::new(),
             }],

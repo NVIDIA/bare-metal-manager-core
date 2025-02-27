@@ -4233,7 +4233,9 @@ message SkuComponentEthernetDevices {
 }
 
 message SkuComponentInfinibandDevices {
+  // The Vendor of the InfiniBand device. E.g. `Mellanox`
   string vendor = 1;
+  // The Device Name of the InfiniBand device. E.g. `MT2910 Family [ConnectX-7]`
   string model = 2;
   // The total amount of InfiniBand devices of the given
   // vendor and model combination
