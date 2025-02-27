@@ -60,7 +60,7 @@ pub mod tests {
     const SKU_DATA: &str = r#"
 {
   "id": "sku id",
-  "description": "PowerEdge R750; 1xCPU; 1xGPU; 2 GiB",
+  "description": "PowerEdge R750; 1xCPU; 1xGPU; 2 GiB; 6xIB",
   "created": "2025-01-24T21:51:12.465131195Z",
   "machines_associated_count": 0,
   "components": {

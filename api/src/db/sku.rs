@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write};
 
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
@@ -244,7 +244,7 @@ pub async fn from_topology(
         &hardware_info.infiniband_interfaces,
         machine.infiniband_status_observation.as_ref(),
     );
-    let ib_components = ib_capabilities
+    let ib_components: Vec<SkuComponentInfinibandDevices> = ib_capabilities
         .into_iter()
         .map(|cap| SkuComponentInfinibandDevices {
             vendor: cap.vendor,
@@ -254,13 +254,17 @@ pub async fn from_topology(
         })
         .collect();
 
-    let description = format!(
+    let mut description = format!(
         "{}; {}xCPU; {}xGPU; {}",
         chassis.model,
         cpus.values().map(|v| v.count).sum::<u32>(),
         gpu_components.values().map(|v| v.count).sum::<u32>(),
-        ::utils::sku::capacity_string(total_mem),
+        ::utils::sku::capacity_string(total_mem)
     );
+    let num_ib_devices = ib_components.iter().map(|c| c.count).sum::<u32>();
+    if num_ib_devices != 0 {
+        write!(&mut description, "; {}xIB", num_ib_devices).unwrap();
+    }
 
     Ok(Sku {
         id: format!("{} {}", chassis.model.clone(), Utc::now()),
