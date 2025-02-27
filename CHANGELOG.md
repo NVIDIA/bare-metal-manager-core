@@ -2,6 +2,16 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...trunk)
 
 ### Added
+- BOM Validation.  Validates a managed hosts reported hardware against its assigned hardware SKU.
+  [FORGE-4515](https://jirasw.nvidia.com/browse/FORGE-4515)
+  - bom_validation section added to api config
+    - "enabled" enables bom_validation.  defaults to false
+    - "ignore_unassigned_machines" configures bom validation to only validate machines that have an assigned SKU.  defaults to false.
+  - New API endpoints for managing SKUs
+  - New CLI commands for managing SKUs
+  - New states for handling machine SKU validation
+  - New health alerts for when a machine fails SKU validation.
+
 ### Changed
 ### Fixed
 ### Removed
