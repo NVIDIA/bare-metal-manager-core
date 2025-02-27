@@ -110,6 +110,30 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
     table
 }
 
+fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) -> Table {
+    let mut table = Table::new();
+    let table_format = table.get_format();
+    table_format.indent(10);
+
+    table.set_titles(Row::from(vec![
+        "Vendor",
+        "Model",
+        "Count",
+        "Inactive Devices",
+    ]));
+    for dev in devices {
+        let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap();
+        table.add_row(Row::from(vec![
+            dev.vendor,
+            dev.model,
+            dev.count.to_string(),
+            inactive_devices,
+        ]));
+    }
+
+    table
+}
+
 fn show_skus_table(
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
@@ -219,6 +243,8 @@ fn show_sku_details(
                     )?;
                 }
                 memory_table(components.memory).print(output)?;
+                writeln!(output, "IB Devices:")?;
+                ib_device_table(components.infiniband_devices).print(output)?;
             }
         }
         OutputFormat::Yaml => {
