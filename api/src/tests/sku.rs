@@ -86,7 +86,20 @@ pub mod tests {
       }
     ],
     "ethernet_devices": [],
-    "infiniband_devices": [],
+    "infiniband_devices": [
+      {
+        "vendor": "0x15b3",
+        "model": "MT27800 Family [ConnectX-5]",
+        "count": 2,
+        "inactive_devices": [0,1]
+      },
+      {
+        "vendor": "0x15b3",
+        "model": "MT2910 Family [ConnectX-7]",
+        "count": 4,
+        "inactive_devices": [0,1,2,3]
+      }
+    ],
     "storage": [],
     "memory": [
       {
@@ -168,6 +181,11 @@ pub mod tests {
         // cheat the created timestamp and id
         actual_sku.id = "sku id".to_string();
         actual_sku.created = expected_sku.created;
+        // Sort the IB devices by Model. Due to the hashmap, the actual order might be different
+        actual_sku
+            .components
+            .infiniband_devices
+            .sort_by(|dev1, dev2| dev1.model.cmp(&dev2.model));
 
         let actual_sku_json = serde_json::ser::to_string_pretty(&actual_sku)?;
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;

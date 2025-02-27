@@ -18,7 +18,10 @@ use std::{
 use ::rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::{model::machine::HardwareInfo, CarbideError};
+use crate::{
+    model::{hardware_info::InfinibandInterface, machine::HardwareInfo},
+    CarbideError,
+};
 
 use super::infiniband::MachineInfinibandStatusObservation;
 
@@ -223,7 +226,7 @@ impl From<MachineCapabilityNetwork> for rpc::MachineCapabilityAttributesNetwork 
 pub struct MachineCapabilityInfiniband {
     pub name: String,
     pub count: u32,
-    pub vendor: Option<String>,
+    pub vendor: String,
     /// The indexes of InfiniBand Devices which are not active and thereby can
     /// not be utilized by Instances.
     /// Inactive devices are devices where for example there is no connection
@@ -238,10 +241,70 @@ impl From<MachineCapabilityInfiniband> for rpc::MachineCapabilityAttributesInfin
     fn from(cap: MachineCapabilityInfiniband) -> Self {
         rpc::MachineCapabilityAttributesInfiniband {
             name: cap.name,
-            vendor: cap.vendor,
+            vendor: Some(cap.vendor),
             count: cap.count,
             inactive_devices: cap.inactive_devices,
         }
+    }
+}
+
+impl MachineCapabilityInfiniband {
+    /// Derives a Machines Infiniband capabilities based on a hardware snapshot
+    /// and the current InfiniBand connection status
+    pub fn from_ib_interfaces_and_status(
+        infiniband_interfaces: &[InfinibandInterface],
+        ib_status: Option<&MachineInfinibandStatusObservation>,
+    ) -> Vec<Self> {
+        // IB interfaces get sorted by PCI Slot ID so that the inactive device
+        // indices can be derived correctly
+        let mut sorted_ib_interfaces = infiniband_interfaces.to_vec();
+        sorted_ib_interfaces.sort_by_key(|iface| match &iface.pci_properties {
+            Some(pci_properties) => pci_properties.slot.clone().unwrap_or_default(),
+            None => "".to_owned(),
+        });
+        let mut infiniband_interface_map = HashMap::<String, MachineCapabilityInfiniband>::new();
+
+        for infiniband_interface_info in sorted_ib_interfaces.iter() {
+            // Skip any interface where we can't get PCI details.
+            // This is how this data is handled in forge-cloud, but
+            // does it make sense here?
+            let pci_properties = match infiniband_interface_info.pci_properties.as_ref() {
+                None => continue,
+                Some(p) => p,
+            };
+
+            let interface_name = match pci_properties.description.as_ref() {
+                None => continue,
+                Some(n) => n.clone(),
+            };
+
+            // Check if the we have an observation for this device on UFM
+            let is_active = ib_status
+                .as_ref()
+                .and_then(|ib_status| {
+                    ib_status
+                        .ib_interfaces
+                        .iter()
+                        .find(|iface| iface.guid == infiniband_interface_info.guid)
+                })
+                .map(|port_status| port_status.lid != 0xffff_u16)
+                .unwrap_or_default();
+
+            let cap = infiniband_interface_map
+                .entry(interface_name.clone())
+                .or_insert_with(|| MachineCapabilityInfiniband {
+                    name: interface_name,
+                    count: 0,
+                    vendor: pci_properties.vendor.clone(),
+                    inactive_devices: Vec::new(),
+                });
+            cap.count += 1;
+            if !is_active {
+                cap.inactive_devices.push(cap.count - 1);
+            }
+        }
+
+        infiniband_interface_map.into_values().collect()
     }
 }
 
@@ -523,54 +586,10 @@ impl MachineCapabilitiesSet {
         // Process infiniband data
         //
 
-        // IB interfaces get sorted by PCI Slot ID so that the inactive device
-        // indices can be derived correctly
-        let mut sorted_ib_interfaces = hardware_info.infiniband_interfaces.clone();
-        sorted_ib_interfaces.sort_by_key(|x| match &x.pci_properties {
-            Some(pci_properties) => pci_properties.slot.clone().unwrap_or_default(),
-            None => "".to_owned(),
-        });
-        let mut infiniband_interface_map = HashMap::<String, MachineCapabilityInfiniband>::new();
-
-        for infiniband_interface_info in hardware_info.infiniband_interfaces.into_iter() {
-            // Skip any interface where we can't get PCI details.
-            // This is how this data is handled in forge-cloud, but
-            // does it make sense here?
-            let pci_properties = match infiniband_interface_info.pci_properties {
-                None => continue,
-                Some(p) => p,
-            };
-
-            let interface_name = match pci_properties.description {
-                None => continue,
-                Some(n) => n,
-            };
-
-            // Check if the we have an observation for this device on UFM
-            let is_active = ib_status
-                .as_ref()
-                .and_then(|ib_status| {
-                    ib_status
-                        .ib_interfaces
-                        .iter()
-                        .find(|iface| iface.guid == infiniband_interface_info.guid)
-                })
-                .map(|port_status| port_status.lid != 0xffff_u16)
-                .unwrap_or_default();
-
-            let cap = infiniband_interface_map
-                .entry(interface_name.clone())
-                .or_insert_with(|| MachineCapabilityInfiniband {
-                    name: interface_name,
-                    count: 0,
-                    vendor: Some(pci_properties.vendor.clone()),
-                    inactive_devices: Vec::new(),
-                });
-            cap.count += 1;
-            if !is_active {
-                cap.inactive_devices.push(cap.count - 1);
-            }
-        }
+        let infiniband = MachineCapabilityInfiniband::from_ib_interfaces_and_status(
+            &hardware_info.infiniband_interfaces,
+            ib_status,
+        );
 
         //
         // Process dpu data
@@ -602,7 +621,7 @@ impl MachineCapabilitiesSet {
             memory: mem_map.into_values().collect(),
             storage: storage_map.into_values().collect(),
             network: network_interface_map.into_values().collect(),
-            infiniband: infiniband_interface_map.into_values().collect(),
+            infiniband,
             dpu: dpu_map.into_values().collect(),
         }
     }
@@ -757,7 +776,7 @@ mod tests {
         let machine_cap = MachineCapabilityInfiniband {
             name: "IB NIC".to_string(),
             count: 4,
-            vendor: Some("IB NIC Vendor".to_string()),
+            vendor: "IB NIC Vendor".to_string(),
             inactive_devices: vec![0, 2],
         };
 
@@ -891,7 +910,7 @@ mod tests {
             infiniband: vec![MachineCapabilityInfiniband {
                 name: "infiniband".to_string(),
                 count: 1,
-                vendor: Some("mellanox".to_string()),
+                vendor: "mellanox".to_string(),
                 inactive_devices: Vec::new(),
             }],
             dpu: vec![MachineCapabilityDpu {
@@ -978,13 +997,13 @@ mod tests {
                 MachineCapabilityInfiniband {
                     name: "MT27800 Family [ConnectX-5]".to_string(),
                     count: 2,
-                    vendor: Some("0x15b3".to_string()),
+                    vendor: "0x15b3".to_string(),
                     inactive_devices: vec![0, 1],
                 },
                 MachineCapabilityInfiniband {
                     name: "MT2910 Family [ConnectX-7]".to_string(),
                     count: 4,
-                    vendor: Some("0x15b3".to_string()),
+                    vendor: "0x15b3".to_string(),
                     inactive_devices: vec![0, 1, 2, 3],
                 },
             ],
@@ -1012,13 +1031,13 @@ mod tests {
             MachineCapabilityInfiniband {
                 name: "MT27800 Family [ConnectX-5]".to_string(),
                 count: 2,
-                vendor: Some("0x15b3".to_string()),
+                vendor: "0x15b3".to_string(),
                 inactive_devices: vec![],
             },
             MachineCapabilityInfiniband {
                 name: "MT2910 Family [ConnectX-7]".to_string(),
                 count: 4,
-                vendor: Some("0x15b3".to_string()),
+                vendor: "0x15b3".to_string(),
                 inactive_devices: vec![],
             },
         ];
@@ -1070,14 +1089,14 @@ mod tests {
             MachineCapabilityInfiniband {
                 name: "MT27800 Family [ConnectX-5]".to_string(),
                 count: 2,
-                vendor: Some("0x15b3".to_string()),
-                inactive_devices: vec![1],
+                vendor: "0x15b3".to_string(),
+                inactive_devices: vec![0],
             },
             MachineCapabilityInfiniband {
                 name: "MT2910 Family [ConnectX-7]".to_string(),
                 count: 4,
-                vendor: Some("0x15b3".to_string()),
-                inactive_devices: vec![0, 2],
+                vendor: "0x15b3".to_string(),
+                inactive_devices: vec![1, 3],
             },
         ];
         expected_ib_caps.sort();
@@ -1085,23 +1104,23 @@ mod tests {
         let ib_status = MachineInfinibandStatusObservation {
             ib_interfaces: vec![
                 MachineIbInterfaceStatusObservation {
-                    guid: "946dae03002ac100".to_string(),
+                    guid: "946dae03002ac752".to_string(),
                     lid: 0xffff_u16,
                 },
                 MachineIbInterfaceStatusObservation {
-                    guid: "946dae03002ac101".to_string(),
+                    guid: "946dae03002ac753".to_string(),
                     lid: 1,
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac103".to_string(),
+                    lid: 2,
+                },
+                MachineIbInterfaceStatusObservation {
+                    guid: "946dae03002ac101".to_string(),
                     lid: 4,
                 },
                 MachineIbInterfaceStatusObservation {
-                    guid: "946dae03002ac752".to_string(),
-                    lid: 5,
-                },
-                MachineIbInterfaceStatusObservation {
-                    guid: "946dae03002ac753".to_string(),
+                    guid: "946dae03002ac100".to_string(),
                     lid: 0xffff_u16,
                 },
             ],

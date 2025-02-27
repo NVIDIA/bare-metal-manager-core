@@ -6,16 +6,18 @@ use futures_util::stream::StreamExt;
 use sqlx::{Acquire, Postgres, Transaction};
 
 use crate::{
-    model::sku::{
-        diff_skus, Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentMemory,
-        SkuComponents,
+    db::{self, machine::MachineSearchConfig, DatabaseError},
+    model::{
+        machine::capabilities::MachineCapabilityInfiniband,
+        sku::{
+            diff_skus, Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
+            SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponents,
+        },
     },
     CarbideError,
 };
 
-use super::{machine_topology::MachineTopology, DatabaseError};
-
-/// Find a SKU that matches the specified SKU using the same comparisong that
+/// Find a SKU that matches the specified SKU using the same comparison that
 /// the SKU validation code uses. (i.e. the description, id and others are not compared)
 ///
 /// The specified SKU must not exist in the DB (otherwise it will always be the match).
@@ -140,9 +142,30 @@ pub async fn from_topology(
 ) -> Result<Sku, DatabaseError> {
     let created = Utc::now();
 
-    let result = MachineTopology::find_by_machine_ids(txn, &[*machine_id]).await?;
+    let Some(machine) = db::machine::find(
+        txn,
+        db::ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_dpus: false,
+            include_history: false,
+            include_predicted_host: true,
+            only_maintenance: false,
+            exclude_hosts: false,
+            for_update: false,
+        },
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "sku_from_topology",
+            sqlx::Error::RowNotFound,
+        ));
+    };
 
-    let Some(topologies) = result.get(machine_id).and_then(|t| t.first()) else {
+    let Some(hardware_info) = machine.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             file!(),
             line!(),
@@ -152,32 +175,21 @@ pub async fn from_topology(
     };
 
     let chassis = SkuComponentChassis {
-        vendor: topologies
-            .topology()
-            .discovery_data
-            .info
+        vendor: hardware_info
             .dmi_data
             .as_ref()
             .map(|dd| dd.sys_vendor.clone())
             .unwrap_or_default(),
-        model: topologies
-            .topology()
-            .discovery_data
-            .info
+        model: hardware_info
             .dmi_data
             .as_ref()
             .map(|dd| dd.product_name.clone())
             .unwrap_or_default(),
-        architecture: topologies
-            .topology()
-            .discovery_data
-            .info
-            .machine_type
-            .to_string(),
+        architecture: hardware_info.machine_type.to_string(),
     };
 
     let mut cpus_per_slot: HashMap<u32, SkuComponentCpu> = HashMap::default();
-    for cpu in &topologies.topology().discovery_data.info.cpus {
+    for cpu in &hardware_info.cpus {
         cpus_per_slot
             .entry(cpu.socket)
             .and_modify(|entry| entry.thread_count += 1)
@@ -197,7 +209,7 @@ pub async fn from_topology(
     }
 
     let mut gpu_components: HashMap<(String, String), SkuComponentGpu> = HashMap::default();
-    for gpu in &topologies.topology().discovery_data.info.gpus {
+    for gpu in &hardware_info.gpus {
         let vendor = "NVIDIA".to_string();
         let key = (gpu.name.clone(), gpu.total_memory.clone());
         gpu_components
@@ -213,7 +225,7 @@ pub async fn from_topology(
 
     let mut mem_components: HashMap<(String, u32), SkuComponentMemory> = HashMap::default();
     let mut total_mem = 0u64;
-    for mem in &topologies.topology().discovery_data.info.memory_devices {
+    for mem in &hardware_info.memory_devices {
         if let Some(cap) = mem.size_mb {
             total_mem += cap as u64;
             let key = (mem.mem_type.clone().unwrap_or_default(), cap);
@@ -227,6 +239,20 @@ pub async fn from_topology(
                 });
         }
     }
+
+    let ib_capabilities = MachineCapabilityInfiniband::from_ib_interfaces_and_status(
+        &hardware_info.infiniband_interfaces,
+        machine.infiniband_status_observation.as_ref(),
+    );
+    let ib_components = ib_capabilities
+        .into_iter()
+        .map(|cap| SkuComponentInfinibandDevices {
+            vendor: cap.vendor,
+            model: cap.name,
+            count: cap.count,
+            inactive_devices: cap.inactive_devices,
+        })
+        .collect();
 
     let description = format!(
         "{}; {}xCPU; {}xGPU; {}",
@@ -245,6 +271,7 @@ pub async fn from_topology(
             cpus: cpus.into_values().collect(),
             gpus: gpu_components.into_values().collect(),
             memory: mem_components.into_values().collect(),
+            infiniband_devices: ib_components,
         },
     })
 }

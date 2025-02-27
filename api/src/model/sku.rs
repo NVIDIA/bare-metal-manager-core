@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Write},
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -63,6 +66,7 @@ pub struct SkuComponents {
     pub cpus: Vec<SkuComponentCpu>,
     pub gpus: Vec<SkuComponentGpu>,
     pub memory: Vec<SkuComponentMemory>,
+    pub infiniband_devices: Vec<SkuComponentInfinibandDevices>,
 }
 
 impl From<rpc::forge::SkuComponents> for SkuComponents {
@@ -72,6 +76,11 @@ impl From<rpc::forge::SkuComponents> for SkuComponents {
             cpus: value.cpus.into_iter().map(|c| c.into()).collect(),
             gpus: value.gpus.into_iter().map(|g| g.into()).collect(),
             memory: value.memory.into_iter().map(|m| m.into()).collect(),
+            infiniband_devices: value
+                .infiniband_devices
+                .into_iter()
+                .map(|m| m.into())
+                .collect(),
         }
     }
 }
@@ -91,7 +100,11 @@ impl From<SkuComponents> for rpc::forge::SkuComponents {
                 .map(std::convert::Into::into)
                 .collect(),
             ethernet_devices: Vec::default(),
-            infiniband_devices: Vec::default(),
+            infiniband_devices: value
+                .infiniband_devices
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             storage: Vec::default(),
             memory: value
                 .memory
@@ -223,6 +236,47 @@ impl From<SkuComponentMemory> for rpc::forge::SkuComponentMemory {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SkuComponentInfinibandDevices {
+    /// The Vendor of the InfiniBand device. E.g. `Mellanox`
+    pub vendor: String,
+    /// The Device Name of the InfiniBand device. E.g. `MT2910 Family [ConnectX-7]`
+    pub model: String,
+    /// The total amount of InfiniBand devices of the given
+    /// vendor and model combination
+    pub count: u32,
+    /// The indexes of InfiniBand Devices which are not active and thereby can
+    /// not be utilized by Instances.
+    /// Inactive devices are devices where for example there is no connection
+    /// between the port and the InfiniBand switch.
+    /// Example: A `{count: 4, inactive_devices: [1,3]}` means that the devices
+    /// with index `0` and `2` of the Host can be utilized, and devices with index
+    /// `1` and `3` can not be used.
+    pub inactive_devices: Vec<u32>,
+}
+
+impl From<rpc::forge::SkuComponentInfinibandDevices> for SkuComponentInfinibandDevices {
+    fn from(value: rpc::forge::SkuComponentInfinibandDevices) -> Self {
+        SkuComponentInfinibandDevices {
+            vendor: value.vendor,
+            model: value.model,
+            count: value.count,
+            inactive_devices: value.inactive_devices,
+        }
+    }
+}
+
+impl From<SkuComponentInfinibandDevices> for rpc::forge::SkuComponentInfinibandDevices {
+    fn from(value: SkuComponentInfinibandDevices) -> Self {
+        rpc::forge::SkuComponentInfinibandDevices {
+            vendor: value.vendor,
+            model: value.model,
+            count: value.count,
+            inactive_devices: value.inactive_devices,
+        }
+    }
+}
+
 // Store information for communication between the state
 // machine and other components.  This is kept as a json
 // field in the machines table
@@ -316,6 +370,57 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         diffs.push(format!("Missing GPU config: {}", missing_gpu));
     }
 
+    let mut expected_ib_device_by_name: HashMap<
+        (&String, &String),
+        &SkuComponentInfinibandDevices,
+    > = HashMap::new();
+    for ib_devices in expected_sku.components.infiniband_devices.iter() {
+        expected_ib_device_by_name.insert((&ib_devices.vendor, &ib_devices.model), ib_devices);
+    }
+    for actual_ib_device_definition in actual_sku.components.infiniband_devices.iter() {
+        match expected_ib_device_by_name.remove(&(
+            &actual_ib_device_definition.vendor,
+            &actual_ib_device_definition.model,
+        )) {
+            Some(expected) => {
+                if expected != actual_ib_device_definition {
+                    let mut msg = format!(
+                        "Configuration mismatch for InfiniBand devices of Vendor: \"{}\" and Model: \"{}\". ",
+                        expected.vendor, expected.model
+                    );
+                    write!(
+                        &mut msg,
+                        "Expected \"count: {}, inactive_devices: {:?}\". ",
+                        expected.count, expected.inactive_devices
+                    )
+                    .unwrap();
+                    write!(
+                        &mut msg,
+                        "Actual \"count: {}, inactive_devices: {:?}\". ",
+                        actual_ib_device_definition.count,
+                        actual_ib_device_definition.inactive_devices
+                    )
+                    .unwrap();
+                    diffs.push(msg);
+                }
+            }
+            None => {
+                diffs.push(format!(
+                    "Unexpected {} InfiniBand devices of Vendor: \"{}\" and Model: \"{}\"",
+                    actual_ib_device_definition.count,
+                    actual_ib_device_definition.vendor,
+                    actual_ib_device_definition.model
+                ));
+            }
+        }
+    }
+    for missing_ib_devices in expected_ib_device_by_name.values() {
+        diffs.push(format!(
+            "Missing {} InfiniBand devices of Vendor: \"{}\" and Model: \"{}\"",
+            missing_ib_devices.count, missing_ib_devices.vendor, missing_ib_devices.model
+        ));
+    }
+
     let actual_total_memory = actual_sku
         .components
         .memory
@@ -329,7 +434,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 
     if expected_total_memory != actual_total_memory {
         diffs.push(format!(
-            "Actaul memory ({}) differs from expected ({})",
+            "Actual memory ({}) differs from expected ({})",
             expected_total_memory, actual_total_memory
         ));
     }
