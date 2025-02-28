@@ -324,6 +324,7 @@ struct MachineDetail {
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
     validation_runs: Vec<ValidationRun>,
+    hw_sku: String,
 }
 
 struct MachineCapability {
@@ -608,6 +609,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 })
                 .unwrap_or_default(),
             validation_runs: Vec::new(),
+            hw_sku: m.hw_sku.unwrap_or_default(),
         }
     }
 }
