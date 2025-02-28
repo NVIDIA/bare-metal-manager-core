@@ -59,8 +59,9 @@ use cfg::cli_options::TenantKeySetOptions;
 use cfg::cli_options::TpmCa;
 use cfg::cli_options::VpcPrefixOptions;
 use cfg::cli_options::{
-    CliCommand, CliOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
-    NetworkCommand, NetworkSegment, ResourcePool, VpcOptions,
+    CliCommand, CliOptions, Domain, Instance, Machine, MachineHardwareInfo,
+    MachineHardwareInfoCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
+    ResourcePool, VpcOptions,
 };
 use cfg::network_security_group::NetworkSecurityGroupActions;
 use clap::CommandFactory;
@@ -71,6 +72,7 @@ use forge_tls::client_config::get_config_from_file;
 use forge_tls::client_config::get_forge_root_ca_path;
 use forge_tls::client_config::get_proxy_info;
 use mac_address::MacAddress;
+use machine::{handle_show_machine_hardware_info, handle_update_machine_hardware_info_gpus};
 use serde::Deserialize;
 use serde::Serialize;
 use site_explorer::show_site_explorer_discovered_managed_host;
@@ -413,6 +415,17 @@ async fn main() -> color_eyre::Result<()> {
             }
             Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
             Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, api_config).await?,
+            Machine::HardwareInfo(hardware_info_command) => match hardware_info_command {
+                MachineHardwareInfoCommand::Show(show_command) => {
+                    handle_show_machine_hardware_info(api_config, show_command.machine).await?
+                }
+                MachineHardwareInfoCommand::Update(capability) => match capability {
+                    MachineHardwareInfo::Gpus(gpus) => {
+                        // Handle the gRPC to update GPUs
+                        handle_update_machine_hardware_info_gpus(api_config, gpus).await?
+                    }
+                },
+            },
         },
         CliCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {

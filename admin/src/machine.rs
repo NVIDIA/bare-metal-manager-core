@@ -12,6 +12,7 @@
 use std::collections::VecDeque;
 
 use std::fmt::Write;
+use std::fs;
 use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
@@ -21,7 +22,9 @@ use tracing::warn;
 
 use super::cfg::cli_options::ShowMachine;
 use super::{default_uuid, rpc};
-use crate::cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
+use crate::cfg::cli_options::{
+    ForceDeleteMachineQuery, MachineAutoupdate, MachineHardwareInfoGpus, OverrideCommand,
+};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_machine_to_nice_format(
@@ -519,4 +522,28 @@ pub async fn get_next_free_machine(
         }
     }
     None
+}
+
+pub async fn handle_update_machine_hardware_info_gpus(
+    api_config: &ApiConfig<'_>,
+    gpus: MachineHardwareInfoGpus,
+) -> CarbideCliResult<()> {
+    let gpu_file_contents = fs::read_to_string(gpus.gpu_json_file)?;
+    let gpus_from_json: Vec<::rpc::machine_discovery::Gpu> =
+        serde_json::from_str(&gpu_file_contents)?;
+    rpc::update_machine_hardware_info(
+        api_config,
+        gpus.machine.clone(),
+        forgerpc::MachineHardwareInfoUpdateType::Gpus,
+        gpus_from_json,
+    )
+    .await
+}
+
+pub async fn handle_show_machine_hardware_info(
+    _api_config: &ApiConfig<'_>,
+    _machine_id: String,
+) -> CarbideCliResult<()> {
+    println!("Show hardware info not yet implemented");
+    Ok(())
 }

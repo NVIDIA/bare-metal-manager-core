@@ -395,6 +395,7 @@ impl InternalRBACRules {
         x.perm("GetAllSkuIds", vec![ForgeAdminCLI]);
         x.perm("GetSkusForIds", vec![ForgeAdminCLI]);
         x.perm("DeleteSku", vec![ForgeAdminCLI]);
+        x.perm("UpdateMachineHardwareInfo", vec![ForgeAdminCLI]);
 
         x
     }

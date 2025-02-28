@@ -23,6 +23,7 @@ pub mod health;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_type;
+pub mod machine_hardware_info;
 pub mod machine_validation;
 pub mod measured_boot;
 pub mod network_security_group;

@@ -21,10 +21,11 @@ use ::rpc::forge::{
     CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
     FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
     GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
-    IsBmcInManagedHostResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkDeviceIdList, NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig,
-    OperatingSystem, RedfishBrowseResponse, SkuIdList, UpdateNetworkSecurityGroupRequest,
-    VpcVirtualizationType,
+    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
+    MachineHardwareInfoUpdateType, MachineSearchConfig, MachineType, NetworkDeviceIdList,
+    NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig, OperatingSystem,
+    RedfishBrowseResponse, SkuIdList, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcVirtualizationType,
 };
 
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
@@ -3406,6 +3407,28 @@ pub async fn delete_network_security_group(
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
 
+        Ok(())
+    })
+    .await
+}
+
+// TODO: add other hardware info
+pub async fn update_machine_hardware_info(
+    api_config: &ApiConfig<'_>,
+    id: String,
+    hardware_info_update_type: MachineHardwareInfoUpdateType,
+    gpus: Vec<::rpc::machine_discovery::Gpu>,
+) -> CarbideCliResult<()> {
+    let hardware_info = MachineHardwareInfo { gpus };
+    with_forge_client(api_config, |mut client| async move {
+        client
+            .update_machine_hardware_info(tonic::Request::new(UpdateMachineHardwareInfoRequest {
+                machine_id: Some(::rpc::common::MachineId { id }),
+                info: Some(hardware_info),
+                update_type: hardware_info_update_type as i32,
+            }))
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())
     })
     .await
