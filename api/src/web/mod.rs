@@ -64,6 +64,7 @@ mod network_status;
 mod redfish_browser;
 mod resource_pool;
 mod search;
+mod sku;
 mod tenant;
 mod tenant_keyset;
 mod vpc;
@@ -315,6 +316,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/vpc/:vpc_id", get(vpc::detail))
             .route("/redfish-browser", get(redfish_browser::query))
             .route("/search", get(search::find))
+            .route("/sku", get(sku::show_html))
+            .route("/sku.json", get(sku::show_json))
+            .route("/sku/:sku_id", get(sku::detail))
             .route("/tenant", get(tenant::show_html))
             .route("/tenant.json", get(tenant::show_json))
             .route("/tenant/:organization_id", get(tenant::detail))

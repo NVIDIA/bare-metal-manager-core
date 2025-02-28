@@ -33,6 +33,16 @@
 	</tr>
 	{% endif %}
 	<tr><th>Version</th><td>{{ version }}</td></tr>
+	{% if is_host %}
+	<tr>
+		<th>SKU</th>
+		<td>
+			{% if !hw_sku.is_empty() %}
+			<a href="/admin/sku/{{ hw_sku }}">{{ hw_sku }}</a>
+			{% endif %}
+		</td>
+	</tr>
+	{% endif %}
 </table>
 
 <h3>Metadata</h3>
