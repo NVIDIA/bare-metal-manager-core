@@ -2,17 +2,51 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...trunk)
 
 ### Added
-- BOM Validation.  Validates a managed hosts reported hardware against its assigned hardware SKU.
+- Bill of Material (BOM) Validation.  Validates a managed hosts reported hardware against its assigned hardware SKU.
   [FORGE-4515](https://jirasw.nvidia.com/browse/FORGE-4515)
-  - bom_validation section added to api config
-    - "enabled" enables bom_validation.  defaults to false
-    - "ignore_unassigned_machines" configures bom validation to only validate machines that have an assigned SKU.  defaults to false.
+  - The Host properties which are validated against the SKU in this release are:
+    - Chassis Model
+    - Chassis Architecture
+    - CPU count
+    - GPU vendor, model, memory and count
+    - InfiniBand device count, vendors, models, and expected connectivity to the switch
+  - `[bom_validation]` section added to api config
+    - `enabled` enables BOM validation. defaults to `false`
+    - `ignore_unassigned_machines` configures bom validation to only validate machines that have an assigned SKU. defaults to `false`.
   - New API endpoints for managing SKUs
   - New CLI commands for managing SKUs
   - New states for handling machine SKU validation
-  - New health alerts for when a machine fails SKU validation.
+  - When the hardware properties of an Forge Machine are not matching the assigned SKU during any SKU validation state, a `SkuValidation` health alert is used to mark the Machine as not healthy and not allocatable.
+- The Machine Capabilities set that is transfered in the `capabilities` field of the `Machine` gRPC object now includes information which of the InfiniBand devices available on the Host are active (connected to a powered on Switch) and which are inactive (disconnected). The information is transferred via a `inactive_devices` property that is part of the `MachineCapabilityAttributesInfiniband` type. The `inactive_devices` list will inform Forge users which interfaces of an IB enabled Forge Instance are not required to be configured, since they are unplugged. This change is a part of the effort to improve the usability of Forge InfiniBand support on Hosts where only a subset of ports are connected.
 
 ### Changed
+
+- Automated and manual DPU updates no longer place the Host into `Maintenance` mode. Instead of that, the Host that is undergoing updates is marked with a new health alert with ID `HostUpdateInProgress`.  
+  The health alert uses a `target` property which describes the component that is updated. The motivation for this change is to be better able to distinguish updating Hosts from hosts that are undergoing other kinds of Maintenance - as well as to prevent race conditions that happened due to various workflows using the same `Maintenance` marker. Example of a health override that is placed by the updating Framework:
+  ```json
+  {
+    "source": "host-update",
+    "observed_at": "2025-02-14T20:25:05.022649303Z",
+    "successes": [],
+    "alerts": [
+        {
+            "id": "HostUpdateInProgress",
+            "target": "DpuFirmware",
+            "in_alert_since": "2025-02-14T20:25:05.022658314Z",
+            "message": "AutomaticDpuFirmwareUpdate//2.0.1",
+            "classifications": [
+                "PreventAllocations",
+                "SuppressExternalAlerting"
+            ]
+        }
+    ]
+  }
+  ```
+  Operators can use a new `Host Update` template on the Machine Health page of the Forge Admin Web UI in order to place a simlar health override before manual DPU updates are started.  
+  [Forge-4270](https://jirasw.nvidia.com/browse/FORGE-4270)
+- The admin-web-ui `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
+
+
 ### Fixed
 ### Removed
 
