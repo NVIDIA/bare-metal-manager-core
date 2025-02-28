@@ -17,7 +17,18 @@
   - New CLI commands for managing SKUs
   - New states for handling machine SKU validation
   - When the hardware properties of an Forge Machine are not matching the assigned SKU during any SKU validation state, a `SkuValidation` health alert is used to mark the Machine as not healthy and not allocatable.
-- The Machine Capabilities set that is transfered in the `capabilities` field of the `Machine` gRPC object now includes information which of the InfiniBand devices available on the Host are active (connected to a powered on Switch) and which are inactive (disconnected). The information is transferred via a `inactive_devices` property that is part of the `MachineCapabilityAttributesInfiniband` type. The `inactive_devices` list will inform Forge users which interfaces of an IB enabled Forge Instance are not required to be configured, since they are unplugged. This change is a part of the effort to improve the usability of Forge InfiniBand support on Hosts where only a subset of ports are connected.
+- The Machine Capabilities set that is transfered in the `capabilities` field of the `Machine` gRPC object now includes information which of the InfiniBand devices available on the Host are active (connected to a powered on Switch) and which are inactive (disconnected). The information is transferred via a `inactive_devices` property that is part of the `MachineCapabilityAttributesInfiniband` type. The `inactive_devices` list will inform Forge users which interfaces of an IB enabled Forge Instance are not required to be configured, since they are unplugged. This change is a part of the effort to improve the usability of Forge InfiniBand support on Hosts where only a subset of ports are connected.  
+  **Example:** A host with 2 IB NICs where each of the NICs has the first port connected will be signaled with the following capability:
+  ```json
+  {
+    vendor: "Mellanox Technologies",
+    name: "MT2910 Family [ConnectX-7]",
+    count: 4,
+    inactive_devices: [0, 2]
+  }
+  ```
+
+
 
 ### Changed
 
