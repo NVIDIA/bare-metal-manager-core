@@ -493,6 +493,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SkuStatus",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute(
+            "forge.MachineHardwareInfoGpu",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

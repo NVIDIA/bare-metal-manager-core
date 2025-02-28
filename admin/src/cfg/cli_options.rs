@@ -1056,6 +1056,8 @@ pub enum Machine {
     AutoUpdate(MachineAutoupdate),
     #[clap(subcommand, about = "Edit Metadata associated with a Machine")]
     Metadata(MachineMetadataCommand),
+    #[clap(subcommand, about = "Update/show machine hardware info")]
+    HardwareInfo(MachineHardwareInfoCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -1231,6 +1233,54 @@ pub struct MachineMetadataCommandFromExpectedMachine {
     ///   Metadata that is currently set on the Machine will be overridden.
     #[clap(long, verbatim_doc_comment)]
     pub replace_all: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum MachineHardwareInfoCommand {
+    #[clap(about = "Show the hardware info of the machine")]
+    Show(ShowMachineHardwareInfo),
+    #[clap(subcommand, about = "Update the hardware info of the machine")]
+    Update(MachineHardwareInfo),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowMachineHardwareInfo {
+    #[clap(long, help = "Show the hardware info of this Machine ID")]
+    pub machine: String,
+}
+
+#[derive(Parser, Debug)]
+pub enum MachineHardwareInfo {
+    //Cpu(MachineTopologyCommandCpu),
+    #[clap(about = "Update the GPUs of this machine")]
+    Gpus(MachineHardwareInfoGpus),
+    //Memory(MachineTopologyCommandMemory),
+    //Storage(MachineTopologyCommandStorage),
+    //Network(MachineTopologyCommandNetwork),
+    //Infiniband(MachineTopologyCommandInfiniband),
+    //Dpu(MachineTopologyCommandDpu),
+}
+
+#[derive(Parser, Debug)]
+pub struct MachineHardwareInfoGpus {
+    #[clap(long, help = "Machine ID of the server containing the GPUs")]
+    pub machine: String,
+    #[clap(
+        long,
+        help = "JSON file containing GPU info. It should contain an array of JSON objects like this:
+        {
+            \"name\": \"string\",
+            \"serial\": \"string\",
+            \"driver_version\": \"string\",
+            \"vbios_version\": \"string\",
+            \"inforom_version\": \"string\",
+            \"total_memory\": \"string\",
+            \"frequency\": \"string\",
+            \"pci_bus_id\": \"string\"
+        }
+        Pass an empty array if you want to remove GPUs."
+    )]
+    pub gpu_json_file: std::path::PathBuf,
 }
 
 #[derive(Parser, Debug, Clone)]

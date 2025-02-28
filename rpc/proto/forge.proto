@@ -199,6 +199,7 @@ service Forge {
   // paginated APIs to get site explorer explored managed hosts
   rpc FindExploredManagedHostIds(site_explorer.ExploredManagedHostSearchFilter) returns (site_explorer.ExploredManagedHostIdList);
   rpc FindExploredManagedHostsByIds(site_explorer.ExploredManagedHostsByIdsRequest) returns (site_explorer.ExploredManagedHostList);
+  rpc UpdateMachineHardwareInfo(UpdateMachineHardwareInfoRequest) returns (google.protobuf.Empty);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
   // with the intention of rediscovering the host later on.
@@ -2091,6 +2092,22 @@ message BmcEndpointRequest {
   string ip_address = 1;
   // The MAC the host DHCPed from
   optional string mac_address = 2;
+}
+
+message UpdateMachineHardwareInfoRequest {
+  // Machine ID to update
+  common.MachineId machine_id = 1;
+  MachineHardwareInfo info = 2;
+  // Which hardware info to update.
+  MachineHardwareInfoUpdateType update_type = 3;
+}
+
+message MachineHardwareInfo {
+  repeated machine_discovery.Gpu gpus = 1;
+}
+
+enum MachineHardwareInfoUpdateType {
+  Gpus = 0;
 }
 
 message ManagedHostNetworkConfigRequest {

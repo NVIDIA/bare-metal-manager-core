@@ -27,6 +27,7 @@
     inactive_devices: [0, 2]
   }
   ```
+- New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added.
 
 
 

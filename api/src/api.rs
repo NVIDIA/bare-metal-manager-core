@@ -1627,6 +1627,14 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
+    async fn update_machine_hardware_info(
+        &self,
+        request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::machine_hardware_info::handle_machine_hardware_info_update(self, request)
+            .await
+    }
+
     // Ad-hoc BMC exploration
     async fn explore(
         &self,
