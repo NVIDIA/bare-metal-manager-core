@@ -1,7 +1,20 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.28-rc2-0...trunk)
 
 ### Added
+### Changed
+### Fixed
+### Removed
+
+## [v2025.02.28-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...v2025.02.28-rc2-0)
+
+
+### Added
+
+- Machine-validation results can now be viewed in the carbide-web.
+- iPXE will now display why it's booting from the disk or network.
+- Added Network Security Groups (NSG) support to the legacy pre-FNN network virtualization type.
+- DPU nvue logs are now sent to the site log collection infrastructure.
 - Bill of Material (BOM) Validation.  Validates a managed hosts reported hardware against its assigned hardware SKU.
   [FORGE-4515](https://jirasw.nvidia.com/browse/FORGE-4515)
   - The Host properties which are validated against the SKU in this release are:
@@ -16,10 +29,11 @@
   - New API endpoints for managing SKUs
   - New CLI commands for managing SKUs
   - New states for handling machine SKU validation
-  - When the hardware properties of an Forge Machine are not matching the assigned SKU during any SKU validation state, a `SkuValidation` health alert is used to mark the Machine as not healthy and not allocatable.
+  - New health alerts for when a machine fails SKU validation.
+- Added the ability to require AC powercycles for certain UEFI upgrades.
 - The Machine Capabilities set that is transfered in the `capabilities` field of the `Machine` gRPC object now includes information which of the InfiniBand devices available on the Host are active (connected to a powered on Switch) and which are inactive (disconnected). The information is transferred via a `inactive_devices` property that is part of the `MachineCapabilityAttributesInfiniband` type. The `inactive_devices` list will inform Forge users which interfaces of an IB enabled Forge Instance are not required to be configured, since they are unplugged. This change is a part of the effort to improve the usability of Forge InfiniBand support on Hosts where only a subset of ports are connected.  
   **Example:** A host with 2 IB NICs where each of the NICs has the first port connected will be signaled with the following capability:
-  ```json
+  ```
   {
     vendor: "Mellanox Technologies",
     name: "MT2910 Family [ConnectX-7]",
@@ -27,15 +41,19 @@
     inactive_devices: [0, 2]
   }
   ```
+- Added forge_ForgeRunBook machine-validation test disabled by default.
 - New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added.
-
-
 
 ### Changed
 
+- Update Rust version to 1.85.0.
+- Rework carbide carbide-web to prefer machine page over managed host page.
+  - Move Maintenance mode form from Managed-Host details page to Machine details page.
+  - Move Machine Health page from `/admin/machine/health/:machine_id` to `/admin/machine/:machine_id/health`.
+- Update opentelemetry to 0.28.
 - Automated and manual DPU updates no longer place the Host into `Maintenance` mode. Instead of that, the Host that is undergoing updates is marked with a new health alert with ID `HostUpdateInProgress`.  
   The health alert uses a `target` property which describes the component that is updated. The motivation for this change is to be better able to distinguish updating Hosts from hosts that are undergoing other kinds of Maintenance - as well as to prevent race conditions that happened due to various workflows using the same `Maintenance` marker. Example of a health override that is placed by the updating Framework:
-  ```json
+  ```
   {
     "source": "host-update",
     "observed_at": "2025-02-14T20:25:05.022649303Z",
@@ -56,17 +74,50 @@
   ```
   Operators can use a new `Host Update` template on the Machine Health page of the Forge Admin Web UI in order to place a simlar health override before manual DPU updates are started.  
   [Forge-4270](https://jirasw.nvidia.com/browse/FORGE-4270)
-- The admin-web-ui `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
-
+- The carbide-web `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
 
 ### Fixed
+
+- Add some defense to DPU agent against a bad NSG config.
+- [FORGE-4706](https://jirasw.nvidia.com/browse/FORGE-4706) Increase scout reconnect timeout.
+- [FORGE-4270](https://jirasw.nvidia.com/browse/FORGE-4270) Remove application of Maintenance Mode during DPU updates.  The manual and automated DPU updates no longer use Maintenance modes but a custom health alert in order to mark Machines that have updates enqueued.
+  - Manual updates (via forge-admin-cli) can be started at any time the Machine has a health alert with probe ID `HostUpdateInProgress` and a classification `PreventAllocations`. A new template for adding such an alert has been added to the carbide-web.
+  - Example of a health override being placed:
+  ```
+  {
+        "source": "host-update",
+        "observed_at": "2025-02-14T20:25:05.022649303Z",
+        "successes": [],
+        "alerts": [
+            {
+                "id": "HostUpdateInProgress",
+                "target": "DpuFirmware",
+                "in_alert_since": "2025-02-14T20:25:05.022658314Z",
+                "message": "AutomaticDpuFirmwareUpdate//2.0.1",
+                "classifications": [
+                    "PreventAllocations",
+                    "SuppressExternalAlerting"
+                ]
+            }
+        ]
+    }
+    ```
+- Machine validation tests can now be marked as verified or unverified forge-admin-cli.
+  - Set forge_RaytracingVk as unverfied.
+- Fix updating supported platforms from dmidecode value.
+- Allow System to pxe boot if machine is in Failed/MachineValidation state.
+- Remove UEFI component from DPU preingestion.
+
 ### Removed
+
+- Removed legacy state migration code.
 
 ## [v2025.02.14-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc2-0...v2025.02.14-rc3-0)
 
 ### Fixed
 
 - Remove UEFI component from DPU preingestion.
+- Fixed incorrect machine validation link in machine details page.
 
 ## [v2025.02.14-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc4-0...v2025.02.14-rc2-0)
 
@@ -92,7 +143,7 @@
   - Updates the Carbide network config endpoints to provide DPU agent with NSG details if configured.
   - Updates DPU agent to plumb the new NSG details through to the NVUE template context.
   - Does NOT update the NVUE template.  Attilla will be doing that separately.
-  - Does NOT cover admin-cli updates to support NSG management.  That'll be a separate MR.
+  - Does NOT cover forge-admin-cli updates to support NSG management.  That'll be a separate MR.
 - Add icmp6 proto option to NSGs and has_network_security_group for nvue template.
   - Adds icmp6 as a protocol option for NSGs.
   - Sends along details to the NVUE template about whether an NSG was not applied vs applied but contains no rules.
@@ -100,7 +151,7 @@
 - Add network security group commands.
   - Adds an additional API endpoint for pulling the details of which objects (VPC/Instance) are are using to which NSGs.
   - Adds commands necessary for managing network security groups via the admin-cli.
-  - Allows the cli to update instance and VPC config (for attaching/removing NSGs).
+  - Allows the forge-admin-cli to update instance and VPC config (for attaching/removing NSGs).
 - Network Security Group support in API, CLI, and web UI, including creation, modification, searching, propagation status querying, querying for objects using security groups, and attaching/detaching security groups to/from VPCs and instances (API and CLI only).  VPC and instance configs have been updated to include network security group IDs, allowing them to be set on creation or update.  DPU agent template support is pending.
 - Run CPU and MEM benchpress tests on host instead of container.
 - Added flag to make sure scout can onboard hosts without TPM module.  Carbide allow generating machine_id from serial chasis if TPM certificate is not provided, but api rejects such hosts anyway. Added new flag `tpm_required` which defaulted to true, and if is set, current logic will still apply (TPM required), but if flag is set to `false` this means host can bypass TPM certificate verificationm enforcement.
@@ -125,7 +176,7 @@
 - Stop printing unwanted logs on secondary DPU.  This fix will store the last made interface changes and update the state only when interface state is change like enable to disable, or vice versa.
 - Updated libredfish to 0.29.4 for HPE server support and extending timeout for Viking H1000 servers.
 - Do not preingest DPUs if they are at the BMC & CEC versions corresponding to DOCA 2.5.
-- Carbide config is now redacted in gRPC response and admin web ui.
+- Carbide config is now redacted in gRPC response and carbide-web.
 - [FORGE-5408](https://jirasw.nvidia.com/browse/FORGE-5408) The DPU agent moves the DOCA config files from /opt/forge/doca_container_configs/ to /etc/kubelet.d as opposed to having cloud-init do it.
   - Prevents an issue where NVUE was unable to startup blocking DPU startup.
 
@@ -252,9 +303,9 @@
   - `IpSet`: a set type designed for IP resources, with aggregation built in and a single type to cover both address families.
   - `IpAddressFamily`: just an enum so we can construct IPv4 or IPv6 as a type.
   - `IdentifyAddressFamily`: a trait with some utility methods so we don't have to keep reimplementing the logic for "IPv6 is not supported".
-- Updated the admin-cli 'instance allocate' command to allow pxe script and user data,
+- Updated the forge-admin-cli 'instance allocate' command to allow pxe script and user data,
 - Site explorer will only update the BMC Admin account password and keep the factory username.
-- [FORGE-5382](https://jirasw.nvidia.com/browse/FORGE-5382) Improved waitingformeasurement details in admin-cli mh show output
+- [FORGE-5382](https://jirasw.nvidia.com/browse/FORGE-5382) Improved waitingformeasurement details in forge-admin-cli mh show output
 - Improved reporting for preingestion host firmware upgrade failures, and retries for post ingestion host firmware upgrade failures.
 - Show Machine Capabilities in admin UI
   With this change, we show the carbide derived set of capabilities for Machines on the /machine page of the admin web UI.
@@ -404,12 +455,12 @@
 - Added implementation to fmt for OsImageStatus enum.
 - Machine Validation includes a test for bandwidth.
 - OpenTelemetry DPU agent to renew mTLS certificates.
-- Forge now maintains the same set of `Metadata` for Machines as for `Instances` and `VPC`s. Machines can have an associated `Name`, `Description` and `Labels`. Machine metadata is returned in the `Metadata` field of the `Machine` message on the gRPC API. Machine Metadata is also visible on the `/admin/machine/$machine_id` page of the admin web ui as well as when using `forge-admin-cli machine show $machine_id`.
+- Forge now maintains the same set of `Metadata` for Machines as for `Instances` and `VPC`s. Machines can have an associated `Name`, `Description` and `Labels`. Machine metadata is returned in the `Metadata` field of the `Machine` message on the gRPC API. Machine Metadata is also visible on the `/admin/machine/$machine_id` page of the carbide-web as well as when using `forge-admin-cli machine show $machine_id`.
   By default the Machines `Name` will be set equivalent to the Machine ID.
   Other metadata fields are empty.
 - Machine metadata can be updated using the new `UpdateMachineMetadata` API.
   The API supports the same version-based mechanism to prevent unexpected concurrent edits of Metadata as other Forge APIs.
-- `forge-admin` cli supports new sub-commands to update Machine metadata:
+- forge-admin-cli supports new sub-commands to update Machine metadata:
   - Show Machine Metadata
     ```
     forge-admin-cli machine metadata show fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
@@ -595,7 +646,7 @@
 
 ### Removed
 
-- Removed predicted host in admin-cli measurement results.
+- Removed predicted host in forge-admin-cli measurement results.
 - Revert DPU BMC firmware until bfb/hbn is ready.
 - No longer send tenant interface info to secondary DPU.
 
@@ -721,8 +772,8 @@
   - `forge_hosts_in_use_by_tenant_count` (was: `forge_assigned_hosts_by_tenant_count`): The number of hosts that are actively used by tenants as instances - by tenant
 - Update timestamps when power action is skipped.
 - FNN vpc_prefix_id is included in instance allocation message.
-- admin-cli `measurement journal show` now shows report_id without including the `--extended` option.
-- admin-cli add option to `measurement journal promote` to reduce the number of commands required to promote a bundle.
+- forge-admin-cli `measurement journal show` now shows report_id without including the `--extended` option.
+- forge-admin-cli add option to `measurement journal promote` to reduce the number of commands required to promote a bundle.
 - Allow site explorer to reset the BMC more frequently (up to once an hour).
 - Ensured that the host is powered back on after turning it off as part of DPU provisioning
 - Improved power state emulation in machine-a-tron.
@@ -1012,7 +1063,7 @@ No user facing changes.
   - Use following command to trigger on-demand machine validation: `forge-admin-cli machine-validation on-demand start -m <machineID>`.
 - Feature flag to enable and disable machine validation [FORGE-4487](https://jirasw.nvidia.com/browse/FORGE-4487)
 - Forge scout now runs in Ubuntu 24.04 instead of Debian 12 for compatibility with ARM servers and NVIDIA drivers.
-- User can now mention history count to be displayed in `machine show` command in admin-cli command.
+- User can now mention history count to be displayed in `machine show` command in forge-admin-cli command.
 
 ### Fixed
 
@@ -1154,7 +1205,7 @@ No user facing changes.
 
 - HBN logs are not collected from DPUs
 - Added metrics for running versions for Carbide-PXE
-- Numerous updates to the admin web ui (carbide-api/admin) for sorting and usability
+- Numerous updates to the carbide-web (carbide-api/admin) for sorting and usability
 - Expose new health reporting checks to the Admin UI
 - Support for automatic host ingestion to work on DGX H100 (Vikings)
 - Metrics added for when a DPU booted and when the DPU agent started
