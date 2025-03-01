@@ -102,7 +102,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "commit forge_agent_control",
+            "commit update machine hardware info",
             e,
         ))
     })?;
