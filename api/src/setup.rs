@@ -281,6 +281,7 @@ pub async fn start_api(
             } else {
                 Default::default()
             },
+            allow_insecure_fabric_configuration: ib_config.allow_insecure,
             manager_type: fabric_manager_type,
             max_partition_per_tenant: ib_config.max_partition_per_tenant,
             mtu: ib_config.mtu,

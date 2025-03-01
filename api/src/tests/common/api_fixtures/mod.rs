@@ -826,6 +826,7 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_provider.clone(),
         ib::IBFabricManagerConfig {
+            allow_insecure_fabric_configuration: ib_config.allow_insecure,
             endpoints: if ib_config.enabled {
                 config
                     .ib_fabrics
