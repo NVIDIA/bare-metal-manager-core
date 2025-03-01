@@ -60,6 +60,7 @@ pub struct IBFabricManagerConfig {
     pub mtu: IBMtu,
     pub rate_limit: IBRateLimit,
     pub service_level: IBServiceLevel,
+    pub allow_insecure_fabric_configuration: bool,
     #[cfg(test)]
     pub ports: Option<std::collections::HashMap<String, self::types::IBPort>>,
 }
@@ -67,6 +68,7 @@ pub struct IBFabricManagerConfig {
 impl Default for IBFabricManagerConfig {
     fn default() -> Self {
         IBFabricManagerConfig {
+            allow_insecure_fabric_configuration: false,
             endpoints: HashMap::default(),
             manager_type: IBFabricManagerType::default(),
             max_partition_per_tenant: cfg::file::IBFabricConfig::default_max_partition_per_tenant(),

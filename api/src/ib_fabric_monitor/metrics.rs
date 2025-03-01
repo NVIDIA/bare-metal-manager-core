@@ -47,6 +47,10 @@ pub struct FabricMetrics {
     pub num_partitions: Option<usize>,
     /// The amount of ports visible at UFM - indexed by state
     pub ports_by_state: Option<HashMap<String, usize>>,
+    /// Whether the fabric not configured to protect tenants and infrastructure
+    pub insecure_fabric_configuration: bool,
+    /// Whether an insecure fabric configuration is allowed
+    pub allow_insecure_fabric_configuration: bool,
 }
 
 impl IbFabricMonitorMetrics {
@@ -127,6 +131,50 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<IbFabricMonit
                                 .concat(),
                             );
                         }
+                    }
+                })
+            })
+            .build();
+    }
+
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_ib_monitor_insecure_fabric_configuration_count")
+            .with_description("The amount of InfiniBand fabrics that are not configured securely")
+            .with_callback(move |o| {
+                metrics.if_available(|metrics, attrs| {
+                    for (fabric, metrics) in metrics.fabrics.iter() {
+                        o.observe(
+                            if metrics.insecure_fabric_configuration {
+                                1
+                            } else {
+                                0
+                            },
+                            &[attrs, &[KeyValue::new("fabric", fabric.to_string())]].concat(),
+                        );
+                    }
+                })
+            })
+            .build();
+    }
+
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("forge_ib_monitor_allow_insecure_fabric_configuration_count")
+            .with_description("The amount of InfiniBand fabrics that are not configured securely")
+            .with_callback(move |o| {
+                metrics.if_available(|metrics, attrs| {
+                    for (fabric, metrics) in metrics.fabrics.iter() {
+                        o.observe(
+                            if metrics.allow_insecure_fabric_configuration {
+                                1
+                            } else {
+                                0
+                            },
+                            &[attrs, &[KeyValue::new("fabric", fabric.to_string())]].concat(),
+                        );
                     }
                 })
             })

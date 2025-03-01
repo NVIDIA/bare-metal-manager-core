@@ -497,6 +497,11 @@ pub struct IBFabricConfig {
     /// Enable IB fabric
     pub enabled: bool,
 
+    /// Whether a fabric configuration that does not adhere to security requirements
+    /// for tenant isolation and infrastructure protection is allowed
+    #[serde(default)]
+    pub allow_insecure: bool,
+
     #[serde(
         default = "IBMtu::default",
         deserialize_with = "IBFabricConfig::deserialize_mtu"
@@ -2500,6 +2505,7 @@ max_partition_per_tenant = 3
     fn deserialize_serialize_ib_config() {
         let value_input = IBFabricConfig {
             enabled: true,
+            allow_insecure: false,
             max_partition_per_tenant: 1,
             mtu: IBMtu(2),
             rate_limit: IBRateLimit(10),
@@ -2518,6 +2524,7 @@ max_partition_per_tenant = 3
             value_output,
             IBFabricConfig {
                 enabled: true,
+                allow_insecure: false,
                 max_partition_per_tenant: 2,
                 mtu: IBMtu(4),
                 rate_limit: IBRateLimit(20),
@@ -2541,6 +2548,7 @@ max_partition_per_tenant = 3
                 .unwrap();
 
             assert!(config.enabled);
+            assert!(!config.allow_insecure);
             assert_eq!(config.max_partition_per_tenant, MAX_IB_PARTITION_PER_TENANT);
             assert_eq!(config.mtu, IBMtu::default());
             assert_eq!(config.rate_limit, IBRateLimit::default());

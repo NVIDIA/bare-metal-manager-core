@@ -169,6 +169,10 @@ async fn check_ib_fabric(
     metrics: &mut FabricMetrics,
 ) -> Result<(), CarbideError> {
     metrics.endpoints = fabric_definition.endpoints.clone();
+    metrics.allow_insecure_fabric_configuration = fabric_manager
+        .get_config()
+        .allow_insecure_fabric_configuration;
+
     let conn = fabric_manager.connect(fabric).await?;
 
     let version = conn.versions().await?;
@@ -195,5 +199,32 @@ async fn check_ib_fabric(
     }
     metrics.ports_by_state = Some(ports_by_state);
 
+    // Check if any of the expected security settings is not configured
+    // TODO: We are not checking whether the default partition is in restricted mode
+    metrics.insecure_fabric_configuration = false;
+    if parse_num(&metrics.m_key) == Some(0)
+        || parse_num(&metrics.sm_key) == Some(1)
+        || parse_num(&metrics.sa_key) == Some(1)
+        || !metrics.m_key_per_port
+    {
+        metrics.insecure_fabric_configuration = true;
+    }
+
     Ok(())
+}
+
+/// Parses a u64 string in hexadecimal or decimal format
+fn parse_num(input: &str) -> Option<u64> {
+    match input.strip_prefix("0x") {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => input.parse().ok(),
+    }
+}
+
+#[test]
+fn test_parse_num() {
+    assert_eq!(0, parse_num("0x0000000000000000").unwrap());
+    assert_eq!(1, parse_num("0x0000000000000001").unwrap());
+    assert_eq!(0, parse_num("0x00").unwrap());
+    assert_eq!(1, parse_num("0x01").unwrap());
 }
