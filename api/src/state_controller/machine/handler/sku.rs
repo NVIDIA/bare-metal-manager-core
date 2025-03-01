@@ -161,19 +161,28 @@ pub(crate) async fn handle_bom_validation_state(
     match bom_validating_state {
         BomValidating::MatchingSku => {
             if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                // TODO.  New machines should attempt to find a sku that matches.
-                // Currently this just sends the machine to WaitingForSkuAssignment
-                // as if there is no match
-                Ok(StateHandlerOutcome::Transition(
-                    ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                            BomValidatingContext {
-                                machine_validation_context: Some("Discovery".to_string()),
-                            },
-                        ),
-                    },
-                ))
+                let machine_sku =
+                    db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
+                if let Some(existing_sku) = db::sku::find_matching(txn, &machine_sku).await? {
+                    db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &existing_sku.id)
+                        .await?;
+                    // Since a matchin SKU was found, that verified that its a match so move on to machine validation
+                    advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+                } else {
+                    let mv_context =
+                        get_machine_validation_context(mh_snapshot.host_snapshot.current_state());
+                    Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::BomValidating {
+                            bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                                BomValidatingContext {
+                                    machine_validation_context: mv_context,
+                                },
+                            ),
+                        },
+                    ))
+                }
             } else {
+                // this should not happen.  only newly discovered machines go through 'MatchingSku' state and should not have a sku assigned.
                 advance_to_updating_inventory(txn, mh_snapshot).await
             }
         }

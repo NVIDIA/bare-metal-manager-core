@@ -266,14 +266,14 @@ pub async fn handle_sku_command(
     match sku_command {
         Sku::Show(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
-                let skus = rpc::get_skus_by_ids(api_config, &[sku_id]).await?;
+                let skus = rpc::find_skus_by_ids(api_config, &[sku_id]).await?;
                 if let Some(sku) = skus.skus.into_iter().next() {
                     show_sku_details(output, output_format, sku)?;
                 }
             } else {
                 let all_ids = rpc::get_all_sku_ids(api_config).await?;
                 let sku_list = if !all_ids.ids.is_empty() {
-                    rpc::get_skus_by_ids(api_config, &all_ids.ids).await?
+                    rpc::find_skus_by_ids(api_config, &all_ids.ids).await?
                 } else {
                     SkuList::default()
                 };
@@ -297,7 +297,7 @@ pub async fn handle_sku_command(
                 Err(e) => serde_json::de::from_str(&file_data).map_err(|_| e)?,
             };
             let sku_ids = rpc::create_sku(api_config, sku_list).await?;
-            let sku_list = rpc::get_skus_by_ids(api_config, &sku_ids.ids).await?;
+            let sku_list = rpc::find_skus_by_ids(api_config, &sku_ids.ids).await?;
             show_skus_table(output, output_format, sku_list.skus)?;
         }
         Sku::Delete { sku_id } => {
