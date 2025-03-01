@@ -781,7 +781,7 @@ impl MachineStateHandler {
                         .await?;
 
                         let next_state = ManagedHostState::BomValidating {
-                            bom_validating_state: BomValidating::VerifyingSku(
+                            bom_validating_state: BomValidating::UpdatingInventory(
                                 BomValidatingContext {
                                     machine_validation_context: Some("Cleanup".to_string()),
                                 },

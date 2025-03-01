@@ -322,9 +322,9 @@ pub(crate) async fn get_all_ids(
     }))
 }
 
-pub(crate) async fn get_skus_for_ids(
+pub(crate) async fn find_skus_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::SkuIdList>,
+    request: Request<::rpc::forge::SkusByIdsRequest>,
 ) -> CarbideResult<Response<::rpc::forge::SkuList>> {
     log_request_data(&request);
 
@@ -344,7 +344,7 @@ pub(crate) async fn get_skus_for_ids(
         CarbideError::from(DatabaseError::new(
             file!(),
             line!(),
-            "begin get_skus_for_ids",
+            "begin find_skus_by_ids",
             e,
         ))
     })?;

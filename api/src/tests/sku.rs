@@ -656,4 +656,69 @@ pub mod tests {
         assert_eq!(state, ManagedHostState::Ready);
         Ok(())
     }
+
+    #[crate::sqlx_test]
+    async fn test_auto_match_sku(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let managed_host_config =
+            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    BomValidatingContext {
+                        machine_validation_context: Some("Discovery".to_string()),
+                    },
+                ),
+            });
+
+        let (machine_id, _dpu_id) =
+            create_managed_host_with_config(&env, managed_host_config).await;
+
+        let mut txn = pool.begin().await?;
+
+        let actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        crate::db::sku::create(&mut txn, &actual_sku).await?;
+
+        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+
+        txn.commit().await?;
+
+        // once the sku is assigned, the state machine should move to update inventory before it verifies it.
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert!(matches!(
+            machine.current_state(),
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::UpdatingInventory(_)
+            }
+        ));
+
+        let expected_sku_id = machine.hw_sku.unwrap();
+
+        // A new machine with the same hardware is automatically assigned the above
+        // sku and moves on.
+
+        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+
+        let machine2 = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert_eq!(machine2.hw_sku, Some(expected_sku_id));
+
+        Ok(())
+    }
 }

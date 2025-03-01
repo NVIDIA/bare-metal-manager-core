@@ -4589,11 +4589,11 @@ impl Forge for Api {
             .map_err(|e| e.into())
     }
 
-    async fn get_skus_for_ids(
+    async fn find_skus_by_ids(
         &self,
-        request: Request<rpc::SkuIdList>,
+        request: Request<rpc::SkusByIdsRequest>,
     ) -> Result<Response<rpc::SkuList>, Status> {
-        crate::handlers::sku::get_skus_for_ids(self, request)
+        crate::handlers::sku::find_skus_by_ids(self, request)
             .await
             .map_err(|e| e.into())
     }

@@ -115,11 +115,11 @@ async fn fetch_skus(api: Arc<Api>) -> Result<Vec<forgerpc::Sku>, tonic::Status> 
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(sku_ids.len() - offset);
         let next_ids = &sku_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::SkuIdList {
+        let request = tonic::Request::new(forgerpc::SkusByIdsRequest {
             ids: next_ids.to_vec(),
         });
         let next_skus = api
-            .get_skus_for_ids(request)
+            .find_skus_by_ids(request)
             .await
             .map(|response| response.into_inner())?;
 
@@ -164,11 +164,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(sku_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(forgerpc::SkuIdList {
+    let request = tonic::Request::new(forgerpc::SkusByIdsRequest {
         ids: vec![sku_id.clone()],
     });
     let sku = match state
-        .get_skus_for_ids(request)
+        .find_skus_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
@@ -187,7 +187,7 @@ pub async fn detail(
             return super::not_found_response(sku_id);
         }
         Err(err) => {
-            tracing::error!(%err, "get_skus_for_ids");
+            tracing::error!(%err, "find_skus_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading SKUs").into_response();
         }
     };

@@ -3081,16 +3081,16 @@ pub async fn update_machine_metadata(
     .await
 }
 
-pub async fn get_skus_by_ids(
+pub async fn find_skus_by_ids(
     api_config: &ApiConfig<'_>,
     sku_ids: &[String],
 ) -> CarbideCliResult<rpc::SkuList> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::SkuIdList {
+        let request = tonic::Request::new(::rpc::forge::SkusByIdsRequest {
             ids: Vec::from(sku_ids),
         });
         let sku_details = client
-            .get_skus_for_ids(request)
+            .find_skus_by_ids(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

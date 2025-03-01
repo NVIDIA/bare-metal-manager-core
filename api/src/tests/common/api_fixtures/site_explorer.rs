@@ -628,76 +628,34 @@ impl<'a> MockExploredHost<'a> {
                     &mut txn,
                     |machine| {
                         machine.current_state() == &expected_state
-                            || matches!(
-                                *machine.current_state(),
-                                ManagedHostState::BomValidating {
-                                    bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                                        BomValidatingContext { .. },
-                                    ),
-                                }
-                            )
+                            || machine.hw_sku.is_none()
+                                && matches!(
+                                    *machine.current_state(),
+                                    ManagedHostState::BomValidating {
+                                        bom_validating_state:
+                                            BomValidating::WaitingForSkuAssignment(
+                                                BomValidatingContext { .. },
+                                            ),
+                                    }
+                                )
+                            || machine.hw_sku.is_some()
                     },
                 )
                 .await;
 
+            txn.commit().await.unwrap();
             // if we hit the requested state before the BomValidating state, return early
             if stop_state == expected_state {
-                txn.commit().await.unwrap();
                 return self;
             }
 
-            tracing::info!("generating sku");
-            let sku = crate::db::sku::from_topology(&mut txn, &host_machine_id)
-                .await
-                .unwrap();
-            tracing::info!("creating sku: {}", sku.id);
-            crate::db::sku::create(&mut txn, &sku).await.unwrap();
-
-            tracing::info!("assigning sku");
-            crate::db::machine::assign_sku(&mut txn, &host_machine_id, &sku.id)
-                .await
-                .unwrap();
-            txn.commit().await.unwrap();
-            let mut txn = self.test_env.pool.begin().await.unwrap();
-
-            tracing::info!("Waiting for state change");
             let stop_state = self
-                .test_env
-                .run_machine_state_controller_iteration_until_state_condition(
-                    &host_machine_id,
-                    3,
-                    &mut txn,
-                    |machine| {
-                        machine.current_state() == &expected_state
-                            || matches!(
-                                *machine.current_state(),
-                                ManagedHostState::BomValidating {
-                                    bom_validating_state: BomValidating::UpdatingInventory(
-                                        BomValidatingContext { .. },
-                                    ),
-                                }
-                            )
-                    },
-                )
+                .assign_sku_if_needed(&host_machine_id, stop_state, &expected_state)
                 .await;
-            // if we hit the requested state before the BomValidating state, return early
             if stop_state == expected_state {
-                txn.commit().await.unwrap();
                 return self;
             }
-
-            tracing::info!("updating inventory");
-
-            txn.commit().await.unwrap();
-            let mut txn = self.test_env.pool.begin().await.unwrap();
-
-            crate::db::machine::update_discovery_time(&host_machine_id, &mut txn)
-                .await
-                .unwrap();
-
-            txn.commit().await.unwrap();
         }
-
         let mut txn = self.test_env.pool.begin().await.unwrap();
         let stop_state = self
             .test_env
@@ -1045,8 +1003,74 @@ impl<'a> MockExploredHost<'a> {
     {
         f(self).await
     }
-}
 
+    async fn assign_sku_if_needed(
+        &self,
+        host_machine_id: &MachineId,
+        state: ManagedHostState,
+        expected_state: &ManagedHostState,
+    ) -> ManagedHostState {
+        if matches!(
+            state,
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    BomValidatingContext { .. },
+                ),
+            }
+        ) {
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+            tracing::info!("generating sku");
+            let sku = crate::db::sku::from_topology(&mut txn, host_machine_id)
+                .await
+                .unwrap();
+            tracing::info!("creating sku: {}", sku.id);
+            crate::db::sku::create(&mut txn, &sku).await.unwrap();
+
+            tracing::info!("assigning sku");
+            crate::db::machine::assign_sku(&mut txn, host_machine_id, &sku.id)
+                .await
+                .unwrap();
+            txn.commit().await.unwrap();
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+            let stop_state = self
+                .test_env
+                .run_machine_state_controller_iteration_until_state_condition(
+                    host_machine_id,
+                    3,
+                    &mut txn,
+                    |machine| {
+                        machine.current_state() == expected_state
+                            || matches!(
+                                *machine.current_state(),
+                                ManagedHostState::BomValidating {
+                                    bom_validating_state: BomValidating::UpdatingInventory(
+                                        BomValidatingContext { .. },
+                                    ),
+                                }
+                            )
+                    },
+                )
+                .await;
+            txn.commit().await.unwrap();
+            // if we hit the requested state before the BomValidating state, return early
+            if &stop_state == expected_state {
+                return stop_state;
+            }
+
+            tracing::info!("updating inventory");
+            // discovery time is based on transaction start time, so this needs a new transaction
+            let mut txn = self.test_env.pool.begin().await.unwrap();
+            crate::db::machine::update_discovery_time(host_machine_id, &mut txn)
+                .await
+                .unwrap();
+
+            txn.commit().await.unwrap();
+            stop_state
+        } else {
+            state
+        }
+    }
+}
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.

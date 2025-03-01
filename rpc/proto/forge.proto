@@ -477,7 +477,7 @@ service Forge {
   // Removes an unused SKU
   rpc DeleteSku(SkuIdList) returns (google.protobuf.Empty);
   rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
-  rpc GetSkusForIds(SkuIdList) returns (SkuList);
+  rpc FindSkusByIds(SkusByIdsRequest) returns (SkuList);
 }
 
 message TpmCaAddedCaStatus{
@@ -4327,4 +4327,11 @@ message SkuIdList {
 
 message SkuStatus {
   optional google.protobuf.Timestamp verify_request_time = 1;
+}
+
+message SkusByIdsRequest {
+  repeated string ids = 1;
+}
+
+message SkuSearchFilter {
 }
