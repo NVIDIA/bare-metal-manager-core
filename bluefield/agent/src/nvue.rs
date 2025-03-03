@@ -207,10 +207,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
             ExternalAccess: conf.ct_external_access,
-            AccessVLANs: conf
+            HostInterfaces: conf
                 .ct_access_vlans
                 .into_iter()
-                .map(|vl| TmplConfigVLAN {
+                .map(|vl| TmplHostInterfaces {
                     ID: vl.vlan_id,
                     HostIP: vl.ip,
                     HostRoute: vl.network,
@@ -694,7 +694,7 @@ struct TmplComputeTenant {
     /// Format: Slice with strings equal to {{ .L3domain }}
     ExternalAccess: Vec<String>,
 
-    AccessVLANs: Vec<TmplConfigVLAN>,
+    HostInterfaces: Vec<TmplHostInterfaces>,
 
     HasNetworkSecurityGroup: bool,
     IngressNetworkSecurityGroupRulesIpv4: Vec<TmplNetworkSecurityGroupRule>,
@@ -709,7 +709,7 @@ struct TmplComputeTenant {
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug, Gtmpl)]
-struct TmplConfigVLAN {
+struct TmplHostInterfaces {
     ID: u32,
     HostIP: String,
 
