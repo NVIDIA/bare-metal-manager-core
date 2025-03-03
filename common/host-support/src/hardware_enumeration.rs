@@ -186,37 +186,36 @@ fn convert_sysattr_to_string<'a>(
 
 // NUMA_NODE is not exposed in libudev but the full path to a device is.
 // We have to convert from String -> i32 which is full of cases where conversion
-// can fail. Rather than cause the client to error out during discovery, we use the
-// largest i32 as an indicator that the host is likely in a bad state as there is no
-// valid reason why the `numa_node` file on the /proc filesystem would contain garbage
+// can fail.
 fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnumerationError> {
-    const NUMA_NODE_ESCAPE_HATCH: i32 = 2147483647;
+    let syspath = syspath
+        .ok_or_else(|| HardwareEnumerationError::GenericError("Syspath is None".to_string()))?;
+    let numa_node_full_path = syspath.join("device/numa_node");
 
-    if let Some(v) = syspath {
-        let numa_node_full_path = v.to_path_buf().join("device/numa_node");
+    let file = fs::File::open(&numa_node_full_path).map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to open {}: {}",
+            numa_node_full_path.display(),
+            e
+        ))
+    })?;
 
-        let file_path = match fs::File::open(numa_node_full_path) {
-            Ok(file) => file,
-            Err(_) => return Ok(NUMA_NODE_ESCAPE_HATCH), // TODO(baz): better error handling for DPUs
-        };
+    let mut file_reader = BufReader::new(file);
+    let mut numa_node_value = String::new();
+    file_reader.read_line(&mut numa_node_value).map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to read line from {}: {}",
+            numa_node_full_path.display(),
+            e
+        ))
+    })?;
 
-        let file_reader = BufReader::new(file_path);
-
-        let numa_node_value = file_reader.lines().next();
-        let result: i32 = match numa_node_value {
-            None => NUMA_NODE_ESCAPE_HATCH,
-            Some(v) => {
-                let res = match v {
-                    Ok(l) => Ok(l.parse::<i32>().unwrap_or(NUMA_NODE_ESCAPE_HATCH)),
-                    Err(e) => return Err(HardwareEnumerationError::GenericError(e.to_string())),
-                };
-                return res;
-            }
-        };
-        Ok(result)
-    } else {
-        Ok(NUMA_NODE_ESCAPE_HATCH)
-    }
+    numa_node_value.trim().parse::<i32>().map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to parse NUMA node value to i32: {}",
+            e
+        ))
+    })
 }
 
 // discovery all the non-DPU IB devices
