@@ -971,7 +971,7 @@ message IBPartitionStatus {
   optional string partition = 3;
   // can be range from 0-15
   optional int32 service_level = 4;
-  // can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
+  // can be one of the following: 2, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
   optional int32 rate_limit = 5;
   // For IB partitions, value can be 2k or 4k only
   optional int32 mtu = 6;
