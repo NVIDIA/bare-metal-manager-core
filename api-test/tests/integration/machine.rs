@@ -33,7 +33,7 @@ pub fn wait_for_state(addr: SocketAddr, machine_id: &str, target_state: &str) ->
             break;
         }
         tracing::info!("\tCurrent: {state}");
-        thread::sleep(time::Duration::from_secs(1));
+        thread::sleep(time::Duration::from_millis(500));
         i += 1;
     }
     if i == MAX_RETRY {
