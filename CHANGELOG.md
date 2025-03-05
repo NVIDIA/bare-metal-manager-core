@@ -43,7 +43,21 @@
   ```
 - The security settings of InfiniBand fabrics are now monitored by the "IB Fabric Monitor" task. If certain security related properties of an InfiniBand fabric (e.g. m_key) are not configured as expected, the metric `forge_ib_monitor_insecure_fabric_configuration_count` will be emitted with value `1`. The security settings that are monitored should be in place in order to provide strong isolation between various Forge Tenants using InfiniBand, as well as to protect the InfiniBand infrastructure from tenants. Once the metric is rolled out, alarming on insecure infrastructure configurations can be added. In order to suppress the alarm during site builds when insecure configuration is expected for a certain amount of time, a new configuration file parameter `[ib_config.allow_insecure` is added that is `false` by default. If fabrics are defined as insecure, then an additional metric `forge_ib_monitor_allow_insecure_fabric_configuration_count` will be emitted that can be used to suppress the security alert.
 - Added forge_ForgeRunBook machine-validation test disabled by default.
-- New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added.
+- New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added. The next `discover_machine` call from scout will overwrite whatever you added to the table.
+  **Usage** `forge-admin-cli machine hardware-info update gpus --machine fm100ht9482lgtmqok7csri5c8dm0oetjam6sqltv6p6a43jgq77v0hkhe0 --gpu-json-file gpus.json` The json file should be an array of objects of the following structure:
+  ```
+  {
+    "name": "string",
+    "serial": "string",
+    "driver_version": "string",
+    "vbios_version": "string",
+    "inforom_version": "string",
+    "total_memory": "string",
+    "frequency": "string",
+    "pci_bus_id": "string"
+    }
+  ```
+  Pass an empty json array to remove all GPU entries.
 
 ### Changed
 
