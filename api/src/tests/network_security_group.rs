@@ -47,8 +47,22 @@ async fn test_network_security_group_create(
         .await
         .unwrap();
 
+    let tenant_org2 = "create_nsg_tenant2";
+    let _ = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: tenant_org2.to_string(),
+            metadata: Some(rpc::forge::Metadata {
+                name: tenant_org2.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
     // Prepare some bad attributes for testing NSG size limits
-    let too_many_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+    let too_many_src_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
             direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
@@ -56,6 +70,32 @@ async fn test_network_security_group_create(
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(32768),
+            dst_port_start: None,
+            dst_port_end: None,
+            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+        }],
+    });
+
+    let too_many_dst_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                .into(),
+            ipv6: false,
+            src_port_start: None,
+            src_port_end: None,
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
             protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
@@ -143,7 +183,20 @@ async fn test_network_security_group_create(
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
-                network_security_group_attributes: too_many_ports,
+                network_security_group_attributes: too_many_src_ports,
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    let _ = env
+        .api
+        .create_network_security_group(tonic::Request::new(
+            rpc::forge::CreateNetworkSecurityGroupRequest {
+                id: Some(id.to_string()),
+                tenant_organization_id: default_tenant_org.to_string(),
+                metadata: metadata.clone(),
+                network_security_group_attributes: too_many_dst_ports,
             },
         ))
         .await
@@ -209,8 +262,24 @@ async fn test_network_security_group_create(
         .await
         .unwrap_err();
 
+    // Next, try to create a duplicate with a new ID and the same name
+    // but for a different tenant.
+    // This should pass.
+    let _ = env
+        .api
+        .create_network_security_group(tonic::Request::new(
+            rpc::forge::CreateNetworkSecurityGroupRequest {
+                id: Some("any_other_id".to_string()),
+                tenant_organization_id: tenant_org2.to_string(),
+                metadata: metadata.clone(),
+                network_security_group_attributes: network_security_group_attributes.clone(),
+            },
+        ))
+        .await
+        .unwrap();
+
     // Next, we'll find all the network security group IDs in the system.
-    // There should only be one.
+    // There should two: one for each tenant.
     let forge_network_security_group_ids = env
         .api
         .find_network_security_group_ids(tonic::Request::new(
@@ -224,8 +293,8 @@ async fn test_network_security_group_create(
         .into_inner()
         .network_security_group_ids;
 
-    // We should have exactly one new one
-    assert_eq!(forge_network_security_group_ids.len(), 1);
+    // We should have exactly two new ones
+    assert_eq!(forge_network_security_group_ids.len(), 2);
 
     // Next, we'll use query options to search for our specific
     // network security group.

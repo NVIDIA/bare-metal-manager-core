@@ -124,7 +124,7 @@ pub async fn create(
             SELECT $1::varchar, $2::varchar, $3::varchar, $4::jsonb, $5::varchar, $6::jsonb, $7::varchar, $8::varchar
             WHERE NOT EXISTS
                 /* There should be a unique constraint on id.  The condition here is just defensive. */
-                (SELECT id FROM network_security_groups WHERE (id=$1::varchar OR name=$3::varchar) AND deleted IS NULL)
+                (SELECT id FROM network_security_groups WHERE (id=$1::varchar OR (name=$3::varchar AND tenant_organization_id=$2::varchar)) AND deleted IS NULL)
             RETURNING *";
 
     match sqlx::query_as::<Postgres, NetworkSecurityGroup>(query)
