@@ -147,7 +147,10 @@ impl MachineStateHandlerBuilder {
             firmware_downloader: None,
             attestation_enabled: false,
             upload_limiter: None,
-            machine_validation_config: MachineValidationConfig { enabled: true },
+            machine_validation_config: MachineValidationConfig {
+                enabled: true,
+                ..MachineValidationConfig::default()
+            },
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
         }

@@ -511,6 +511,13 @@ pub async fn start_api(
     // we need to create ek_cert_status entries for all existing machines
     attestation::backfill_ek_cert_status_for_existing_machines(&db_pool).await?;
 
+    let machine_validation_metric = crate::machine_validation::MachineValidationManager::new(
+        db_pool.clone(),
+        carbide_config.machine_validation_config,
+        meter.clone(),
+    );
+    let _machine_validation_metric_handle = machine_validation_metric.start()?;
+
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(
         api_service,

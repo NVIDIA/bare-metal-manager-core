@@ -1536,6 +1536,18 @@ pub struct MachineValidationConfig {
     #[serde(default)]
     /// Whether MachineValidation is enabled
     pub enabled: bool,
+
+    #[serde(
+        default = "MachineValidationConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+}
+impl MachineValidationConfig {
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
 }
 
 /// The VPC isolation behavior enforced within a site.

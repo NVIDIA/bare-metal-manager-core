@@ -768,7 +768,10 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),
         },
-        machine_validation_config: MachineValidationConfig { enabled: true },
+        machine_validation_config: MachineValidationConfig {
+            enabled: true,
+            ..MachineValidationConfig::default()
+        },
         bypass_rbac: false,
         fnn: None,
         bom_validation: BomValidationConfig::default(),
@@ -935,6 +938,7 @@ pub async fn create_test_env_with_overrides(
                 .common_pools(common_pools.clone())
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
+                    run_interval: config.machine_validation_config.run_interval,
                 })
                 .bom_validation(config.bom_validation)
                 .build(),
