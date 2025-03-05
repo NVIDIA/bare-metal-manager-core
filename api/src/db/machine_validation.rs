@@ -91,7 +91,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
     }
 }
 impl MachineValidation {
-    async fn find_by(
+    pub async fn find_by(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, String>,
         column: &str,

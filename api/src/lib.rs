@@ -45,6 +45,7 @@ mod ipxe;
 mod listener;
 mod logging;
 mod machine_update_manager;
+mod machine_validation;
 mod measured_boot;
 mod metrics_utils;
 mod model;
