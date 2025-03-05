@@ -17,6 +17,8 @@ use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
 
+use crate::db::DatabaseError;
+use crate::db::machine_interface::find_by_ip;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     CarbideError,
@@ -30,7 +32,7 @@ pub(crate) async fn explore(
 ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&req).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
 
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
     let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
@@ -48,7 +50,7 @@ pub(crate) async fn redfish_reset_bmc(
     api: &Api,
     request: ::rpc::forge::BmcEndpointRequest,
 ) -> Result<Response<()>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&request).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
@@ -63,7 +65,7 @@ pub(crate) async fn ipmitool_reset_bmc(
     api: &Api,
     request: ::rpc::forge::BmcEndpointRequest,
 ) -> Result<Response<()>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&request).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
@@ -79,7 +81,7 @@ pub(crate) async fn redfish_power_control(
     request: ::rpc::forge::BmcEndpointRequest,
     action: libredfish::SystemPowerControl,
 ) -> Result<Response<()>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&request).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
@@ -96,7 +98,7 @@ pub(crate) async fn bmc_credential_status(
 ) -> Result<Response<BmcCredentialStatusResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
-    let (_bmc_addr, bmc_mac_address) = resolve_bmc_interface(&req).await?;
+    let (_bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
 
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
     let have_credentials = api
@@ -113,7 +115,7 @@ pub(crate) async fn forge_setup(
     api: &Api,
     request: ::rpc::forge::BmcEndpointRequest,
 ) -> Result<Response<()>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(&request).await?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
@@ -125,6 +127,7 @@ pub(crate) async fn forge_setup(
 }
 
 async fn resolve_bmc_interface(
+    api: &Api,
     request: &::rpc::forge::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), tonic::Status> {
     let address = if request.ip_address.contains(':') {
@@ -145,9 +148,25 @@ async fn resolve_bmc_interface(
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
     } else {
-        return Err(tonic::Status::invalid_argument(format!(
-            "request did not specify mac address: {request:#?}"
-        )));
+        let mut txn = api.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin resolve_bmc_interface",
+                e,
+            ))
+        })?;
+
+        if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip())
+            .await
+            .map_err(CarbideError::from)?
+        {
+            bmc_mac_address = bmc_machine_interface.mac_address;
+        } else {
+            return Err(tonic::Status::invalid_argument(format!(
+                "could not find a mac address for the specified IP: {request:#?}"
+            )));
+        }
     };
 
     Ok((bmc_addr, bmc_mac_address))
