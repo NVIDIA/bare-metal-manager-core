@@ -14,7 +14,8 @@ use crate::attestation as attest;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
-use tracing::info;
+use std::process;
+use tracing::{error, info};
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
 
@@ -38,6 +39,10 @@ pub async fn run(
     let mut tss_ctx_opt: Option<Context> = None;
 
     if !is_dpu {
+        // set the max auth fail to 256 as a stop gap measure to prevent machines from failing during
+        // repeated reingestion cycle
+        set_tpm_max_auth_fail()?;
+
         // create tss context
         let mut tss_ctx = attest::create_context_from_path(tpm_path).map_err(|e| {
             CarbideClientError::TpmError(format!("Could not create context: {0}", e))
@@ -150,4 +155,39 @@ pub async fn run(
     }
 
     Ok(machine_id)
+}
+
+// this is taken from here - https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
+fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
+    let output = process::Command::new("tpm2_dictionarylockout")
+        .arg("--setup-parameters")
+        .arg("--max-tries=256")
+        .arg("--clear-lockout")
+        .output()
+        .map_err(|e| {
+            CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {0}", e))
+        })?;
+    info!(
+        "Tried setting TPM_PT_MAX_AUTH_FAIL to 256. Return code is: {0}",
+        output
+            .status
+            .code()
+            .map(|v| v.to_string())
+            .unwrap_or("NO RETURN CODE PRESENT".to_string())
+    );
+
+    if !output.stderr.is_empty() {
+        error!(
+            "TPM_PT_MAX_AUTH_FAIL stderr is {0}",
+            String::from_utf8(output.stderr).unwrap_or_else(|_| "Invalid UTF8".to_string())
+        );
+    }
+    if !output.stdout.is_empty() {
+        info!(
+            "TPM_PT_MAX_AUTH_FAIL stdout is {0}",
+            String::from_utf8(output.stdout).unwrap_or_else(|_| "Invalid UTF8".to_string())
+        );
+    }
+
+    Ok(())
 }
