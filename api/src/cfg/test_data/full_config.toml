@@ -16,6 +16,7 @@ dpu_ipmi_reboot_attempts = 1
 max_find_by_ids = 75
 nvue_enabled = true
 internet_l3_vni = 1337
+selected_profile = "powerefficiency"
 
 [tls]
 identity_pemfile_path = "/path/to/cert"
@@ -169,3 +170,11 @@ enabled = false
 [measured_boot_collector]
 enabled = false
 run_interval = "555s"
+
+
+[bios_profiles.Lenovo.ThinkSystem_SR655_V3.performance]
+DevicesandIOPorts_IOMMU = "Disabled"
+OperatingModes_ChooseOperatingMode = "MaximumPerformance"
+[bios_profiles.Lenovo.ThinkSystem_SR655_V3.powerefficiency]
+DevicesandIOPorts_IOMMU = "Disabled"
+OperatingModes_ChooseOperatingMode = "MinimalPower"

@@ -867,6 +867,8 @@ pub enum RedfishCommand {
     ClearNvram,
     // Redfish browser
     Browse(UriInfo),
+    // Set BIOS options
+    SetBios(SetBios),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -973,6 +975,10 @@ pub struct BmcUser {
 pub struct ForgeSetupArgs {
     #[clap(long, help = "boot_interface_mac:")]
     pub boot_interface_mac: Option<String>,
+    #[clap(long, help = "BIOS profile config in JSON format")]
+    pub bios_profiles: Option<String>,
+    #[clap(long, help = "BIOS profile to use")]
+    pub selected_profile: Option<libredfish::BiosProfileType>,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -2453,6 +2459,15 @@ pub struct MachineValidationAddTestOptions {
 
     #[clap(long, help = "Is read-only")]
     pub read_only: Option<bool>,
+}
+
+#[derive(Parser, Debug, Clone, PartialEq)]
+pub struct SetBios {
+    #[clap(
+        long,
+        help = "BIOS attributes to set in JSON, ex: {\"OperatingModes_ChooseOperatingMode\": \"MaximumPerformance\"}"
+    )]
+    pub attributes: String,
 }
 
 #[derive(Parser, Debug)]

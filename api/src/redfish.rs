@@ -744,6 +744,14 @@ pub mod test_support {
         async fn machine_setup(
             &self,
             _boot_interface_mac: Option<&str>,
+            _bios_profiles: &HashMap<
+                libredfish::model::service_root::RedfishVendor,
+                HashMap<
+                    String,
+                    HashMap<libredfish::BiosProfileType, HashMap<String, serde_json::Value>>,
+                >,
+            >,
+            _profile_type: libredfish::BiosProfileType,
         ) -> Result<(), RedfishError> {
             Ok(())
         }
@@ -799,6 +807,13 @@ pub mod test_support {
         }
 
         async fn bios(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
+            todo!()
+        }
+
+        async fn set_bios(
+            &self,
+            _values: HashMap<String, serde_json::Value>,
+        ) -> Result<(), RedfishError> {
             todo!()
         }
 
