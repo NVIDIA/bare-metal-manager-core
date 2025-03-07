@@ -3,7 +3,7 @@ use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Row, Table};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
-use crate::cfg::cli_options::Sku;
+use crate::cfg::cli_options::{CreateSku, GenerateSku, Sku};
 use crate::rpc;
 
 struct SkuWrapper {
@@ -281,21 +281,32 @@ pub async fn handle_sku_command(
                 show_skus_table(output, output_format, sku_list.skus)?;
             };
         }
-        Sku::Generate { machine_id } => {
-            let sku = rpc::generate_sku_from_machine(
+        Sku::Generate(GenerateSku { machine_id, id }) => {
+            let mut sku = rpc::generate_sku_from_machine(
                 api_config,
                 ::rpc::common::MachineId { id: machine_id },
             )
             .await?;
+            if let Some(id) = id {
+                sku.id = id;
+            }
             show_sku_details(output, output_format, sku)?;
         }
-        Sku::Create { filename } => {
+        Sku::Create(CreateSku { filename, id }) => {
             let file_data = std::fs::read_to_string(filename)?;
             // attempt to deserialize a single sku.  if it fails try to deserialize as a SkuList
-            let sku_list = match serde_json::de::from_str(&file_data) {
+            let mut sku_list = match serde_json::de::from_str(&file_data) {
                 Ok(sku) => SkuList { skus: vec![sku] },
                 Err(e) => serde_json::de::from_str(&file_data).map_err(|_| e)?,
             };
+            if let Some(id) = id {
+                if sku_list.skus.len() != 1 {
+                    return Err(CarbideCliError::GenericError(
+                        "ID cannot be specified when creating multiple SKUs".to_string(),
+                    ));
+                }
+                sku_list.skus[0].id = id;
+            }
             let sku_ids = rpc::create_sku(api_config, sku_list).await?;
             let sku_list = rpc::find_skus_by_ids(api_config, &sku_ids.ids).await?;
             show_skus_table(output, output_format, sku_list.skus)?;
