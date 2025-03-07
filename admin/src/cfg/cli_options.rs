@@ -2478,9 +2478,9 @@ pub enum Sku {
         about = "Generate SKU information from an existing machine",
         visible_alias = "g"
     )]
-    Generate { machine_id: String },
+    Generate(GenerateSku),
     #[clap(about = "Create SKUs from a file", visible_alias = "c")]
-    Create { filename: String },
+    Create(CreateSku),
     #[clap(about = "Delete a SKU", visible_alias = "d")]
     Delete { sku_id: String },
     #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
@@ -2495,4 +2495,19 @@ pub enum Sku {
 pub struct ShowSku {
     #[clap(help = "Show SKU details")]
     pub sku_id: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct GenerateSku {
+    #[clap(help = "The filename of the SKU data")]
+    pub machine_id: String,
+    #[clap(help = "override the ID of the SKU", long)]
+    pub id: Option<String>,
+}
+#[derive(Parser, Debug)]
+pub struct CreateSku {
+    #[clap(help = "The filename of the SKU data")]
+    pub filename: String,
+    #[clap(help = "override the ID of the SKU", long)]
+    pub id: Option<String>,
 }
