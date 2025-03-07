@@ -653,30 +653,16 @@ impl MachineStateHandler {
                             dpus_for_reprov.push(dpu_snapshot);
                         }
                     }
-                    // All DPUs must have same value for this parameter. All DPUs are updated
-                    // together grpc API or automatic updater. Still we are using `any` to avoid
-                    // blocking state machine.
-                    // TODO: multidpu: Keep it at some common place to avoid duplicates.
-                    let is_firmware_upgrade_needed = dpus_for_reprov.iter().any(|x| {
-                        x.reprovision_requested
-                            .as_ref()
-                            .map(|x| x.update_firmware)
-                            .unwrap_or_default()
-                    });
 
-                    let reprov_state = if is_firmware_upgrade_needed {
-                        ReprovisionState::BmcFirmwareUpgrade {
-                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion,
-                        }
-                    } else {
-                        set_managed_host_topology_update_needed(
-                            txn,
-                            &mh_snapshot.host_snapshot,
-                            &dpus_for_reprov,
-                        )
-                        .await?;
-                        ReprovisionState::WaitingForNetworkInstall
-                    };
+                    set_managed_host_topology_update_needed(
+                        txn,
+                        &mh_snapshot.host_snapshot,
+                        &dpus_for_reprov,
+                    )
+                    .await?;
+
+                    let reprov_state = ReprovisionState::WaitingForNetworkInstall;
+
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
                         &mh_snapshot.dpu_snapshots,

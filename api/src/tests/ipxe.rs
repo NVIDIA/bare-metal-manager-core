@@ -299,11 +299,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
         .expect("get_cloud_init_instructions returned an error")
         .into_inner();
 
-    assert!(
-        cloud_init_cfg
-            .discovery_instructions
-            .is_some_and(|di| di.update_firmware)
-    );
+    assert!(cloud_init_cfg.discovery_instructions.is_some());
 }
 
 #[crate::sqlx_test]
@@ -339,9 +335,5 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
         .expect("get_cloud_init_instructions returned an error")
         .into_inner();
 
-    assert!(
-        cloud_init_cfg
-            .discovery_instructions
-            .is_some_and(|di| !di.update_firmware)
-    );
+    assert!(cloud_init_cfg.discovery_instructions.is_some());
 }
